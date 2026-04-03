@@ -1,0 +1,112 @@
+import { NextResponse } from "next/server";
+import { db } from "@/db";
+import { transactions, categories } from "@/db/schema";
+import { eq, and, ne, sql, isNull } from "drizzle-orm";
+
+/**
+ * POST /api/transactions/detect-transfers
+ *
+ * Detects internal transfers between accounts.
+ * Logic: If money leaves Account A and enters Account B within ±2 days
+ * with the same absolute amount, flag both as "Internal Transfer".
+ *
+ * This prevents internal moves from inflating income/expense totals.
+ */
+export async function POST() {
+  try {
+    // Get the "Internal Transfer" category
+    const [transferCategory] = await db
+      .select()
+      .from(categories)
+      .where(eq(categories.name, "Internal Transfer"));
+
+    if (!transferCategory) {
+      return NextResponse.json(
+        { error: "Internal Transfer category not found" },
+        { status: 500 }
+      );
+    }
+
+    // Find all transactions not yet flagged as transfers
+    const allTx = await db
+      .select()
+      .from(transactions)
+      .where(ne(transactions.type, "internal_transfer"));
+
+    // Group by absolute amount for efficient matching
+    const byAmount = new Map<number, typeof allTx>();
+    for (const tx of allTx) {
+      const absAmount = Math.round(Math.abs(tx.amount) * 100); // Use cents to avoid float issues
+      if (!byAmount.has(absAmount)) byAmount.set(absAmount, []);
+      byAmount.get(absAmount)!.push(tx);
+    }
+
+    let matchedPairs = 0;
+    const alreadyMatched = new Set<string>();
+
+    for (const [, group] of byAmount) {
+      if (group.length < 2) continue;
+
+      // Separate into debits (outgoing) and credits (incoming)
+      const debits = group.filter((tx) => tx.amount < 0);
+      const credits = group.filter((tx) => tx.amount > 0);
+
+      for (const debit of debits) {
+        if (alreadyMatched.has(debit.id)) continue;
+
+        for (const credit of credits) {
+          if (alreadyMatched.has(credit.id)) continue;
+
+          // Must be different accounts
+          if (debit.accountId === credit.accountId) continue;
+
+          // Check date proximity: within ±2 days
+          const debitDate = new Date(debit.date);
+          const creditDate = new Date(credit.date);
+          const daysDiff = Math.abs(
+            (debitDate.getTime() - creditDate.getTime()) / (1000 * 60 * 60 * 24)
+          );
+
+          if (daysDiff <= 2) {
+            // Match found! Flag both as internal transfer
+            alreadyMatched.add(debit.id);
+            alreadyMatched.add(credit.id);
+
+            await db
+              .update(transactions)
+              .set({
+                type: "internal_transfer",
+                categoryId: transferCategory.id,
+                linkedTransactionId: credit.id,
+              })
+              .where(eq(transactions.id, debit.id));
+
+            await db
+              .update(transactions)
+              .set({
+                type: "internal_transfer",
+                categoryId: transferCategory.id,
+                linkedTransactionId: debit.id,
+              })
+              .where(eq(transactions.id, credit.id));
+
+            matchedPairs++;
+            break; // Move to next debit
+          }
+        }
+      }
+    }
+
+    return NextResponse.json({
+      success: true,
+      matchedPairs,
+      totalTransactionsUpdated: matchedPairs * 2,
+    });
+  } catch (error) {
+    console.error("Transfer detection failed:", error);
+    return NextResponse.json(
+      { error: "Failed to detect transfers: " + String(error) },
+      { status: 500 }
+    );
+  }
+}

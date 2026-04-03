@@ -1,0 +1,90 @@
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { cn } from "@/lib/utils";
+import {
+  LayoutDashboard,
+  Upload,
+  Tags,
+  PieChart,
+  Wallet,
+  RefreshCcw,
+  Landmark,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react";
+import { useState } from "react";
+
+const navigation = [
+  { name: "Dashboard", href: "/", icon: LayoutDashboard },
+  { name: "Accounts", href: "/accounts", icon: Landmark },
+  { name: "Transactions", href: "/transactions", icon: Upload },
+  { name: "Categories", href: "/categories", icon: Tags },
+  { name: "Insights", href: "/insights", icon: PieChart },
+  { name: "Budgets", href: "/budgets", icon: Wallet },
+  { name: "Recurring", href: "/recurring", icon: RefreshCcw },
+];
+
+export function Sidebar() {
+  const pathname = usePathname();
+  const [collapsed, setCollapsed] = useState(false);
+
+  return (
+    <aside
+      className={cn(
+        "relative flex flex-col border-r bg-sidebar transition-all duration-200",
+        collapsed ? "w-16" : "w-60"
+      )}
+    >
+      {/* Header / Logo */}
+      <div className="flex h-16 items-center gap-3 border-b px-4">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+          <Landmark className="h-4 w-4" />
+        </div>
+        {!collapsed && (
+          <span className="text-lg font-semibold tracking-tight text-foreground">
+            FinTrack
+          </span>
+        )}
+      </div>
+
+      {/* Navigation */}
+      <nav className="flex-1 space-y-1 px-3 py-4">
+        {navigation.map((item) => {
+          const isActive =
+            item.href === "/"
+              ? pathname === "/"
+              : pathname.startsWith(item.href);
+          return (
+            <Link
+              key={item.name}
+              href={item.href}
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                isActive
+                  ? "bg-primary/10 text-primary"
+                  : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+              )}
+            >
+              <item.icon className="h-4 w-4 shrink-0" />
+              {!collapsed && <span>{item.name}</span>}
+            </Link>
+          );
+        })}
+      </nav>
+
+      {/* Collapse toggle */}
+      <button
+        onClick={() => setCollapsed(!collapsed)}
+        className="absolute -right-3 top-20 flex h-6 w-6 items-center justify-center rounded-full border bg-background text-muted-foreground shadow-sm hover:text-foreground"
+      >
+        {collapsed ? (
+          <ChevronRight className="h-3 w-3" />
+        ) : (
+          <ChevronLeft className="h-3 w-3" />
+        )}
+      </button>
+    </aside>
+  );
+}

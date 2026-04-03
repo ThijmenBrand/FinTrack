@@ -1,0 +1,800 @@
+"use client";
+
+import { useEffect, useState, useCallback } from "react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  Tags,
+  Zap,
+  X,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  RefreshCw,
+  Loader2,
+} from "lucide-react";
+
+interface CategoryRule {
+  id: string;
+  pattern: string;
+  categoryId: string;
+  matchType: string;
+  isActive: boolean;
+  createdAt: string;
+}
+
+interface Category {
+  id: string;
+  name: string;
+  icon: string | null;
+  color: string | null;
+  createdAt: string;
+  transactionCount: number;
+  rules: CategoryRule[];
+}
+
+interface RuleWithCategory {
+  id: string;
+  pattern: string;
+  categoryId: string;
+  categoryName: string | null;
+  categoryColor: string | null;
+  matchType: string;
+  isActive: boolean;
+  createdAt: string;
+}
+
+const MATCH_TYPE_LABELS: Record<string, string> = {
+  contains: "Contains",
+  starts_with: "Starts with",
+  exact: "Exact match",
+};
+
+export default function CategoriesPage() {
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [rules, setRules] = useState<RuleWithCategory[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
+  const [ruleDialogOpen, setRuleDialogOpen] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [deleteRuleConfirm, setDeleteRuleConfirm] = useState<string | null>(
+    null
+  );
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(
+    new Set()
+  );
+  const [editingRule, setEditingRule] = useState<string | null>(null);
+  const [editRulePattern, setEditRulePattern] = useState("");
+  const [editRuleMatchType, setEditRuleMatchType] = useState("contains");
+  const [editRuleCategoryId, setEditRuleCategoryId] = useState("");
+  const [reapplying, setReapplying] = useState(false);
+  const [reapplyResult, setReapplyResult] = useState<{
+    transactionsCategorized: number;
+    totalTransactions: number;
+    uncategorized: number;
+  } | null>(null);
+
+  // Category form
+  const [catName, setCatName] = useState("");
+  const [catColor, setCatColor] = useState("#3b82f6");
+
+  // Rule form
+  const [rulePattern, setRulePattern] = useState("");
+  const [ruleCategoryId, setRuleCategoryId] = useState("");
+  const [ruleMatchType, setRuleMatchType] = useState("contains");
+  const [ruleApplyExisting, setRuleApplyExisting] = useState(true);
+  const [ruleResult, setRuleResult] = useState<string | null>(null);
+
+  const fetchCategories = useCallback(async () => {
+    try {
+      const res = await fetch("/api/categories");
+      const data = await res.json();
+      setCategories(data);
+    } catch (err) {
+      console.error("Failed to fetch categories:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const fetchRules = useCallback(async () => {
+    try {
+      const res = await fetch("/api/categories/rules");
+      const data = await res.json();
+      setRules(data);
+    } catch (err) {
+      console.error("Failed to fetch rules:", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchCategories();
+    fetchRules();
+  }, [fetchCategories, fetchRules]);
+
+  const resetCategoryForm = () => {
+    setCatName("");
+    setCatColor("#3b82f6");
+    setEditingCategory(null);
+  };
+
+  const resetRuleForm = () => {
+    setRulePattern("");
+    setRuleCategoryId("");
+    setRuleMatchType("contains");
+    setRuleApplyExisting(true);
+    setRuleResult(null);
+  };
+
+  const handleCategorySubmit = async () => {
+    const payload = {
+      ...(editingCategory ? { id: editingCategory.id } : {}),
+      name: catName,
+      color: catColor,
+    };
+
+    const method = editingCategory ? "PUT" : "POST";
+    await fetch("/api/categories", {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    setCategoryDialogOpen(false);
+    resetCategoryForm();
+    fetchCategories();
+  };
+
+  const handleDeleteCategory = async (id: string) => {
+    await fetch(`/api/categories?id=${id}`, { method: "DELETE" });
+    setDeleteConfirm(null);
+    fetchCategories();
+    fetchRules();
+  };
+
+  const handleRuleSubmit = async () => {
+    const res = await fetch("/api/categories/rules", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        pattern: rulePattern,
+        categoryId: ruleCategoryId,
+        matchType: ruleMatchType,
+        applyToExisting: ruleApplyExisting,
+      }),
+    });
+    const data = await res.json();
+
+    if (data.applied > 0) {
+      setRuleResult(
+        `Rule created and applied to ${data.applied} existing transaction${data.applied !== 1 ? "s" : ""}`
+      );
+    } else {
+      setRuleResult("Rule created. It will apply to future CSV imports.");
+    }
+
+    fetchRules();
+    fetchCategories();
+  };
+
+  const handleDeleteRule = async (id: string) => {
+    await fetch(`/api/categories/rules?id=${id}`, { method: "DELETE" });
+    setDeleteRuleConfirm(null);
+    fetchRules();
+    fetchCategories();
+  };
+
+  const openEditCategory = (cat: Category) => {
+    setEditingCategory(cat);
+    setCatName(cat.name);
+    setCatColor(cat.color || "#3b82f6");
+    setCategoryDialogOpen(true);
+  };
+
+  const toggleCategory = (catId: string) => {
+    setExpandedCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(catId)) {
+        next.delete(catId);
+      } else {
+        next.add(catId);
+      }
+      return next;
+    });
+  };
+
+  const startEditRule = (rule: RuleWithCategory) => {
+    setEditingRule(rule.id);
+    setEditRulePattern(rule.pattern);
+    setEditRuleMatchType(rule.matchType);
+    setEditRuleCategoryId(rule.categoryId);
+  };
+
+  const cancelEditRule = () => {
+    setEditingRule(null);
+    setEditRulePattern("");
+    setEditRuleMatchType("contains");
+    setEditRuleCategoryId("");
+  };
+
+  const saveEditRule = async (ruleId: string) => {
+    await fetch("/api/categories/rules", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: ruleId,
+        pattern: editRulePattern,
+        matchType: editRuleMatchType,
+        categoryId: editRuleCategoryId,
+        applyToExisting: true,
+      }),
+    });
+    setEditingRule(null);
+    fetchRules();
+    fetchCategories();
+  };
+
+  const handleReapplyRules = async () => {
+    setReapplying(true);
+    setReapplyResult(null);
+    try {
+      const res = await fetch("/api/categories/rules/reapply", {
+        method: "POST",
+      });
+      const data = await res.json();
+      setReapplyResult({
+        transactionsCategorized: data.transactionsCategorized,
+        totalTransactions: data.totalTransactions,
+        uncategorized: data.uncategorized,
+      });
+      fetchCategories();
+    } catch (err) {
+      console.error("Failed to reapply rules:", err);
+    } finally {
+      setReapplying(false);
+    }
+  };
+
+  // Group rules by category
+  const rulesByCategory = rules.reduce(
+    (acc, rule) => {
+      const key = rule.categoryId;
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(rule);
+      return acc;
+    },
+    {} as Record<string, RuleWithCategory[]>
+  );
+
+  return (
+    <div className="space-y-8">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Categories</h1>
+          <p className="text-muted-foreground">
+            Manage spending categories and auto-categorization rules.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={handleReapplyRules}
+            disabled={reapplying}
+          >
+            {reapplying ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-2 h-4 w-4" />
+            )}
+            {reapplying ? "Recalculating..." : "Recalculate All"}
+          </Button>
+          <Dialog
+            open={ruleDialogOpen}
+            onOpenChange={(open) => {
+              setRuleDialogOpen(open);
+              if (!open) resetRuleForm();
+            }}
+          >
+            <DialogTrigger asChild>
+              <Button variant="outline">
+                <Zap className="mr-2 h-4 w-4" />
+                Add Rule
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Create Categorization Rule</DialogTitle>
+                <DialogDescription>
+                  Automatically categorize transactions matching a pattern.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="grid gap-4 py-4">
+                <div className="grid gap-2">
+                  <Label>Pattern to match</Label>
+                  <Input
+                    placeholder='e.g. "Albert Heijn", "PayPal", "ASML"'
+                    value={rulePattern}
+                    onChange={(e) => setRulePattern(e.target.value)}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Match type</Label>
+                  <Select value={ruleMatchType} onValueChange={setRuleMatchType}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="contains">
+                        Description contains pattern
+                      </SelectItem>
+                      <SelectItem value="starts_with">
+                        Description starts with pattern
+                      </SelectItem>
+                      <SelectItem value="exact">Exact match</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
+                  <Label>Assign to category</Label>
+                  <Select
+                    value={ruleCategoryId}
+                    onValueChange={setRuleCategoryId}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a category..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {categories.map((cat) => (
+                        <SelectItem key={cat.id} value={cat.id}>
+                          <span className="flex items-center gap-2">
+                            <span
+                              className="h-2 w-2 rounded-full"
+                              style={{
+                                backgroundColor: cat.color || "#94a3b8",
+                              }}
+                            />
+                            {cat.name}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {ruleResult && (
+                  <div className="rounded-md bg-muted p-3 text-sm">
+                    {ruleResult}
+                  </div>
+                )}
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setRuleDialogOpen(false);
+                    resetRuleForm();
+                  }}
+                >
+                  {ruleResult ? "Close" : "Cancel"}
+                </Button>
+                {!ruleResult && (
+                  <Button
+                    onClick={handleRuleSubmit}
+                    disabled={!rulePattern || !ruleCategoryId}
+                  >
+                    Create Rule
+                  </Button>
+                )}
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+          <Dialog
+            open={categoryDialogOpen}
+            onOpenChange={(open) => {
+              setCategoryDialogOpen(open);
+              if (!open) resetCategoryForm();
+            }}
+          >
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="mr-2 h-4 w-4" />
+                Add Category
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>
+                  {editingCategory ? "Edit Category" : "Add New Category"}
+                </DialogTitle>
+                <DialogDescription>
+                  {editingCategory
+                    ? "Update this spending category."
+                    : "Create a new spending category."}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="grid gap-4 py-4">
+                <div className="grid gap-2">
+                  <Label>Category Name</Label>
+                  <Input
+                    placeholder="e.g. Groceries, Transport, Coffee"
+                    value={catName}
+                    onChange={(e) => setCatName(e.target.value)}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Color</Label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="color"
+                      value={catColor}
+                      onChange={(e) => setCatColor(e.target.value)}
+                      className="h-9 w-14 cursor-pointer rounded border"
+                    />
+                    <Input
+                      value={catColor}
+                      onChange={(e) => setCatColor(e.target.value)}
+                      placeholder="#3b82f6"
+                      className="flex-1"
+                    />
+                  </div>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setCategoryDialogOpen(false);
+                    resetCategoryForm();
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button onClick={handleCategorySubmit} disabled={!catName}>
+                  {editingCategory ? "Save Changes" : "Create Category"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
+      </div>
+
+      {/* Reapply result banner */}
+      {reapplyResult && (
+        <div className="flex items-center justify-between rounded-lg border bg-muted/50 px-4 py-3">
+          <div className="flex items-center gap-2 text-sm">
+            <RefreshCw className="h-4 w-4 text-blue-500" />
+            <span>
+              Recalculated: <strong>{reapplyResult.transactionsCategorized}</strong> of{" "}
+              <strong>{reapplyResult.totalTransactions}</strong> transactions categorized.
+              {reapplyResult.uncategorized > 0 && (
+                <span className="text-muted-foreground">
+                  {" "}{reapplyResult.uncategorized} remaining without a matching rule.
+                </span>
+              )}
+              {reapplyResult.uncategorized === 0 && (
+                <span className="text-green-600 dark:text-green-400"> All transactions matched.</span>
+              )}
+            </span>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 shrink-0"
+            onClick={() => setReapplyResult(null)}
+          >
+            <X className="h-3 w-3" />
+          </Button>
+        </div>
+      )}
+
+      {/* Categories with Grouped Rules */}
+      <div className="space-y-3">
+        <h2 className="text-lg font-semibold">
+          Categories ({categories.length})
+        </h2>
+        {loading ? (
+          <div className="space-y-3">
+            {[1, 2, 3].map((i) => (
+              <div
+                key={i}
+                className="h-16 rounded-xl border bg-card animate-pulse"
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {categories.map((cat) => {
+              const catRules = rulesByCategory[cat.id] || [];
+              const isExpanded = expandedCategories.has(cat.id);
+              const hasRules = catRules.length > 0;
+
+              return (
+                <Card key={cat.id} className="overflow-hidden">
+                  {/* Category header row */}
+                  <div
+                    className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-muted/50 transition-colors"
+                    onClick={() => hasRules && toggleCategory(cat.id)}
+                  >
+                    {/* Color bar + expand icon */}
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="h-8 w-1.5 rounded-full shrink-0"
+                        style={{ backgroundColor: cat.color || "#94a3b8" }}
+                      />
+                      {hasRules ? (
+                        isExpanded ? (
+                          <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                        )
+                      ) : (
+                        <div className="w-4 shrink-0" />
+                      )}
+                    </div>
+
+                    {/* Category info */}
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium">{cat.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {cat.transactionCount} transaction
+                        {cat.transactionCount !== 1 ? "s" : ""}
+                        {hasRules &&
+                          ` · ${catRules.length} rule${catRules.length !== 1 ? "s" : ""}`}
+                      </p>
+                    </div>
+
+                    {/* Actions */}
+                    <div
+                      className="flex gap-1 shrink-0"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => openEditCategory(cat)}
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </Button>
+                      {deleteConfirm === cat.id ? (
+                        <div className="flex gap-1">
+                          <Button
+                            variant="destructive"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => handleDeleteCategory(cat.id)}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => setDeleteConfirm(null)}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => setDeleteConfirm(cat.id)}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Expanded rules list */}
+                  {isExpanded && hasRules && (
+                    <div className="border-t bg-muted/30">
+                      <div className="px-4 py-2">
+                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
+                          Auto-categorization rules
+                        </p>
+                        <div className="space-y-1">
+                          {catRules.map((rule) => (
+                            <div
+                              key={rule.id}
+                              className="flex items-center gap-2 py-1.5 px-2 rounded-md hover:bg-muted/50 group/rule"
+                            >
+                              {editingRule === rule.id ? (
+                                /* Edit mode */
+                                <div className="flex-1 flex items-center gap-2 flex-wrap">
+                                  <Input
+                                    value={editRulePattern}
+                                    onChange={(e) =>
+                                      setEditRulePattern(e.target.value)
+                                    }
+                                    className="h-7 text-sm font-mono max-w-[240px]"
+                                    autoFocus
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter")
+                                        saveEditRule(rule.id);
+                                      if (e.key === "Escape") cancelEditRule();
+                                    }}
+                                  />
+                                  <Select
+                                    value={editRuleMatchType}
+                                    onValueChange={setEditRuleMatchType}
+                                  >
+                                    <SelectTrigger className="h-7 text-xs w-[130px]">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="contains">
+                                        Contains
+                                      </SelectItem>
+                                      <SelectItem value="starts_with">
+                                        Starts with
+                                      </SelectItem>
+                                      <SelectItem value="exact">
+                                        Exact match
+                                      </SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                  <Select
+                                    value={editRuleCategoryId}
+                                    onValueChange={setEditRuleCategoryId}
+                                  >
+                                    <SelectTrigger className="h-7 text-xs w-[160px]">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {categories.map((c) => (
+                                        <SelectItem key={c.id} value={c.id}>
+                                          <span className="flex items-center gap-1.5">
+                                            <span
+                                              className="h-2 w-2 rounded-full"
+                                              style={{
+                                                backgroundColor:
+                                                  c.color || "#94a3b8",
+                                              }}
+                                            />
+                                            {c.name}
+                                          </span>
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  <div className="flex gap-1">
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-6 w-6"
+                                      onClick={() => saveEditRule(rule.id)}
+                                    >
+                                      <Check className="h-3 w-3 text-green-600" />
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-6 w-6"
+                                      onClick={cancelEditRule}
+                                    >
+                                      <X className="h-3 w-3" />
+                                    </Button>
+                                  </div>
+                                </div>
+                              ) : (
+                                /* Display mode */
+                                <>
+                                  <Zap className="h-3 w-3 text-muted-foreground shrink-0" />
+                                  <span className="font-mono text-sm truncate">
+                                    &quot;{rule.pattern}&quot;
+                                  </span>
+                                  <Badge
+                                    variant="secondary"
+                                    className="text-[10px] px-1.5 py-0 shrink-0"
+                                  >
+                                    {MATCH_TYPE_LABELS[rule.matchType] ||
+                                      rule.matchType}
+                                  </Badge>
+                                  {/* Show target category if it differs (rule was moved) */}
+                                  {rule.categoryId !== cat.id && (
+                                    <span className="text-xs text-muted-foreground flex items-center gap-1">
+                                      <span
+                                        className="h-1.5 w-1.5 rounded-full"
+                                        style={{
+                                          backgroundColor:
+                                            rule.categoryColor || "#94a3b8",
+                                        }}
+                                      />
+                                      {rule.categoryName}
+                                    </span>
+                                  )}
+                                  <div className="flex-1" />
+                                  <div className="flex gap-0.5 opacity-0 group-hover/rule:opacity-100 transition-opacity shrink-0">
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-6 w-6"
+                                      onClick={() => startEditRule(rule)}
+                                    >
+                                      <Pencil className="h-3 w-3 text-muted-foreground" />
+                                    </Button>
+                                    {deleteRuleConfirm === rule.id ? (
+                                      <div className="flex gap-0.5">
+                                        <Button
+                                          variant="destructive"
+                                          size="icon"
+                                          className="h-6 w-6"
+                                          onClick={() =>
+                                            handleDeleteRule(rule.id)
+                                          }
+                                        >
+                                          <Trash2 className="h-3 w-3" />
+                                        </Button>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-6 w-6"
+                                          onClick={() =>
+                                            setDeleteRuleConfirm(null)
+                                          }
+                                        >
+                                          <X className="h-3 w-3" />
+                                        </Button>
+                                      </div>
+                                    ) : (
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-6 w-6"
+                                        onClick={() =>
+                                          setDeleteRuleConfirm(rule.id)
+                                        }
+                                      >
+                                        <Trash2 className="h-3 w-3 text-muted-foreground" />
+                                      </Button>
+                                    )}
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </Card>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
