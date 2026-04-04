@@ -5,6 +5,7 @@ import {
   categories,
   transactions,
   recurringTransactions,
+  transactionGroups,
 } from "@/db/schema";
 import { eq, and, gte, lte, sql } from "drizzle-orm";
 
@@ -52,6 +53,33 @@ function toMonthly(amount: number, frequency: string): number {
 export async function GET() {
   try {
     const { from, to } = getCurrentMonthRange();
+
+    // 0. Get pot spending by category for current month
+    // Each pot's net amount (abs of sum of member transactions) counts toward the pot's category
+    const potSpendingRows = await db
+      .select({
+        categoryId: transactionGroups.categoryId,
+        potTotal: sql<number>`abs(sum(${transactions.amount}))`,
+      })
+      .from(transactionGroups)
+      .innerJoin(transactions, eq(transactions.groupId, transactionGroups.id))
+      .where(
+        and(
+          sql`${transactionGroups.categoryId} IS NOT NULL`,
+          gte(transactions.date, from),
+          lte(transactions.date, to)
+        )
+      )
+      .groupBy(transactionGroups.id, transactionGroups.categoryId);
+
+    // Aggregate pot spending per category (multiple pots can share a category)
+    const potSpendingByCategory = new Map<string, number>();
+    for (const row of potSpendingRows) {
+      if (row.categoryId) {
+        const existing = potSpendingByCategory.get(row.categoryId) || 0;
+        potSpendingByCategory.set(row.categoryId, existing + row.potTotal);
+      }
+    }
 
     // 1. Get recurring income (monthly equivalent)
     const recurringIncome = await db
@@ -141,24 +169,32 @@ export async function GET() {
       .from(budgets)
       .leftJoin(categories, eq(budgets.categoryId, categories.id));
 
-    // 4. Calculate actual spending per allocated category this month
+    // 4. Calculate actual spending per allocated category this month (effective amounts, exclude grouped)
     const allocationsWithSpending = await Promise.all(
       allAllocations.map(async (alloc) => {
         const spentResult = await db
           .select({
-            total: sql<number>`sum(abs(${transactions.amount}))`,
+            total: sql<number>`sum(
+              abs(${transactions.amount}) - COALESCE(
+                (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id WHERE rl.expense_id = "transactions"."id"),
+                0
+              )
+            )`,
           })
           .from(transactions)
           .where(
             and(
               eq(transactions.categoryId, alloc.categoryId),
               eq(transactions.type, "expense"),
+              sql`${transactions.groupId} IS NULL`,
               gte(transactions.date, from),
               lte(transactions.date, to)
             )
           );
 
-        const spent = spentResult[0]?.total || 0;
+        const txSpent = spentResult[0]?.total || 0;
+        const potSpent = potSpendingByCategory.get(alloc.categoryId) || 0;
+        const spent = txSpent + potSpent;
         const percentage =
           alloc.amount > 0 ? (spent / alloc.amount) * 100 : 0;
 
@@ -177,38 +213,53 @@ export async function GET() {
       })
     );
 
-    // Also compute spending for fixed cost categories this month
+    // Also compute spending for fixed cost categories this month (effective amounts, exclude grouped)
     const fixedCostsWithSpending = await Promise.all(
       fixedCosts.map(async (fc) => {
         if (fc.categoryId === "uncategorized") return { ...fc, spent: 0 };
         const spentResult = await db
           .select({
-            total: sql<number>`sum(abs(${transactions.amount}))`,
+            total: sql<number>`sum(
+              abs(${transactions.amount}) - COALESCE(
+                (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id WHERE rl.expense_id = "transactions"."id"),
+                0
+              )
+            )`,
           })
           .from(transactions)
           .where(
             and(
               eq(transactions.categoryId, fc.categoryId),
               eq(transactions.type, "expense"),
+              sql`${transactions.groupId} IS NULL`,
               gte(transactions.date, from),
               lte(transactions.date, to)
             )
           );
-        return { ...fc, spent: spentResult[0]?.total || 0 };
+        const txSpent = spentResult[0]?.total || 0;
+        const potSpent = potSpendingByCategory.get(fc.categoryId) || 0;
+        return { ...fc, spent: txSpent + potSpent };
       })
     );
 
     // 5. Calculate average monthly spending per category (across all past complete months)
+    // Must match the current-month logic: exclude grouped transactions, subtract reimbursements
     const monthlySpendingByCategory = await db
       .select({
         categoryId: transactions.categoryId,
         month: sql<string>`substr(${transactions.date}, 1, 7)`,
-        total: sql<number>`sum(abs(${transactions.amount}))`,
+        total: sql<number>`sum(
+          abs(${transactions.amount}) - COALESCE(
+            (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id WHERE rl.expense_id = "transactions"."id"),
+            0
+          )
+        )`,
       })
       .from(transactions)
       .where(
         and(
           eq(transactions.type, "expense"),
+          sql`${transactions.groupId} IS NULL`,
           // Exclude current month — only completed months
           sql`substr(${transactions.date}, 1, 7) < ${from.slice(0, 7)}`
         )

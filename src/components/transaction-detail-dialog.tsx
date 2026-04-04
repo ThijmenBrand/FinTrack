@@ -1,0 +1,386 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Separator } from "@/components/ui/separator";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  Calendar,
+  Wallet,
+  Tag,
+  StickyNote,
+  Clock,
+  Hash,
+  ArrowLeftRight,
+  Receipt,
+  Package,
+} from "lucide-react";
+import { CategorizePopover } from "@/components/categorize-popover";
+
+interface Transaction {
+  id: string;
+  accountId: string;
+  accountName: string | null;
+  date: string;
+  description: string;
+  amount: number;
+  balance: number | null;
+  categoryId: string | null;
+  categoryName: string | null;
+  categoryColor: string | null;
+  type: "income" | "expense" | "internal_transfer" | "reimbursement";
+  linkedTransactionId: string | null;
+  linkedAccountName: string | null;
+  reimbursesTransactionId: string | null;
+  reimbursesDescription: string | null;
+  effectiveAmount: number;
+  reimbursementCount: number;
+  reimbursedTotal: number;
+  groupId: string | null;
+  groupName: string | null;
+  notes: string | null;
+  isManual: boolean;
+  importBatchId: string | null;
+  createdAt: string;
+}
+
+interface ReimbursementDetail {
+  id: string;
+  date: string;
+  description: string;
+  amount: number;
+}
+
+const TYPE_BADGES: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
+  income: { label: "Income", variant: "default" },
+  expense: { label: "Expense", variant: "destructive" },
+  internal_transfer: { label: "Transfer", variant: "secondary" },
+  reimbursement: { label: "Reimbursement", variant: "outline" },
+};
+
+function formatCurrency(amount: number) {
+  return new Intl.NumberFormat("nl-NL", {
+    style: "currency",
+    currency: "EUR",
+  }).format(amount);
+}
+
+function formatDate(dateStr: string) {
+  return new Intl.DateTimeFormat("nl-NL", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(new Date(dateStr));
+}
+
+interface Category {
+  id: string;
+  name: string;
+  color: string | null;
+  icon: string | null;
+}
+
+interface TransactionDetailDialogProps {
+  transaction: Transaction | null;
+  onOpenChange: (open: boolean) => void;
+  categories?: Category[];
+  onCategorized?: () => void;
+}
+
+export function TransactionDetailDialog({ transaction, onOpenChange, categories, onCategorized }: TransactionDetailDialogProps) {
+  const [localTransaction, setLocalTransaction] = useState<Transaction | null>(transaction);
+  const [reimbursements, setReimbursements] = useState<ReimbursementDetail[]>([]);
+  const [linkedExpenses, setLinkedExpenses] = useState<ReimbursementDetail[]>([]);
+  const [internalCategories, setInternalCategories] = useState<Category[]>([]);
+
+  // Sync local state when prop changes (new transaction selected)
+  useEffect(() => {
+    setLocalTransaction(transaction);
+  }, [transaction]);
+
+  // Fetch categories if not provided via props
+  useEffect(() => {
+    if (categories) return;
+    fetch("/api/categories")
+      .then((res) => res.json())
+      .then((data) => setInternalCategories(data || []))
+      .catch(() => setInternalCategories([]));
+  }, [categories]);
+
+  const resolvedCategories = categories || internalCategories;
+
+  useEffect(() => {
+    setReimbursements([]);
+    setLinkedExpenses([]);
+    if (!transaction) return;
+
+    // For expenses: fetch linked reimbursement transactions
+    if (transaction.reimbursementCount > 0) {
+      fetch(`/api/transactions?reimbursesExpenseId=${transaction.id}&limit=50`)
+        .then((res) => res.json())
+        .then((data) => {
+          setReimbursements(
+            (data.data || []).map((t: { id: string; date: string; description: string; amount: number }) => ({
+              id: t.id,
+              date: t.date,
+              description: t.description,
+              amount: t.amount,
+            }))
+          );
+        })
+        .catch(() => setReimbursements([]));
+    }
+
+    // For reimbursements: fetch the linked expenses
+    if (transaction.type === "reimbursement") {
+      fetch(`/api/transactions/reimburse/expenses?reimbursementId=${transaction.id}`)
+        .then((res) => res.json())
+        .then((data) => setLinkedExpenses(data.expenses || []))
+        .catch(() => setLinkedExpenses([]));
+    }
+  }, [transaction]);
+
+  const handleCategorized = (categoryId?: string | null) => {
+    if (localTransaction) {
+      const cat = resolvedCategories.find((c) => c.id === categoryId);
+      setLocalTransaction({
+        ...localTransaction,
+        categoryId: categoryId || null,
+        categoryName: cat?.name || null,
+        categoryColor: cat?.color || null,
+      });
+    }
+    onCategorized?.();
+  };
+
+  if (!localTransaction) {
+    return (
+      <Dialog open={false} onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle />
+            <DialogDescription />
+          </DialogHeader>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  const tx = localTransaction;
+  const isTransfer = tx.type === "internal_transfer" || tx.categoryName === "Internal Transfer";
+  const isReimbursement = tx.type === "reimbursement";
+  const hasReimbursements = tx.reimbursementCount > 0;
+  const typeInfo = isTransfer
+    ? TYPE_BADGES.internal_transfer
+    : (TYPE_BADGES[tx.type] || TYPE_BADGES.expense);
+
+  return (
+    <Dialog open={true} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader className="min-w-0">
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DialogTitle className="text-base font-semibold leading-snug pr-6 truncate cursor-default">
+                  {tx.description}
+                </DialogTitle>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-sm break-words">
+                {tx.description}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          <DialogDescription asChild>
+            <div className="flex items-center gap-2 pt-1">
+              <Badge variant={typeInfo.variant} className="text-xs">
+                {isTransfer && tx.linkedAccountName
+                  ? `↔ Transfer → ${tx.linkedAccountName}`
+                  : typeInfo.label}
+              </Badge>
+              <span className="text-xs text-muted-foreground">
+                {formatDate(tx.date)}
+              </span>
+            </div>
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex flex-col items-center justify-center py-4 gap-1">
+          {hasReimbursements ? (
+            <>
+              <span className="text-3xl font-bold font-mono tracking-tight text-red-600 dark:text-red-400">
+                {formatCurrency(tx.effectiveAmount)}
+              </span>
+              <span className="text-sm text-muted-foreground line-through">
+                {formatCurrency(tx.amount)}
+              </span>
+            </>
+          ) : (
+            <span
+              className={`text-3xl font-bold font-mono tracking-tight ${
+                isTransfer || isReimbursement
+                  ? "text-muted-foreground"
+                  : tx.amount >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
+              }`}
+            >
+              {tx.amount >= 0 ? "+" : ""}
+              {formatCurrency(tx.amount)}
+            </span>
+          )}
+        </div>
+
+        <Separator />
+
+        <div className="grid gap-3 text-sm">
+          <div className="flex items-center gap-3">
+            <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
+            <span className="text-muted-foreground w-20 shrink-0">Date</span>
+            <span className="font-medium">{formatDate(tx.date)}</span>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <Wallet className="h-4 w-4 text-muted-foreground shrink-0" />
+            <span className="text-muted-foreground w-20 shrink-0">Account</span>
+            <span className="font-medium">{tx.accountName || "—"}</span>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <Tag className="h-4 w-4 text-muted-foreground shrink-0" />
+            <span className="text-muted-foreground w-20 shrink-0">Category</span>
+            <CategorizePopover
+              transactionId={tx.id}
+              transactionDescription={tx.description}
+              currentCategoryId={tx.categoryId}
+              currentCategoryName={tx.categoryName}
+              currentCategoryColor={tx.categoryColor}
+              categories={resolvedCategories}
+              onCategorized={handleCategorized}
+            />
+          </div>
+
+          {tx.balance !== null && (
+            <div className="flex items-center gap-3">
+              <Hash className="h-4 w-4 text-muted-foreground shrink-0" />
+              <span className="text-muted-foreground w-20 shrink-0">Balance</span>
+              <span className="font-medium font-mono">{formatCurrency(tx.balance)}</span>
+            </div>
+          )}
+
+          {tx.notes && (
+            <div className="flex items-start gap-3">
+              <StickyNote className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+              <span className="text-muted-foreground w-20 shrink-0">Notes</span>
+              <span className="font-medium">{tx.notes}</span>
+            </div>
+          )}
+
+          {isTransfer && tx.linkedAccountName && (
+            <div className="flex items-center gap-3">
+              <ArrowLeftRight className="h-4 w-4 text-muted-foreground shrink-0" />
+              <span className="text-muted-foreground w-20 shrink-0">Linked to</span>
+              <span className="font-medium">{tx.linkedAccountName}</span>
+            </div>
+          )}
+
+          {tx.groupName && (
+            <div className="flex items-center gap-3">
+              <Package className="h-4 w-4 text-muted-foreground shrink-0" />
+              <span className="text-muted-foreground w-20 shrink-0">Pot</span>
+              <Badge variant="outline" className="text-xs gap-1">
+                <Package className="h-3 w-3" />
+                {tx.groupName}
+              </Badge>
+            </div>
+          )}
+
+          {isReimbursement && linkedExpenses.length > 0 && (
+            <>
+              <Separator />
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Receipt className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <span className="font-medium">Reimburses</span>
+                </div>
+                <div className="space-y-1.5 pl-6">
+                  {linkedExpenses.map((e) => (
+                    <div key={e.id} className="flex items-center rounded-md border px-3 py-2">
+                      <div className="flex-1 w-0">
+                        <p className="text-sm font-medium truncate">{e.description}</p>
+                        <p className="text-xs text-muted-foreground">{formatDate(e.date)}</p>
+                      </div>
+                      <span className="text-sm font-mono font-medium text-red-600 dark:text-red-400 shrink-0 ml-3">
+                        {formatCurrency(e.amount)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Reimbursements section for expenses */}
+          {hasReimbursements && (
+            <>
+              <Separator />
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Receipt className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <span className="font-medium">Reimbursements</span>
+                </div>
+                <div className="space-y-1.5 pl-6">
+                  {reimbursements.map((r) => (
+                    <div key={r.id} className="flex items-center rounded-md border px-3 py-2">
+                      <div className="flex-1 w-0">
+                        <p className="text-sm font-medium truncate">{r.description}</p>
+                        <p className="text-xs text-muted-foreground">{formatDate(r.date)}</p>
+                      </div>
+                      <span className="text-sm font-mono font-medium text-emerald-600 dark:text-emerald-400 shrink-0 ml-3">
+                        +{formatCurrency(r.amount)}
+                      </span>
+                    </div>
+                  ))}
+                  <div className="flex items-center justify-between text-xs text-muted-foreground pt-1 px-1">
+                    <span>Your actual cost</span>
+                    <span className="font-mono font-semibold text-foreground">
+                      {formatCurrency(tx.effectiveAmount)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+
+          <Separator />
+
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <Clock className="h-3.5 w-3.5 shrink-0" />
+            <span>Added {new Intl.DateTimeFormat("nl-NL", {
+              day: "2-digit",
+              month: "short",
+              year: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            }).format(new Date(tx.createdAt))}</span>
+            {tx.isManual && (
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0">Manual</Badge>
+            )}
+            {tx.importBatchId && (
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0">Imported</Badge>
+            )}
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}

@@ -13,8 +13,12 @@ import {
   Landmark,
   ChevronLeft,
   ChevronRight,
+  Sun,
+  Moon,
+  Heart,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useTheme } from "next-themes";
 
 const navigation = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
@@ -29,6 +33,12 @@ const navigation = [
 export function Sidebar() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const { theme, setTheme } = useTheme();
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   return (
     <aside
@@ -73,6 +83,32 @@ export function Sidebar() {
           );
         })}
       </nav>
+
+      {/* Theme toggle */}
+      <div className="border-t px-3 py-3">
+        <button
+          onClick={() => {
+            const next = theme === "light" ? "dark" : theme === "dark" ? "pink" : "light";
+            setTheme(next);
+          }}
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors"
+        >
+          {!mounted ? (
+            <Sun className="h-4 w-4 shrink-0" />
+          ) : theme === "pink" ? (
+            <Heart className="h-4 w-4 shrink-0 fill-current" />
+          ) : theme === "dark" ? (
+            <Moon className="h-4 w-4 shrink-0" />
+          ) : (
+            <Sun className="h-4 w-4 shrink-0" />
+          )}
+          {!collapsed && (
+            <span>
+              {!mounted ? "Theme" : theme === "pink" ? "Pink Mode" : theme === "dark" ? "Dark Mode" : "Light Mode"}
+            </span>
+          )}
+        </button>
+      </div>
 
       {/* Collapse toggle */}
       <button

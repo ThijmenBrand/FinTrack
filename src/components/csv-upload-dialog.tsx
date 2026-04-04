@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import Papa from "papaparse";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -28,10 +28,19 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Upload, FileText, CheckCircle2, AlertCircle } from "lucide-react";
+import { ImportReviewStep } from "@/components/import-review-step";
+import type { PreviewTransaction } from "@/lib/csv-utils";
 
 interface Account {
   id: string;
   name: string;
+}
+
+interface Category {
+  id: string;
+  name: string;
+  color: string | null;
+  icon: string | null;
 }
 
 interface CsvUploadDialogProps {
@@ -41,7 +50,13 @@ interface CsvUploadDialogProps {
   onUploadComplete: () => void;
 }
 
-type UploadStep = "select-file" | "map-columns" | "preview" | "uploading" | "done";
+type UploadStep =
+  | "select-file"
+  | "map-columns"
+  | "processing"
+  | "review"
+  | "committing"
+  | "done";
 
 export function CsvUploadDialog({
   open,
@@ -59,13 +74,37 @@ export function CsvUploadDialog({
     description: "",
     amount: "",
     balance: "",
+    counterpartyIban: "",
   });
   const [result, setResult] = useState<{
     imported: number;
-    skipped: number;
+    rulesCreated: number;
+    transfersDetected: number;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Preview + review state
+  const [previewData, setPreviewData] = useState<PreviewTransaction[]>([]);
+  const [previewSkipped, setPreviewSkipped] = useState(0);
+  const [categories, setCategories] = useState<Category[]>([]);
+
+  // Fetch categories when dialog opens
+  const fetchCategories = useCallback(async () => {
+    try {
+      const res = await fetch("/api/categories");
+      const data = await res.json();
+      setCategories(data);
+    } catch (err) {
+      console.error("Failed to fetch categories:", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (open) {
+      fetchCategories();
+    }
+  }, [open, fetchCategories]);
 
   const reset = () => {
     setStep("select-file");
@@ -73,9 +112,11 @@ export function CsvUploadDialog({
     setFile(null);
     setHeaders([]);
     setPreviewRows([]);
-    setMapping({ date: "", description: "", amount: "", balance: "" });
+    setMapping({ date: "", description: "", amount: "", balance: "", counterpartyIban: "" });
     setResult(null);
     setError(null);
+    setPreviewData([]);
+    setPreviewSkipped(0);
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -84,7 +125,6 @@ export function CsvUploadDialog({
     setFile(f);
     setError(null);
 
-    // Parse just the header + first 5 rows for preview
     Papa.parse(f, {
       header: true,
       preview: 6,
@@ -99,15 +139,13 @@ export function CsvUploadDialog({
         setHeaders(cols);
         setPreviewRows(results.data as Record<string, string>[]);
 
-        // Auto-detect column mapping with priority system
-        // Higher priority keywords are checked first so more specific columns win
-        const autoMapping = { date: "", description: "", amount: "", balance: "" };
+        const autoMapping = { date: "", description: "", amount: "", balance: "", counterpartyIban: "" };
 
-        // Priority-ordered keyword lists (first match wins per field)
         const descPriority = ["omschrijving", "description", "memo", "naam", "name"];
         const amountPriority = ["bedrag", "amount", "value"];
         const balancePriority = ["saldo voor", "balance", "saldo"];
         const datePriority = ["datum", "date"];
+        const ibanPriority = ["tegenrekening", "iban", "counterparty", "contra"];
 
         function findBestMatch(cols: string[], keywords: string[]): string {
           for (const kw of keywords) {
@@ -121,16 +159,18 @@ export function CsvUploadDialog({
         autoMapping.description = findBestMatch(cols, descPriority);
         autoMapping.amount = findBestMatch(cols, amountPriority);
         autoMapping.balance = findBestMatch(cols, balancePriority);
+        autoMapping.counterpartyIban = findBestMatch(cols, ibanPriority);
         setMapping(autoMapping);
         setStep("map-columns");
       },
     });
   };
 
-  const handleUpload = async () => {
+  // Step 3: Send CSV to preview endpoint (no DB writes)
+  const handlePreview = async () => {
     if (!file || !selectedAccountId) return;
 
-    setStep("uploading");
+    setStep("processing");
     setError(null);
 
     try {
@@ -139,7 +179,7 @@ export function CsvUploadDialog({
       formData.append("accountId", selectedAccountId);
       formData.append("mapping", JSON.stringify(mapping));
 
-      const res = await fetch("/api/transactions/upload", {
+      const res = await fetch("/api/transactions/upload/preview", {
         method: "POST",
         body: formData,
       });
@@ -147,19 +187,72 @@ export function CsvUploadDialog({
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || "Upload failed");
+        throw new Error(data.error || "Preview failed");
       }
 
-      setResult({ imported: data.imported, skipped: data.skipped });
+      setPreviewData(data.transactions);
+      setPreviewSkipped(data.skipped);
+      setStep("review");
+    } catch (err) {
+      setError(String(err));
+      setStep("map-columns");
+    }
+  };
+
+  // Step 5: Commit reviewed transactions to the database
+  const handleCommit = async (
+    transactions: PreviewTransaction[],
+    newRules: { pattern: string; categoryId: string; matchType: string }[]
+  ) => {
+    setStep("committing");
+    setError(null);
+
+    try {
+      const res = await fetch("/api/transactions/upload/commit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          accountId: selectedAccountId,
+          fileName: file?.name || "import.csv",
+          transactions: transactions.map((tx) => ({
+            tempId: tx.tempId,
+            date: tx.date,
+            description: tx.description,
+            amount: tx.amount,
+            balance: tx.balance,
+            type: tx.type,
+            categoryId: tx.categoryId,
+            targetAccountId: tx.targetAccountId,
+          })),
+          newRules,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "Import failed");
+      }
+
+      setResult({
+        imported: data.imported,
+        rulesCreated: data.rulesCreated || 0,
+        transfersDetected: data.transfersDetected || 0,
+      });
       setStep("done");
       onUploadComplete();
     } catch (err) {
       setError(String(err));
-      setStep("preview");
+      setStep("review");
     }
   };
 
-  const canProceedToPreview = mapping.date && mapping.description && mapping.amount && selectedAccountId;
+  const canProceedToPreview =
+    mapping.date && mapping.description && mapping.amount && selectedAccountId;
+
+  // Widen dialog for the review step
+  const dialogWidth =
+    step === "review" ? "sm:max-w-4xl" : "sm:max-w-2xl";
 
   return (
     <Dialog
@@ -169,11 +262,15 @@ export function CsvUploadDialog({
         onOpenChange(o);
       }}
     >
-      <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+      <DialogContent
+        className={`${dialogWidth} max-h-[85vh] overflow-y-auto transition-all`}
+      >
         <DialogHeader>
           <DialogTitle>Import Bank Statement</DialogTitle>
           <DialogDescription>
-            Upload a CSV file from your bank to import transactions.
+            {step === "review"
+              ? "Review and categorize transactions before importing."
+              : "Upload a CSV file from your bank to import transactions."}
           </DialogDescription>
         </DialogHeader>
 
@@ -331,6 +428,30 @@ export function CsvUploadDialog({
                     </SelectContent>
                   </Select>
                 </div>
+                <div className="grid gap-2">
+                  <Label>Counterparty IBAN (optional)</Label>
+                  <Select
+                    value={mapping.counterpartyIban || "none"}
+                    onValueChange={(v) =>
+                      setMapping((m) => ({
+                        ...m,
+                        counterpartyIban: v === "none" ? "" : v,
+                      }))
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select column..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None</SelectItem>
+                      {headers.map((h) => (
+                        <SelectItem key={h} value={h}>
+                          {h}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </div>
 
@@ -374,8 +495,29 @@ export function CsvUploadDialog({
           </div>
         )}
 
-        {/* Step 3: Uploading */}
-        {step === "uploading" && (
+        {/* Step 3: Processing (preview spinner) */}
+        {step === "processing" && (
+          <div className="flex flex-col items-center justify-center py-12">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+            <p className="mt-4 text-sm text-muted-foreground">
+              Analyzing transactions and applying rules...
+            </p>
+          </div>
+        )}
+
+        {/* Step 4: Review & Categorize */}
+        {step === "review" && (
+          <ImportReviewStep
+            transactions={previewData}
+            categories={categories}
+            skipped={previewSkipped}
+            onBack={() => setStep("map-columns")}
+            onConfirm={handleCommit}
+          />
+        )}
+
+        {/* Step 5: Committing */}
+        {step === "committing" && (
           <div className="flex flex-col items-center justify-center py-12">
             <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
             <p className="mt-4 text-sm text-muted-foreground">
@@ -384,48 +526,54 @@ export function CsvUploadDialog({
           </div>
         )}
 
-        {/* Step 4: Done */}
+        {/* Step 6: Done */}
         {step === "done" && result && (
           <div className="flex flex-col items-center justify-center py-12">
-            <CheckCircle2 className="h-12 w-12 text-emerald-500 mb-3" />
+            <CheckCircle2 className="h-12 w-12 text-emerald-500 dark:text-emerald-400 mb-3" />
             <p className="text-lg font-semibold">Import Complete</p>
             <p className="text-sm text-muted-foreground mt-1">
               {result.imported} transaction{result.imported !== 1 ? "s" : ""}{" "}
               imported
-              {result.skipped > 0 &&
-                `, ${result.skipped} row${result.skipped !== 1 ? "s" : ""} skipped`}
+              {result.rulesCreated > 0 &&
+                `, ${result.rulesCreated} new rule${result.rulesCreated !== 1 ? "s" : ""} created`}
             </p>
+            {result.transfersDetected > 0 && (
+              <p className="text-sm text-muted-foreground mt-1">
+                {result.transfersDetected} internal transfer pair{result.transfersDetected !== 1 ? "s" : ""}{" "}
+                detected and excluded from expenses
+              </p>
+            )}
           </div>
         )}
 
-        <DialogFooter>
-          {step === "map-columns" && (
-            <>
-              <Button variant="outline" onClick={() => { reset(); }}>
-                Back
-              </Button>
+        {/* Footer — only for steps that need it (review step has its own) */}
+        {step !== "review" && (
+          <DialogFooter>
+            {step === "map-columns" && (
+              <>
+                <Button variant="outline" onClick={() => reset()}>
+                  Back
+                </Button>
+                <Button
+                  onClick={handlePreview}
+                  disabled={!canProceedToPreview}
+                >
+                  Review Transactions
+                </Button>
+              </>
+            )}
+            {step === "done" && (
               <Button
                 onClick={() => {
-                  setStep("preview");
-                  handleUpload();
+                  reset();
+                  onOpenChange(false);
                 }}
-                disabled={!canProceedToPreview}
               >
-                Import Transactions
+                Done
               </Button>
-            </>
-          )}
-          {step === "done" && (
-            <Button
-              onClick={() => {
-                reset();
-                onOpenChange(false);
-              }}
-            >
-              Done
-            </Button>
-          )}
-        </DialogFooter>
+            )}
+          </DialogFooter>
+        )}
       </DialogContent>
     </Dialog>
   );

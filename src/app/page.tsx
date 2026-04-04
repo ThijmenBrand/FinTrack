@@ -20,6 +20,13 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
+function toLocalDateStr(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 function getPeriodRange(period: string): { from: string; to: string } {
   const now = new Date();
   const y = now.getFullYear();
@@ -29,7 +36,7 @@ function getPeriodRange(period: string): { from: string; to: string } {
 
   switch (period) {
     case "daily": {
-      const iso = new Date(y, m, d).toISOString().slice(0, 10);
+      const iso = toLocalDateStr(new Date(y, m, d));
       return { from: iso, to: iso };
     }
     case "weekly": {
@@ -37,12 +44,12 @@ function getPeriodRange(period: string): { from: string; to: string } {
       const mon = new Date(y, m, d + off);
       const sun = new Date(mon);
       sun.setDate(sun.getDate() + 6);
-      return { from: mon.toISOString().slice(0, 10), to: sun.toISOString().slice(0, 10) };
+      return { from: toLocalDateStr(mon), to: toLocalDateStr(sun) };
     }
     case "monthly": {
       return {
-        from: new Date(y, m, 1).toISOString().slice(0, 10),
-        to: new Date(y, m + 1, 0).toISOString().slice(0, 10),
+        from: toLocalDateStr(new Date(y, m, 1)),
+        to: toLocalDateStr(new Date(y, m + 1, 0)),
       };
     }
     case "yearly":
@@ -79,42 +86,63 @@ async function getDashboardData() {
     const d = now.getDate();
     const dow = now.getDay();
 
-    const monthStart = new Date(y, m, 1).toISOString().slice(0, 10);
-    const monthEnd = new Date(y, m + 1, 0).toISOString().slice(0, 10);
+    const monthStart = toLocalDateStr(new Date(y, m, 1));
+    const monthEnd = toLocalDateStr(new Date(y, m + 1, 0));
 
     // Week range (Monday-Sunday)
     const weekOff = dow === 0 ? -6 : 1 - dow;
-    const weekStart = new Date(y, m, d + weekOff).toISOString().slice(0, 10);
+    const weekStart = toLocalDateStr(new Date(y, m, d + weekOff));
     const weekEndDate = new Date(y, m, d + weekOff + 6);
-    const weekEnd = weekEndDate.toISOString().slice(0, 10);
+    const weekEnd = toLocalDateStr(weekEndDate);
 
     // Last week range for comparison
-    const lastWeekStart = new Date(y, m, d + weekOff - 7).toISOString().slice(0, 10);
-    const lastWeekEnd = new Date(y, m, d + weekOff - 1).toISOString().slice(0, 10);
+    const lastWeekStart = toLocalDateStr(new Date(y, m, d + weekOff - 7));
+    const lastWeekEnd = toLocalDateStr(new Date(y, m, d + weekOff - 1));
 
-    // Weekly spending
+    // Weekly spending (exclude internal transfers, grouped transactions, use effective amounts)
     const weekExpense = await db
-      .select({ total: sql<number>`sum(abs(${transactions.amount}))` })
+      .select({
+        total: sql<number>`sum(
+          abs(${transactions.amount}) - COALESCE(
+            (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id WHERE rl.expense_id = "transactions"."id"),
+            0
+          )
+        )`,
+      })
       .from(transactions)
+      .leftJoin(categories, eq(transactions.categoryId, categories.id))
       .where(
         and(
           eq(transactions.type, "expense"),
+          sql`COALESCE(${categories.name}, '') <> 'Internal Transfer'`,
+          sql`${transactions.groupId} IS NULL`,
           gte(transactions.date, weekStart),
           lte(transactions.date, weekEnd)
         )
       );
 
     const lastWeekExpense = await db
-      .select({ total: sql<number>`sum(abs(${transactions.amount}))` })
+      .select({
+        total: sql<number>`sum(
+          abs(${transactions.amount}) - COALESCE(
+            (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id WHERE rl.expense_id = "transactions"."id"),
+            0
+          )
+        )`,
+      })
       .from(transactions)
+      .leftJoin(categories, eq(transactions.categoryId, categories.id))
       .where(
         and(
           eq(transactions.type, "expense"),
+          sql`COALESCE(${categories.name}, '') <> 'Internal Transfer'`,
+          sql`${transactions.groupId} IS NULL`,
           gte(transactions.date, lastWeekStart),
           lte(transactions.date, lastWeekEnd)
         )
       );
 
+    // Monthly income (exclude reimbursements — they're not real income)
     const monthIncome = await db
       .select({ total: sum(transactions.amount) })
       .from(transactions)
@@ -126,12 +154,23 @@ async function getDashboardData() {
         )
       );
 
+    // Monthly expenses (effective amounts after reimbursements, exclude grouped)
     const monthExpense = await db
-      .select({ total: sum(transactions.amount) })
+      .select({
+        total: sql<number>`sum(
+          ${transactions.amount} + COALESCE(
+            (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id WHERE rl.expense_id = "transactions"."id"),
+            0
+          )
+        )`,
+      })
       .from(transactions)
+      .leftJoin(categories, eq(transactions.categoryId, categories.id))
       .where(
         and(
           eq(transactions.type, "expense"),
+          sql`COALESCE(${categories.name}, '') <> 'Internal Transfer'`,
+          sql`${transactions.groupId} IS NULL`,
           gte(transactions.date, monthStart),
           lte(transactions.date, monthEnd)
         )
@@ -155,12 +194,20 @@ async function getDashboardData() {
       allBudgets.map(async (b) => {
         const { from, to } = getPeriodRange(b.period);
         const spentResult = await db
-          .select({ total: sql<number>`sum(abs(${transactions.amount}))` })
+          .select({
+            total: sql<number>`sum(
+              abs(${transactions.amount}) - COALESCE(
+                (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id WHERE rl.expense_id = "transactions"."id"),
+                0
+              )
+            )`,
+          })
           .from(transactions)
           .where(
             and(
               eq(transactions.categoryId, b.categoryId),
               eq(transactions.type, "expense"),
+              sql`${transactions.groupId} IS NULL`,
               gte(transactions.date, from),
               lte(transactions.date, to)
             )
@@ -182,18 +229,25 @@ async function getDashboardData() {
     const totalBudgeted = allBudgets.reduce((s, b) => s + b.amount, 0);
     const totalBudgetSpent = budgetItems.reduce((s, b) => s + b.spent, 0);
 
-    // Top 5 spending categories this month
+    // Top 5 spending categories this month (exclude internal transfers, grouped, use effective amounts)
     const topCats = await db
       .select({
         categoryName: categories.name,
         categoryColor: categories.color,
-        total: sql<number>`sum(abs(${transactions.amount}))`,
+        total: sql<number>`sum(
+          abs(${transactions.amount}) - COALESCE(
+            (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id WHERE rl.expense_id = "transactions"."id"),
+            0
+          )
+        )`,
       })
       .from(transactions)
       .leftJoin(categories, eq(transactions.categoryId, categories.id))
       .where(
         and(
           eq(transactions.type, "expense"),
+          sql`COALESCE(${categories.name}, '') <> 'Internal Transfer'`,
+          sql`${transactions.groupId} IS NULL`,
           gte(transactions.date, monthStart),
           lte(transactions.date, monthEnd)
         )
@@ -201,6 +255,31 @@ async function getDashboardData() {
       .groupBy(transactions.categoryId)
       .orderBy(sql`sum(abs(${transactions.amount})) DESC`)
       .limit(5);
+
+    // Pot aggregation: add pot net amounts to relevant totals
+    // Week pot contributions (pots whose earliest tx date falls in the week)
+    const weekPotContrib = await db
+      .select({
+        potNet: sql<number>`SUM(t.amount)`,
+      })
+      .from(sql`transactions t`)
+      .innerJoin(sql`transaction_groups g`, sql`t.group_id = g.id`)
+      .where(
+        sql`t.group_id IS NOT NULL AND t.date >= ${weekStart} AND t.date <= ${weekEnd}`
+      );
+    const weekPotExpense = Math.abs(Math.min(0, weekPotContrib[0]?.potNet || 0));
+
+    // Month pot contributions
+    const monthPotContrib = await db
+      .select({
+        potNet: sql<number>`SUM(t.amount)`,
+      })
+      .from(sql`transactions t`)
+      .innerJoin(sql`transaction_groups g`, sql`t.group_id = g.id`)
+      .where(
+        sql`t.group_id IS NOT NULL AND t.date >= ${monthStart} AND t.date <= ${monthEnd}`
+      );
+    const monthPotExpense = Math.min(0, monthPotContrib[0]?.potNet || 0);
 
     // Day of month progress (for pace indicator)
     const daysInMonth = new Date(y, m + 1, 0).getDate();
@@ -210,8 +289,8 @@ async function getDashboardData() {
       accounts: accountBalances,
       totalBalance,
       monthIncome: Number(monthIncome[0]?.total) || 0,
-      monthExpenses: Math.abs(Number(monthExpense[0]?.total) || 0),
-      weekExpenses: weekExpense[0]?.total || 0,
+      monthExpenses: Math.abs(Number(monthExpense[0]?.total) || 0) + Math.abs(monthPotExpense),
+      weekExpenses: (weekExpense[0]?.total || 0) + weekPotExpense,
       lastWeekExpenses: lastWeekExpense[0]?.total || 0,
       weekStart,
       weekEnd,
@@ -225,7 +304,8 @@ async function getDashboardData() {
         total: c.total,
       })),
     };
-  } catch {
+  } catch (e) {
+    console.error("Dashboard data fetch failed:", e);
     return {
       accounts: [],
       totalBalance: 0,
@@ -259,7 +339,7 @@ function RingProgress({
   size,
   strokeWidth,
   color,
-  trackColor = "#e5e7eb",
+  trackColor = "var(--ring-progress-track, #e5e7eb)",
 }: {
   percentage: number;
   size: number;
@@ -463,9 +543,9 @@ export default async function DashboardPage() {
                       <p
                         className={`text-xs font-semibold ${
                           item.status === "exceeded"
-                            ? "text-red-500"
+                            ? "text-red-500 dark:text-red-400"
                             : item.status === "warning"
-                              ? "text-amber-500"
+                              ? "text-amber-500 dark:text-amber-400"
                               : "text-muted-foreground"
                         }`}
                       >
@@ -503,10 +583,10 @@ export default async function DashboardPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Income</CardTitle>
-            <TrendingUp className="h-4 w-4 text-emerald-500" />
+            <TrendingUp className="h-4 w-4 text-emerald-500 dark:text-emerald-400" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-emerald-600">
+            <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
               {formatCurrency(data.monthIncome)}
             </div>
             <p className="text-xs text-muted-foreground">{monthLabel}</p>
@@ -516,10 +596,10 @@ export default async function DashboardPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Expenses</CardTitle>
-            <TrendingDown className="h-4 w-4 text-red-500" />
+            <TrendingDown className="h-4 w-4 text-red-500 dark:text-red-400" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-red-600">
+            <div className="text-2xl font-bold text-red-600 dark:text-red-400">
               {formatCurrency(data.monthExpenses)}
             </div>
             <p className="text-xs text-muted-foreground">{monthLabel}</p>
@@ -537,8 +617,8 @@ export default async function DashboardPage() {
             <div
               className={`text-2xl font-bold ${
                 data.monthIncome - data.monthExpenses >= 0
-                  ? "text-emerald-600"
-                  : "text-red-600"
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : "text-red-600 dark:text-red-400"
               }`}
             >
               {formatCurrency(data.monthIncome - data.monthExpenses)}
@@ -641,7 +721,7 @@ export default async function DashboardPage() {
                       className={`text-sm font-semibold tabular-nums ${
                         account.currentBalance >= 0
                           ? "text-foreground"
-                          : "text-red-600"
+                          : "text-red-600 dark:text-red-400"
                       }`}
                     >
                       {formatCurrency(account.currentBalance)}

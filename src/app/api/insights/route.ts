@@ -26,57 +26,80 @@ export async function GET(request: NextRequest) {
     const dateWhere =
       conditions.length > 0 ? and(...conditions) : undefined;
 
-    // 1. Category breakdown (expenses only, excluding internal transfers)
+    // 1. Category breakdown (expenses only, excluding internal transfers, effective amounts)
     const catBreakdown = await db
       .select({
         categoryId: transactions.categoryId,
         categoryName: categories.name,
         categoryColor: categories.color,
-        total: sql<number>`sum(abs(${transactions.amount}))`,
+        total: sql<number>`sum(
+          abs(${transactions.amount}) - COALESCE(
+            (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id WHERE rl.expense_id = "transactions"."id"),
+            0
+          )
+        )`,
         count: sql<number>`count(*)`,
       })
       .from(transactions)
       .leftJoin(categories, eq(transactions.categoryId, categories.id))
       .where(
-        dateWhere
-          ? and(eq(transactions.type, "expense"), ...conditions)
-          : eq(transactions.type, "expense")
+        and(
+          eq(transactions.type, "expense"),
+          sql`COALESCE(${categories.name}, '') <> 'Internal Transfer'`,
+          sql`${transactions.groupId} IS NULL`,
+          ...conditions
+        )
       )
       .groupBy(transactions.categoryId);
 
-    // 2. Daily totals
+    // 2. Daily totals (exclude reimbursements from income, grouped, use effective expense amounts)
     const dailyTotals = await db
       .select({
         date: transactions.date,
         income: sql<number>`sum(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END)`,
-        expenses: sql<number>`sum(CASE WHEN ${transactions.type} = 'expense' THEN abs(${transactions.amount}) ELSE 0 END)`,
+        expenses: sql<number>`sum(CASE WHEN ${transactions.type} = 'expense' THEN (
+          abs(${transactions.amount}) - COALESCE(
+            (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id WHERE rl.expense_id = "transactions"."id"),
+            0
+          )
+        ) ELSE 0 END)`,
       })
       .from(transactions)
-      .where(dateWhere)
+      .where(and(sql`${transactions.groupId} IS NULL`, dateWhere))
       .groupBy(transactions.date)
       .orderBy(transactions.date);
 
-    // 3. Monthly totals
+    // 3. Monthly totals (exclude reimbursements from income, grouped, use effective expense amounts)
     const monthlyTotals = await db
       .select({
         month: sql<string>`substr(${transactions.date}, 1, 7)`,
         income: sql<number>`sum(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END)`,
-        expenses: sql<number>`sum(CASE WHEN ${transactions.type} = 'expense' THEN abs(${transactions.amount}) ELSE 0 END)`,
+        expenses: sql<number>`sum(CASE WHEN ${transactions.type} = 'expense' THEN (
+          abs(${transactions.amount}) - COALESCE(
+            (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id WHERE rl.expense_id = "transactions"."id"),
+            0
+          )
+        ) ELSE 0 END)`,
       })
       .from(transactions)
-      .where(dateWhere)
+      .where(and(sql`${transactions.groupId} IS NULL`, dateWhere))
       .groupBy(sql`substr(${transactions.date}, 1, 7)`)
       .orderBy(sql`substr(${transactions.date}, 1, 7)`);
 
-    // 4. Summary
+    // 4. Summary (exclude reimbursements from income, grouped, use effective expense amounts)
     const summaryResult = await db
       .select({
         totalIncome: sql<number>`sum(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END)`,
-        totalExpenses: sql<number>`sum(CASE WHEN ${transactions.type} = 'expense' THEN abs(${transactions.amount}) ELSE 0 END)`,
+        totalExpenses: sql<number>`sum(CASE WHEN ${transactions.type} = 'expense' THEN (
+          abs(${transactions.amount}) - COALESCE(
+            (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id WHERE rl.expense_id = "transactions"."id"),
+            0
+          )
+        ) ELSE 0 END)`,
         txCount: sql<number>`count(*)`,
       })
       .from(transactions)
-      .where(dateWhere);
+      .where(and(sql`${transactions.groupId} IS NULL`, dateWhere));
 
     const summary = summaryResult[0] || {
       totalIncome: 0,
@@ -84,18 +107,27 @@ export async function GET(request: NextRequest) {
       txCount: 0,
     };
 
-    // 5. Top merchants (by spending)
+    // 5. Top merchants (by spending, excluding internal transfers, effective amounts)
     const topMerchants = await db
       .select({
         description: transactions.description,
-        total: sql<number>`sum(abs(${transactions.amount}))`,
+        total: sql<number>`sum(
+          abs(${transactions.amount}) - COALESCE(
+            (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id WHERE rl.expense_id = "transactions"."id"),
+            0
+          )
+        )`,
         count: sql<number>`count(*)`,
       })
       .from(transactions)
+      .leftJoin(categories, eq(transactions.categoryId, categories.id))
       .where(
-        dateWhere
-          ? and(eq(transactions.type, "expense"), ...conditions)
-          : eq(transactions.type, "expense")
+        and(
+          eq(transactions.type, "expense"),
+          sql`COALESCE(${categories.name}, '') <> 'Internal Transfer'`,
+          sql`${transactions.groupId} IS NULL`,
+          ...conditions
+        )
       )
       .groupBy(transactions.description)
       .orderBy(sql`sum(abs(${transactions.amount})) DESC`)

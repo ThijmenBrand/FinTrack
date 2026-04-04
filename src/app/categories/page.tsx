@@ -40,7 +40,10 @@ import {
   ChevronRight,
   RefreshCw,
   Loader2,
+  AlertCircle,
 } from "lucide-react";
+import { CategorizePopover } from "@/components/categorize-popover";
+import { TransactionDetailDialog } from "@/components/transaction-detail-dialog";
 
 interface CategoryRule {
   id: string;
@@ -59,6 +62,33 @@ interface Category {
   createdAt: string;
   transactionCount: number;
   rules: CategoryRule[];
+}
+
+interface UncategorizedTransaction {
+  id: string;
+  accountId: string;
+  accountName: string | null;
+  date: string;
+  description: string;
+  amount: number;
+  balance: number | null;
+  categoryId: string | null;
+  categoryName: string | null;
+  categoryColor: string | null;
+  type: "income" | "expense" | "internal_transfer" | "reimbursement";
+  linkedTransactionId: string | null;
+  linkedAccountName: string | null;
+  reimbursesTransactionId: string | null;
+  reimbursesDescription: string | null;
+  effectiveAmount: number;
+  reimbursementCount: number;
+  reimbursedTotal: number;
+  groupId: string | null;
+  groupName: string | null;
+  notes: string | null;
+  isManual: boolean;
+  importBatchId: string | null;
+  createdAt: string;
 }
 
 interface RuleWithCategory {
@@ -102,6 +132,13 @@ export default function CategoriesPage() {
     totalTransactions: number;
     uncategorized: number;
   } | null>(null);
+  const [uncategorizedTxns, setUncategorizedTxns] = useState<UncategorizedTransaction[]>([]);
+  const [uncategorizedTotal, setUncategorizedTotal] = useState(0);
+  const [uncategorizedExpanded, setUncategorizedExpanded] = useState(false);
+  const [uncategorizedLoading, setUncategorizedLoading] = useState(false);
+  const [uncategorizedPage, setUncategorizedPage] = useState(1);
+  const UNCATEGORIZED_LIMIT = 20;
+  const [selectedTransaction, setSelectedTransaction] = useState<UncategorizedTransaction | null>(null);
 
   // Category form
   const [catName, setCatName] = useState("");
@@ -136,10 +173,26 @@ export default function CategoriesPage() {
     }
   }, []);
 
+  const fetchUncategorized = useCallback(async (page = 1) => {
+    setUncategorizedLoading(true);
+    try {
+      const res = await fetch(`/api/transactions?uncategorized=true&limit=${UNCATEGORIZED_LIMIT}&page=${page}&sortBy=date&sortOrder=desc`);
+      const data = await res.json();
+      setUncategorizedTxns(data.data);
+      setUncategorizedTotal(data.pagination.total);
+      setUncategorizedPage(page);
+    } catch (err) {
+      console.error("Failed to fetch uncategorized transactions:", err);
+    } finally {
+      setUncategorizedLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchCategories();
     fetchRules();
-  }, [fetchCategories, fetchRules]);
+    fetchUncategorized();
+  }, [fetchCategories, fetchRules, fetchUncategorized]);
 
   const resetCategoryForm = () => {
     setCatName("");
@@ -277,6 +330,7 @@ export default function CategoriesPage() {
         uncategorized: data.uncategorized,
       });
       fetchCategories();
+      fetchUncategorized(uncategorizedPage);
     } catch (err) {
       console.error("Failed to reapply rules:", err);
     } finally {
@@ -491,7 +545,7 @@ export default function CategoriesPage() {
       {reapplyResult && (
         <div className="flex items-center justify-between rounded-lg border bg-muted/50 px-4 py-3">
           <div className="flex items-center gap-2 text-sm">
-            <RefreshCw className="h-4 w-4 text-blue-500" />
+            <RefreshCw className="h-4 w-4 text-blue-500 dark:text-blue-400" />
             <span>
               Recalculated: <strong>{reapplyResult.transactionsCategorized}</strong> of{" "}
               <strong>{reapplyResult.totalTransactions}</strong> transactions categorized.
@@ -513,6 +567,124 @@ export default function CategoriesPage() {
           >
             <X className="h-3 w-3" />
           </Button>
+        </div>
+      )}
+
+      {/* Uncategorized Transactions */}
+      {uncategorizedTotal > 0 && (
+        <div className="space-y-3">
+          <div
+            className="flex items-center gap-2 cursor-pointer select-none"
+            onClick={() => {
+              setUncategorizedExpanded(!uncategorizedExpanded);
+              if (!uncategorizedExpanded && uncategorizedTxns.length === 0) {
+                fetchUncategorized(1);
+              }
+            }}
+          >
+            {uncategorizedExpanded ? (
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            ) : (
+              <ChevronRight className="h-4 w-4 text-muted-foreground" />
+            )}
+            <AlertCircle className="h-4 w-4 text-amber-500" />
+            <h2 className="text-lg font-semibold">
+              Uncategorized Transactions ({uncategorizedTotal})
+            </h2>
+          </div>
+
+          {uncategorizedExpanded && (
+            <Card>
+              <CardContent className="p-0">
+                {uncategorizedLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  </div>
+                ) : (
+                  <>
+                    <div className="divide-y">
+                      {uncategorizedTxns.map((tx) => (
+                        <div
+                          key={tx.id}
+                          className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/50 transition-colors cursor-pointer"
+                          onClick={() => setSelectedTransaction(tx)}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">
+                              {tx.description}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {tx.date}
+                              {tx.accountName && ` · ${tx.accountName}`}
+                            </p>
+                          </div>
+                          <span
+                            className={`text-sm font-mono tabular-nums shrink-0 ${
+                              tx.amount >= 0
+                                ? "text-green-600 dark:text-green-400"
+                                : "text-foreground"
+                            }`}
+                          >
+                            {tx.amount >= 0 ? "+" : ""}
+                            {tx.amount.toFixed(2)}
+                          </span>
+                          <div onClick={(e) => e.stopPropagation()}>
+                            <CategorizePopover
+                              transactionId={tx.id}
+                              transactionDescription={tx.description}
+                              currentCategoryId={null}
+                              currentCategoryName={null}
+                              currentCategoryColor={null}
+                              categories={categories.map((c) => ({
+                                id: c.id,
+                                name: c.name,
+                                color: c.color,
+                                icon: c.icon,
+                              }))}
+                              onCategorized={() => {
+                                fetchUncategorized(uncategorizedPage);
+                                fetchCategories();
+                              }}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    {/* Pagination */}
+                    {uncategorizedTotal > UNCATEGORIZED_LIMIT && (
+                      <div className="flex items-center justify-between border-t px-4 py-2.5">
+                        <p className="text-xs text-muted-foreground">
+                          Showing {(uncategorizedPage - 1) * UNCATEGORIZED_LIMIT + 1}–
+                          {Math.min(uncategorizedPage * UNCATEGORIZED_LIMIT, uncategorizedTotal)} of{" "}
+                          {uncategorizedTotal}
+                        </p>
+                        <div className="flex gap-1">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={uncategorizedPage === 1}
+                            onClick={() => fetchUncategorized(uncategorizedPage - 1)}
+                          >
+                            Previous
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={
+                              uncategorizedPage * UNCATEGORIZED_LIMIT >= uncategorizedTotal
+                            }
+                            onClick={() => fetchUncategorized(uncategorizedPage + 1)}
+                          >
+                            Next
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
 
@@ -696,7 +868,7 @@ export default function CategoriesPage() {
                                       className="h-6 w-6"
                                       onClick={() => saveEditRule(rule.id)}
                                     >
-                                      <Check className="h-3 w-3 text-green-600" />
+                                      <Check className="h-3 w-3 text-green-600 dark:text-green-400" />
                                     </Button>
                                     <Button
                                       variant="ghost"
@@ -795,6 +967,18 @@ export default function CategoriesPage() {
           </div>
         )}
       </div>
+
+      {/* Transaction Detail Dialog */}
+      <TransactionDetailDialog
+        transaction={selectedTransaction}
+        onOpenChange={(open) => {
+          if (!open) setSelectedTransaction(null);
+        }}
+        onCategorized={() => {
+          fetchCategories();
+          fetchUncategorized(uncategorizedPage);
+        }}
+      />
     </div>
   );
 }
