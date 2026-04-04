@@ -12,8 +12,10 @@ export const accounts = sqliteTable("accounts", {
     enum: ["checking", "savings", "joint", "credit", "other"],
   }).notNull(),
   bankName: text("bank_name"),
+  iban: text("iban"),
   currency: text("currency").notNull().default("EUR"),
   initialBalance: real("initial_balance").notNull().default(0),
+  sortOrder: integer("sort_order").notNull().default(0),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
@@ -37,13 +39,16 @@ export const transactions = sqliteTable("transactions", {
   balance: real("balance"), // Running balance if provided by bank
   categoryId: text("category_id").references(() => categories.id),
   type: text("type", {
-    enum: ["income", "expense", "internal_transfer"],
+    enum: ["income", "expense", "internal_transfer", "reimbursement"],
   }).notNull(),
   // Link to the matching transaction in another account (for internal transfers)
   linkedTransactionId: text("linked_transaction_id"),
+  // Link to the expense this transaction reimburses (for split bills)
+  reimbursesTransactionId: text("reimburses_transaction_id"),
   notes: text("notes"),
   isManual: integer("is_manual", { mode: "boolean" }).notNull().default(false),
   importBatchId: text("import_batch_id"), // Track which CSV upload this came from
+  groupId: text("group_id"),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
@@ -147,6 +152,37 @@ export const importBatches = sqliteTable("import_batches", {
     .$defaultFn(() => new Date().toISOString()),
 });
 
+// ─── Transaction Groups (Pots) ──────────────────────────────────────────────
+// Named groups of transactions (e.g. "Weekend trip") with a category.
+// The pot's net amount counts in summaries instead of individual transactions.
+export const transactionGroups = sqliteTable("transaction_groups", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  name: text("name").notNull(),
+  categoryId: text("category_id").references(() => categories.id),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
+// ─── Reimbursement Links ────────────────────────────────────────────────────
+// Junction table: links reimbursement transactions to the expenses they reimburse (many-to-many)
+export const reimbursementLinks = sqliteTable("reimbursement_links", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  reimbursementId: text("reimbursement_id")
+    .notNull()
+    .references(() => transactions.id, { onDelete: "cascade" }),
+  expenseId: text("expense_id")
+    .notNull()
+    .references(() => transactions.id, { onDelete: "cascade" }),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
 // ─── Relations ───────────────────────────────────────────────────────────────
 
 export const accountsRelations = relations(accounts, ({ many }) => ({
@@ -163,6 +199,10 @@ export const transactionsRelations = relations(transactions, ({ one }) => ({
   category: one(categories, {
     fields: [transactions.categoryId],
     references: [categories.id],
+  }),
+  group: one(transactionGroups, {
+    fields: [transactions.groupId],
+    references: [transactionGroups.id],
   }),
 }));
 
@@ -207,6 +247,17 @@ export const importBatchesRelations = relations(importBatches, ({ one }) => ({
   }),
 }));
 
+export const transactionGroupsRelations = relations(
+  transactionGroups,
+  ({ one, many }) => ({
+    category: one(categories, {
+      fields: [transactionGroups.categoryId],
+      references: [categories.id],
+    }),
+    transactions: many(transactions),
+  })
+);
+
 // ─── Type Exports ────────────────────────────────────────────────────────────
 export type Account = typeof accounts.$inferSelect;
 export type NewAccount = typeof accounts.$inferInsert;
@@ -222,3 +273,7 @@ export type RecurringTransaction = typeof recurringTransactions.$inferSelect;
 export type NewRecurringTransaction = typeof recurringTransactions.$inferInsert;
 export type ImportBatch = typeof importBatches.$inferSelect;
 export type NewImportBatch = typeof importBatches.$inferInsert;
+export type ReimbursementLink = typeof reimbursementLinks.$inferSelect;
+export type NewReimbursementLink = typeof reimbursementLinks.$inferInsert;
+export type TransactionGroup = typeof transactionGroups.$inferSelect;
+export type NewTransactionGroup = typeof transactionGroups.$inferInsert;

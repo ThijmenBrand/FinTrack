@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tag, Check, X } from "lucide-react";
+import { extractPattern } from "@/lib/csv-utils";
 
 interface Category {
   id: string;
@@ -33,7 +34,7 @@ interface CategorizePopoverProps {
   currentCategoryName: string | null;
   currentCategoryColor: string | null;
   categories: Category[];
-  onCategorized: () => void;
+  onCategorized: (categoryId?: string | null) => void;
 }
 
 export function CategorizePopover({
@@ -57,22 +58,7 @@ export function CategorizePopover({
   // Extract a sensible default pattern from the description
   useEffect(() => {
     if (open && transactionDescription) {
-      // Try to extract the merchant name from typical bank descriptions
-      // E.g. "AH Strijp 8616 >EINDHOVEN25.02.2026..." → "AH Strijp"
-      // E.g. "PayPal Europe S.a.r.l..." → "PayPal"
-      const desc = transactionDescription;
-
-      // For BEA (card) transactions: get text before ">"
-      const beforeArrow = desc.split(">")[0]?.trim();
-      if (beforeArrow && beforeArrow.length < desc.length) {
-        // Remove trailing numbers/spaces (store IDs)
-        const cleaned = beforeArrow.replace(/\s+\d+\s*$/, "").trim();
-        setRulePattern(cleaned || beforeArrow);
-      } else {
-        // Take first 2-3 meaningful words
-        const words = desc.split(/\s+/).slice(0, 3).join(" ");
-        setRulePattern(words);
-      }
+      setRulePattern(extractPattern(transactionDescription));
     }
   }, [open, transactionDescription]);
 
@@ -91,7 +77,7 @@ export function CategorizePopover({
         }),
       });
       setOpen(false);
-      onCategorized();
+      onCategorized(selectedCategoryId || null);
     } catch (err) {
       console.error("Failed to categorize:", err);
     } finally {

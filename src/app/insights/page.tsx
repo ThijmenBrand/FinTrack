@@ -143,6 +143,7 @@ export default function InsightsPage() {
       if (dateFrom) params.set("dateFrom", dateFrom);
       if (dateTo) params.set("dateTo", dateTo);
       const res = await fetch(`/api/insights?${params.toString()}`);
+      if (!res.ok) throw new Error("API error");
       const json = await res.json();
       setData(json);
     } catch (err) {
@@ -232,10 +233,10 @@ export default function InsightsPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Income</CardTitle>
-            <TrendingUp className="h-4 w-4 text-emerald-500" />
+            <TrendingUp className="h-4 w-4 text-emerald-500 dark:text-emerald-400" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-emerald-600">
+            <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
               {formatCurrency(data.summary.totalIncome)}
             </div>
             <p className="text-xs text-muted-foreground">
@@ -246,10 +247,10 @@ export default function InsightsPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Expenses</CardTitle>
-            <TrendingDown className="h-4 w-4 text-red-500" />
+            <TrendingDown className="h-4 w-4 text-red-500 dark:text-red-400" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-red-600">
+            <div className="text-2xl font-bold text-red-600 dark:text-red-400">
               {formatCurrency(data.summary.totalExpenses)}
             </div>
           </CardContent>
@@ -261,7 +262,7 @@ export default function InsightsPage() {
           </CardHeader>
           <CardContent>
             <div
-              className={`text-2xl font-bold ${data.summary.net >= 0 ? "text-emerald-600" : "text-red-600"}`}
+              className={`text-2xl font-bold ${data.summary.net >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}
             >
               {data.summary.net >= 0 ? "+" : ""}
               {formatCurrency(data.summary.net)}
@@ -411,10 +412,10 @@ export default function InsightsPage() {
                           </div>
                         </div>
                         <div className="w-36 text-xs flex gap-2 justify-end">
-                          <span className="text-emerald-600">
+                          <span className="text-emerald-600 dark:text-emerald-400">
                             +{formatCurrency(m.income)}
                           </span>
-                          <span className="text-red-500">
+                          <span className="text-red-500 dark:text-red-400">
                             -{formatCurrency(m.expenses)}
                           </span>
                         </div>

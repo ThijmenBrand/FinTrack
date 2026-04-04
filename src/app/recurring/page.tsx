@@ -461,10 +461,10 @@ export default function RecurringPage() {
                   : "border-blue-400 bg-blue-100 dark:bg-blue-950/50 dark:border-blue-800 text-blue-900 dark:text-blue-100";
             const iconColor =
               a.type === "warning"
-                ? "text-amber-600"
+                ? "text-amber-600 dark:text-amber-400"
                 : a.type === "success"
-                  ? "text-emerald-600"
-                  : "text-blue-600";
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : "text-blue-600 dark:text-blue-400";
             return (
               <div
                 key={i}
@@ -486,10 +486,10 @@ export default function RecurringPage() {
               <CardTitle className="text-sm font-medium">
                 Monthly Recurring Income
               </CardTitle>
-              <TrendingUp className="h-4 w-4 text-emerald-500" />
+              <TrendingUp className="h-4 w-4 text-emerald-500 dark:text-emerald-400" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-emerald-600">
+              <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
                 {formatCurrency(forecast.monthlyRecurringIncome)}
               </div>
             </CardContent>
@@ -499,10 +499,10 @@ export default function RecurringPage() {
               <CardTitle className="text-sm font-medium">
                 Monthly Recurring Expenses
               </CardTitle>
-              <TrendingDown className="h-4 w-4 text-red-500" />
+              <TrendingDown className="h-4 w-4 text-red-500 dark:text-red-400" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-red-600">
+              <div className="text-2xl font-bold text-red-600 dark:text-red-400">
                 {formatCurrency(forecast.monthlyRecurringExpenses)}
               </div>
             </CardContent>
@@ -516,7 +516,7 @@ export default function RecurringPage() {
             </CardHeader>
             <CardContent>
               <div
-                className={`text-2xl font-bold ${forecast.monthlyNet >= 0 ? "text-emerald-600" : "text-red-600"}`}
+                className={`text-2xl font-bold ${forecast.monthlyNet >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}
               >
                 {forecast.monthlyNet >= 0 ? "+" : ""}
                 {formatCurrency(forecast.monthlyNet)}
@@ -545,21 +545,21 @@ export default function RecurringPage() {
                     <div className="flex items-center justify-between text-sm">
                       <span className="font-medium">{m.label}</span>
                       <span
-                        className={`font-semibold ${m.endBalance >= 0 ? "text-foreground" : "text-red-600"}`}
+                        className={`font-semibold ${m.endBalance >= 0 ? "text-foreground" : "text-red-600 dark:text-red-400"}`}
                       >
                         {formatCurrency(m.endBalance)}
                       </span>
                     </div>
                     <div className="flex gap-4 text-xs text-muted-foreground">
-                      <span className="text-emerald-600">
+                      <span className="text-emerald-600 dark:text-emerald-400">
                         +{formatCurrency(m.income)}
                       </span>
-                      <span className="text-red-500">
+                      <span className="text-red-500 dark:text-red-400">
                         -{formatCurrency(m.expenses)}
                       </span>
                       <span
                         className={
-                          m.net >= 0 ? "text-emerald-600" : "text-red-500"
+                          m.net >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-500 dark:text-red-400"
                         }
                       >
                         Net: {m.net >= 0 ? "+" : ""}
@@ -612,7 +612,7 @@ export default function RecurringPage() {
                         </span>
                       </div>
                       <span
-                        className={`text-sm font-medium shrink-0 ml-2 ${p.type === "income" ? "text-emerald-600" : "text-red-500"}`}
+                        className={`text-sm font-medium shrink-0 ml-2 ${p.type === "income" ? "text-emerald-600 dark:text-emerald-400" : "text-red-500 dark:text-red-400"}`}
                       >
                         {p.type === "income" ? "+" : "-"}
                         {formatCurrency(Math.abs(p.amount))}
@@ -632,7 +632,7 @@ export default function RecurringPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
-              <TrendingUp className="h-4 w-4 text-emerald-500" />
+              <TrendingUp className="h-4 w-4 text-emerald-500 dark:text-emerald-400" />
               Recurring Income ({incomeItems.length})
             </CardTitle>
           </CardHeader>
@@ -663,7 +663,7 @@ export default function RecurringPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
-              <TrendingDown className="h-4 w-4 text-red-500" />
+              <TrendingDown className="h-4 w-4 text-red-500 dark:text-red-400" />
               Recurring Expenses ({expenseItems.length})
             </CardTitle>
           </CardHeader>
@@ -744,7 +744,7 @@ function RecurringItem({
         </div>
       </div>
       <span
-        className={`text-sm font-semibold shrink-0 ${item.type === "income" ? "text-emerald-600" : "text-red-500"}`}
+        className={`text-sm font-semibold shrink-0 ${item.type === "income" ? "text-emerald-600 dark:text-emerald-400" : "text-red-500 dark:text-red-400"}`}
       >
         {item.type === "income" ? "+" : ""}
         {formatCurrency(Math.abs(item.amount))}
@@ -758,7 +758,7 @@ function RecurringItem({
           title={item.isActive ? "Pause" : "Activate"}
         >
           <RefreshCcw
-            className={`h-3 w-3 ${item.isActive ? "text-green-500" : "text-muted-foreground"}`}
+            className={`h-3 w-3 ${item.isActive ? "text-green-500 dark:text-green-400" : "text-muted-foreground"}`}
           />
         </Button>
         <Button

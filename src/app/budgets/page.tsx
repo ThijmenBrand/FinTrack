@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import {
   Card,
   CardContent,
@@ -42,6 +43,7 @@ import {
   Lock,
   Coins,
 } from "lucide-react";
+import { BudgetHistoryDialog } from "@/components/budget-history-dialog";
 
 interface FixedCost {
   categoryId: string;
@@ -94,12 +96,14 @@ function formatCurrency(amount: number) {
 }
 
 export default function BudgetsPage() {
+  const router = useRouter();
   const [data, setData] = useState<BudgetData | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingAlloc, setEditingAlloc] = useState<Allocation | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [historyAlloc, setHistoryAlloc] = useState<Allocation | null>(null);
 
   // Form
   const [formCategoryId, setFormCategoryId] = useState("");
@@ -111,8 +115,14 @@ export default function BudgetsPage() {
         fetch("/api/budgets"),
         fetch("/api/categories"),
       ]);
-      setData(await bRes.json());
-      setCategories(await cRes.json());
+      if (bRes.ok) {
+        setData(await bRes.json());
+      } else {
+        console.error("Budget API error:", bRes.status);
+      }
+      if (cRes.ok) {
+        setCategories(await cRes.json());
+      }
     } catch (err) {
       console.error("Failed to fetch:", err);
     } finally {
@@ -383,7 +393,7 @@ export default function BudgetsPage() {
             </span>
           </div>
           {data.unallocated < 0 && (
-            <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 dark:bg-red-950/30 rounded-lg px-3 py-2">
+            <div className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 rounded-lg px-3 py-2">
               <AlertTriangle className="h-4 w-4" />
               You&apos;ve over-allocated by{" "}
               {formatCurrency(Math.abs(data.unallocated))}. Reduce some
@@ -400,10 +410,10 @@ export default function BudgetsPage() {
             <CardTitle className="text-sm font-medium">
               Monthly Income
             </CardTitle>
-            <TrendingUp className="h-4 w-4 text-emerald-500" />
+            <TrendingUp className="h-4 w-4 text-emerald-500 dark:text-emerald-400" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-emerald-600">
+            <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
               {formatCurrency(data.monthlyIncome)}
             </div>
             <p className="text-xs text-muted-foreground">
@@ -431,11 +441,11 @@ export default function BudgetsPage() {
             <CardTitle className="text-sm font-medium">
               Available to Budget
             </CardTitle>
-            <Coins className="h-4 w-4 text-blue-500" />
+            <Coins className="h-4 w-4 text-blue-500 dark:text-blue-400" />
           </CardHeader>
           <CardContent>
             <div
-              className={`text-2xl font-bold ${data.unallocated >= 0 ? "text-emerald-600" : "text-red-600"}`}
+              className={`text-2xl font-bold ${data.unallocated >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}
             >
               {formatCurrency(Math.max(0, data.unallocated))}
             </div>
@@ -448,97 +458,11 @@ export default function BudgetsPage() {
         </Card>
       </div>
 
-      {/* Fixed Costs (auto from recurring) */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Lock className="h-4 w-4 text-slate-400" />
-            Fixed Costs
-          </CardTitle>
-          <CardDescription>
-            Automatically populated from your recurring expenses. Manage these
-            on the Recurring page.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {data.fixedCosts.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-6 text-center">
-              No recurring expenses set up yet. Add them on the{" "}
-              <a href="/recurring" className="text-primary underline">
-                Recurring
-              </a>{" "}
-              page.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {data.fixedCosts.map((fc) => (
-                <div
-                  key={fc.categoryId}
-                  className="rounded-lg border p-3 space-y-2"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="h-2.5 w-2.5 rounded-full"
-                        style={{ backgroundColor: fc.categoryColor }}
-                      />
-                      <span className="font-medium text-sm">
-                        {fc.categoryName}
-                      </span>
-                    </div>
-                    <div className="text-right">
-                      <span className="font-semibold text-sm">
-                        {formatCurrency(fc.monthlyAmount)}
-                      </span>
-                      <span className="text-xs text-muted-foreground ml-1">
-                        /mo
-                      </span>
-                    </div>
-                  </div>
-                  {/* Show individual items */}
-                  <div className="pl-5 space-y-0.5">
-                    {fc.items.map((item, i) => (
-                      <div
-                        key={i}
-                        className="flex justify-between text-xs text-muted-foreground"
-                      >
-                        <span>{item.description}</span>
-                        <span>{formatCurrency(item.monthlyAmount)}</span>
-                      </div>
-                    ))}
-                  </div>
-                  {/* Spending bar */}
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-                      <div
-                        className="h-full rounded-full bg-slate-400"
-                        style={{
-                          width: `${Math.min(100, fc.monthlyAmount > 0 ? (fc.spent / fc.monthlyAmount) * 100 : 0)}%`,
-                        }}
-                      />
-                    </div>
-                    <span className="text-xs text-muted-foreground w-20 text-right">
-                      {formatCurrency(fc.spent)} spent
-                    </span>
-                  </div>
-                  {fc.avgMonthly > 0 && (
-                    <div className="text-xs text-muted-foreground pl-5">
-                      Avg. {formatCurrency(fc.avgMonthly)}/mo
-                      <span className="opacity-60"> (based on {fc.avgMonths} month{fc.avgMonths !== 1 ? "s" : ""})</span>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
       {/* Variable Spending Allocations */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
-            <Wallet className="h-4 w-4 text-blue-500" />
+            <Wallet className="h-4 w-4 text-blue-500 dark:text-blue-400" />
             Spending Allocations
           </CardTitle>
           <CardDescription>
@@ -576,15 +500,16 @@ export default function BudgetsPage() {
 
                 const statusColor =
                   alloc.status === "exceeded"
-                    ? "text-red-500"
+                    ? "text-red-500 dark:text-red-400"
                     : alloc.status === "warning"
-                      ? "text-amber-500"
-                      : "text-green-500";
+                      ? "text-amber-500 dark:text-amber-400"
+                      : "text-green-500 dark:text-green-400";
 
                 return (
                   <div
                     key={alloc.id}
-                    className="rounded-lg border p-3 group relative"
+                    className="rounded-lg border p-3 group relative cursor-pointer hover:bg-muted/50 transition-colors"
+                    onClick={() => setHistoryAlloc(alloc)}
                   >
                     <div
                       className="absolute inset-x-0 top-0 h-0.5 rounded-t-lg"
@@ -607,7 +532,7 @@ export default function BudgetsPage() {
                           </span>
                         </div>
                       </div>
-                      <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
                         <Button
                           variant="ghost"
                           size="icon"
@@ -687,7 +612,7 @@ export default function BudgetsPage() {
                         Avg. {formatCurrency(alloc.avgMonthly)}/mo
                         <span className="opacity-60"> ({alloc.avgMonths} mo)</span>
                         {Math.abs(alloc.amount - alloc.avgMonthly) > 1 && (
-                          <span className={alloc.amount >= alloc.avgMonthly ? "text-emerald-500" : "text-amber-500"}>
+                          <span className={alloc.amount >= alloc.avgMonthly ? "text-emerald-500 dark:text-emerald-400" : "text-amber-500 dark:text-amber-400"}>
                             {" \u2014 "}
                             {alloc.amount >= alloc.avgMonthly
                               ? `${formatCurrency(alloc.amount - alloc.avgMonthly)} buffer`
@@ -703,6 +628,98 @@ export default function BudgetsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Fixed Costs (auto from recurring) */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Lock className="h-4 w-4 text-slate-400" />
+            Fixed Costs
+          </CardTitle>
+          <CardDescription>
+            Automatically populated from your recurring expenses. Manage these
+            on the Recurring page.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {data.fixedCosts.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-6 text-center">
+              No recurring expenses set up yet. Add them on the{" "}
+              <a href="/recurring" className="text-primary underline">
+                Recurring
+              </a>{" "}
+              page.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {data.fixedCosts.map((fc) => (
+                <div
+                  key={fc.categoryId}
+                  className="rounded-lg border p-3 space-y-2 cursor-pointer hover:bg-muted/50 transition-colors"
+                  onClick={() => router.push(`/transactions?category=${fc.categoryId}`)}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="h-2.5 w-2.5 rounded-full"
+                        style={{ backgroundColor: fc.categoryColor }}
+                      />
+                      <span className="font-medium text-sm">
+                        {fc.categoryName}
+                      </span>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-semibold text-sm">
+                        {formatCurrency(fc.monthlyAmount)}
+                      </span>
+                      <span className="text-xs text-muted-foreground ml-1">
+                        /mo
+                      </span>
+                    </div>
+                  </div>
+                  {/* Show individual items */}
+                  <div className="pl-5 space-y-0.5">
+                    {fc.items.map((item, i) => (
+                      <div
+                        key={i}
+                        className="flex justify-between text-xs text-muted-foreground"
+                      >
+                        <span>{item.description}</span>
+                        <span>{formatCurrency(item.monthlyAmount)}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Spending bar */}
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-slate-400"
+                        style={{
+                          width: `${Math.min(100, fc.monthlyAmount > 0 ? (fc.spent / fc.monthlyAmount) * 100 : 0)}%`,
+                        }}
+                      />
+                    </div>
+                    <span className="text-xs text-muted-foreground w-20 text-right">
+                      {formatCurrency(fc.spent)} spent
+                    </span>
+                  </div>
+                  {fc.avgMonthly > 0 && (
+                    <div className="text-xs text-muted-foreground pl-5">
+                      Avg. {formatCurrency(fc.avgMonthly)}/mo
+                      <span className="opacity-60"> (based on {fc.avgMonths} month{fc.avgMonths !== 1 ? "s" : ""})</span>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <BudgetHistoryDialog
+        allocation={historyAlloc}
+        onOpenChange={(open) => { if (!open) setHistoryAlloc(null); }}
+      />
     </div>
   );
 }

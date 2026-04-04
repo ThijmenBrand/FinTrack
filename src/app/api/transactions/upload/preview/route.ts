@@ -1,20 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { transactions, importBatches, categoryRules, categories } from "@/db/schema";
+import { categoryRules, accounts, categories } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import Papa from "papaparse";
 import {
   parseAmount,
   parseDate,
   matchesRule,
+  extractPattern,
   type ColumnMapping,
+  type PreviewTransaction,
 } from "@/lib/csv-utils";
 
 interface CsvRow {
   [key: string]: string;
 }
 
-// POST /api/transactions/upload — parse and import CSV data
+/**
+ * POST /api/transactions/upload/preview
+ * Parse CSV and apply categorization rules without writing to the database.
+ * Returns a preview of transactions for user review.
+ */
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
@@ -32,7 +38,6 @@ export async function POST(request: NextRequest) {
     const mapping: ColumnMapping = JSON.parse(mappingJson);
     const csvText = await file.text();
 
-    // Parse CSV
     const parsed = Papa.parse<CsvRow>(csvText, {
       header: true,
       skipEmptyLines: true,
@@ -42,10 +47,7 @@ export async function POST(request: NextRequest) {
 
     if (parsed.errors.length > 0) {
       return NextResponse.json(
-        {
-          error: "CSV parsing errors",
-          details: parsed.errors.slice(0, 5),
-        },
+        { error: "CSV parsing errors", details: parsed.errors.slice(0, 5) },
         { status: 400 }
       );
     }
@@ -56,28 +58,24 @@ export async function POST(request: NextRequest) {
       .from(categoryRules)
       .where(eq(categoryRules.isActive, true));
 
-    // Get "Internal Transfer" category id
+    // Build IBAN → account lookup for internal transfer detection
+    const allAccounts = await db.select().from(accounts);
+    const ibanToAccount = new Map<string, { id: string; name: string }>();
+    for (const acc of allAccounts) {
+      if (acc.iban) {
+        ibanToAccount.set(acc.iban.replace(/\s/g, "").toUpperCase(), { id: acc.id, name: acc.name });
+      }
+    }
+
+    // Get the "Internal Transfer" category
     const [transferCategory] = await db
       .select()
       .from(categories)
       .where(eq(categories.name, "Internal Transfer"));
 
-    // Create import batch
-    const batchId = crypto.randomUUID();
-    await db.insert(importBatches).values({
-      id: batchId,
-      accountId,
-      fileName: file.name,
-      transactionCount: parsed.data.length,
-      importedAt: new Date().toISOString(),
-    });
-
-    // Process each row
-    const importedTransactions = [];
-    let skipped = 0;
-
-    // Collect all column names for fallback description lookup
     const allColumns = parsed.meta.fields || [];
+    const transactions: PreviewTransaction[] = [];
+    let skipped = 0;
 
     for (const row of parsed.data) {
       const dateRaw = row[mapping.date]?.trim();
@@ -85,7 +83,7 @@ export async function POST(request: NextRequest) {
       const amountRaw = row[mapping.amount]?.trim();
       const balanceRaw = mapping.balance ? row[mapping.balance]?.trim() : undefined;
 
-      // If mapped description is empty, try fallback columns
+      // Description fallback logic
       if (!description) {
         const fallbackKeys = ["omschrijving", "description", "memo", "naam", "name"];
         for (const key of fallbackKeys) {
@@ -99,12 +97,12 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Last resort: concatenate all non-empty text fields for a description
       if (!description) {
-        description = Object.values(row)
-          .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
-          .join(" | ")
-          .substring(0, 200) || "Unknown transaction";
+        description =
+          Object.values(row)
+            .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+            .join(" | ")
+            .substring(0, 200) || "Unknown transaction";
       }
 
       if (!dateRaw || !amountRaw) {
@@ -125,53 +123,62 @@ export async function POST(request: NextRequest) {
       }
 
       const balance = balanceRaw ? parseAmount(balanceRaw) : null;
-      const type = amount >= 0 ? "income" : "expense";
+      let type: "income" | "expense" | "internal_transfer" = amount >= 0 ? "income" : "expense";
 
-      // Auto-categorize using rules
-      let categoryId: string | null = null;
-      for (const rule of rules) {
-        const matches = matchesRule(description, rule.pattern, rule.matchType);
-        if (matches) {
-          categoryId = rule.categoryId;
-          break;
+      // Check for internal transfer via counterparty IBAN
+      let targetAccountId: string | undefined;
+      let targetAccountName: string | undefined;
+      let counterpartyIban: string | undefined;
+      if (mapping.counterpartyIban) {
+        const rawIban = row[mapping.counterpartyIban]?.trim();
+        if (rawIban) {
+          counterpartyIban = rawIban;
+          const normalizedIban = rawIban.replace(/\s/g, "").toUpperCase();
+          const matchedAccount = ibanToAccount.get(normalizedIban);
+          if (matchedAccount && matchedAccount.id !== accountId) {
+            type = "internal_transfer";
+            targetAccountId = matchedAccount.id;
+            targetAccountName = matchedAccount.name;
+          }
         }
       }
 
-      const txId = crypto.randomUUID();
-      importedTransactions.push({
-        id: txId,
-        accountId,
+      // Auto-categorize using rules (skip if already detected as transfer)
+      let categoryId: string | null = null;
+      if (type === "internal_transfer" && transferCategory) {
+        categoryId = transferCategory.id;
+      } else {
+        for (const rule of rules) {
+          if (matchesRule(description, rule.pattern, rule.matchType)) {
+            categoryId = rule.categoryId;
+            break;
+          }
+        }
+      }
+
+      transactions.push({
+        tempId: crypto.randomUUID(),
         date,
         description,
         amount,
-        balance: isNaN(balance as number) ? null : balance,
+        balance: balance !== null && isNaN(balance) ? null : balance,
+        type,
         categoryId,
-        type: type as "income" | "expense" | "internal_transfer",
-        linkedTransactionId: null,
-        notes: null,
-        isManual: false,
-        importBatchId: batchId,
-        createdAt: new Date().toISOString(),
+        suggestedPattern: extractPattern(description),
+        counterpartyIban,
+        targetAccountId,
+        targetAccountName,
       });
     }
 
-    // Batch insert transactions (SQLite has a limit, so chunk them)
-    const chunkSize = 50;
-    for (let i = 0; i < importedTransactions.length; i += chunkSize) {
-      const chunk = importedTransactions.slice(i, i + chunkSize);
-      await db.insert(transactions).values(chunk);
-    }
-
     return NextResponse.json({
-      success: true,
-      imported: importedTransactions.length,
+      transactions,
       skipped,
-      batchId,
     });
   } catch (error) {
-    console.error("CSV upload failed:", error);
+    console.error("CSV preview failed:", error);
     return NextResponse.json(
-      { error: "Failed to process CSV upload: " + String(error) },
+      { error: "Failed to preview CSV: " + String(error) },
       { status: 500 }
     );
   }

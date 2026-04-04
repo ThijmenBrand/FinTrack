@@ -41,8 +41,9 @@ export async function initializeDatabase() {
       amount REAL NOT NULL,
       balance REAL,
       category_id TEXT REFERENCES categories(id),
-      type TEXT NOT NULL CHECK(type IN ('income', 'expense', 'internal_transfer')),
+      type TEXT NOT NULL CHECK(type IN ('income', 'expense', 'internal_transfer', 'reimbursement')),
       linked_transaction_id TEXT,
+      reimburses_transaction_id TEXT,
       notes TEXT,
       is_manual INTEGER NOT NULL DEFAULT 0,
       import_batch_id TEXT,
@@ -105,12 +106,106 @@ export async function initializeDatabase() {
     )
   `);
 
+  // Add iban column to accounts (migration)
+  await db.run(sql`ALTER TABLE accounts ADD COLUMN iban TEXT`).catch(() => {
+    // Column already exists, ignore
+  });
+
+  // Add sort_order column to accounts (migration)
+  await db.run(sql`ALTER TABLE accounts ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0`).catch(() => {
+    // Column already exists, ignore
+  });
+
+  // Add reimburses_transaction_id column to transactions (migration)
+  await db.run(sql`ALTER TABLE transactions ADD COLUMN reimburses_transaction_id TEXT`).catch(() => {
+    // Column already exists, ignore
+  });
+
+  // Migrate transactions table CHECK constraint to include 'reimbursement' type.
+  // SQLite can't ALTER CHECK constraints, so we must recreate the table.
+  // Only run if the old constraint is still in place.
+  try {
+    const tableInfo = await db.run(sql`SELECT sql FROM sqlite_master WHERE type='table' AND name='transactions'`);
+    const createSql = (tableInfo.rows[0] as Record<string, unknown>)?.sql as string || "";
+    if (createSql.includes("'internal_transfer')") && !createSql.includes("'reimbursement'")) {
+      await db.run(sql`PRAGMA foreign_keys = OFF`);
+      await db.run(sql`
+        CREATE TABLE transactions_new (
+          id TEXT PRIMARY KEY,
+          account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+          date TEXT NOT NULL,
+          description TEXT NOT NULL,
+          amount REAL NOT NULL,
+          balance REAL,
+          category_id TEXT REFERENCES categories(id),
+          type TEXT NOT NULL CHECK(type IN ('income', 'expense', 'internal_transfer', 'reimbursement')),
+          linked_transaction_id TEXT,
+          reimburses_transaction_id TEXT,
+          notes TEXT,
+          is_manual INTEGER NOT NULL DEFAULT 0,
+          import_batch_id TEXT,
+          created_at TEXT NOT NULL
+        )
+      `);
+      await db.run(sql`
+        INSERT INTO transactions_new
+        SELECT id, account_id, date, description, amount, balance, category_id, type,
+               linked_transaction_id, reimburses_transaction_id, notes, is_manual,
+               import_batch_id, created_at
+        FROM transactions
+      `);
+      await db.run(sql`DROP TABLE transactions`);
+      await db.run(sql`ALTER TABLE transactions_new RENAME TO transactions`);
+      await db.run(sql`PRAGMA foreign_keys = ON`);
+    }
+  } catch (e) {
+    console.error("Failed to migrate transactions CHECK constraint:", e);
+  }
+
+  // Create reimbursement_links junction table (many-to-many: reimbursements ↔ expenses)
+  await db.run(sql`
+    CREATE TABLE IF NOT EXISTS reimbursement_links (
+      id TEXT PRIMARY KEY,
+      reimbursement_id TEXT NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+      expense_id TEXT NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL
+    )
+  `);
+  await db.run(sql`CREATE INDEX IF NOT EXISTS idx_reimb_links_reimbursement ON reimbursement_links(reimbursement_id)`);
+  await db.run(sql`CREATE INDEX IF NOT EXISTS idx_reimb_links_expense ON reimbursement_links(expense_id)`);
+  await db.run(sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_reimb_links_unique ON reimbursement_links(reimbursement_id, expense_id)`);
+
+  // Migrate existing 1:1 reimbursement links to the junction table
+  await db.run(sql`
+    INSERT OR IGNORE INTO reimbursement_links (id, reimbursement_id, expense_id, created_at)
+    SELECT hex(randomblob(16)), id, reimburses_transaction_id, created_at
+    FROM transactions
+    WHERE reimburses_transaction_id IS NOT NULL
+  `);
+
+  // Create transaction_groups table (Pots)
+  await db.run(sql`
+    CREATE TABLE IF NOT EXISTS transaction_groups (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      category_id TEXT REFERENCES categories(id),
+      created_at TEXT NOT NULL
+    )
+  `);
+
+  // Add group_id column to transactions
+  await db.run(sql`ALTER TABLE transactions ADD COLUMN group_id TEXT`).catch(() => {
+    // Column already exists, ignore
+  });
+
   // Create useful indexes
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_transactions_account ON transactions(account_id)`);
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date)`);
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_transactions_category ON transactions(category_id)`);
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type)`);
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_category_rules_pattern ON category_rules(pattern)`);
+  await db.run(sql`CREATE INDEX IF NOT EXISTS idx_transactions_reimburses ON transactions(reimburses_transaction_id)`);
+  await db.run(sql`CREATE INDEX IF NOT EXISTS idx_transactions_group ON transactions(group_id)`);
 
   // Seed default categories if none exist
   const existingCategories = await db.run(sql`SELECT COUNT(*) as count FROM categories`);
