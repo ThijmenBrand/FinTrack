@@ -3,12 +3,14 @@
 import { useState } from "react";
 import { Landmark } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
+import { useRouter } from "next/navigation";
 
 export default function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const router = useRouter();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -26,7 +28,8 @@ export default function LoginPage() {
         return;
       }
 
-      window.location.href = "/";
+      // Redirect to home page on successful login
+      router.push("/");
     } catch {
       setError("Something went wrong. Please try again.");
     } finally {
