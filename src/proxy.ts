@@ -1,7 +1,34 @@
+import { auth } from "@/lib/auth";
+import { getSessionCookie } from "better-auth/cookies";
 import { NextRequest, NextResponse } from "next/server";
 
 // Paths that do not require authentication
 const publicPaths = ["/api/auth/", "/sw.js", "/manifest.json"];
+
+async function validateSession(request: NextRequest): Promise<boolean> {
+  try {
+    const session = await auth.api.getSession({ headers: request.headers });
+    return !!session?.session && !!session?.user;
+  } catch {
+    return false;
+  }
+}
+
+function clearAuthCookies(response: NextResponse): NextResponse {
+  response.cookies.delete("better-auth.session_token");
+  response.cookies.delete("__Secure-better-auth.session_token");
+  response.cookies.delete("better-auth.session_data");
+  response.cookies.delete("__Secure-better-auth.session_data");
+  return response;
+}
+
+function unauthorizedResponse(request: NextRequest): NextResponse {
+  const { pathname } = request.nextUrl;
+  if (pathname.startsWith("/api/")) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  return NextResponse.redirect(new URL("/login", request.url));
+}
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -15,9 +42,19 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Allow /login through — the login page handles redirect if already authenticated
+  const sessionToken = getSessionCookie(request.headers);
+
+  // Redirect authenticated users away from /login, but allow stale sessions through
   if (pathname === "/login") {
-    return NextResponse.next();
+    if (!sessionToken) {
+      return NextResponse.next();
+    }
+
+    if (await validateSession(request)) {
+      return NextResponse.redirect(new URL("/", request.url));
+    }
+
+    return clearAuthCookies(NextResponse.next());
   }
 
   // Allow public paths through regardless of auth state
@@ -25,15 +62,12 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Protected routes: check for session cookie existence only.
-  // Full session validation is handled by requireAuth() in server components.
-  const hasSession = request.cookies.has("better-auth.session_token");
+  if (!sessionToken) {
+    return unauthorizedResponse(request);
+  }
 
-  if (!hasSession) {
-    if (pathname.startsWith("/api/")) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    return NextResponse.redirect(new URL("/login", request.url));
+  if (!(await validateSession(request))) {
+    return clearAuthCookies(unauthorizedResponse(request));
   }
 
   return NextResponse.next();
