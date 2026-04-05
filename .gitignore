@@ -41,3 +41,4 @@ data/*.db
 data/*.db-journal
 prisma/*.db
 prisma/*.db-journal
+data/*
