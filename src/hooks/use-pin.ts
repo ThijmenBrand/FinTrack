@@ -40,13 +40,28 @@ export function useRemovePin() {
   });
 }
 
-export function useVerifyPin() {
+export function useUnlockPin() {
   return useMutation({
-    mutationFn: (payload: { username: string; pin: string }) =>
-      apiFetch<{ success: boolean }>("/api/auth/pin/verify", {
+    mutationFn: (payload: { pin: string }) =>
+      apiFetch<{ success: boolean }>("/api/auth/pin/unlock", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       }),
+  });
+}
+
+export function useInitialSetupPin() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { pin: string }) =>
+      apiFetch<{ success: boolean }>("/api/auth/pin/initial-setup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["pin-status"] });
+    },
   });
 }

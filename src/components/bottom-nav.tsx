@@ -63,6 +63,8 @@ export function BottomNav() {
   }, []);
 
   async function handleLogout() {
+    localStorage.removeItem("lockscreen_username");
+    localStorage.removeItem("lockscreen_has_pin");
     await signOut();
     router.push("/login");
     router.refresh();
