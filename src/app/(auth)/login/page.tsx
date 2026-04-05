@@ -1,33 +1,21 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState } from "react";
 import { Landmark, ArrowLeft, Fingerprint } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { useRouter } from "next/navigation";
-import { useVerifyPin } from "@/hooks/use-pin";
 
-type LoginStep = "username" | "method" | "password" | "pin";
+type LoginStep = "username" | "method" | "password";
 
 export default function LoginPage() {
   const [step, setStep] = useState<LoginStep>("username");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [pin, setPin] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [hasPin, setHasPin] = useState(false);
   const [hasWebAuthn, setHasWebAuthn] = useState(false);
   const [checkingMethods, setCheckingMethods] = useState(false);
   const router = useRouter();
-  const verifyPin = useVerifyPin();
-  const pinInputRef = useRef<HTMLInputElement>(null);
-
-  // Auto-focus PIN input when switching to PIN step
-  useEffect(() => {
-    if (step === "pin" && pinInputRef.current) {
-      pinInputRef.current.focus();
-    }
-  }, [step]);
 
   async function handleUsernameContinue(e: React.FormEvent) {
     e.preventDefault();
@@ -35,19 +23,19 @@ export default function LoginPage() {
     setCheckingMethods(true);
 
     try {
-      // Always offer PIN as an option to avoid leaking which accounts have PIN enabled.
-      // If the user doesn't have a PIN, the verify endpoint will reject the attempt.
-      setHasPin(true);
-
       const webAuthnAvailable =
         typeof window !== "undefined" && window.PublicKeyCredential
           ? await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
           : false;
 
       setHasWebAuthn(webAuthnAvailable);
-      setStep("method");
+
+      if (webAuthnAvailable) {
+        setStep("method");
+      } else {
+        setStep("password");
+      }
     } catch {
-      // Fallback to password if checks fail
       setStep("password");
     } finally {
       setCheckingMethods(false);
@@ -70,25 +58,10 @@ export default function LoginPage() {
         return;
       }
 
+      localStorage.setItem("lockscreen_username", username);
       router.push("/");
     } catch {
       setError("Something went wrong. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handlePinSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError("");
-    setLoading(true);
-
-    try {
-      await verifyPin.mutateAsync({ username, pin });
-      router.push("/");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Invalid PIN");
-      setPin("");
     } finally {
       setLoading(false);
     }
@@ -104,6 +77,9 @@ export default function LoginPage() {
         setError(String(result.error.message || "Biometric authentication failed"));
         return;
       }
+      if (username) {
+        localStorage.setItem("lockscreen_username", username);
+      }
       router.push("/");
     } catch {
       setError("Biometric authentication failed. Try another method.");
@@ -114,10 +90,9 @@ export default function LoginPage() {
 
   function goBack() {
     setError("");
-    setPin("");
     setPassword("");
-    if (step === "password" || step === "pin") {
-      if (hasPin || hasWebAuthn) {
+    if (step === "password") {
+      if (hasWebAuthn) {
         setStep("method");
       } else {
         setStep("username");
@@ -142,7 +117,6 @@ export default function LoginPage() {
             {step === "username" && "Sign in to your account"}
             {step === "method" && "Choose how to sign in"}
             {step === "password" && "Enter your password"}
-            {step === "pin" && "Enter your PIN"}
           </p>
         </div>
 
@@ -210,16 +184,6 @@ export default function LoginPage() {
               </button>
             )}
 
-            {hasPin && (
-              <button
-                onClick={() => { setError(""); setStep("pin"); }}
-                disabled={loading}
-                className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-md border border-input bg-background px-4 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
-              >
-                PIN Code
-              </button>
-            )}
-
             <button
               onClick={() => { setError(""); setStep("password"); }}
               disabled={loading}
@@ -267,61 +231,6 @@ export default function LoginPage() {
               className="inline-flex h-10 w-full items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
             >
               {loading ? "Signing in..." : "Sign in"}
-            </button>
-          </form>
-        )}
-
-        {/* PIN Form */}
-        {step === "pin" && (
-          <form onSubmit={handlePinSubmit} className="space-y-4">
-            <p className="text-xs text-muted-foreground text-center">
-              Signing in as <span className="font-medium text-foreground">{username}</span>
-            </p>
-
-            <div className="space-y-2">
-              <label
-                htmlFor="pinLogin"
-                className="text-sm font-medium leading-none text-foreground"
-              >
-                PIN Code
-              </label>
-              <input
-                id="pinLogin"
-                ref={pinInputRef}
-                type="password"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                maxLength={6}
-                required
-                minLength={4}
-                value={pin}
-                onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
-                className="flex h-12 w-full rounded-md border border-input bg-background px-3 py-2 text-lg tracking-[0.5em] text-center ring-offset-background placeholder:text-muted-foreground placeholder:tracking-normal placeholder:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                placeholder="Enter PIN"
-              />
-              {/* PIN dots indicator */}
-              <div className="flex justify-center gap-2 pt-1">
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className={`h-2.5 w-2.5 rounded-full transition-colors ${
-                      i < pin.length
-                        ? "bg-primary"
-                        : "bg-muted"
-                    }`}
-                  />
-                ))}
-              </div>
-            </div>
-
-            {error && <p className="text-sm text-red-500 text-center">{error}</p>}
-
-            <button
-              type="submit"
-              disabled={loading || pin.length < 4}
-              className="inline-flex h-10 w-full items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
-            >
-              {loading ? "Verifying..." : "Sign in with PIN"}
             </button>
           </form>
         )}

@@ -5,36 +5,7 @@ import { userPin, account, user } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { headers } from "next/headers";
 import { validateCsrfOrigin } from "@/lib/csrf";
-
-const TRIVIAL_PINS = [
-  "0000", "1111", "2222", "3333", "4444", "5555", "6666", "7777", "8888", "9999",
-  "00000", "11111", "22222", "33333", "44444", "55555", "66666", "77777", "88888", "99999",
-  "000000", "111111", "222222", "333333", "444444", "555555", "666666", "777777", "888888", "999999",
-  "1234", "12345", "123456", "4321", "54321", "654321",
-  "0123", "01234", "012345",
-  "9876", "98765", "987654",
-];
-
-function isSequential(pin: string): boolean {
-  const digits = pin.split("").map(Number);
-  let ascending = true;
-  let descending = true;
-  for (let i = 1; i < digits.length; i++) {
-    if (digits[i] !== digits[i - 1] + 1) ascending = false;
-    if (digits[i] !== digits[i - 1] - 1) descending = false;
-  }
-  return ascending || descending;
-}
-
-function validatePin(pin: string): string | null {
-  if (!/^\d{4,6}$/.test(pin)) {
-    return "PIN must be 4-6 digits";
-  }
-  if (TRIVIAL_PINS.includes(pin) || isSequential(pin)) {
-    return "PIN is too simple. Avoid sequential or repeating digits.";
-  }
-  return null;
-}
+import { validatePin } from "@/lib/pin-utils";
 
 // POST: Set or update PIN (requires active session + current password)
 export async function POST(req: NextRequest) {

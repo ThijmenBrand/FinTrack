@@ -15,6 +15,7 @@ export const userPin = sqliteTable("user_pin", {
   pinHash: text("pin_hash").notNull(),
   failedAttempts: integer("failed_attempts").notNull().default(0),
   lockedUntil: integer("locked_until", { mode: "timestamp_ms" }),
+  lockoutCount: integer("lockout_count").notNull().default(0),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
