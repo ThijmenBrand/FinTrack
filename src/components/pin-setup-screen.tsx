@@ -4,11 +4,14 @@ import { useState, useEffect, useRef } from "react";
 import { Landmark, ShieldCheck } from "lucide-react";
 import { useHasPin, useInitialSetupPin } from "@/hooks/use-pin";
 import { useSession } from "@/lib/auth-client";
+import { useQueryClient } from "@tanstack/react-query";
+import { ApiError } from "@/lib/api";
 
 export function PinSetupScreen() {
   const { data: session, isPending: sessionLoading } = useSession();
-  const { data: pinStatus, isPending: pinLoading } = useHasPin();
+  const { data: pinStatus, isPending: pinLoading, isError: pinError } = useHasPin();
   const initialSetup = useInitialSetupPin();
+  const queryClient = useQueryClient();
 
   const [pin, setPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
@@ -38,6 +41,7 @@ export function PinSetupScreen() {
   if (!isStandalone) return null;
   if (sessionLoading || pinLoading) return null;
   if (!session?.user) return null;
+  if (pinError) return null;
   if (pinStatus?.hasPin) return null;
 
   async function handleEnterPin(e: React.FormEvent) {
@@ -68,6 +72,12 @@ export function PinSetupScreen() {
       // Success - hasPin query will refetch and this screen will disappear
       localStorage.setItem("lockscreen_has_pin", "true");
     } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        // PIN already exists — refresh status so this screen dismisses
+        localStorage.setItem("lockscreen_has_pin", "true");
+        queryClient.invalidateQueries({ queryKey: ["pin-status"] });
+        return;
+      }
       setError(err instanceof Error ? err.message : "Failed to set PIN");
       setPin("");
       setConfirmPin("");
