@@ -94,7 +94,7 @@ export interface Pot {
 export interface Profile {
   id: string;
   username: string;
-  displayName: string;
+  displayUsername: string;
   isAdmin: boolean;
   createdAt: string;
 }
@@ -102,7 +102,7 @@ export interface Profile {
 export interface AdminUser {
   id: string;
   username: string;
-  displayName: string;
+  displayUsername: string;
   isAdmin: boolean;
   createdAt: string;
 }

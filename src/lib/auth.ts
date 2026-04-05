@@ -99,7 +99,7 @@ export const auth = betterAuth({
 export interface SessionData {
   userId: string;
   username: string;
-  displayName: string;
+  displayUsername: string;
   isAdmin: boolean;
 }
 
@@ -135,7 +135,7 @@ export async function requireAuth(): Promise<SessionData> {
       ((session.user as Record<string, unknown>).username as string) ||
       session.user.name ||
       "",
-    displayName: session.user.name || "",
+    displayUsername: session.user.name || "",
     isAdmin: (session.user as Record<string, unknown>).role === "admin",
   };
 }
@@ -158,7 +158,7 @@ export async function requireAdmin(): Promise<SessionData> {
       ((session.user as Record<string, unknown>).username as string) ||
       session.user.name ||
       "",
-    displayName: session.user.name || "",
+    displayUsername: session.user.name || "",
     isAdmin: (session.user as Record<string, unknown>).role === "admin",
   };
   if (!data.isAdmin) {

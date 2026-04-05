@@ -32,7 +32,7 @@ export default function AdminPage() {
   const [showForm, setShowForm] = useState(false);
   const [newUsername, setNewUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
-  const [newDisplayName, setNewDisplayName] = useState("");
+  const [newDisplayUsername, setNewDisplayUsername] = useState("");
   const [newIsAdmin, setNewIsAdmin] = useState(false);
   const [creating, setCreating] = useState(false);
 
@@ -49,14 +49,14 @@ export default function AdminPage() {
       await createUser.mutateAsync({
         username: newUsername,
         password: newPassword,
-        displayName: newDisplayName,
+        displayUsername: newDisplayUsername,
         isAdmin: newIsAdmin,
       });
 
       setShowForm(false);
       setNewUsername("");
       setNewPassword("");
-      setNewDisplayName("");
+      setNewDisplayUsername("");
       setNewIsAdmin(false);
     } catch (err) {
       if (err instanceof ApiError) {
@@ -159,8 +159,8 @@ export default function AdminPage() {
                   <input
                     type="text"
                     required
-                    value={newDisplayName}
-                    onChange={(e) => setNewDisplayName(e.target.value)}
+                    value={newDisplayUsername}
+                    onChange={(e) => setNewDisplayUsername(e.target.value)}
                     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     placeholder="Display Name"
                   />
@@ -226,11 +226,11 @@ export default function AdminPage() {
               >
                 <div className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
-                    {user.displayName.charAt(0).toUpperCase()}
+                    {user.displayUsername.charAt(0).toUpperCase()}
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <p className="font-medium">{user.displayName}</p>
+                      <p className="font-medium">{user.displayUsername}</p>
                       {user.isAdmin && (
                         <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-500/20 dark:text-amber-400">
                           <Shield className="h-3 w-3" />

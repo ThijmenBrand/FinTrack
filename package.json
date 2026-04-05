@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build && npx drizzle-kit push && tsx scripts/db-init.ts",
+    "auth:generate": "npx @better-auth/cli generate --output ./src/db/auth-schema.ts",
     "start": "next start",
     "lint": "next lint",
     "db:init": "tsx scripts/db-init.ts",

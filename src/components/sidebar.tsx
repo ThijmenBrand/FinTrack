@@ -43,7 +43,7 @@ export function Sidebar() {
 
   const user = session?.user
     ? {
-        displayName: (session.user as Record<string, unknown>).displayName as string || session.user.name || "",
+        displayUsername: (session.user as Record<string, unknown>).displayUsername as string || session.user.name || "",
         username: (session.user as Record<string, unknown>).username as string || "",
         isAdmin: (session.user as Record<string, unknown>).role === "admin",
       }
@@ -129,11 +129,11 @@ export function Sidebar() {
             )}
           >
             <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
-              {user.displayName.charAt(0).toUpperCase()}
+              {user.displayUsername.charAt(0).toUpperCase()}
             </div>
             {!collapsed && (
               <span className="text-sm font-medium text-sidebar-foreground truncate">
-                {user.displayName}
+                {user.displayUsername}
               </span>
             )}
           </Link>

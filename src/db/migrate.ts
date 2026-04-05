@@ -69,12 +69,12 @@ export async function initializeDatabase() {
     const now = Date.now();
 
     await db.run(sql`
-      INSERT INTO "user" (id, name, email, emailVerified, username, displayName, role, createdAt, updatedAt)
+      INSERT INTO "user" (id, name, email, email_verified, username, display_username, role, created_at, updated_at)
       VALUES (${adminUserId}, ${adminDisplayName}, ${adminUsername + '@local'}, 0, ${adminUsername}, ${adminDisplayName}, 'admin', ${now}, ${now})
     `);
 
     await db.run(sql`
-      INSERT INTO account (id, accountId, providerId, userId, password, createdAt, updatedAt)
+      INSERT INTO account (id, account_id, provider_id, user_id, password, created_at, updated_at)
       VALUES (${crypto.randomUUID()}, ${adminUserId}, 'credential', ${adminUserId}, ${hashedPassword}, ${now}, ${now})
     `);
 

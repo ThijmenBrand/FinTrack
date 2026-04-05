@@ -52,7 +52,7 @@ export function BottomNav() {
 
   const user = session?.user
     ? {
-        displayName: (session.user as Record<string, unknown>).displayName as string || session.user.name || "",
+        displayUsername: (session.user as Record<string, unknown>).displayUsername as string || session.user.name || "",
         username: (session.user as Record<string, unknown>).username as string || "",
         isAdmin: (session.user as Record<string, unknown>).role === "admin",
       }
@@ -167,10 +167,10 @@ export function BottomNav() {
                 className="flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-muted"
               >
                 <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
-                  {user.displayName.charAt(0).toUpperCase()}
+                  {user.displayUsername.charAt(0).toUpperCase()}
                 </div>
                 <div>
-                  <p className="text-sm font-medium">{user.displayName}</p>
+                  <p className="text-sm font-medium">{user.displayUsername}</p>
                   <p className="text-xs text-muted-foreground">@{user.username}</p>
                 </div>
               </Link>

@@ -1,103 +1,7 @@
 import { sqliteTable, text, integer, real, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { relations, sql } from "drizzle-orm";
-
-// ─── Users (Better Auth compatible) ────────────────────────────────────────
-export const user = sqliteTable("user", {
-  id: text("id")
-    .primaryKey()
-    .$defaultFn(() => crypto.randomUUID()),
-  name: text("name").notNull(),
-  email: text("email").notNull().unique(),
-  emailVerified: integer("emailVerified", { mode: "boolean" }).notNull().default(false),
-  image: text("image"),
-  username: text("username").notNull().unique(),
-  displayName: text("displayName"),
-  role: text("role").default("user"),
-  banned: integer("banned", { mode: "boolean" }),
-  banReason: text("banReason"),
-  banExpires: integer("banExpires", { mode: "timestamp_ms" }),
-  createdAt: integer("createdAt", { mode: "timestamp_ms" })
-    .notNull()
-    .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`),
-  updatedAt: integer("updatedAt", { mode: "timestamp_ms" })
-    .notNull()
-    .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-    .$onUpdate(() => new Date()),
-});
-
-// ─── Better Auth: Session ──────────────────────────────────────────────────
-export const session = sqliteTable("session", {
-  id: text("id").primaryKey(),
-  expiresAt: integer("expiresAt", { mode: "timestamp_ms" }).notNull(),
-  token: text("token").notNull().unique(),
-  createdAt: integer("createdAt", { mode: "timestamp_ms" })
-    .notNull()
-    .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`),
-  updatedAt: integer("updatedAt", { mode: "timestamp_ms" })
-    .notNull()
-    .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-    .$onUpdate(() => new Date()),
-  ipAddress: text("ipAddress"),
-  userAgent: text("userAgent"),
-  userId: text("userId")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-  impersonatedBy: text("impersonatedBy"),
-});
-
-// ─── Better Auth: Account (auth provider accounts) ─────────────────────────
-export const account = sqliteTable("account", {
-  id: text("id").primaryKey(),
-  accountId: text("accountId").notNull(),
-  providerId: text("providerId").notNull(),
-  userId: text("userId")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-  accessToken: text("accessToken"),
-  refreshToken: text("refreshToken"),
-  idToken: text("idToken"),
-  accessTokenExpiresAt: integer("accessTokenExpiresAt", { mode: "timestamp_ms" }),
-  refreshTokenExpiresAt: integer("refreshTokenExpiresAt", { mode: "timestamp_ms" }),
-  scope: text("scope"),
-  password: text("password"),
-  createdAt: integer("createdAt", { mode: "timestamp_ms" })
-    .notNull()
-    .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`),
-  updatedAt: integer("updatedAt", { mode: "timestamp_ms" })
-    .notNull()
-    .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-    .$onUpdate(() => new Date()),
-});
-
-// ─── Better Auth: Verification ─────────────────────────────────────────────
-export const verification = sqliteTable("verification", {
-  id: text("id").primaryKey(),
-  identifier: text("identifier").notNull(),
-  value: text("value").notNull(),
-  expiresAt: integer("expiresAt", { mode: "timestamp_ms" }).notNull(),
-  createdAt: integer("createdAt", { mode: "timestamp_ms" })
-    .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`),
-  updatedAt: integer("updatedAt", { mode: "timestamp_ms" })
-    .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-    .$onUpdate(() => new Date()),
-});
-
-// ─── Better Auth: Passkey ──────────────────────────────────────────────────
-export const passkey = sqliteTable("passkey", {
-  id: text("id").primaryKey(),
-  name: text("name"),
-  publicKey: text("publicKey").notNull(),
-  userId: text("userId")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-  credentialID: text("credentialID").notNull().unique(),
-  counter: integer("counter").notNull().default(0),
-  deviceType: text("deviceType").notNull(),
-  backedUp: integer("backedUp", { mode: "boolean" }).notNull().default(false),
-  transports: text("transports"),
-  createdAt: integer("createdAt", { mode: "timestamp_ms" })
-    .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`),
-});
+export { user, session, account, verification, passkey, sessionRelations, accountRelations, passkeyRelations } from "./auth-schema";
+import { user, session, account, passkey } from "./auth-schema";
 
 // ─── User PIN ───────────────────────────────────────────────────────────────
 export const userPin = sqliteTable("user_pin", {
@@ -314,6 +218,9 @@ export const reimbursementLinks = sqliteTable("reimbursement_links", {
 // ─── Relations ───────────────────────────────────────────────────────────────
 
 export const usersRelations = relations(user, ({ many }) => ({
+  sessions: many(session),
+  authAccounts: many(account),
+  passkeys: many(passkey),
   accounts: many(accounts),
   transactions: many(transactions),
   categories: many(categories),

@@ -45,7 +45,7 @@ export async function GET() {
   const userId = await getUserId();
 
   const result = await db.run(
-    sql`SELECT id, username, displayName, role, createdAt FROM "user" WHERE id = ${userId}`
+    sql`SELECT id, username, display_username, name, role, created_at FROM "user" WHERE id = ${userId}`
   );
   const user = result.rows[0] as Record<string, unknown> | undefined;
 
@@ -56,16 +56,16 @@ export async function GET() {
   return NextResponse.json({
     id: user.id,
     username: user.username,
-    displayName: user.displayName || user.name,
+    displayUsername: user.display_username || user.name,
     isAdmin: user.role === "admin",
-    createdAt: user.createdAt,
+    createdAt: user.created_at,
   });
 }
 
 export async function PATCH(req: NextRequest) {
   const userId = await getUserId();
   const body = await req.json();
-  const { displayName, username, currentPassword, newPassword } = body;
+  const { displayUsername, username, currentPassword, newPassword } = body;
 
   const result = await db.run(
     sql`SELECT id, username FROM "user" WHERE id = ${userId}`
@@ -77,12 +77,12 @@ export async function PATCH(req: NextRequest) {
   }
 
   // Update display name and/or username
-  if (displayName !== undefined) {
-    if (!displayName.trim()) {
+  if (displayUsername !== undefined) {
+    if (!displayUsername.trim()) {
       return NextResponse.json({ error: "Display name cannot be empty" }, { status: 400 });
     }
     await db.run(
-      sql`UPDATE "user" SET name = ${displayName.trim()}, displayName = ${displayName.trim()}, updatedAt = ${Date.now()} WHERE id = ${userId}`
+      sql`UPDATE "user" SET name = ${displayUsername.trim()}, display_username = ${displayUsername.trim()}, updated_at = ${Date.now()} WHERE id = ${userId}`
     );
   }
 
@@ -97,7 +97,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Username already taken" }, { status: 409 });
     }
     await db.run(
-      sql`UPDATE "user" SET username = ${username.trim()}, email = ${username.trim() + '@local'}, updatedAt = ${Date.now()} WHERE id = ${userId}`
+      sql`UPDATE "user" SET username = ${username.trim()}, email = ${username.trim() + '@local'}, updated_at = ${Date.now()} WHERE id = ${userId}`
     );
   }
 
@@ -119,7 +119,7 @@ export async function PATCH(req: NextRequest) {
 
     // Get password hash from auth account table
     const acctResult = await db.run(
-      sql`SELECT password FROM account WHERE userId = ${userId} AND providerId = 'credential'`
+      sql`SELECT password FROM account WHERE user_id = ${userId} AND provider_id = 'credential'`
     );
     const acct = acctResult.rows[0] as Record<string, unknown> | undefined;
     if (!acct?.password) {
@@ -144,11 +144,11 @@ export async function PATCH(req: NextRequest) {
     }
     const hashed = await hashPassword(newPassword);
     await db.run(
-      sql`UPDATE account SET password = ${hashed}, updatedAt = ${Date.now()} WHERE userId = ${userId} AND providerId = 'credential'`
+      sql`UPDATE account SET password = ${hashed}, updated_at = ${Date.now()} WHERE user_id = ${userId} AND provider_id = 'credential'`
     );
   }
 
-  if (!displayName && !username && !newPassword) {
+  if (!displayUsername && !username && !newPassword) {
     return NextResponse.json({ error: "No changes provided" }, { status: 400 });
   }
 
