@@ -1,6 +1,7 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { admin, username } from "better-auth/plugins";
+import { passkey } from "@better-auth/passkey";
 import { db } from "@/db/index";
 import * as schema from "@/db/schema";
 import { headers } from "next/headers";
@@ -64,7 +65,7 @@ export const auth = betterAuth({
   secret: getSecret(),
   baseURL: getBaseURL(),
   trustedOrigins: [getBaseURL()],
-  plugins: [username(), admin()],
+  plugins: [username(), admin(), passkey({ rpName: "FinTrack" })],
   rateLimit: {
     enabled: true,
     window: 60,
