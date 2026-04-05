@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import Script from "next/script";
-import { headers } from "next/headers";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { QueryProvider } from "@/components/query-provider";
@@ -28,13 +27,11 @@ export const viewport: Viewport = {
   themeColor: "#1d6ec1",
 };
 
-export default async function RootLayout({
+export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const nonce = (await headers()).get("x-nonce") ?? undefined;
-
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -44,7 +41,7 @@ export default async function RootLayout({
         <ThemeProvider>
           <QueryProvider>{children}</QueryProvider>
         </ThemeProvider>
-        <Script id="sw-register" strategy="afterInteractive" nonce={nonce}>
+        <Script id="sw-register" strategy="afterInteractive">
           {`if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js'); }`}
         </Script>
       </body>
