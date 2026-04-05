@@ -23,6 +23,7 @@ import {
   Zap,
 } from "lucide-react";
 import { matchesRule, extractPattern } from "@/lib/csv-utils";
+import { cn } from "@/lib/utils";
 import type { PreviewTransaction } from "@/lib/csv-utils";
 
 interface Category {
@@ -99,117 +100,135 @@ const TransactionRow = memo(function TransactionRow({
   onCategoryChange: (tempId: string, categoryId: string) => void;
   isAutoMatched: boolean;
 }) {
+  const [expanded, setExpanded] = useState(false);
   const category = categories.find((c) => c.id === tx.categoryId);
 
+  const categorySelect = tx.categoryId && isAutoMatched ? (
+    <Select
+      value={tx.categoryId}
+      onValueChange={(v) => onCategoryChange(tx.tempId, v)}
+    >
+      <SelectTrigger className="h-7 text-xs border-dashed">
+        <span className="flex items-center gap-1.5 truncate">
+          <span
+            className="h-2 w-2 rounded-full shrink-0"
+            style={{ backgroundColor: category?.color || "#94a3b8" }}
+          />
+          <span className="truncate">{category?.name}</span>
+          <CheckCircle2 className="h-3 w-3 text-emerald-500 dark:text-emerald-400 shrink-0 ml-auto" />
+        </span>
+      </SelectTrigger>
+      <SelectContent>
+        {categories.map((cat) => (
+          <SelectItem key={cat.id} value={cat.id}>
+            <span className="flex items-center gap-2">
+              <span
+                className="h-2 w-2 rounded-full"
+                style={{ backgroundColor: cat.color || "#94a3b8" }}
+              />
+              {cat.name}
+            </span>
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  ) : tx.categoryId ? (
+    <Select
+      value={tx.categoryId}
+      onValueChange={(v) => onCategoryChange(tx.tempId, v)}
+    >
+      <SelectTrigger className="h-7 text-xs">
+        <span className="flex items-center gap-1.5 truncate">
+          <span
+            className="h-2 w-2 rounded-full shrink-0"
+            style={{ backgroundColor: category?.color || "#94a3b8" }}
+          />
+          <span className="truncate">{category?.name}</span>
+        </span>
+      </SelectTrigger>
+      <SelectContent>
+        {categories.map((cat) => (
+          <SelectItem key={cat.id} value={cat.id}>
+            <span className="flex items-center gap-2">
+              <span
+                className="h-2 w-2 rounded-full"
+                style={{ backgroundColor: cat.color || "#94a3b8" }}
+              />
+              {cat.name}
+            </span>
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  ) : (
+    <Select
+      value=""
+      onValueChange={(v) => onCategoryChange(tx.tempId, v)}
+    >
+      <SelectTrigger className="h-7 text-xs border-amber-300 dark:border-amber-700 bg-amber-50/50 dark:bg-amber-950/20">
+        <span className="flex items-center gap-1.5 text-muted-foreground">
+          <Tag className="h-3 w-3" />
+          <span>Select...</span>
+        </span>
+      </SelectTrigger>
+      <SelectContent>
+        {categories.map((cat) => (
+          <SelectItem key={cat.id} value={cat.id}>
+            <span className="flex items-center gap-2">
+              <span
+                className="h-2 w-2 rounded-full"
+                style={{ backgroundColor: cat.color || "#94a3b8" }}
+              />
+              {cat.name}
+            </span>
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+
   return (
-    <div className="flex items-center gap-3 px-3 py-2 border-b last:border-b-0 hover:bg-muted/30 transition-colors">
-      {/* Date */}
-      <span className="text-xs text-muted-foreground w-16 shrink-0">
-        {formatDate(tx.date)}
-      </span>
+    <div className="px-3 py-2 border-b last:border-b-0 hover:bg-muted/30 transition-colors space-y-1.5 sm:space-y-0">
+      <div className="flex items-center gap-2 sm:gap-3">
+        {/* Date */}
+        <span className="text-xs text-muted-foreground shrink-0 sm:w-16">
+          {formatDate(tx.date)}
+        </span>
 
-      {/* Description */}
-      <span className="text-sm truncate flex-1 min-w-0" title={tx.description}>
-        {tx.description}
-      </span>
+        {/* Description */}
+        <button
+          type="button"
+          onClick={() => setExpanded((prev) => !prev)}
+          className={cn(
+            "text-sm text-left flex-1 min-w-0 cursor-pointer hover:text-foreground/80 transition-colors",
+            !expanded && "truncate"
+          )}
+          title={expanded ? undefined : tx.description}
+        >
+          {tx.description}
+        </button>
 
-      {/* Amount */}
-      <span
-        className={`text-sm font-mono font-medium w-24 text-right shrink-0 tabular-nums ${
-          tx.amount >= 0
-            ? "text-emerald-600 dark:text-emerald-400"
-            : "text-red-600 dark:text-red-400"
-        }`}
-      >
-        {tx.amount >= 0 ? "+" : ""}
-        {formatCurrency(tx.amount)}
-      </span>
+        {/* Amount */}
+        <span
+          className={`text-sm font-mono font-medium text-right shrink-0 tabular-nums sm:w-24 ${
+            tx.amount >= 0
+              ? "text-emerald-600 dark:text-emerald-400"
+              : "text-red-600 dark:text-red-400"
+          }`}
+        >
+          {tx.amount >= 0 ? "+" : ""}
+          {formatCurrency(tx.amount)}
+        </span>
 
-      {/* Category selector */}
-      <div className="w-44 shrink-0">
-        {tx.categoryId && isAutoMatched ? (
-          <Select
-            value={tx.categoryId}
-            onValueChange={(v) => onCategoryChange(tx.tempId, v)}
-          >
-            <SelectTrigger className="h-7 text-xs border-dashed">
-              <span className="flex items-center gap-1.5 truncate">
-                <span
-                  className="h-2 w-2 rounded-full shrink-0"
-                  style={{ backgroundColor: category?.color || "#94a3b8" }}
-                />
-                <span className="truncate">{category?.name}</span>
-                <CheckCircle2 className="h-3 w-3 text-emerald-500 dark:text-emerald-400 shrink-0 ml-auto" />
-              </span>
-            </SelectTrigger>
-            <SelectContent>
-              {categories.map((cat) => (
-                <SelectItem key={cat.id} value={cat.id}>
-                  <span className="flex items-center gap-2">
-                    <span
-                      className="h-2 w-2 rounded-full"
-                      style={{ backgroundColor: cat.color || "#94a3b8" }}
-                    />
-                    {cat.name}
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : tx.categoryId ? (
-          <Select
-            value={tx.categoryId}
-            onValueChange={(v) => onCategoryChange(tx.tempId, v)}
-          >
-            <SelectTrigger className="h-7 text-xs">
-              <span className="flex items-center gap-1.5 truncate">
-                <span
-                  className="h-2 w-2 rounded-full shrink-0"
-                  style={{ backgroundColor: category?.color || "#94a3b8" }}
-                />
-                <span className="truncate">{category?.name}</span>
-              </span>
-            </SelectTrigger>
-            <SelectContent>
-              {categories.map((cat) => (
-                <SelectItem key={cat.id} value={cat.id}>
-                  <span className="flex items-center gap-2">
-                    <span
-                      className="h-2 w-2 rounded-full"
-                      style={{ backgroundColor: cat.color || "#94a3b8" }}
-                    />
-                    {cat.name}
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : (
-          <Select
-            value=""
-            onValueChange={(v) => onCategoryChange(tx.tempId, v)}
-          >
-            <SelectTrigger className="h-7 text-xs border-amber-300 dark:border-amber-700 bg-amber-50/50 dark:bg-amber-950/20">
-              <span className="flex items-center gap-1.5 text-muted-foreground">
-                <Tag className="h-3 w-3" />
-                <span>Select...</span>
-              </span>
-            </SelectTrigger>
-            <SelectContent>
-              {categories.map((cat) => (
-                <SelectItem key={cat.id} value={cat.id}>
-                  <span className="flex items-center gap-2">
-                    <span
-                      className="h-2 w-2 rounded-full"
-                      style={{ backgroundColor: cat.color || "#94a3b8" }}
-                    />
-                    {cat.name}
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
+        {/* Category selector — desktop only, inline */}
+        <div className="w-44 shrink-0 hidden sm:block">
+          {categorySelect}
+        </div>
+      </div>
+
+      {/* Category selector — mobile only, full width below */}
+      <div className="sm:hidden">
+        {categorySelect}
       </div>
     </div>
   );
@@ -326,11 +345,11 @@ export function ImportReviewStep({
       <>
         <div className="rounded-md border divide-y">
           {/* Header */}
-          <div className="flex items-center gap-3 px-3 py-1.5 bg-muted/50 text-xs font-medium text-muted-foreground">
-            <span className="w-16 shrink-0">Date</span>
+          <div className="flex items-center gap-2 sm:gap-3 px-3 py-1.5 bg-muted/50 text-xs font-medium text-muted-foreground">
+            <span className="shrink-0 sm:w-16">Date</span>
             <span className="flex-1">Description</span>
-            <span className="w-24 text-right shrink-0">Amount</span>
-            <span className="w-44 shrink-0">Category</span>
+            <span className="text-right shrink-0 sm:w-24">Amount</span>
+            <span className="w-44 shrink-0 hidden sm:block">Category</span>
           </div>
 
           {visible.map((tx) => (
@@ -347,7 +366,7 @@ export function ImportReviewStep({
                   <div className="flex items-start gap-3">
                     <Zap className="h-4 w-4 text-primary mt-0.5 shrink-0" />
                     <div className="flex-1 space-y-2">
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-start sm:items-center justify-between gap-2 flex-wrap">
                         <p className="text-sm">
                           Apply{" "}
                           <span className="font-semibold">
@@ -360,7 +379,7 @@ export function ImportReviewStep({
                           similar transaction
                           {batchBanner.matchCount !== 1 ? "s" : ""}?
                         </p>
-                        <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                        <div className="flex items-center gap-1.5 shrink-0">
                           <Button size="sm" className="h-7" onClick={handleBatchApply}>
                             Apply
                           </Button>
@@ -395,7 +414,7 @@ export function ImportReviewStep({
                             Create rule for future imports
                           </Label>
                           {batchBanner.createRule && (
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                               <Input
                                 value={batchBanner.pattern}
                                 onChange={(e) =>
@@ -405,7 +424,7 @@ export function ImportReviewStep({
                                       : null
                                   )
                                 }
-                                className="h-7 text-xs font-mono max-w-[200px]"
+                                className="h-7 text-xs font-mono sm:max-w-[200px]"
                               />
                               <Select
                                 value={batchBanner.ruleMatchType}
@@ -415,7 +434,7 @@ export function ImportReviewStep({
                                   )
                                 }
                               >
-                                <SelectTrigger className="h-7 text-xs w-[130px]">
+                                <SelectTrigger className="h-7 text-xs sm:w-[130px]">
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -457,7 +476,7 @@ export function ImportReviewStep({
   return (
     <div className="space-y-4 py-2">
       {/* Summary bar */}
-      <div className="flex items-center gap-4 rounded-lg bg-muted/50 px-4 py-3">
+      <div className="flex items-center gap-x-4 gap-y-1 flex-wrap rounded-lg bg-muted/50 px-3 sm:px-4 py-3">
         <div className="flex items-center gap-2 text-sm">
           <CheckCircle2 className="h-4 w-4 text-emerald-500 dark:text-emerald-400" />
           <span>
@@ -545,7 +564,7 @@ export function ImportReviewStep({
       </Tabs>
 
       {/* Footer */}
-      <div className="flex items-center justify-between pt-2">
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between pt-2">
         <Button variant="outline" onClick={onBack}>
           Back
         </Button>
@@ -553,7 +572,7 @@ export function ImportReviewStep({
           Import {transactions.length} transaction
           {transactions.length !== 1 ? "s" : ""}
           {uncategorizedCount > 0 && (
-            <span className="ml-1 opacity-75">
+            <span className="ml-1 opacity-75 hidden sm:inline">
               ({uncategorizedCount} uncategorized)
             </span>
           )}

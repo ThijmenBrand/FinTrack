@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { transactionGroups, transactions, categories } from "@/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
+import { getUserId } from "@/lib/auth";
 
 // GET /api/pots — list all pots with net amount, transaction count, category info
 export async function GET() {
   try {
+    const userId = await getUserId();
+
     const pots = await db
       .select({
         id: transactionGroups.id,
@@ -15,14 +18,15 @@ export async function GET() {
         categoryColor: categories.color,
         createdAt: transactionGroups.createdAt,
         netAmount: sql<number>`COALESCE((
-          SELECT SUM(t.amount) FROM transactions t WHERE t.group_id = ${transactionGroups.id}
+          SELECT SUM(t.amount) FROM transactions t WHERE t.group_id = ${transactionGroups.id} AND t.user_id = ${userId}
         ), 0)`,
         transactionCount: sql<number>`(
-          SELECT COUNT(*) FROM transactions t WHERE t.group_id = ${transactionGroups.id}
+          SELECT COUNT(*) FROM transactions t WHERE t.group_id = ${transactionGroups.id} AND t.user_id = ${userId}
         )`,
       })
       .from(transactionGroups)
       .leftJoin(categories, eq(transactionGroups.categoryId, categories.id))
+      .where(eq(transactionGroups.userId, userId))
       .orderBy(sql`${transactionGroups.createdAt} DESC`);
 
     return NextResponse.json(pots);
@@ -35,6 +39,7 @@ export async function GET() {
 // POST /api/pots — create a pot
 export async function POST(request: NextRequest) {
   try {
+    const userId = await getUserId();
     const { name, categoryId } = await request.json();
     if (!name) {
       return NextResponse.json({ error: "name is required" }, { status: 400 });
@@ -45,6 +50,7 @@ export async function POST(request: NextRequest) {
       id,
       name,
       categoryId: categoryId || null,
+      userId,
       createdAt: new Date().toISOString(),
     });
 
@@ -58,6 +64,7 @@ export async function POST(request: NextRequest) {
 // PUT /api/pots — update a pot
 export async function PUT(request: NextRequest) {
   try {
+    const userId = await getUserId();
     const { id, name, categoryId } = await request.json();
     if (!id) {
       return NextResponse.json({ error: "id is required" }, { status: 400 });
@@ -68,7 +75,7 @@ export async function PUT(request: NextRequest) {
     if (categoryId !== undefined) updates.categoryId = categoryId;
 
     if (Object.keys(updates).length > 0) {
-      await db.update(transactionGroups).set(updates).where(eq(transactionGroups.id, id));
+      await db.update(transactionGroups).set(updates).where(and(eq(transactionGroups.id, id), eq(transactionGroups.userId, userId)));
     }
 
     return NextResponse.json({ success: true });
@@ -81,6 +88,7 @@ export async function PUT(request: NextRequest) {
 // DELETE /api/pots?id=X — delete pot, sets group_id = NULL on member transactions
 export async function DELETE(request: NextRequest) {
   try {
+    const userId = await getUserId();
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
     if (!id) {
@@ -91,10 +99,10 @@ export async function DELETE(request: NextRequest) {
     await db
       .update(transactions)
       .set({ groupId: null })
-      .where(eq(transactions.groupId, id));
+      .where(and(eq(transactions.groupId, id), eq(transactions.userId, userId)));
 
     // Delete the pot
-    await db.delete(transactionGroups).where(eq(transactionGroups.id, id));
+    await db.delete(transactionGroups).where(and(eq(transactionGroups.id, id), eq(transactionGroups.userId, userId)));
 
     return NextResponse.json({ success: true });
   } catch (error) {

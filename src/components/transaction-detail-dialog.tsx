@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -28,40 +27,10 @@ import {
   Package,
 } from "lucide-react";
 import { CategorizePopover } from "@/components/categorize-popover";
-
-interface Transaction {
-  id: string;
-  accountId: string;
-  accountName: string | null;
-  date: string;
-  description: string;
-  amount: number;
-  balance: number | null;
-  categoryId: string | null;
-  categoryName: string | null;
-  categoryColor: string | null;
-  type: "income" | "expense" | "internal_transfer" | "reimbursement";
-  linkedTransactionId: string | null;
-  linkedAccountName: string | null;
-  reimbursesTransactionId: string | null;
-  reimbursesDescription: string | null;
-  effectiveAmount: number;
-  reimbursementCount: number;
-  reimbursedTotal: number;
-  groupId: string | null;
-  groupName: string | null;
-  notes: string | null;
-  isManual: boolean;
-  importBatchId: string | null;
-  createdAt: string;
-}
-
-interface ReimbursementDetail {
-  id: string;
-  date: string;
-  description: string;
-  amount: number;
-}
+import { useQuery } from "@tanstack/react-query";
+import { apiFetch } from "@/lib/api";
+import { useCategories } from "@/hooks/use-categories";
+import type { Transaction, ReimbursementDetail, Category } from "@/types/api";
 
 const TYPE_BADGES: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
   income: { label: "Income", variant: "default" },
@@ -85,13 +54,6 @@ function formatDate(dateStr: string) {
   }).format(new Date(dateStr));
 }
 
-interface Category {
-  id: string;
-  name: string;
-  color: string | null;
-  icon: string | null;
-}
-
 interface TransactionDetailDialogProps {
   transaction: Transaction | null;
   onOpenChange: (open: boolean) => void;
@@ -100,72 +62,26 @@ interface TransactionDetailDialogProps {
 }
 
 export function TransactionDetailDialog({ transaction, onOpenChange, categories, onCategorized }: TransactionDetailDialogProps) {
-  const [localTransaction, setLocalTransaction] = useState<Transaction | null>(transaction);
-  const [reimbursements, setReimbursements] = useState<ReimbursementDetail[]>([]);
-  const [linkedExpenses, setLinkedExpenses] = useState<ReimbursementDetail[]>([]);
-  const [internalCategories, setInternalCategories] = useState<Category[]>([]);
+  const { data: fetchedCategories } = useCategories();
+  const resolvedCategories = categories || fetchedCategories || [];
 
-  // Sync local state when prop changes (new transaction selected)
-  useEffect(() => {
-    setLocalTransaction(transaction);
-  }, [transaction]);
+  const { data: reimbursements = [] } = useQuery({
+    queryKey: ["transaction-reimbursements", transaction?.id],
+    queryFn: () => apiFetch<{ data: ReimbursementDetail[] }>(`/api/transactions?reimbursesExpenseId=${transaction!.id}&limit=50`).then(r => r.data),
+    enabled: !!transaction && transaction.reimbursementCount > 0,
+  });
 
-  // Fetch categories if not provided via props
-  useEffect(() => {
-    if (categories) return;
-    fetch("/api/categories")
-      .then((res) => res.json())
-      .then((data) => setInternalCategories(data || []))
-      .catch(() => setInternalCategories([]));
-  }, [categories]);
-
-  const resolvedCategories = categories || internalCategories;
-
-  useEffect(() => {
-    setReimbursements([]);
-    setLinkedExpenses([]);
-    if (!transaction) return;
-
-    // For expenses: fetch linked reimbursement transactions
-    if (transaction.reimbursementCount > 0) {
-      fetch(`/api/transactions?reimbursesExpenseId=${transaction.id}&limit=50`)
-        .then((res) => res.json())
-        .then((data) => {
-          setReimbursements(
-            (data.data || []).map((t: { id: string; date: string; description: string; amount: number }) => ({
-              id: t.id,
-              date: t.date,
-              description: t.description,
-              amount: t.amount,
-            }))
-          );
-        })
-        .catch(() => setReimbursements([]));
-    }
-
-    // For reimbursements: fetch the linked expenses
-    if (transaction.type === "reimbursement") {
-      fetch(`/api/transactions/reimburse/expenses?reimbursementId=${transaction.id}`)
-        .then((res) => res.json())
-        .then((data) => setLinkedExpenses(data.expenses || []))
-        .catch(() => setLinkedExpenses([]));
-    }
-  }, [transaction]);
+  const { data: linkedExpenses = [] } = useQuery({
+    queryKey: ["transaction-linked-expenses", transaction?.id],
+    queryFn: () => apiFetch<{ expenses: ReimbursementDetail[] }>(`/api/transactions/reimburse/expenses?reimbursementId=${transaction!.id}`).then(r => r.expenses),
+    enabled: !!transaction && transaction.type === "reimbursement",
+  });
 
   const handleCategorized = (categoryId?: string | null) => {
-    if (localTransaction) {
-      const cat = resolvedCategories.find((c) => c.id === categoryId);
-      setLocalTransaction({
-        ...localTransaction,
-        categoryId: categoryId || null,
-        categoryName: cat?.name || null,
-        categoryColor: cat?.color || null,
-      });
-    }
     onCategorized?.();
   };
 
-  if (!localTransaction) {
+  if (!transaction) {
     return (
       <Dialog open={false} onOpenChange={onOpenChange}>
         <DialogContent className="sm:max-w-md">
@@ -178,7 +94,7 @@ export function TransactionDetailDialog({ transaction, onOpenChange, categories,
     );
   }
 
-  const tx = localTransaction;
+  const tx = transaction;
   const isTransfer = tx.type === "internal_transfer" || tx.categoryName === "Internal Transfer";
   const isReimbursement = tx.type === "reimbursement";
   const hasReimbursements = tx.reimbursementCount > 0;
@@ -264,6 +180,7 @@ export function TransactionDetailDialog({ transaction, onOpenChange, categories,
               currentCategoryId={tx.categoryId}
               currentCategoryName={tx.categoryName}
               currentCategoryColor={tx.categoryColor}
+              currentCategoryIcon={tx.categoryIcon}
               categories={resolvedCategories}
               onCategorized={handleCategorized}
             />

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef } from "react";
 import Papa from "papaparse";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -30,17 +30,13 @@ import {
 import { Upload, FileText, CheckCircle2, AlertCircle } from "lucide-react";
 import { ImportReviewStep } from "@/components/import-review-step";
 import type { PreviewTransaction } from "@/lib/csv-utils";
+import { useCategories } from "@/hooks/use-categories";
+import { usePreviewUpload, useCommitUpload } from "@/hooks/use-csv-upload";
+import type { Category } from "@/types/api";
 
 interface Account {
   id: string;
   name: string;
-}
-
-interface Category {
-  id: string;
-  name: string;
-  color: string | null;
-  icon: string | null;
 }
 
 interface CsvUploadDialogProps {
@@ -87,24 +83,9 @@ export function CsvUploadDialog({
   // Preview + review state
   const [previewData, setPreviewData] = useState<PreviewTransaction[]>([]);
   const [previewSkipped, setPreviewSkipped] = useState(0);
-  const [categories, setCategories] = useState<Category[]>([]);
-
-  // Fetch categories when dialog opens
-  const fetchCategories = useCallback(async () => {
-    try {
-      const res = await fetch("/api/categories");
-      const data = await res.json();
-      setCategories(data);
-    } catch (err) {
-      console.error("Failed to fetch categories:", err);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (open) {
-      fetchCategories();
-    }
-  }, [open, fetchCategories]);
+  const { data: categories = [] } = useCategories();
+  const preview = usePreviewUpload();
+  const commit = useCommitUpload();
 
   const reset = () => {
     setStep("select-file");
@@ -179,16 +160,7 @@ export function CsvUploadDialog({
       formData.append("accountId", selectedAccountId);
       formData.append("mapping", JSON.stringify(mapping));
 
-      const res = await fetch("/api/transactions/upload/preview", {
-        method: "POST",
-        body: formData,
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || "Preview failed");
-      }
+      const data = await preview.mutateAsync(formData);
 
       setPreviewData(data.transactions);
       setPreviewSkipped(data.skipped);
@@ -208,31 +180,21 @@ export function CsvUploadDialog({
     setError(null);
 
     try {
-      const res = await fetch("/api/transactions/upload/commit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          accountId: selectedAccountId,
-          fileName: file?.name || "import.csv",
-          transactions: transactions.map((tx) => ({
-            tempId: tx.tempId,
-            date: tx.date,
-            description: tx.description,
-            amount: tx.amount,
-            balance: tx.balance,
-            type: tx.type,
-            categoryId: tx.categoryId,
-            targetAccountId: tx.targetAccountId,
-          })),
-          newRules,
-        }),
+      const data = await commit.mutateAsync({
+        accountId: selectedAccountId,
+        fileName: file?.name || "import.csv",
+        transactions: transactions.map((tx) => ({
+          tempId: tx.tempId,
+          date: tx.date,
+          description: tx.description,
+          amount: tx.amount,
+          balance: tx.balance,
+          type: tx.type,
+          categoryId: tx.categoryId,
+          targetAccountId: tx.targetAccountId,
+        })),
+        newRules,
       });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || "Import failed");
-      }
 
       setResult({
         imported: data.imported,
@@ -263,7 +225,7 @@ export function CsvUploadDialog({
       }}
     >
       <DialogContent
-        className={`${dialogWidth} max-h-[85vh] overflow-y-auto transition-all`}
+        className={`${dialogWidth} overflow-x-hidden transition-all`}
       >
         <DialogHeader>
           <DialogTitle>Import Bank Statement</DialogTitle>
@@ -278,7 +240,7 @@ export function CsvUploadDialog({
         {step === "select-file" && (
           <div className="space-y-4 py-4">
             <div
-              className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-12 cursor-pointer hover:border-primary/50 hover:bg-accent/50 transition-colors"
+              className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-6 sm:p-12 cursor-pointer hover:border-primary/50 hover:bg-accent/50 transition-colors"
               onClick={() => fileInputRef.current?.click()}
             >
               <Upload className="h-10 w-10 text-muted-foreground mb-3" />
@@ -306,11 +268,11 @@ export function CsvUploadDialog({
         {/* Step 2: Map Columns */}
         {step === "map-columns" && (
           <div className="space-y-4 py-4">
-            <div className="flex items-center gap-2 rounded-lg bg-muted/50 p-3">
-              <FileText className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-medium">{file?.name}</span>
-              <span className="text-xs text-muted-foreground">
-                ({previewRows.length} rows previewed)
+            <div className="flex items-center gap-2 rounded-lg bg-muted/50 p-3 min-w-0">
+              <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+              <span className="text-sm font-medium truncate">{file?.name}</span>
+              <span className="text-xs text-muted-foreground shrink-0">
+                ({previewRows.length} rows)
               </span>
             </div>
 
@@ -334,7 +296,7 @@ export function CsvUploadDialog({
                 </Select>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="grid gap-2">
                   <Label>
                     Date Column <span className="text-destructive">*</span>
@@ -456,35 +418,66 @@ export function CsvUploadDialog({
             </div>
 
             {/* Preview Table */}
-            {previewRows.length > 0 && (
-              <div>
-                <Label className="mb-2 block">Data Preview</Label>
-                <div className="rounded-md border overflow-x-auto max-h-48">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        {headers.slice(0, 6).map((h) => (
-                          <TableHead key={h} className="text-xs whitespace-nowrap">
-                            {h}
-                          </TableHead>
-                        ))}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {previewRows.slice(0, 3).map((row, i) => (
-                        <TableRow key={i}>
-                          {headers.slice(0, 6).map((h) => (
-                            <TableCell key={h} className="text-xs whitespace-nowrap">
-                              {row[h] || "—"}
-                            </TableCell>
+            {previewRows.length > 0 && (() => {
+              const mobileHeaders = headers.filter(h =>
+                [mapping.date, mapping.description, mapping.amount].includes(h)
+              ).slice(0, 3);
+              return (
+                <div>
+                  <Label className="mb-2 block">Data Preview</Label>
+                  {/* Mobile: show only mapped columns */}
+                  <div className="rounded-md border overflow-x-auto max-h-48 sm:hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          {mobileHeaders.map((h) => (
+                            <TableHead key={h} className="text-xs whitespace-nowrap">
+                              {h}
+                            </TableHead>
                           ))}
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                      </TableHeader>
+                      <TableBody>
+                        {previewRows.slice(0, 3).map((row, i) => (
+                          <TableRow key={i}>
+                            {mobileHeaders.map((h) => (
+                              <TableCell key={h} className="text-xs whitespace-nowrap max-w-[120px] truncate">
+                                {row[h] || "—"}
+                              </TableCell>
+                            ))}
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  {/* Desktop: show up to 6 columns */}
+                  <div className="rounded-md border overflow-x-auto max-h-48 hidden sm:block">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          {headers.slice(0, 6).map((h) => (
+                            <TableHead key={h} className="text-xs whitespace-nowrap">
+                              {h}
+                            </TableHead>
+                          ))}
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {previewRows.slice(0, 3).map((row, i) => (
+                          <TableRow key={i}>
+                            {headers.slice(0, 6).map((h) => (
+                              <TableCell key={h} className="text-xs whitespace-nowrap">
+                                {row[h] || "—"}
+                              </TableCell>
+                            ))}
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {error && (
               <p className="text-sm text-destructive flex items-center gap-2">

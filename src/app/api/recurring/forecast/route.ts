@@ -6,7 +6,8 @@ import {
   transactions,
   categories,
 } from "@/db/schema";
-import { eq, sum } from "drizzle-orm";
+import { eq, and, sum } from "drizzle-orm";
+import { getUserId } from "@/lib/auth";
 
 /**
  * Generate all occurrences of a recurring transaction between two dates.
@@ -100,11 +101,12 @@ function generateOccurrences(
  */
 export async function GET(request: NextRequest) {
   try {
+    const userId = await getUserId();
     const { searchParams } = new URL(request.url);
     const months = Math.min(12, Math.max(1, Number(searchParams.get("months")) || 3));
 
     // 1. Get current total balance
-    const allAccounts = await db.select().from(accounts);
+    const allAccounts = await db.select().from(accounts).where(eq(accounts.userId, userId));
     let totalBalance = 0;
     for (const account of allAccounts) {
       const result = await db
@@ -135,7 +137,7 @@ export async function GET(request: NextRequest) {
         categories,
         eq(recurringTransactions.categoryId, categories.id)
       )
-      .where(eq(recurringTransactions.isActive, true));
+      .where(and(eq(recurringTransactions.isActive, true), eq(recurringTransactions.userId, userId)));
 
     // 3. Build forecast
     const now = new Date();

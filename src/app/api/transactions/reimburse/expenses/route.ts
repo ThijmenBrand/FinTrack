@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { transactions, reimbursementLinks } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
+import { getUserId } from "@/lib/auth";
 
 /**
  * GET /api/transactions/reimburse/expenses?reimbursementId=<id>
@@ -9,6 +10,7 @@ import { eq } from "drizzle-orm";
  */
 export async function GET(request: NextRequest) {
   try {
+    const userId = await getUserId();
     const { searchParams } = new URL(request.url);
     const reimbursementId = searchParams.get("reimbursementId");
 
@@ -28,7 +30,7 @@ export async function GET(request: NextRequest) {
       })
       .from(reimbursementLinks)
       .innerJoin(transactions, eq(transactions.id, reimbursementLinks.expenseId))
-      .where(eq(reimbursementLinks.reimbursementId, reimbursementId));
+      .where(and(eq(reimbursementLinks.reimbursementId, reimbursementId), eq(transactions.userId, userId)));
 
     return NextResponse.json({ expenses: links });
   } catch (error) {

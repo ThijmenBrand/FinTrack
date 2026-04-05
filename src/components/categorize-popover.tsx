@@ -19,13 +19,9 @@ import {
 } from "@/components/ui/select";
 import { Tag, Check, X } from "lucide-react";
 import { extractPattern } from "@/lib/csv-utils";
-
-interface Category {
-  id: string;
-  name: string;
-  color: string | null;
-  icon: string | null;
-}
+import { CategoryIcon } from "@/components/category-icon";
+import { useCategorizeTransaction } from "@/hooks/use-transactions";
+import type { Category } from "@/types/api";
 
 interface CategorizePopoverProps {
   transactionId: string;
@@ -33,6 +29,7 @@ interface CategorizePopoverProps {
   currentCategoryId: string | null;
   currentCategoryName: string | null;
   currentCategoryColor: string | null;
+  currentCategoryIcon?: string | null;
   categories: Category[];
   onCategorized: (categoryId?: string | null) => void;
 }
@@ -43,6 +40,7 @@ export function CategorizePopover({
   currentCategoryId,
   currentCategoryName,
   currentCategoryColor,
+  currentCategoryIcon,
   categories,
   onCategorized,
 }: CategorizePopoverProps) {
@@ -53,7 +51,7 @@ export function CategorizePopover({
   const [createRule, setCreateRule] = useState(false);
   const [rulePattern, setRulePattern] = useState("");
   const [ruleMatchType, setRuleMatchType] = useState("contains");
-  const [saving, setSaving] = useState(false);
+  const categorize = useCategorizeTransaction();
 
   // Extract a sensible default pattern from the description
   useEffect(() => {
@@ -63,25 +61,18 @@ export function CategorizePopover({
   }, [open, transactionDescription]);
 
   const handleSave = async () => {
-    setSaving(true);
     try {
-      await fetch("/api/transactions/categorize", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          transactionId,
-          categoryId: selectedCategoryId || null,
-          createRule,
-          rulePattern: createRule ? rulePattern : undefined,
-          ruleMatchType: createRule ? ruleMatchType : undefined,
-        }),
+      await categorize.mutateAsync({
+        transactionId,
+        categoryId: selectedCategoryId || null,
+        createRule,
+        rulePattern: createRule ? rulePattern : undefined,
+        ruleMatchType: createRule ? ruleMatchType : undefined,
       });
       setOpen(false);
       onCategorized(selectedCategoryId || null);
     } catch (err) {
       console.error("Failed to categorize:", err);
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -91,12 +82,7 @@ export function CategorizePopover({
         <button className="flex items-center gap-1.5 text-sm rounded-md px-2 py-1 hover:bg-accent transition-colors text-left">
           {currentCategoryName ? (
             <>
-              <span
-                className="h-2 w-2 rounded-full shrink-0"
-                style={{
-                  backgroundColor: currentCategoryColor || "#94a3b8",
-                }}
-              />
+              <CategoryIcon icon={currentCategoryIcon ?? null} color={currentCategoryColor} size="sm" />
               <span className="truncate">{currentCategoryName}</span>
             </>
           ) : (
@@ -111,7 +97,7 @@ export function CategorizePopover({
         <div className="space-y-4">
           <div>
             <h4 className="font-medium text-sm mb-1">Set Category</h4>
-            <p className="text-xs text-muted-foreground truncate">
+            <p className="text-xs text-muted-foreground break-words">
               {transactionDescription}
             </p>
           </div>
@@ -129,12 +115,7 @@ export function CategorizePopover({
                 {categories.map((cat) => (
                   <SelectItem key={cat.id} value={cat.id}>
                     <span className="flex items-center gap-2">
-                      <span
-                        className="h-2 w-2 rounded-full"
-                        style={{
-                          backgroundColor: cat.color || "#94a3b8",
-                        }}
-                      />
+                      <CategoryIcon icon={cat.icon} color={cat.color} size="sm" />
                       {cat.name}
                     </span>
                   </SelectItem>
@@ -212,10 +193,10 @@ export function CategorizePopover({
             <Button
               size="sm"
               onClick={handleSave}
-              disabled={saving || !selectedCategoryId}
+              disabled={categorize.isPending || !selectedCategoryId}
             >
-              {saving ? "Saving..." : "Save"}
-              {!saving && <Check className="ml-1 h-3 w-3" />}
+              {categorize.isPending ? "Saving..." : "Save"}
+              {!categorize.isPending && <Check className="ml-1 h-3 w-3" />}
             </Button>
           </div>
         </div>

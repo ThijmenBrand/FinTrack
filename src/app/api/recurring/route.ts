@@ -5,7 +5,8 @@ import {
   accounts,
   categories,
 } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
+import { getUserId } from "@/lib/auth";
 
 /**
  * Calculate the next occurrence date for a recurring transaction.
@@ -79,6 +80,8 @@ function getNextOccurrence(
 // GET /api/recurring — list all recurring transactions with next occurrence
 export async function GET() {
   try {
+    const userId = await getUserId();
+
     const rows = await db
       .select({
         id: recurringTransactions.id,
@@ -104,7 +107,8 @@ export async function GET() {
       .leftJoin(
         categories,
         eq(recurringTransactions.categoryId, categories.id)
-      );
+      )
+      .where(eq(recurringTransactions.userId, userId));
 
     const withNextOccurrence = rows.map((r) => ({
       ...r,
@@ -132,6 +136,7 @@ export async function GET() {
 // POST /api/recurring — create a recurring transaction
 export async function POST(request: NextRequest) {
   try {
+    const userId = await getUserId();
     const body = await request.json();
     const {
       accountId,
@@ -169,6 +174,7 @@ export async function POST(request: NextRequest) {
       startDate,
       endDate: endDate || null,
       isActive: true,
+      userId,
       createdAt: new Date().toISOString(),
     });
 
@@ -185,6 +191,7 @@ export async function POST(request: NextRequest) {
 // PUT /api/recurring — update a recurring transaction
 export async function PUT(request: NextRequest) {
   try {
+    const userId = await getUserId();
     const body = await request.json();
     const { id, ...updates } = body;
 
@@ -206,7 +213,7 @@ export async function PUT(request: NextRequest) {
     await db
       .update(recurringTransactions)
       .set(updates)
-      .where(eq(recurringTransactions.id, id));
+      .where(and(eq(recurringTransactions.id, id), eq(recurringTransactions.userId, userId)));
 
     return NextResponse.json({ success: true });
   } catch (error) {
@@ -221,6 +228,7 @@ export async function PUT(request: NextRequest) {
 // DELETE /api/recurring — delete a recurring transaction
 export async function DELETE(request: NextRequest) {
   try {
+    const userId = await getUserId();
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
 
@@ -233,7 +241,7 @@ export async function DELETE(request: NextRequest) {
 
     await db
       .delete(recurringTransactions)
-      .where(eq(recurringTransactions.id, id));
+      .where(and(eq(recurringTransactions.id, id), eq(recurringTransactions.userId, userId)));
 
     return NextResponse.json({ success: true });
   } catch (error) {

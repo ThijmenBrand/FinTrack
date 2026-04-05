@@ -1,18 +1,22 @@
 import { db as defaultDb } from "@/db";
 import { transactions, categories } from "@/db/schema";
-import { eq, ne } from "drizzle-orm";
+import { eq, ne, and } from "drizzle-orm";
 
 /**
  * Detects internal transfers between accounts.
  * Logic: If money leaves Account A and enters Account B within ±2 days
  * with the same absolute amount, flag both as "Internal Transfer".
  */
-export async function detectTransfers(db: typeof defaultDb = defaultDb) {
+export async function detectTransfers(db: typeof defaultDb = defaultDb, userId?: string) {
   // Get the "Internal Transfer" category
   const [transferCategory] = await db
     .select()
     .from(categories)
-    .where(eq(categories.name, "Internal Transfer"));
+    .where(
+      userId
+        ? and(eq(categories.name, "Internal Transfer"), eq(categories.userId, userId))
+        : eq(categories.name, "Internal Transfer")
+    );
 
   if (!transferCategory) {
     return { matchedPairs: 0, totalTransactionsUpdated: 0 };
@@ -22,7 +26,11 @@ export async function detectTransfers(db: typeof defaultDb = defaultDb) {
   const allTx = await db
     .select()
     .from(transactions)
-    .where(ne(transactions.type, "internal_transfer"));
+    .where(
+      userId
+        ? and(ne(transactions.type, "internal_transfer"), eq(transactions.userId, userId))
+        : ne(transactions.type, "internal_transfer")
+    );
 
   // Group by absolute amount for efficient matching
   const byAmount = new Map<number, typeof allTx>();

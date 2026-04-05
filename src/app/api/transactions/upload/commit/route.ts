@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { transactions, importBatches, categoryRules, categories } from "@/db/schema";
 import { eq, and, isNull, sql } from "drizzle-orm";
+import { getUserId } from "@/lib/auth";
 import { detectTransfers } from "@/lib/detect-transfers";
 
 interface CommitTransaction {
@@ -34,6 +35,7 @@ interface CommitRequest {
  */
 export async function POST(request: NextRequest) {
   try {
+    const userId = await getUserId();
     const body: CommitRequest = await request.json();
     const { accountId, fileName, transactions: txList, newRules } = body;
 
@@ -48,6 +50,7 @@ export async function POST(request: NextRequest) {
     const batchId = crypto.randomUUID();
     await db.insert(importBatches).values({
       id: batchId,
+      userId,
       accountId,
       fileName: fileName || "import.csv",
       transactionCount: txList.length,
@@ -58,11 +61,12 @@ export async function POST(request: NextRequest) {
     const [transferCategory] = await db
       .select()
       .from(categories)
-      .where(eq(categories.name, "Internal Transfer"));
+      .where(and(eq(categories.name, "Internal Transfer"), eq(categories.userId, userId)));
 
     // Build transaction records, creating mirror transactions for internal transfers
     const records: Array<{
       id: string;
+      userId: string;
       accountId: string;
       date: string;
       description: string;
@@ -88,6 +92,7 @@ export async function POST(request: NextRequest) {
         // Source transaction (in the importing account)
         records.push({
           id: sourceId,
+          userId,
           accountId,
           date: tx.date,
           description: tx.description,
@@ -104,6 +109,7 @@ export async function POST(request: NextRequest) {
         // Mirror transaction (in the target account)
         mirrorRecords.push({
           id: mirrorId,
+          userId,
           accountId: tx.targetAccountId!,
           date: tx.date,
           description: tx.description,
@@ -120,6 +126,7 @@ export async function POST(request: NextRequest) {
       } else {
         records.push({
           id: sourceId,
+          userId,
           accountId,
           date: tx.date,
           description: tx.description,
@@ -154,6 +161,7 @@ export async function POST(request: NextRequest) {
       const ruleId = crypto.randomUUID();
       await db.insert(categoryRules).values({
         id: ruleId,
+        userId,
         pattern: rule.pattern,
         categoryId: rule.categoryId,
         matchType: rule.matchType || "contains",
@@ -182,11 +190,13 @@ export async function POST(request: NextRequest) {
         rule.matchType === "exact"
           ? and(
               eq(sql`LOWER(${transactions.description})`, rule.pattern.toLowerCase()),
-              isNull(transactions.categoryId)
+              isNull(transactions.categoryId),
+              eq(transactions.userId, userId)
             )
           : and(
               sql`LOWER(${transactions.description}) LIKE LOWER(${sqlPattern})`,
-              isNull(transactions.categoryId)
+              isNull(transactions.categoryId),
+              eq(transactions.userId, userId)
             );
 
       const result = await db
@@ -198,7 +208,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Auto-detect internal transfers among all transactions
-    const transferResult = await detectTransfers(db);
+    const transferResult = await detectTransfers(db, userId);
 
     return NextResponse.json({
       success: true,

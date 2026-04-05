@@ -1,24 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { categories, categoryRules, transactions } from "@/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, and } from "drizzle-orm";
+import { getUserId } from "@/lib/auth";
 
 // GET /api/categories — list all categories with transaction counts
 export async function GET() {
   try {
-    const allCategories = await db.select().from(categories);
+    const userId = await getUserId();
+    const allCategories = await db.select().from(categories).where(eq(categories.userId, userId));
 
     const categoriesWithCounts = await Promise.all(
       allCategories.map(async (cat) => {
         const countResult = await db
           .select({ count: sql<number>`count(*)` })
           .from(transactions)
-          .where(eq(transactions.categoryId, cat.id));
+          .where(and(eq(transactions.categoryId, cat.id), eq(transactions.userId, userId)));
 
         const rulesResult = await db
           .select()
           .from(categoryRules)
-          .where(eq(categoryRules.categoryId, cat.id));
+          .where(and(eq(categoryRules.categoryId, cat.id), eq(categoryRules.userId, userId)));
 
         return {
           ...cat,
@@ -41,6 +43,7 @@ export async function GET() {
 // POST /api/categories — create a new category
 export async function POST(request: NextRequest) {
   try {
+    const userId = await getUserId();
     const body = await request.json();
     const { name, icon, color } = body;
 
@@ -54,6 +57,7 @@ export async function POST(request: NextRequest) {
     const id = crypto.randomUUID();
     await db.insert(categories).values({
       id,
+      userId,
       name,
       icon: icon || null,
       color: color || "#94a3b8",
@@ -78,6 +82,7 @@ export async function POST(request: NextRequest) {
 // PUT /api/categories — update a category
 export async function PUT(request: NextRequest) {
   try {
+    const userId = await getUserId();
     const body = await request.json();
     const { id, name, icon, color } = body;
 
@@ -91,12 +96,12 @@ export async function PUT(request: NextRequest) {
     await db
       .update(categories)
       .set({ name, icon, color })
-      .where(eq(categories.id, id));
+      .where(and(eq(categories.id, id), eq(categories.userId, userId)));
 
     const [updated] = await db
       .select()
       .from(categories)
-      .where(eq(categories.id, id));
+      .where(and(eq(categories.id, id), eq(categories.userId, userId)));
 
     return NextResponse.json(updated);
   } catch (error) {
@@ -111,6 +116,7 @@ export async function PUT(request: NextRequest) {
 // DELETE /api/categories — delete a category
 export async function DELETE(request: NextRequest) {
   try {
+    const userId = await getUserId();
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
 
@@ -125,9 +131,9 @@ export async function DELETE(request: NextRequest) {
     await db
       .update(transactions)
       .set({ categoryId: null })
-      .where(eq(transactions.categoryId, id));
+      .where(and(eq(transactions.categoryId, id), eq(transactions.userId, userId)));
 
-    await db.delete(categories).where(eq(categories.id, id));
+    await db.delete(categories).where(and(eq(categories.id, id), eq(categories.userId, userId)));
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Failed to delete category:", error);

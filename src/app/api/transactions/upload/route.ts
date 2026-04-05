@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { transactions, importBatches, categoryRules, categories } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
+import { getUserId } from "@/lib/auth";
 import Papa from "papaparse";
 import {
   parseAmount,
@@ -17,6 +18,7 @@ interface CsvRow {
 // POST /api/transactions/upload — parse and import CSV data
 export async function POST(request: NextRequest) {
   try {
+    const userId = await getUserId();
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
     const accountId = formData.get("accountId") as string | null;
@@ -54,18 +56,19 @@ export async function POST(request: NextRequest) {
     const rules = await db
       .select()
       .from(categoryRules)
-      .where(eq(categoryRules.isActive, true));
+      .where(and(eq(categoryRules.isActive, true), eq(categoryRules.userId, userId)));
 
     // Get "Internal Transfer" category id
     const [transferCategory] = await db
       .select()
       .from(categories)
-      .where(eq(categories.name, "Internal Transfer"));
+      .where(and(eq(categories.name, "Internal Transfer"), eq(categories.userId, userId)));
 
     // Create import batch
     const batchId = crypto.randomUUID();
     await db.insert(importBatches).values({
       id: batchId,
+      userId,
       accountId,
       fileName: file.name,
       transactionCount: parsed.data.length,
@@ -140,6 +143,7 @@ export async function POST(request: NextRequest) {
       const txId = crypto.randomUUID();
       importedTransactions.push({
         id: txId,
+        userId,
         accountId,
         date,
         description,

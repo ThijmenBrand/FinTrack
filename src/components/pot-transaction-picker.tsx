@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -10,6 +10,9 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Search, Loader2 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { apiFetch } from "@/lib/api";
+import { useAddToPot } from "@/hooks/use-pots";
 
 interface PickerTransaction {
   id: string;
@@ -53,25 +56,17 @@ export function PotTransactionPicker({
   potName,
   onAdded,
 }: PotTransactionPickerProps) {
-  const [transactions, setTransactions] = useState<PickerTransaction[]>([]);
-  const [loading, setLoading] = useState(false);
   const [addingId, setAddingId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
 
-  useEffect(() => {
-    if (!open) return;
-    setLoading(true);
-    setSearch("");
-    setAddingId(null);
+  const { data: txData, isLoading: loading } = useQuery({
+    queryKey: ["pot-picker-transactions"],
+    queryFn: () => apiFetch<{ data: PickerTransaction[] }>("/api/transactions?limit=100&sortBy=date&sortOrder=desc").then(r => r.data),
+    enabled: open,
+  });
+  const transactions = txData ?? [];
 
-    fetch("/api/transactions?limit=100&sortBy=date&sortOrder=desc")
-      .then((res) => res.json())
-      .then((data) => {
-        setTransactions(data.data || []);
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, [open]);
+  const addToPot = useAddToPot();
 
   const filtered = search
     ? transactions.filter((t) =>
@@ -82,20 +77,8 @@ export function PotTransactionPicker({
   const handleAdd = async (transactionId: string) => {
     setAddingId(transactionId);
     try {
-      const res = await fetch("/api/pots/transactions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ potId, transactionId }),
-      });
-      if (res.ok) {
-        // Update local state to reflect the change
-        setTransactions((prev) =>
-          prev.map((t) =>
-            t.id === transactionId ? { ...t, groupId: potId, groupName: potName } : t
-          )
-        );
-        onAdded();
-      }
+      await addToPot.mutateAsync({ potId, transactionId });
+      onAdded();
     } catch (err) {
       console.error("Failed to add to pot:", err);
     } finally {

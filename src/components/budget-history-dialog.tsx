@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -20,59 +20,8 @@ import {
   Receipt,
 } from "lucide-react";
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog";
-
-interface Allocation {
-  id: string;
-  categoryId: string;
-  categoryName: string | null;
-  categoryColor: string | null;
-  amount: number;
-}
-
-interface MonthSummary {
-  month: string;
-  label: string;
-  spent: number;
-  transactionCount: number;
-  percentage: number;
-  status: "ok" | "warning" | "exceeded";
-  isCurrent: boolean;
-}
-
-interface HistoryData {
-  categoryId: string;
-  categoryName: string;
-  categoryColor: string;
-  currentBudgetAmount: number;
-  months: MonthSummary[];
-}
-
-interface Transaction {
-  id: string;
-  accountId: string;
-  accountName: string | null;
-  date: string;
-  description: string;
-  amount: number;
-  balance: number | null;
-  categoryId: string | null;
-  categoryName: string | null;
-  categoryColor: string | null;
-  type: "income" | "expense" | "internal_transfer" | "reimbursement";
-  linkedTransactionId: string | null;
-  linkedAccountName: string | null;
-  reimbursesTransactionId: string | null;
-  reimbursesDescription: string | null;
-  effectiveAmount: number;
-  reimbursementCount: number;
-  reimbursedTotal: number;
-  groupId: string | null;
-  groupName: string | null;
-  notes: string | null;
-  isManual: boolean;
-  importBatchId: string | null;
-  createdAt: string;
-}
+import { useBudgetHistory } from "@/hooks/use-budgets";
+import type { Allocation, Transaction, HistoryData } from "@/types/api";
 
 function formatCurrency(amount: number) {
   return new Intl.NumberFormat("nl-NL", {
@@ -94,29 +43,11 @@ interface BudgetHistoryDialogProps {
 }
 
 export function BudgetHistoryDialog({ allocation, onOpenChange }: BudgetHistoryDialogProps) {
-  const [history, setHistory] = useState<HistoryData | null>(null);
-  const [loading, setLoading] = useState(false);
+  const { data: history, isLoading: loading } = useBudgetHistory(allocation?.categoryId ?? null, !!allocation);
   const [expandedMonth, setExpandedMonth] = useState<string | null>(null);
   const [monthTransactions, setMonthTransactions] = useState<Record<string, Transaction[]>>({});
   const [loadingMonth, setLoadingMonth] = useState<string | null>(null);
   const [detailTransaction, setDetailTransaction] = useState<Transaction | null>(null);
-
-  useEffect(() => {
-    if (!allocation) {
-      setHistory(null);
-      setExpandedMonth(null);
-      setMonthTransactions({});
-      setDetailTransaction(null);
-      return;
-    }
-
-    setLoading(true);
-    fetch(`/api/budgets/history?categoryId=${allocation.categoryId}`)
-      .then((res) => res.json())
-      .then((data) => setHistory(data))
-      .catch((err) => console.error("Failed to fetch budget history:", err))
-      .finally(() => setLoading(false));
-  }, [allocation]);
 
   const toggleMonth = useCallback(
     async (month: string) => {

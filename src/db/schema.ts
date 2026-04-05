@@ -1,12 +1,80 @@
-import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { relations } from "drizzle-orm";
 
-// ─── Accounts ────────────────────────────────────────────────────────────────
+// ─── Users (Better Auth compatible) ────────────────────────────────────────
+export const user = sqliteTable("user", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  name: text("name").notNull(),
+  email: text("email").notNull().unique(),
+  emailVerified: integer("emailVerified", { mode: "boolean" }).notNull().default(false),
+  image: text("image"),
+  username: text("username").notNull().unique(),
+  displayName: text("displayName"),
+  role: text("role").default("user"),
+  banned: integer("banned", { mode: "boolean" }),
+  banReason: text("banReason"),
+  banExpires: integer("banExpires"),
+  createdAt: text("createdAt")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updatedAt")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
+// ─── Better Auth: Session ──────────────────────────────────────────────────
+export const session = sqliteTable("session", {
+  id: text("id").primaryKey(),
+  expiresAt: text("expiresAt").notNull(),
+  token: text("token").notNull().unique(),
+  createdAt: text("createdAt").notNull(),
+  updatedAt: text("updatedAt").notNull(),
+  ipAddress: text("ipAddress"),
+  userAgent: text("userAgent"),
+  userId: text("userId")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  impersonatedBy: text("impersonatedBy"),
+});
+
+// ─── Better Auth: Account (auth provider accounts) ─────────────────────────
+export const account = sqliteTable("account", {
+  id: text("id").primaryKey(),
+  accountId: text("accountId").notNull(),
+  providerId: text("providerId").notNull(),
+  userId: text("userId")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  accessToken: text("accessToken"),
+  refreshToken: text("refreshToken"),
+  idToken: text("idToken"),
+  accessTokenExpiresAt: text("accessTokenExpiresAt"),
+  refreshTokenExpiresAt: text("refreshTokenExpiresAt"),
+  scope: text("scope"),
+  password: text("password"),
+  createdAt: text("createdAt").notNull(),
+  updatedAt: text("updatedAt").notNull(),
+});
+
+// ─── Better Auth: Verification ─────────────────────────────────────────────
+export const verification = sqliteTable("verification", {
+  id: text("id").primaryKey(),
+  identifier: text("identifier").notNull(),
+  value: text("value").notNull(),
+  expiresAt: text("expiresAt").notNull(),
+  createdAt: text("createdAt"),
+  updatedAt: text("updatedAt"),
+});
+
+// ─── Bank Accounts ──────────────────────────────────────────────────────────
 // Represents a bank account (checking, savings, joint, etc.)
 export const accounts = sqliteTable("accounts", {
   id: text("id")
     .primaryKey()
     .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   type: text("type", {
     enum: ["checking", "savings", "joint", "credit", "other"],
@@ -30,6 +98,7 @@ export const transactions = sqliteTable("transactions", {
   id: text("id")
     .primaryKey()
     .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
   accountId: text("account_id")
     .notNull()
     .references(() => accounts.id, { onDelete: "cascade" }),
@@ -55,18 +124,21 @@ export const transactions = sqliteTable("transactions", {
 });
 
 // ─── Categories ──────────────────────────────────────────────────────────────
-// User-defined spending categories
+// User-defined spending categories (unique per user)
 export const categories = sqliteTable("categories", {
   id: text("id")
     .primaryKey()
     .$defaultFn(() => crypto.randomUUID()),
-  name: text("name").notNull().unique(),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
   icon: text("icon"), // Lucide icon name
   color: text("color"), // Hex color for charts
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
-});
+}, (table) => [
+  uniqueIndex("idx_categories_name_user").on(table.name, table.userId),
+]);
 
 // ─── Category Rules ──────────────────────────────────────────────────────────
 // Auto-categorization rules (e.g., "Starbucks" -> "Coffee")
@@ -74,6 +146,7 @@ export const categoryRules = sqliteTable("category_rules", {
   id: text("id")
     .primaryKey()
     .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
   pattern: text("pattern").notNull(), // Text pattern to match in description
   categoryId: text("category_id")
     .notNull()
@@ -95,6 +168,7 @@ export const budgets = sqliteTable("budgets", {
   id: text("id")
     .primaryKey()
     .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
   categoryId: text("category_id")
     .notNull()
     .references(() => categories.id, { onDelete: "cascade" }),
@@ -114,6 +188,7 @@ export const recurringTransactions = sqliteTable("recurring_transactions", {
   id: text("id")
     .primaryKey()
     .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
   accountId: text("account_id")
     .notNull()
     .references(() => accounts.id, { onDelete: "cascade" }),
@@ -142,6 +217,7 @@ export const importBatches = sqliteTable("import_batches", {
   id: text("id")
     .primaryKey()
     .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
   accountId: text("account_id")
     .notNull()
     .references(() => accounts.id, { onDelete: "cascade" }),
@@ -159,6 +235,7 @@ export const transactionGroups = sqliteTable("transaction_groups", {
   id: text("id")
     .primaryKey()
     .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   categoryId: text("category_id").references(() => categories.id),
   createdAt: text("created_at")
@@ -185,13 +262,23 @@ export const reimbursementLinks = sqliteTable("reimbursement_links", {
 
 // ─── Relations ───────────────────────────────────────────────────────────────
 
-export const accountsRelations = relations(accounts, ({ many }) => ({
+export const usersRelations = relations(user, ({ many }) => ({
+  accounts: many(accounts),
+  transactions: many(transactions),
+  categories: many(categories),
+  budgets: many(budgets),
+  recurringTransactions: many(recurringTransactions),
+}));
+
+export const accountsRelations = relations(accounts, ({ one, many }) => ({
+  user: one(user, { fields: [accounts.userId], references: [user.id] }),
   transactions: many(transactions),
   recurringTransactions: many(recurringTransactions),
   importBatches: many(importBatches),
 }));
 
 export const transactionsRelations = relations(transactions, ({ one }) => ({
+  user: one(user, { fields: [transactions.userId], references: [user.id] }),
   account: one(accounts, {
     fields: [transactions.accountId],
     references: [accounts.id],
@@ -206,13 +293,15 @@ export const transactionsRelations = relations(transactions, ({ one }) => ({
   }),
 }));
 
-export const categoriesRelations = relations(categories, ({ many }) => ({
+export const categoriesRelations = relations(categories, ({ one, many }) => ({
+  user: one(user, { fields: [categories.userId], references: [user.id] }),
   transactions: many(transactions),
   rules: many(categoryRules),
   budgets: many(budgets),
 }));
 
 export const categoryRulesRelations = relations(categoryRules, ({ one }) => ({
+  user: one(user, { fields: [categoryRules.userId], references: [user.id] }),
   category: one(categories, {
     fields: [categoryRules.categoryId],
     references: [categories.id],
@@ -220,6 +309,7 @@ export const categoryRulesRelations = relations(categoryRules, ({ one }) => ({
 }));
 
 export const budgetsRelations = relations(budgets, ({ one }) => ({
+  user: one(user, { fields: [budgets.userId], references: [user.id] }),
   category: one(categories, {
     fields: [budgets.categoryId],
     references: [categories.id],
@@ -229,6 +319,7 @@ export const budgetsRelations = relations(budgets, ({ one }) => ({
 export const recurringTransactionsRelations = relations(
   recurringTransactions,
   ({ one }) => ({
+    user: one(user, { fields: [recurringTransactions.userId], references: [user.id] }),
     account: one(accounts, {
       fields: [recurringTransactions.accountId],
       references: [accounts.id],
@@ -241,6 +332,7 @@ export const recurringTransactionsRelations = relations(
 );
 
 export const importBatchesRelations = relations(importBatches, ({ one }) => ({
+  user: one(user, { fields: [importBatches.userId], references: [user.id] }),
   account: one(accounts, {
     fields: [importBatches.accountId],
     references: [accounts.id],
@@ -250,6 +342,7 @@ export const importBatchesRelations = relations(importBatches, ({ one }) => ({
 export const transactionGroupsRelations = relations(
   transactionGroups,
   ({ one, many }) => ({
+    user: one(user, { fields: [transactionGroups.userId], references: [user.id] }),
     category: one(categories, {
       fields: [transactionGroups.categoryId],
       references: [categories.id],
@@ -258,7 +351,25 @@ export const transactionGroupsRelations = relations(
   })
 );
 
+// ─── Admin Audit Log ──────────────────────────────────────────────────────
+// Tracks sensitive admin actions (password resets, role changes, user deletion, etc.)
+export const adminAuditLog = sqliteTable("admin_audit_log", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  adminId: text("admin_id").notNull(),
+  action: text("action").notNull(), // e.g. "password_reset", "role_change", "user_create", "user_delete"
+  targetUserId: text("target_user_id").notNull(),
+  details: text("details"), // JSON string with extra context
+  ipAddress: text("ip_address"),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
 // ─── Type Exports ────────────────────────────────────────────────────────────
+export type User = typeof user.$inferSelect;
+export type NewUser = typeof user.$inferInsert;
 export type Account = typeof accounts.$inferSelect;
 export type NewAccount = typeof accounts.$inferInsert;
 export type Transaction = typeof transactions.$inferSelect;
@@ -277,3 +388,5 @@ export type ReimbursementLink = typeof reimbursementLinks.$inferSelect;
 export type NewReimbursementLink = typeof reimbursementLinks.$inferInsert;
 export type TransactionGroup = typeof transactionGroups.$inferSelect;
 export type NewTransactionGroup = typeof transactionGroups.$inferInsert;
+export type AdminAuditLog = typeof adminAuditLog.$inferSelect;
+export type NewAdminAuditLog = typeof adminAuditLog.$inferInsert;

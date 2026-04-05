@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { categoryRules, accounts, categories } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
+import { getUserId } from "@/lib/auth";
 import Papa from "papaparse";
 import {
   parseAmount,
@@ -23,6 +24,7 @@ interface CsvRow {
  */
 export async function POST(request: NextRequest) {
   try {
+    const userId = await getUserId();
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
     const accountId = formData.get("accountId") as string | null;
@@ -56,10 +58,10 @@ export async function POST(request: NextRequest) {
     const rules = await db
       .select()
       .from(categoryRules)
-      .where(eq(categoryRules.isActive, true));
+      .where(and(eq(categoryRules.isActive, true), eq(categoryRules.userId, userId)));
 
     // Build IBAN → account lookup for internal transfer detection
-    const allAccounts = await db.select().from(accounts);
+    const allAccounts = await db.select().from(accounts).where(eq(accounts.userId, userId));
     const ibanToAccount = new Map<string, { id: string; name: string }>();
     for (const acc of allAccounts) {
       if (acc.iban) {
@@ -71,7 +73,7 @@ export async function POST(request: NextRequest) {
     const [transferCategory] = await db
       .select()
       .from(categories)
-      .where(eq(categories.name, "Internal Transfer"));
+      .where(and(eq(categories.name, "Internal Transfer"), eq(categories.userId, userId)));
 
     const allColumns = parsed.meta.fields || [];
     const transactions: PreviewTransaction[] = [];

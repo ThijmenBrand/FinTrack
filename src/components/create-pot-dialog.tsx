@@ -20,12 +20,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Loader2 } from "lucide-react";
-
-interface Category {
-  id: string;
-  name: string;
-  color: string | null;
-}
+import { useCreatePot } from "@/hooks/use-pots";
+import type { Category } from "@/types/api";
 
 interface CreatePotDialogProps {
   open: boolean;
@@ -42,30 +38,18 @@ export function CreatePotDialog({
 }: CreatePotDialogProps) {
   const [name, setName] = useState("");
   const [categoryId, setCategoryId] = useState("");
-  const [creating, setCreating] = useState(false);
+  const createPot = useCreatePot();
 
   const handleCreate = async () => {
     if (!name.trim()) return;
-    setCreating(true);
     try {
-      const res = await fetch("/api/pots", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: name.trim(),
-          categoryId: categoryId || null,
-        }),
-      });
-      if (res.ok) {
-        setName("");
-        setCategoryId("");
-        onCreated();
-        onOpenChange(false);
-      }
+      await createPot.mutateAsync({ name: name.trim(), categoryId: categoryId || null });
+      setName("");
+      setCategoryId("");
+      onCreated();
+      onOpenChange(false);
     } catch (err) {
       console.error("Failed to create pot:", err);
-    } finally {
-      setCreating(false);
     }
   };
 
@@ -123,8 +107,8 @@ export function CreatePotDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleCreate} disabled={!name.trim() || creating}>
-            {creating && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+          <Button onClick={handleCreate} disabled={!name.trim() || createPot.isPending}>
+            {createPot.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
             Create Pot
           </Button>
         </DialogFooter>
