@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { transactions, accounts, categories } from "@/db/schema";
 import { eq, desc, asc, and, gte, lte, like, sql } from "drizzle-orm";
+import { getUserId } from "@/lib/auth";
 
 // GET /api/transactions — list transactions with filtering, sorting, pagination
 export async function GET(request: NextRequest) {
   try {
+    const userId = await getUserId();
     const { searchParams } = new URL(request.url);
     const page = Math.max(1, Number(searchParams.get("page")) || 1);
     const limit = Math.min(100, Math.max(1, Number(searchParams.get("limit")) || 25));
@@ -20,8 +22,8 @@ export async function GET(request: NextRequest) {
     const uncategorized = searchParams.get("uncategorized");
     const reimbursesExpenseId = searchParams.get("reimbursesExpenseId");
 
-    // Build conditions
-    const conditions = [];
+    // Build conditions — always filter by userId
+    const conditions = [eq(transactions.userId, userId)];
     if (accountId) conditions.push(eq(transactions.accountId, accountId));
     if (reimbursesExpenseId) {
       conditions.push(sql`${transactions.id} IN (
@@ -68,6 +70,7 @@ export async function GET(request: NextRequest) {
         categoryId: transactions.categoryId,
         categoryName: categories.name,
         categoryColor: categories.color,
+        categoryIcon: categories.icon,
         type: transactions.type,
         linkedTransactionId: transactions.linkedTransactionId,
         linkedAccountName: sql<string | null>`(
@@ -78,13 +81,13 @@ export async function GET(request: NextRequest) {
         reimbursesTransactionId: transactions.reimbursesTransactionId,
         reimbursesDescription: sql<string | null>`(
           SELECT GROUP_CONCAT(t2.description, ', ') FROM reimbursement_links rl2
-          JOIN transactions t2 ON t2.id = rl2.expense_id
+          JOIN transactions t2 ON t2.id = rl2.expense_id AND t2.user_id = "transactions"."user_id"
           WHERE rl2.reimbursement_id = ${transactions.id}
         )`,
         effectiveAmount: sql<number>`(
           ${transactions.amount} + COALESCE(
             (SELECT SUM(r.amount) FROM reimbursement_links rl
-             JOIN transactions r ON r.id = rl.reimbursement_id
+             JOIN transactions r ON r.id = rl.reimbursement_id AND r.user_id = "transactions"."user_id"
              WHERE rl.expense_id = ${transactions.id}),
             0
           )
@@ -118,7 +121,8 @@ export async function GET(request: NextRequest) {
     // Get distinct types that exist in the database
     const distinctTypes = await db
       .selectDistinct({ type: transactions.type })
-      .from(transactions);
+      .from(transactions)
+      .where(eq(transactions.userId, userId));
 
     // Get sum totals for the filtered results
     const sumResult = await db
@@ -161,6 +165,7 @@ export async function GET(request: NextRequest) {
 // DELETE /api/transactions — delete a transaction
 export async function DELETE(request: NextRequest) {
   try {
+    const userId = await getUserId();
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
 
@@ -175,24 +180,24 @@ export async function DELETE(request: NextRequest) {
     const [tx] = await db
       .select({ linkedTransactionId: transactions.linkedTransactionId })
       .from(transactions)
-      .where(eq(transactions.id, id));
+      .where(and(eq(transactions.id, id), eq(transactions.userId, userId)));
 
     if (tx?.linkedTransactionId) {
       const [linkedTx] = await db
         .select({ id: transactions.id, isManual: transactions.isManual })
         .from(transactions)
-        .where(eq(transactions.id, tx.linkedTransactionId));
+        .where(and(eq(transactions.id, tx.linkedTransactionId), eq(transactions.userId, userId)));
 
       if (linkedTx) {
         if (linkedTx.isManual) {
           // Mirror was auto-created, delete it
-          await db.delete(transactions).where(eq(transactions.id, linkedTx.id));
+          await db.delete(transactions).where(and(eq(transactions.id, linkedTx.id), eq(transactions.userId, userId)));
         } else {
           // Linked tx came from CSV, revert it to normal
           const [linkedFull] = await db
             .select({ amount: transactions.amount })
             .from(transactions)
-            .where(eq(transactions.id, linkedTx.id));
+            .where(and(eq(transactions.id, linkedTx.id), eq(transactions.userId, userId)));
           await db
             .update(transactions)
             .set({
@@ -200,12 +205,12 @@ export async function DELETE(request: NextRequest) {
               linkedTransactionId: null,
               categoryId: null,
             })
-            .where(eq(transactions.id, linkedTx.id));
+            .where(and(eq(transactions.id, linkedTx.id), eq(transactions.userId, userId)));
         }
       }
     }
 
-    await db.delete(transactions).where(eq(transactions.id, id));
+    await db.delete(transactions).where(and(eq(transactions.id, id), eq(transactions.userId, userId)));
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Failed to delete transaction:", error);

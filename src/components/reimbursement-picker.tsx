@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -10,6 +10,9 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Search, Loader2 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { apiFetch } from "@/lib/api";
+import { useReimburseTransaction } from "@/hooks/use-transactions";
 
 interface ExpenseTransaction {
   id: string;
@@ -55,25 +58,17 @@ export function ReimbursementPicker({
   accountId,
   onLinked,
 }: ReimbursementPickerProps) {
-  const [expenses, setExpenses] = useState<ExpenseTransaction[]>([]);
-  const [loading, setLoading] = useState(false);
   const [linkingId, setLinkingId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
 
-  useEffect(() => {
-    if (!open) return;
-    setLoading(true);
-    setSearch("");
-    setLinkingId(null);
+  const { data: expenseData, isLoading: loading } = useQuery({
+    queryKey: ["expenses", accountId],
+    queryFn: () => apiFetch<{ data: ExpenseTransaction[] }>(`/api/transactions?type=expense&accountId=${accountId}&limit=50&sortBy=date&sortOrder=desc`).then(r => r.data),
+    enabled: open,
+  });
+  const expenses = expenseData ?? [];
 
-    fetch(`/api/transactions?type=expense&accountId=${accountId}&limit=50&sortBy=date&sortOrder=desc`)
-      .then((res) => res.json())
-      .then((data) => {
-        setExpenses(data.data || []);
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, [open, accountId]);
+  const reimburse = useReimburseTransaction();
 
   const filtered = search
     ? expenses.filter((e) =>
@@ -84,18 +79,9 @@ export function ReimbursementPicker({
   const handleSelect = async (expenseId: string) => {
     setLinkingId(expenseId);
     try {
-      const res = await fetch("/api/transactions/reimburse", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          transactionId,
-          expenseIds: [expenseId],
-        }),
-      });
-      if (res.ok) {
-        onLinked();
-        onOpenChange(false);
-      }
+      await reimburse.mutateAsync({ transactionId, expenseIds: [expenseId] });
+      onLinked();
+      onOpenChange(false);
     } catch (err) {
       console.error("Failed to link:", err);
     } finally {

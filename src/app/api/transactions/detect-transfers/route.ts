@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { db } from "@/db";
+import { getUserId } from "@/lib/auth";
 import { detectTransfers } from "@/lib/detect-transfers";
 
 /**
@@ -12,7 +14,8 @@ import { detectTransfers } from "@/lib/detect-transfers";
  */
 export async function POST() {
   try {
-    const result = await detectTransfers();
+    const userId = await getUserId();
+    const result = await detectTransfers(db, userId);
 
     return NextResponse.json({
       success: true,

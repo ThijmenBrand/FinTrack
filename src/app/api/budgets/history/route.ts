@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { budgets, categories, transactions, transactionGroups } from "@/db/schema";
 import { eq, and, sql } from "drizzle-orm";
+import { getUserId } from "@/lib/auth";
 
 export async function GET(request: NextRequest) {
   try {
+    const userId = await getUserId();
     const { searchParams } = new URL(request.url);
     const categoryId = searchParams.get("categoryId");
 
@@ -19,7 +21,7 @@ export async function GET(request: NextRequest) {
     const [category] = await db
       .select({ id: categories.id, name: categories.name, color: categories.color })
       .from(categories)
-      .where(eq(categories.id, categoryId));
+      .where(and(eq(categories.id, categoryId), eq(categories.userId, userId)));
 
     if (!category) {
       return NextResponse.json(
@@ -32,7 +34,7 @@ export async function GET(request: NextRequest) {
     const [budget] = await db
       .select({ amount: budgets.amount })
       .from(budgets)
-      .where(eq(budgets.categoryId, categoryId));
+      .where(and(eq(budgets.categoryId, categoryId), eq(budgets.userId, userId)));
 
     const currentBudgetAmount = budget?.amount || 0;
 
@@ -42,7 +44,7 @@ export async function GET(request: NextRequest) {
         month: sql<string>`substr(${transactions.date}, 1, 7)`,
         spent: sql<number>`sum(
           abs(${transactions.amount}) - COALESCE(
-            (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id WHERE rl.expense_id = "transactions"."id"),
+            (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id AND r.user_id = "transactions"."user_id" WHERE rl.expense_id = "transactions"."id"),
             0
           )
         )`,
@@ -53,7 +55,8 @@ export async function GET(request: NextRequest) {
         and(
           eq(transactions.categoryId, categoryId),
           eq(transactions.type, "expense"),
-          sql`${transactions.groupId} IS NULL`
+          sql`${transactions.groupId} IS NULL`,
+          eq(transactions.userId, userId)
         )
       )
       .groupBy(sql`substr(${transactions.date}, 1, 7)`)
@@ -68,7 +71,7 @@ export async function GET(request: NextRequest) {
       })
       .from(transactionGroups)
       .innerJoin(transactions, eq(transactions.groupId, transactionGroups.id))
-      .where(eq(transactionGroups.categoryId, categoryId))
+      .where(and(eq(transactionGroups.categoryId, categoryId), eq(transactionGroups.userId, userId), eq(transactions.userId, userId)))
       .groupBy(transactionGroups.id, sql`substr(${transactions.date}, 1, 7)`)
       .orderBy(sql`substr(${transactions.date}, 1, 7) desc`);
 

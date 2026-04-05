@@ -1,0 +1,53 @@
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiFetch } from "@/lib/api";
+import type { RecurringTx, ForecastData } from "@/types/api";
+
+export function useRecurring() {
+  return useQuery({
+    queryKey: ["recurring"],
+    queryFn: () => apiFetch<RecurringTx[]>("/api/recurring"),
+  });
+}
+
+export function useRecurringForecast(months = 3) {
+  return useQuery({
+    queryKey: ["recurring-forecast", months],
+    queryFn: () => apiFetch<ForecastData>(`/api/recurring/forecast?months=${months}`),
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
+export function useCreateRecurring() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: Record<string, unknown>) =>
+      apiFetch("/api/recurring", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["recurring"] });
+      qc.invalidateQueries({ queryKey: ["recurring-forecast"] });
+    },
+  });
+}
+
+export function useUpdateRecurring() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: Record<string, unknown>) =>
+      apiFetch("/api/recurring", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["recurring"] });
+      qc.invalidateQueries({ queryKey: ["recurring-forecast"] });
+    },
+  });
+}
+
+export function useDeleteRecurring() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiFetch(`/api/recurring?id=${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["recurring"] });
+      qc.invalidateQueries({ queryKey: ["recurring-forecast"] });
+    },
+  });
+}

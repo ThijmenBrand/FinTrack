@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { categoryRules, transactions, categories } from "@/db/schema";
-import { eq, like, sql } from "drizzle-orm";
+import { eq, and, like, sql } from "drizzle-orm";
+import { getUserId } from "@/lib/auth";
 
 // GET /api/categories/rules — list all rules
 export async function GET() {
   try {
+    const userId = await getUserId();
+
     const rules = await db
       .select({
         id: categoryRules.id,
@@ -18,7 +21,8 @@ export async function GET() {
         createdAt: categoryRules.createdAt,
       })
       .from(categoryRules)
-      .leftJoin(categories, eq(categoryRules.categoryId, categories.id));
+      .leftJoin(categories, eq(categoryRules.categoryId, categories.id))
+      .where(eq(categoryRules.userId, userId));
 
     return NextResponse.json(rules);
   } catch (error) {
@@ -33,6 +37,7 @@ export async function GET() {
 // POST /api/categories/rules — create a rule and optionally apply to existing transactions
 export async function POST(request: NextRequest) {
   try {
+    const userId = await getUserId();
     const body = await request.json();
     const { pattern, categoryId, matchType, applyToExisting } = body;
 
@@ -50,6 +55,7 @@ export async function POST(request: NextRequest) {
       categoryId,
       matchType: matchType || "contains",
       isActive: true,
+      userId,
       createdAt: new Date().toISOString(),
     });
 
@@ -57,7 +63,7 @@ export async function POST(request: NextRequest) {
 
     // Optionally apply rule to all existing uncategorized transactions
     if (applyToExisting) {
-      applied = await applyRuleToTransactions(pattern, categoryId, matchType || "contains");
+      applied = await applyRuleToTransactions(pattern, categoryId, matchType || "contains", userId);
     }
 
     return NextResponse.json({ success: true, ruleId: id, applied }, { status: 201 });
@@ -73,6 +79,7 @@ export async function POST(request: NextRequest) {
 // PUT /api/categories/rules — update an existing rule
 export async function PUT(request: NextRequest) {
   try {
+    const userId = await getUserId();
     const body = await request.json();
     const { id, pattern, categoryId, matchType, isActive, applyToExisting } = body;
 
@@ -92,21 +99,22 @@ export async function PUT(request: NextRequest) {
     await db
       .update(categoryRules)
       .set(updates)
-      .where(eq(categoryRules.id, id));
+      .where(and(eq(categoryRules.id, id), eq(categoryRules.userId, userId)));
 
     let applied = 0;
     if (applyToExisting && pattern && categoryId) {
       applied = await applyRuleToTransactions(
         pattern,
         categoryId,
-        matchType || "contains"
+        matchType || "contains",
+        userId
       );
     }
 
     const [updated] = await db
       .select()
       .from(categoryRules)
-      .where(eq(categoryRules.id, id));
+      .where(and(eq(categoryRules.id, id), eq(categoryRules.userId, userId)));
 
     return NextResponse.json({ ...updated, applied });
   } catch (error) {
@@ -121,6 +129,7 @@ export async function PUT(request: NextRequest) {
 // DELETE /api/categories/rules — delete a rule
 export async function DELETE(request: NextRequest) {
   try {
+    const userId = await getUserId();
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
 
@@ -131,7 +140,7 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    await db.delete(categoryRules).where(eq(categoryRules.id, id));
+    await db.delete(categoryRules).where(and(eq(categoryRules.id, id), eq(categoryRules.userId, userId)));
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Failed to delete rule:", error);
@@ -149,7 +158,8 @@ export async function DELETE(request: NextRequest) {
 async function applyRuleToTransactions(
   pattern: string,
   categoryId: string,
-  matchType: string
+  matchType: string,
+  userId: string
 ): Promise<number> {
   // Build the appropriate SQL pattern
   let sqlPattern: string;
@@ -169,8 +179,8 @@ async function applyRuleToTransactions(
   // Update transactions that match the pattern and have no category
   const condition =
     matchType === "exact"
-      ? sql`LOWER(${transactions.description}) = LOWER(${pattern}) AND ${transactions.categoryId} IS NULL`
-      : sql`LOWER(${transactions.description}) LIKE LOWER(${sqlPattern}) AND ${transactions.categoryId} IS NULL`;
+      ? sql`LOWER(${transactions.description}) = LOWER(${pattern}) AND ${transactions.categoryId} IS NULL AND ${transactions.userId} = ${userId}`
+      : sql`LOWER(${transactions.description}) LIKE LOWER(${sqlPattern}) AND ${transactions.categoryId} IS NULL AND ${transactions.userId} = ${userId}`;
 
   const result = await db
     .update(transactions)

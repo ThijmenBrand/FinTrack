@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { categoryRules, transactions } from "@/db/schema";
-import { sql, eq } from "drizzle-orm";
+import { sql, eq, and } from "drizzle-orm";
+import { getUserId } from "@/lib/auth";
 
 /**
  * POST /api/categories/rules/reapply
@@ -10,24 +11,26 @@ import { sql, eq } from "drizzle-orm";
  */
 export async function POST() {
   try {
+    const userId = await getUserId();
+
     // Step 1: Clear all category assignments
     await db
       .update(transactions)
       .set({ categoryId: null })
-      .where(sql`${transactions.categoryId} IS NOT NULL`);
+      .where(and(sql`${transactions.categoryId} IS NOT NULL`, eq(transactions.userId, userId)));
 
     // Step 2: Fetch all active rules
     const allRules = await db
       .select()
       .from(categoryRules)
-      .where(eq(categoryRules.isActive, true));
+      .where(and(eq(categoryRules.isActive, true), eq(categoryRules.userId, userId)));
 
     // Step 3: Apply each rule in order
     let totalApplied = 0;
     const ruleResults: { pattern: string; matchType: string; applied: number }[] = [];
 
     for (const rule of allRules) {
-      const applied = await applyRule(rule.pattern, rule.categoryId, rule.matchType);
+      const applied = await applyRule(rule.pattern, rule.categoryId, rule.matchType, userId);
       totalApplied += applied;
       ruleResults.push({
         pattern: rule.pattern,
@@ -40,13 +43,14 @@ export async function POST() {
     const uncategorizedResult = await db
       .select({ count: sql<number>`count(*)` })
       .from(transactions)
-      .where(sql`${transactions.categoryId} IS NULL`);
+      .where(and(sql`${transactions.categoryId} IS NULL`, eq(transactions.userId, userId)));
 
     const uncategorized = uncategorizedResult[0]?.count || 0;
 
     const totalResult = await db
       .select({ count: sql<number>`count(*)` })
-      .from(transactions);
+      .from(transactions)
+      .where(eq(transactions.userId, userId));
 
     const total = totalResult[0]?.count || 0;
 
@@ -69,7 +73,8 @@ export async function POST() {
 async function applyRule(
   pattern: string,
   categoryId: string,
-  matchType: string
+  matchType: string,
+  userId: string
 ): Promise<number> {
   let sqlPattern: string;
   switch (matchType) {
@@ -87,8 +92,8 @@ async function applyRule(
 
   const condition =
     matchType === "exact"
-      ? sql`LOWER(${transactions.description}) = LOWER(${pattern}) AND ${transactions.categoryId} IS NULL`
-      : sql`LOWER(${transactions.description}) LIKE LOWER(${sqlPattern}) AND ${transactions.categoryId} IS NULL`;
+      ? sql`LOWER(${transactions.description}) = LOWER(${pattern}) AND ${transactions.categoryId} IS NULL AND ${transactions.userId} = ${userId}`
+      : sql`LOWER(${transactions.description}) LIKE LOWER(${sqlPattern}) AND ${transactions.categoryId} IS NULL AND ${transactions.userId} = ${userId}`;
 
   const result = await db
     .update(transactions)

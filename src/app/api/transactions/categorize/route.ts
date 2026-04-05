@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { transactions, categoryRules, categories } from "@/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
+import { getUserId } from "@/lib/auth";
 
 // PUT /api/transactions/categorize — categorize a transaction (and optionally create a rule)
 export async function PUT(request: NextRequest) {
   try {
+    const userId = await getUserId();
     const body = await request.json();
     const { transactionId, categoryId, createRule, rulePattern, ruleMatchType } = body;
 
@@ -24,7 +26,7 @@ export async function PUT(request: NextRequest) {
     const [currentTx] = await db
       .select({ amount: transactions.amount, type: transactions.type })
       .from(transactions)
-      .where(eq(transactions.id, transactionId));
+      .where(and(eq(transactions.id, transactionId), eq(transactions.userId, userId)));
 
     const isAssigningTransfer = targetCategory?.name === "Internal Transfer";
     const isRemovingTransfer = !isAssigningTransfer && currentTx?.type === "internal_transfer";
@@ -43,7 +45,7 @@ export async function PUT(request: NextRequest) {
     await db
       .update(transactions)
       .set(updateSet)
-      .where(eq(transactions.id, transactionId));
+      .where(and(eq(transactions.id, transactionId), eq(transactions.userId, userId)));
 
     let ruleId: string | null = null;
     let appliedCount = 0;
@@ -59,6 +61,7 @@ export async function PUT(request: NextRequest) {
         categoryId,
         matchType,
         isActive: true,
+        userId,
         createdAt: new Date().toISOString(),
       });
 
@@ -79,8 +82,8 @@ export async function PUT(request: NextRequest) {
 
       const condition =
         matchType === "exact"
-          ? sql`LOWER(${transactions.description}) = LOWER(${rulePattern}) AND ${transactions.categoryId} IS NULL`
-          : sql`LOWER(${transactions.description}) LIKE LOWER(${sqlPattern}) AND ${transactions.categoryId} IS NULL`;
+          ? sql`LOWER(${transactions.description}) = LOWER(${rulePattern}) AND ${transactions.categoryId} IS NULL AND ${transactions.userId} = ${userId}`
+          : sql`LOWER(${transactions.description}) LIKE LOWER(${sqlPattern}) AND ${transactions.categoryId} IS NULL AND ${transactions.userId} = ${userId}`;
 
       const result = await db
         .update(transactions)

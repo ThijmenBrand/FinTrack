@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
@@ -16,9 +16,12 @@ import {
   Sun,
   Moon,
   Heart,
+  Shield,
+  LogOut,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useTheme } from "next-themes";
+import { useSession, signOut } from "@/lib/auth-client";
 
 const navigation = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
@@ -32,18 +35,34 @@ const navigation = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
   const [mounted, setMounted] = useState(false);
   const { theme, setTheme } = useTheme();
+  const { data: session } = useSession();
+
+  const user = session?.user
+    ? {
+        displayName: (session.user as Record<string, unknown>).displayName as string || session.user.name || "",
+        username: (session.user as Record<string, unknown>).username as string || "",
+        isAdmin: (session.user as Record<string, unknown>).role === "admin",
+      }
+    : null;
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
+  async function handleLogout() {
+    await signOut();
+    router.push("/login");
+    router.refresh();
+  }
+
   return (
     <aside
       className={cn(
-        "relative flex flex-col border-r bg-sidebar transition-all duration-200",
+        "relative hidden md:flex flex-col border-r bg-sidebar transition-all duration-200",
         collapsed ? "w-16" : "w-60"
       )}
     >
@@ -82,10 +101,45 @@ export function Sidebar() {
             </Link>
           );
         })}
+        {user?.isAdmin && (
+          <Link
+            href="/admin"
+            className={cn(
+              "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+              pathname.startsWith("/admin")
+                ? "bg-primary/10 text-primary"
+                : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            )}
+          >
+            <Shield className="h-4 w-4 shrink-0" />
+            {!collapsed && <span>Admin</span>}
+          </Link>
+        )}
       </nav>
 
-      {/* Theme toggle */}
-      <div className="border-t px-3 py-3">
+      {/* User info + theme + logout */}
+      <div className="border-t px-3 py-3 space-y-1">
+        {/* User display */}
+        {user && (
+          <Link
+            href="/profile"
+            className={cn(
+              "flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-sidebar-accent",
+              pathname === "/profile" && "bg-primary/10"
+            )}
+          >
+            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
+              {user.displayName.charAt(0).toUpperCase()}
+            </div>
+            {!collapsed && (
+              <span className="text-sm font-medium text-sidebar-foreground truncate">
+                {user.displayName}
+              </span>
+            )}
+          </Link>
+        )}
+
+        {/* Theme toggle */}
         <button
           onClick={() => {
             const next = theme === "light" ? "dark" : theme === "dark" ? "pink" : "light";
@@ -107,6 +161,15 @@ export function Sidebar() {
               {!mounted ? "Theme" : theme === "pink" ? "Pink Mode" : theme === "dark" ? "Dark Mode" : "Light Mode"}
             </span>
           )}
+        </button>
+
+        {/* Logout */}
+        <button
+          onClick={handleLogout}
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors"
+        >
+          <LogOut className="h-4 w-4 shrink-0" />
+          {!collapsed && <span>Sign Out</span>}
         </button>
       </div>
 

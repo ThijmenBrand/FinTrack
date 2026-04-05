@@ -8,6 +8,7 @@ import {
   transactionGroups,
 } from "@/db/schema";
 import { eq, and, gte, lte, sql } from "drizzle-orm";
+import { getUserId } from "@/lib/auth";
 
 /**
  * Get current month date range
@@ -52,6 +53,7 @@ function toMonthly(amount: number, frequency: string): number {
  */
 export async function GET() {
   try {
+    const userId = await getUserId();
     const { from, to } = getCurrentMonthRange();
 
     // 0. Get pot spending by category for current month
@@ -67,7 +69,8 @@ export async function GET() {
         and(
           sql`${transactionGroups.categoryId} IS NOT NULL`,
           gte(transactions.date, from),
-          lte(transactions.date, to)
+          lte(transactions.date, to),
+          eq(transactions.userId, userId)
         )
       )
       .groupBy(transactionGroups.id, transactionGroups.categoryId);
@@ -88,7 +91,8 @@ export async function GET() {
       .where(
         and(
           eq(recurringTransactions.type, "income"),
-          eq(recurringTransactions.isActive, true)
+          eq(recurringTransactions.isActive, true),
+          eq(recurringTransactions.userId, userId)
         )
       );
 
@@ -115,7 +119,8 @@ export async function GET() {
       .where(
         and(
           eq(recurringTransactions.type, "expense"),
-          eq(recurringTransactions.isActive, true)
+          eq(recurringTransactions.isActive, true),
+          eq(recurringTransactions.userId, userId)
         )
       );
 
@@ -167,7 +172,8 @@ export async function GET() {
         isActive: budgets.isActive,
       })
       .from(budgets)
-      .leftJoin(categories, eq(budgets.categoryId, categories.id));
+      .leftJoin(categories, eq(budgets.categoryId, categories.id))
+      .where(eq(budgets.userId, userId));
 
     // 4. Calculate actual spending per allocated category this month (effective amounts, exclude grouped)
     const allocationsWithSpending = await Promise.all(
@@ -176,7 +182,7 @@ export async function GET() {
           .select({
             total: sql<number>`sum(
               abs(${transactions.amount}) - COALESCE(
-                (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id WHERE rl.expense_id = "transactions"."id"),
+                (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id AND r.user_id = "transactions"."user_id" WHERE rl.expense_id = "transactions"."id"),
                 0
               )
             )`,
@@ -188,7 +194,8 @@ export async function GET() {
               eq(transactions.type, "expense"),
               sql`${transactions.groupId} IS NULL`,
               gte(transactions.date, from),
-              lte(transactions.date, to)
+              lte(transactions.date, to),
+              eq(transactions.userId, userId)
             )
           );
 
@@ -221,7 +228,7 @@ export async function GET() {
           .select({
             total: sql<number>`sum(
               abs(${transactions.amount}) - COALESCE(
-                (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id WHERE rl.expense_id = "transactions"."id"),
+                (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id AND r.user_id = "transactions"."user_id" WHERE rl.expense_id = "transactions"."id"),
                 0
               )
             )`,
@@ -233,7 +240,8 @@ export async function GET() {
               eq(transactions.type, "expense"),
               sql`${transactions.groupId} IS NULL`,
               gte(transactions.date, from),
-              lte(transactions.date, to)
+              lte(transactions.date, to),
+              eq(transactions.userId, userId)
             )
           );
         const txSpent = spentResult[0]?.total || 0;
@@ -250,7 +258,7 @@ export async function GET() {
         month: sql<string>`substr(${transactions.date}, 1, 7)`,
         total: sql<number>`sum(
           abs(${transactions.amount}) - COALESCE(
-            (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id WHERE rl.expense_id = "transactions"."id"),
+            (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id AND r.user_id = "transactions"."user_id" WHERE rl.expense_id = "transactions"."id"),
             0
           )
         )`,
@@ -261,7 +269,8 @@ export async function GET() {
           eq(transactions.type, "expense"),
           sql`${transactions.groupId} IS NULL`,
           // Exclude current month — only completed months
-          sql`substr(${transactions.date}, 1, 7) < ${from.slice(0, 7)}`
+          sql`substr(${transactions.date}, 1, 7) < ${from.slice(0, 7)}`,
+          eq(transactions.userId, userId)
         )
       )
       .groupBy(transactions.categoryId, sql`substr(${transactions.date}, 1, 7)`);
@@ -345,6 +354,7 @@ export async function GET() {
 // POST /api/budgets — create a budget allocation for a category
 export async function POST(request: NextRequest) {
   try {
+    const userId = await getUserId();
     const body = await request.json();
     const { categoryId, amount } = body;
 
@@ -359,14 +369,14 @@ export async function POST(request: NextRequest) {
     const existing = await db
       .select()
       .from(budgets)
-      .where(eq(budgets.categoryId, categoryId));
+      .where(and(eq(budgets.categoryId, categoryId), eq(budgets.userId, userId)));
 
     if (existing.length > 0) {
       // Update existing
       await db
         .update(budgets)
         .set({ amount })
-        .where(eq(budgets.categoryId, categoryId));
+        .where(and(eq(budgets.categoryId, categoryId), eq(budgets.userId, userId)));
       return NextResponse.json({ success: true, id: existing[0].id });
     }
 
@@ -378,6 +388,7 @@ export async function POST(request: NextRequest) {
       period: "monthly",
       isActive: true,
       createdAt: new Date().toISOString(),
+      userId,
     });
 
     return NextResponse.json({ success: true, id }, { status: 201 });
@@ -393,6 +404,7 @@ export async function POST(request: NextRequest) {
 // PUT /api/budgets — update a budget allocation
 export async function PUT(request: NextRequest) {
   try {
+    const userId = await getUserId();
     const body = await request.json();
     const { id, amount } = body;
 
@@ -406,7 +418,7 @@ export async function PUT(request: NextRequest) {
     await db
       .update(budgets)
       .set({ amount })
-      .where(eq(budgets.id, id));
+      .where(and(eq(budgets.id, id), eq(budgets.userId, userId)));
 
     return NextResponse.json({ success: true });
   } catch (error) {
@@ -421,6 +433,7 @@ export async function PUT(request: NextRequest) {
 // DELETE /api/budgets — delete a budget allocation
 export async function DELETE(request: NextRequest) {
   try {
+    const userId = await getUserId();
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
 
@@ -431,7 +444,7 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    await db.delete(budgets).where(eq(budgets.id, id));
+    await db.delete(budgets).where(and(eq(budgets.id, id), eq(budgets.userId, userId)));
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Failed to delete allocation:", error);

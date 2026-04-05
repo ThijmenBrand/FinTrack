@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { accounts, transactions } from "@/db/schema";
-import { eq, sum, asc, count } from "drizzle-orm";
+import { eq, sum, asc, count, and } from "drizzle-orm";
+import { getUserId } from "@/lib/auth";
 
 // GET /api/accounts — list all accounts with computed balances
 export async function GET() {
   try {
-    const allAccounts = await db.select().from(accounts).orderBy(asc(accounts.sortOrder), asc(accounts.createdAt));
+    const userId = await getUserId();
+    const allAccounts = await db.select().from(accounts).where(eq(accounts.userId, userId)).orderBy(asc(accounts.sortOrder), asc(accounts.createdAt));
 
     const accountsWithBalances = await Promise.all(
       allAccounts.map(async (account) => {
@@ -37,6 +39,7 @@ export async function GET() {
 // POST /api/accounts — create a new account
 export async function POST(request: NextRequest) {
   try {
+    const userId = await getUserId();
     const body = await request.json();
     const { name, type, bankName, iban, currency, initialBalance } = body;
 
@@ -51,10 +54,11 @@ export async function POST(request: NextRequest) {
     const id = crypto.randomUUID();
 
     // Get the next sort order
-    const [{ total }] = await db.select({ total: count() }).from(accounts);
+    const [{ total }] = await db.select({ total: count() }).from(accounts).where(eq(accounts.userId, userId));
 
     await db.insert(accounts).values({
       id,
+      userId,
       name,
       type,
       bankName: bankName || null,
@@ -84,6 +88,7 @@ export async function POST(request: NextRequest) {
 // PUT /api/accounts — update an account
 export async function PUT(request: NextRequest) {
   try {
+    const userId = await getUserId();
     const body = await request.json();
     const { id, name, type, bankName, iban, currency, initialBalance } = body;
 
@@ -105,12 +110,12 @@ export async function PUT(request: NextRequest) {
         initialBalance: Number(initialBalance) || 0,
         updatedAt: new Date().toISOString(),
       })
-      .where(eq(accounts.id, id));
+      .where(and(eq(accounts.id, id), eq(accounts.userId, userId)));
 
     const [updated] = await db
       .select()
       .from(accounts)
-      .where(eq(accounts.id, id));
+      .where(and(eq(accounts.id, id), eq(accounts.userId, userId)));
 
     return NextResponse.json(updated);
   } catch (error) {
@@ -125,6 +130,7 @@ export async function PUT(request: NextRequest) {
 // PATCH /api/accounts — reorder accounts
 export async function PATCH(request: NextRequest) {
   try {
+    const userId = await getUserId();
     const body = await request.json();
     const { orderedIds } = body as { orderedIds: string[] };
 
@@ -139,7 +145,7 @@ export async function PATCH(request: NextRequest) {
       await db
         .update(accounts)
         .set({ sortOrder: i, updatedAt: new Date().toISOString() })
-        .where(eq(accounts.id, orderedIds[i]));
+        .where(and(eq(accounts.id, orderedIds[i]), eq(accounts.userId, userId)));
     }
 
     return NextResponse.json({ success: true });
@@ -155,6 +161,7 @@ export async function PATCH(request: NextRequest) {
 // DELETE /api/accounts — delete an account
 export async function DELETE(request: NextRequest) {
   try {
+    const userId = await getUserId();
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
 
@@ -165,7 +172,7 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    await db.delete(accounts).where(eq(accounts.id, id));
+    await db.delete(accounts).where(and(eq(accounts.id, id), eq(accounts.userId, userId)));
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Failed to delete account:", error);

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { transactions, categories } from "@/db/schema";
 import { eq, and, gte, lte, sql } from "drizzle-orm";
+import { getUserId } from "@/lib/auth";
 
 /**
  * GET /api/insights — aggregated spending data for charts
@@ -14,12 +15,13 @@ import { eq, and, gte, lte, sql } from "drizzle-orm";
  */
 export async function GET(request: NextRequest) {
   try {
+    const userId = await getUserId();
     const { searchParams } = new URL(request.url);
     const dateFrom = searchParams.get("dateFrom");
     const dateTo = searchParams.get("dateTo");
 
     // Build date conditions
-    const conditions = [];
+    const conditions = [eq(transactions.userId, userId)];
     if (dateFrom) conditions.push(gte(transactions.date, dateFrom));
     if (dateTo) conditions.push(lte(transactions.date, dateTo));
 
@@ -34,7 +36,7 @@ export async function GET(request: NextRequest) {
         categoryColor: categories.color,
         total: sql<number>`sum(
           abs(${transactions.amount}) - COALESCE(
-            (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id WHERE rl.expense_id = "transactions"."id"),
+            (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id AND r.user_id = "transactions"."user_id" WHERE rl.expense_id = "transactions"."id"),
             0
           )
         )`,
@@ -44,6 +46,7 @@ export async function GET(request: NextRequest) {
       .leftJoin(categories, eq(transactions.categoryId, categories.id))
       .where(
         and(
+          eq(transactions.userId, userId),
           eq(transactions.type, "expense"),
           sql`COALESCE(${categories.name}, '') <> 'Internal Transfer'`,
           sql`${transactions.groupId} IS NULL`,
@@ -59,13 +62,13 @@ export async function GET(request: NextRequest) {
         income: sql<number>`sum(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END)`,
         expenses: sql<number>`sum(CASE WHEN ${transactions.type} = 'expense' THEN (
           abs(${transactions.amount}) - COALESCE(
-            (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id WHERE rl.expense_id = "transactions"."id"),
+            (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id AND r.user_id = "transactions"."user_id" WHERE rl.expense_id = "transactions"."id"),
             0
           )
         ) ELSE 0 END)`,
       })
       .from(transactions)
-      .where(and(sql`${transactions.groupId} IS NULL`, dateWhere))
+      .where(and(eq(transactions.userId, userId), sql`${transactions.groupId} IS NULL`, dateWhere))
       .groupBy(transactions.date)
       .orderBy(transactions.date);
 
@@ -76,13 +79,13 @@ export async function GET(request: NextRequest) {
         income: sql<number>`sum(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END)`,
         expenses: sql<number>`sum(CASE WHEN ${transactions.type} = 'expense' THEN (
           abs(${transactions.amount}) - COALESCE(
-            (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id WHERE rl.expense_id = "transactions"."id"),
+            (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id AND r.user_id = "transactions"."user_id" WHERE rl.expense_id = "transactions"."id"),
             0
           )
         ) ELSE 0 END)`,
       })
       .from(transactions)
-      .where(and(sql`${transactions.groupId} IS NULL`, dateWhere))
+      .where(and(eq(transactions.userId, userId), sql`${transactions.groupId} IS NULL`, dateWhere))
       .groupBy(sql`substr(${transactions.date}, 1, 7)`)
       .orderBy(sql`substr(${transactions.date}, 1, 7)`);
 
@@ -92,14 +95,14 @@ export async function GET(request: NextRequest) {
         totalIncome: sql<number>`sum(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END)`,
         totalExpenses: sql<number>`sum(CASE WHEN ${transactions.type} = 'expense' THEN (
           abs(${transactions.amount}) - COALESCE(
-            (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id WHERE rl.expense_id = "transactions"."id"),
+            (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id AND r.user_id = "transactions"."user_id" WHERE rl.expense_id = "transactions"."id"),
             0
           )
         ) ELSE 0 END)`,
         txCount: sql<number>`count(*)`,
       })
       .from(transactions)
-      .where(and(sql`${transactions.groupId} IS NULL`, dateWhere));
+      .where(and(eq(transactions.userId, userId), sql`${transactions.groupId} IS NULL`, dateWhere));
 
     const summary = summaryResult[0] || {
       totalIncome: 0,
@@ -113,7 +116,7 @@ export async function GET(request: NextRequest) {
         description: transactions.description,
         total: sql<number>`sum(
           abs(${transactions.amount}) - COALESCE(
-            (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id WHERE rl.expense_id = "transactions"."id"),
+            (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id AND r.user_id = "transactions"."user_id" WHERE rl.expense_id = "transactions"."id"),
             0
           )
         )`,
@@ -123,6 +126,7 @@ export async function GET(request: NextRequest) {
       .leftJoin(categories, eq(transactions.categoryId, categories.id))
       .where(
         and(
+          eq(transactions.userId, userId),
           eq(transactions.type, "expense"),
           sql`COALESCE(${categories.name}, '') <> 'Internal Transfer'`,
           sql`${transactions.groupId} IS NULL`,

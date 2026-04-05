@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { transactions, reimbursementLinks } from "@/db/schema";
 import { eq, and, sql, inArray } from "drizzle-orm";
+import { getUserId } from "@/lib/auth";
 
 /**
  * POST /api/transactions/reimburse
@@ -11,6 +12,7 @@ import { eq, and, sql, inArray } from "drizzle-orm";
  */
 export async function POST(request: NextRequest) {
   try {
+    const userId = await getUserId();
     const body = await request.json();
     const transactionId: string = body.transactionId;
     // Support both single expenseId and array of expenseIds
@@ -27,7 +29,7 @@ export async function POST(request: NextRequest) {
     const [reimbursement] = await db
       .select()
       .from(transactions)
-      .where(eq(transactions.id, transactionId));
+      .where(and(eq(transactions.id, transactionId), eq(transactions.userId, userId)));
 
     if (!reimbursement) {
       return NextResponse.json(
@@ -47,7 +49,7 @@ export async function POST(request: NextRequest) {
     const expenses = await db
       .select()
       .from(transactions)
-      .where(inArray(transactions.id, expenseIds));
+      .where(and(inArray(transactions.id, expenseIds), eq(transactions.userId, userId)));
 
     if (expenses.length !== expenseIds.length) {
       return NextResponse.json(
@@ -82,7 +84,7 @@ export async function POST(request: NextRequest) {
     await db
       .update(transactions)
       .set({ type: "reimbursement" })
-      .where(eq(transactions.id, transactionId));
+      .where(and(eq(transactions.id, transactionId), eq(transactions.userId, userId)));
 
     return NextResponse.json({ success: true });
   } catch (error) {
@@ -101,6 +103,7 @@ export async function POST(request: NextRequest) {
  */
 export async function DELETE(request: NextRequest) {
   try {
+    const userId = await getUserId();
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
     const expenseId = searchParams.get("expenseId");
@@ -115,7 +118,7 @@ export async function DELETE(request: NextRequest) {
     const [tx] = await db
       .select()
       .from(transactions)
-      .where(eq(transactions.id, id));
+      .where(and(eq(transactions.id, id), eq(transactions.userId, userId)));
 
     if (!tx) {
       return NextResponse.json(
@@ -159,7 +162,7 @@ export async function DELETE(request: NextRequest) {
       await db
         .update(transactions)
         .set({ type: "income" })
-        .where(eq(transactions.id, id));
+        .where(and(eq(transactions.id, id), eq(transactions.userId, userId)));
     }
 
     return NextResponse.json({ success: true });
