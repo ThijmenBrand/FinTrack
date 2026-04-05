@@ -83,6 +83,7 @@ export async function initializeDatabase() {
 
   // ── Data migrations ────────────────────────────────────────────────────
   // These are safe no-ops if the column already exists (catch silences the error)
+  await db.run(sql`ALTER TABLE user_pin ADD COLUMN lockout_count INTEGER NOT NULL DEFAULT 0`).catch(() => {});
   await db.run(sql`ALTER TABLE accounts ADD COLUMN iban TEXT`).catch(() => {});
   await db.run(sql`ALTER TABLE accounts ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0`).catch(() => {});
   await db.run(sql`ALTER TABLE transactions ADD COLUMN reimburses_transaction_id TEXT`).catch(() => {});
