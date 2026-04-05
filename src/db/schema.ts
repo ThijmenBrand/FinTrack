@@ -82,6 +82,43 @@ export const verification = sqliteTable("verification", {
     .$onUpdate(() => new Date()),
 });
 
+// ─── Better Auth: Passkey ──────────────────────────────────────────────────
+export const passkey = sqliteTable("passkey", {
+  id: text("id").primaryKey(),
+  name: text("name"),
+  publicKey: text("publicKey").notNull(),
+  userId: text("userId")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  credentialID: text("credentialID").notNull().unique(),
+  counter: integer("counter").notNull().default(0),
+  deviceType: text("deviceType").notNull(),
+  backedUp: integer("backedUp", { mode: "boolean" }).notNull().default(false),
+  transports: text("transports"),
+  createdAt: integer("createdAt", { mode: "timestamp_ms" })
+    .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`),
+});
+
+// ─── User PIN ───────────────────────────────────────────────────────────────
+export const userPin = sqliteTable("user_pin", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" })
+    .unique(),
+  pinHash: text("pin_hash").notNull(),
+  failedAttempts: integer("failed_attempts").notNull().default(0),
+  lockedUntil: integer("locked_until", { mode: "timestamp_ms" }),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
 // ─── Bank Accounts ──────────────────────────────────────────────────────────
 // Represents a bank account (checking, savings, joint, etc.)
 export const accounts = sqliteTable("accounts", {
@@ -404,3 +441,5 @@ export type TransactionGroup = typeof transactionGroups.$inferSelect;
 export type NewTransactionGroup = typeof transactionGroups.$inferInsert;
 export type AdminAuditLog = typeof adminAuditLog.$inferSelect;
 export type NewAdminAuditLog = typeof adminAuditLog.$inferInsert;
+export type Passkey = typeof passkey.$inferSelect;
+export type UserPin = typeof userPin.$inferSelect;
