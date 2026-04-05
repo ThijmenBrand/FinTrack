@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
 
     const id = crypto.randomUUID();
     const hashedPassword = await hashPassword(password);
-    const now = new Date().toISOString();
+    const now = Date.now();
 
     await db.run(sql`
       INSERT INTO "user" (id, name, email, emailVerified, username, displayName, role, createdAt, updatedAt)
@@ -141,7 +141,7 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    const now = new Date().toISOString();
+    const now = Date.now();
 
     if (password) {
       const hashedPassword = await hashPassword(password);

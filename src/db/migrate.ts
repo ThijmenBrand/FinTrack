@@ -49,72 +49,10 @@ export async function seedCategoriesForUser(userId: string) {
 }
 
 /**
- * Initialize database tables.
- * Called on app startup to ensure all tables exist.
+ * Initialize database data: seed admin user, run data migrations, create indexes.
+ * Table creation is handled by `drizzle-kit push` (see build script).
  */
 export async function initializeDatabase() {
-  // ── Better Auth tables ─────────────────────────────────────────────────
-  await db.run(sql`
-    CREATE TABLE IF NOT EXISTS "user" (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      email TEXT NOT NULL UNIQUE,
-      emailVerified INTEGER NOT NULL DEFAULT 0,
-      image TEXT,
-      username TEXT NOT NULL UNIQUE,
-      displayName TEXT,
-      role TEXT DEFAULT 'user',
-      banned INTEGER,
-      banReason TEXT,
-      banExpires INTEGER,
-      createdAt TEXT NOT NULL,
-      updatedAt TEXT NOT NULL
-    )
-  `);
-
-  await db.run(sql`
-    CREATE TABLE IF NOT EXISTS session (
-      id TEXT PRIMARY KEY,
-      expiresAt TEXT NOT NULL,
-      token TEXT NOT NULL UNIQUE,
-      createdAt TEXT NOT NULL,
-      updatedAt TEXT NOT NULL,
-      ipAddress TEXT,
-      userAgent TEXT,
-      userId TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
-      impersonatedBy TEXT
-    )
-  `);
-
-  await db.run(sql`
-    CREATE TABLE IF NOT EXISTS account (
-      id TEXT PRIMARY KEY,
-      accountId TEXT NOT NULL,
-      providerId TEXT NOT NULL,
-      userId TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
-      accessToken TEXT,
-      refreshToken TEXT,
-      idToken TEXT,
-      accessTokenExpiresAt TEXT,
-      refreshTokenExpiresAt TEXT,
-      scope TEXT,
-      password TEXT,
-      createdAt TEXT NOT NULL,
-      updatedAt TEXT NOT NULL
-    )
-  `);
-
-  await db.run(sql`
-    CREATE TABLE IF NOT EXISTS verification (
-      id TEXT PRIMARY KEY,
-      identifier TEXT NOT NULL,
-      value TEXT NOT NULL,
-      expiresAt TEXT NOT NULL,
-      createdAt TEXT,
-      updatedAt TEXT
-    )
-  `);
-
   // ── Seed admin user if no users exist ──────────────────────────────────
   const userCount = await db.run(sql`SELECT COUNT(*) as count FROM "user"`);
   const numUsers = (userCount.rows[0] as Record<string, unknown>)?.count as number;
@@ -128,7 +66,7 @@ export async function initializeDatabase() {
 
     adminUserId = crypto.randomUUID();
     const hashedPassword = await hashPassword(adminPassword);
-    const now = new Date().toISOString();
+    const now = Date.now();
 
     await db.run(sql`
       INSERT INTO "user" (id, name, email, emailVerified, username, displayName, role, createdAt, updatedAt)
@@ -143,146 +81,7 @@ export async function initializeDatabase() {
     console.log(`Admin user "${adminUsername}" created. Change the password after first login.`);
   }
 
-  // ── Data tables ────────────────────────────────────────��───────────────
-  await db.run(sql`
-    CREATE TABLE IF NOT EXISTS accounts (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      type TEXT NOT NULL CHECK(type IN ('checking', 'savings', 'joint', 'credit', 'other')),
-      bank_name TEXT,
-      iban TEXT,
-      currency TEXT NOT NULL DEFAULT 'EUR',
-      initial_balance REAL NOT NULL DEFAULT 0,
-      sort_order INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    )
-  `);
-
-  await db.run(sql`
-    CREATE TABLE IF NOT EXISTS categories (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      icon TEXT,
-      color TEXT,
-      created_at TEXT NOT NULL
-    )
-  `);
-
-  await db.run(sql`
-    CREATE TABLE IF NOT EXISTS transactions (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
-      account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-      date TEXT NOT NULL,
-      description TEXT NOT NULL,
-      amount REAL NOT NULL,
-      balance REAL,
-      category_id TEXT REFERENCES categories(id),
-      type TEXT NOT NULL CHECK(type IN ('income', 'expense', 'internal_transfer', 'reimbursement')),
-      linked_transaction_id TEXT,
-      reimburses_transaction_id TEXT,
-      notes TEXT,
-      is_manual INTEGER NOT NULL DEFAULT 0,
-      import_batch_id TEXT,
-      group_id TEXT,
-      created_at TEXT NOT NULL
-    )
-  `);
-
-  await db.run(sql`
-    CREATE TABLE IF NOT EXISTS category_rules (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
-      pattern TEXT NOT NULL,
-      category_id TEXT NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
-      match_type TEXT NOT NULL DEFAULT 'contains' CHECK(match_type IN ('contains', 'exact', 'starts_with')),
-      is_active INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL
-    )
-  `);
-
-  await db.run(sql`
-    CREATE TABLE IF NOT EXISTS budgets (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
-      category_id TEXT NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
-      amount REAL NOT NULL,
-      period TEXT NOT NULL CHECK(period IN ('daily', 'weekly', 'monthly', 'yearly')),
-      is_active INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL
-    )
-  `);
-
-  await db.run(sql`
-    CREATE TABLE IF NOT EXISTS recurring_transactions (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
-      account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-      description TEXT NOT NULL,
-      amount REAL NOT NULL,
-      type TEXT NOT NULL CHECK(type IN ('income', 'expense')),
-      category_id TEXT REFERENCES categories(id),
-      frequency TEXT NOT NULL CHECK(frequency IN ('weekly', 'biweekly', 'monthly', 'yearly')),
-      day_of_week INTEGER,
-      day_of_month INTEGER,
-      month_of_year INTEGER,
-      start_date TEXT NOT NULL,
-      end_date TEXT,
-      is_active INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL
-    )
-  `);
-
-  await db.run(sql`
-    CREATE TABLE IF NOT EXISTS import_batches (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
-      account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-      file_name TEXT NOT NULL,
-      transaction_count INTEGER NOT NULL,
-      imported_at TEXT NOT NULL
-    )
-  `);
-
-  await db.run(sql`
-    CREATE TABLE IF NOT EXISTS transaction_groups (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      category_id TEXT REFERENCES categories(id),
-      created_at TEXT NOT NULL
-    )
-  `);
-
-  await db.run(sql`
-    CREATE TABLE IF NOT EXISTS reimbursement_links (
-      id TEXT PRIMARY KEY,
-      reimbursement_id TEXT NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
-      expense_id TEXT NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
-      created_at TEXT NOT NULL
-    )
-  `);
-
-  await db.run(sql`
-    CREATE TABLE IF NOT EXISTS admin_audit_log (
-      id TEXT PRIMARY KEY,
-      admin_id TEXT NOT NULL,
-      action TEXT NOT NULL,
-      target_user_id TEXT NOT NULL,
-      details TEXT,
-      ip_address TEXT,
-      created_at TEXT NOT NULL
-    )
-  `);
-
-  await db.run(sql`CREATE INDEX IF NOT EXISTS idx_audit_log_admin ON admin_audit_log(admin_id)`);
-  await db.run(sql`CREATE INDEX IF NOT EXISTS idx_audit_log_target ON admin_audit_log(target_user_id)`);
-  await db.run(sql`CREATE INDEX IF NOT EXISTS idx_audit_log_action ON admin_audit_log(action)`);
-
-  // ── Migrations: add missing columns to existing tables ─────────────────
+  // ── Data migrations ────────────────────────────────────────────────────
   // These are safe no-ops if the column already exists (catch silences the error)
   await db.run(sql`ALTER TABLE accounts ADD COLUMN iban TEXT`).catch(() => {});
   await db.run(sql`ALTER TABLE accounts ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0`).catch(() => {});
