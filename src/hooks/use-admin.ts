@@ -12,7 +12,7 @@ export function useAdminUsers() {
 export function useCreateUser() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { username: string; password: string; displayName: string; isAdmin: boolean }) =>
+    mutationFn: (payload: { username: string; password: string; displayUsername: string; isAdmin: boolean }) =>
       apiFetch("/api/admin/users", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["admin-users"] }); },
   });

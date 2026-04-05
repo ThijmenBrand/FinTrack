@@ -1,12 +1,14 @@
 import type { Config } from "drizzle-kit";
 
-const config: Config = process.env.TURSO_DATABASE_URL
+const tursoUrl = process.env.TURSO_DATABASE_URL?.trim();
+
+const config: Config = tursoUrl
   ? {
       schema: "./src/db/schema.ts",
       out: "./drizzle",
       dialect: "turso",
       dbCredentials: {
-        url: process.env.TURSO_DATABASE_URL,
+        url: tursoUrl,
         authToken: process.env.TURSO_AUTH_TOKEN,
       },
     }

@@ -53,6 +53,52 @@ export async function seedCategoriesForUser(userId: string) {
  * Table creation is handled by `drizzle-kit push` (see build script).
  */
 export async function initializeDatabase() {
+  // ── Rename camelCase columns to snake_case (idempotent) ────────────────
+  const renames: [string, string, string][] = [
+    // user
+    ["user", "emailVerified", "email_verified"],
+    ["user", "displayName", "display_username"],
+    ["user", "banReason", "ban_reason"],
+    ["user", "banExpires", "ban_expires"],
+    ["user", "createdAt", "created_at"],
+    ["user", "updatedAt", "updated_at"],
+    // session
+    ["session", "expiresAt", "expires_at"],
+    ["session", "createdAt", "created_at"],
+    ["session", "updatedAt", "updated_at"],
+    ["session", "ipAddress", "ip_address"],
+    ["session", "userAgent", "user_agent"],
+    ["session", "userId", "user_id"],
+    ["session", "impersonatedBy", "impersonated_by"],
+    // account
+    ["account", "accountId", "account_id"],
+    ["account", "providerId", "provider_id"],
+    ["account", "userId", "user_id"],
+    ["account", "accessToken", "access_token"],
+    ["account", "refreshToken", "refresh_token"],
+    ["account", "idToken", "id_token"],
+    ["account", "accessTokenExpiresAt", "access_token_expires_at"],
+    ["account", "refreshTokenExpiresAt", "refresh_token_expires_at"],
+    ["account", "createdAt", "created_at"],
+    ["account", "updatedAt", "updated_at"],
+    // verification
+    ["verification", "expiresAt", "expires_at"],
+    ["verification", "createdAt", "created_at"],
+    ["verification", "updatedAt", "updated_at"],
+    // passkey
+    ["passkey", "publicKey", "public_key"],
+    ["passkey", "userId", "user_id"],
+    ["passkey", "credentialID", "credential_id"],
+    ["passkey", "deviceType", "device_type"],
+    ["passkey", "backedUp", "backed_up"],
+    ["passkey", "createdAt", "created_at"],
+  ];
+  for (const [table, oldCol, newCol] of renames) {
+    await db.run(sql.raw(`ALTER TABLE "${table}" RENAME COLUMN "${oldCol}" TO "${newCol}"`)).catch(() => {});
+  }
+  // Add aaguid column if missing
+  await db.run(sql`ALTER TABLE passkey ADD COLUMN aaguid TEXT`).catch(() => {});
+
   // ── Seed admin user if no users exist ──────────────────────────────────
   const userCount = await db.run(sql`SELECT COUNT(*) as count FROM "user"`);
   const numUsers = (userCount.rows[0] as Record<string, unknown>)?.count as number;
@@ -69,12 +115,12 @@ export async function initializeDatabase() {
     const now = Date.now();
 
     await db.run(sql`
-      INSERT INTO "user" (id, name, email, emailVerified, username, displayName, role, createdAt, updatedAt)
+      INSERT INTO "user" (id, name, email, email_verified, username, display_username, role, created_at, updated_at)
       VALUES (${adminUserId}, ${adminDisplayName}, ${adminUsername + '@local'}, 0, ${adminUsername}, ${adminDisplayName}, 'admin', ${now}, ${now})
     `);
 
     await db.run(sql`
-      INSERT INTO account (id, accountId, providerId, userId, password, createdAt, updatedAt)
+      INSERT INTO account (id, account_id, provider_id, user_id, password, created_at, updated_at)
       VALUES (${crypto.randomUUID()}, ${adminUserId}, 'credential', ${adminUserId}, ${hashedPassword}, ${now}, ${now})
     `);
 

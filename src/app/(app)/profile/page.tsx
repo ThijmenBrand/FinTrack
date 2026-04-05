@@ -27,7 +27,7 @@ export default function ProfilePage() {
   }, [error, router]);
 
   // Profile form
-  const [displayName, setDisplayName] = useState("");
+  const [displayUsername, setDisplayUsername] = useState("");
   const [username, setUsername] = useState("");
   const [saving, setSaving] = useState(false);
   const [profileMsg, setProfileMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -64,7 +64,7 @@ export default function ProfilePage() {
   // Sync profile data to form state
   useEffect(() => {
     if (profile) {
-      setDisplayName(profile.displayName);
+      setDisplayUsername(profile.displayUsername);
       setUsername(profile.username);
     }
   }, [profile]);
@@ -105,7 +105,7 @@ export default function ProfilePage() {
     setProfileMsg(null);
     setSaving(true);
     try {
-      await updateProfile.mutateAsync({ displayName, username });
+      await updateProfile.mutateAsync({ displayUsername, username });
       setProfileMsg({ type: "success", text: "Profile updated successfully" });
       router.refresh();
     } catch (err) {
@@ -270,14 +270,14 @@ export default function ProfilePage() {
         <CardContent>
           <form onSubmit={handleProfileSave} className="space-y-4">
             <div className="space-y-2">
-              <label htmlFor="displayName" className="text-sm font-medium">
+              <label htmlFor="displayUsername" className="text-sm font-medium">
                 Display Name
               </label>
               <input
-                id="displayName"
+                id="displayUsername"
                 type="text"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
+                value={displayUsername}
+                onChange={(e) => setDisplayUsername(e.target.value)}
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 required
               />

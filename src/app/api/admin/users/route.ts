@@ -37,16 +37,16 @@ export async function GET() {
     await requireAdmin();
 
     const result = await db.run(
-      sql`SELECT id, username, name, displayName, role, createdAt FROM "user" ORDER BY createdAt ASC`
+      sql`SELECT id, username, name, display_username, role, created_at FROM "user" ORDER BY created_at ASC`
     );
 
     return NextResponse.json(
       result.rows.map((row: Record<string, unknown>) => ({
         id: row.id,
         username: row.username,
-        displayName: row.displayName || row.name,
+        displayUsername: row.display_username || row.name,
         isAdmin: row.role === "admin",
-        createdAt: row.createdAt,
+        createdAt: row.created_at,
       }))
     );
   } catch (error) {
@@ -64,11 +64,11 @@ export async function POST(request: NextRequest) {
   try {
     const session = await requireAdmin();
 
-    const { username, password, displayName, isAdmin } = await request.json();
+    const { username, password, displayUsername, isAdmin } = await request.json();
 
-    if (!username || !password || !displayName) {
+    if (!username || !password || !displayUsername) {
       return NextResponse.json(
-        { error: "username, password, and displayName are required" },
+        { error: "username, password, and displayUsername are required" },
         { status: 400 }
       );
     }
@@ -89,13 +89,13 @@ export async function POST(request: NextRequest) {
     const now = Date.now();
 
     await db.run(sql`
-      INSERT INTO "user" (id, name, email, emailVerified, username, displayName, role, createdAt, updatedAt)
-      VALUES (${id}, ${displayName}, ${username + '@local'}, 0, ${username}, ${displayName}, ${isAdmin ? 'admin' : 'user'}, ${now}, ${now})
+      INSERT INTO "user" (id, name, email, email_verified, username, display_username, role, created_at, updated_at)
+      VALUES (${id}, ${displayUsername}, ${username + '@local'}, 0, ${username}, ${displayUsername}, ${isAdmin ? 'admin' : 'user'}, ${now}, ${now})
     `);
 
     // Create credential account
     await db.run(sql`
-      INSERT INTO account (id, accountId, providerId, userId, password, createdAt, updatedAt)
+      INSERT INTO account (id, account_id, provider_id, user_id, password, created_at, updated_at)
       VALUES (${crypto.randomUUID()}, ${id}, 'credential', ${id}, ${hashedPassword}, ${now}, ${now})
     `);
 
@@ -104,7 +104,7 @@ export async function POST(request: NextRequest) {
 
     await logAdminAction(session.userId, "user_create", id, {
       username,
-      displayName,
+      displayUsername,
       isAdmin: !!isAdmin,
     });
 
@@ -112,7 +112,7 @@ export async function POST(request: NextRequest) {
       {
         id,
         username,
-        displayName,
+        displayUsername,
         isAdmin: !!isAdmin,
       },
       { status: 201 }
@@ -132,7 +132,7 @@ export async function PUT(request: NextRequest) {
   try {
     const session = await requireAdmin();
 
-    const { id, password, displayName, isAdmin } = await request.json();
+    const { id, password, displayUsername, isAdmin } = await request.json();
 
     if (!id) {
       return NextResponse.json(
@@ -146,21 +146,21 @@ export async function PUT(request: NextRequest) {
     if (password) {
       const hashedPassword = await hashPassword(password);
       await db.run(
-        sql`UPDATE account SET password = ${hashedPassword}, updatedAt = ${now} WHERE userId = ${id} AND providerId = 'credential'`
+        sql`UPDATE account SET password = ${hashedPassword}, updated_at = ${now} WHERE user_id = ${id} AND provider_id = 'credential'`
       );
       await logAdminAction(session.userId, "password_reset", id);
     }
 
-    if (displayName !== undefined) {
+    if (displayUsername !== undefined) {
       await db.run(
-        sql`UPDATE "user" SET name = ${displayName}, displayName = ${displayName}, updatedAt = ${now} WHERE id = ${id}`
+        sql`UPDATE "user" SET name = ${displayUsername}, display_username = ${displayUsername}, updated_at = ${now} WHERE id = ${id}`
       );
-      await logAdminAction(session.userId, "display_name_change", id, { displayName });
+      await logAdminAction(session.userId, "display_name_change", id, { displayUsername });
     }
 
     if (isAdmin !== undefined) {
       await db.run(
-        sql`UPDATE "user" SET role = ${isAdmin ? 'admin' : 'user'}, updatedAt = ${now} WHERE id = ${id}`
+        sql`UPDATE "user" SET role = ${isAdmin ? 'admin' : 'user'}, updated_at = ${now} WHERE id = ${id}`
       );
       await logAdminAction(session.userId, "role_change", id, { newRole: isAdmin ? "admin" : "user" });
     }

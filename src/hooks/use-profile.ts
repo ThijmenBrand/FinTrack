@@ -13,7 +13,7 @@ export function useProfile() {
 export function useUpdateProfile() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { displayName?: string; username?: string; currentPassword?: string; newPassword?: string }) =>
+    mutationFn: (payload: { displayUsername?: string; username?: string; currentPassword?: string; newPassword?: string }) =>
       apiFetch("/api/auth/profile", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["profile"] });
