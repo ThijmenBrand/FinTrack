@@ -32,7 +32,8 @@ export async function POST(request: NextRequest) {
     }
 
     const mapping: ColumnMapping = JSON.parse(mappingJson);
-    const csvText = await file.text();
+    // Strip UTF-8 BOM that bank exports often include
+    const csvText = (await file.text()).replace(/^\uFEFF/, "");
 
     // Parse CSV
     const parsed = Papa.parse<CsvRow>(csvText, {
