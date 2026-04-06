@@ -47,9 +47,11 @@ export async function POST(request: NextRequest) {
       transformHeader: (header: string) => header.trim(),
     });
 
-    if (parsed.errors.length > 0) {
+    // Only fail if no data was parsed; ignore non-fatal PapaParse warnings
+    // (e.g. TooFewFields on trailing empty lines, FieldMismatch, etc.)
+    if (parsed.data.length === 0) {
       return NextResponse.json(
-        { error: "CSV parsing errors", details: parsed.errors.slice(0, 5) },
+        { error: "CSV parsing errors — no data found", details: parsed.errors.slice(0, 5) },
         { status: 400 }
       );
     }
@@ -75,7 +77,7 @@ export async function POST(request: NextRequest) {
       .from(categories)
       .where(and(eq(categories.name, "Internal Transfer"), eq(categories.userId, userId)));
 
-    const allColumns = parsed.meta.fields || [];
+    const allColumns = (parsed.meta.fields || []).filter((c) => c.length > 0);
     const transactions: PreviewTransaction[] = [];
     let skipped = 0;
 
