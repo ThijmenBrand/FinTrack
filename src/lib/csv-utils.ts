@@ -35,6 +35,8 @@ export interface PreviewTransaction {
 export function parseAmount(raw: string): number {
   // Remove currency symbols and whitespace
   let cleaned = raw.replace(/[€$£¥\s]/g, "");
+  // Normalize Unicode minus signs (U+2212, en-dash, etc.) to ASCII hyphen-minus
+  cleaned = cleaned.replace(/[\u2212\u2013\u2014\u2010\u2011]/g, "-");
 
   // Detect format: if last separator is comma and has 1-2 digits after, it's EU
   const lastComma = cleaned.lastIndexOf(",");
