@@ -112,19 +112,21 @@ export function CsvUploadDialog({
       skipEmptyLines: true,
       transformHeader: (h: string) => h.trim(),
       complete: (results) => {
-        if (results.errors.length > 0) {
+        // Only fail if no data was parsed; ignore non-fatal warnings
+        // (e.g. TooFewFields on trailing empty lines, TooManyFields, etc.)
+        if (results.data.length === 0) {
           setError("Failed to parse CSV. Check the file format.");
           return;
         }
-        const cols = results.meta.fields || [];
+        const cols = (results.meta.fields || []).filter((c) => c.length > 0);
         setHeaders(cols);
         setPreviewRows(results.data as Record<string, string>[]);
 
         const autoMapping = { date: "", description: "", amount: "", balance: "", counterpartyIban: "" };
 
         const descPriority = ["omschrijving", "description", "memo", "naam", "name"];
-        const amountPriority = ["bedrag", "amount", "value"];
-        const balancePriority = ["saldo voor", "balance", "saldo"];
+        const amountPriority = ["bedrag", "betrag", "amount", "value"];
+        const balancePriority = ["saldo voor", "balance", "saldo", "kontostand"];
         const datePriority = ["datum", "date"];
         const ibanPriority = ["tegenrekening", "iban", "counterparty", "contra"];
 

@@ -42,10 +42,11 @@ export async function POST(request: NextRequest) {
       transformHeader: (header: string) => header.trim(),
     });
 
-    if (parsed.errors.length > 0) {
+    // Only fail if no data was parsed; ignore non-fatal PapaParse warnings
+    if (parsed.data.length === 0) {
       return NextResponse.json(
         {
-          error: "CSV parsing errors",
+          error: "CSV parsing errors — no data found",
           details: parsed.errors.slice(0, 5),
         },
         { status: 400 }
