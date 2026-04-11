@@ -5,7 +5,7 @@ import { Landmark, ArrowLeft, Fingerprint } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { useRouter } from "next/navigation";
 
-type LoginStep = "username" | "method" | "password";
+type LoginStep = "username" | "password";
 
 export default function LoginPage() {
   const [step, setStep] = useState<LoginStep>("username");
@@ -29,12 +29,7 @@ export default function LoginPage() {
           : false;
 
       setHasWebAuthn(webAuthnAvailable);
-
-      if (webAuthnAvailable) {
-        setStep("method");
-      } else {
-        setStep("password");
-      }
+      setStep("password");
     } catch {
       setStep("password");
     } finally {
@@ -91,15 +86,7 @@ export default function LoginPage() {
   function goBack() {
     setError("");
     setPassword("");
-    if (step === "password") {
-      if (hasWebAuthn) {
-        setStep("method");
-      } else {
-        setStep("username");
-      }
-    } else if (step === "method") {
-      setStep("username");
-    }
+    setStep("username");
   }
 
   return (
@@ -115,7 +102,6 @@ export default function LoginPage() {
           </h1>
           <p className="text-sm text-muted-foreground">
             {step === "username" && "Sign in to your account"}
-            {step === "method" && "Choose how to sign in"}
             {step === "password" && "Enter your password"}
           </p>
         </div>
@@ -166,36 +152,6 @@ export default function LoginPage() {
           </form>
         )}
 
-        {/* Method Picker */}
-        {step === "method" && (
-          <div className="space-y-3">
-            <p className="text-xs text-muted-foreground text-center mb-2">
-              Signing in as <span className="font-medium text-foreground">{username}</span>
-            </p>
-
-            {hasWebAuthn && (
-              <button
-                onClick={handleBiometricLogin}
-                disabled={loading}
-                className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
-              >
-                <Fingerprint className="h-5 w-5" />
-                Face ID / Biometric
-              </button>
-            )}
-
-            <button
-              onClick={() => { setError(""); setStep("password"); }}
-              disabled={loading}
-              className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-md border border-input bg-background px-4 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
-            >
-              Password
-            </button>
-
-            {error && <p className="text-sm text-red-500 text-center">{error}</p>}
-          </div>
-        )}
-
         {/* Password Form */}
         {step === "password" && (
           <form onSubmit={handlePasswordSubmit} className="space-y-4">
@@ -232,6 +188,27 @@ export default function LoginPage() {
             >
               {loading ? "Signing in..." : "Sign in"}
             </button>
+
+            {hasWebAuthn && (
+              <>
+                <div className="relative flex items-center justify-center">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-border" />
+                  </div>
+                  <span className="relative bg-card px-2 text-xs text-muted-foreground">or</span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleBiometricLogin}
+                  disabled={loading}
+                  className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-input bg-background px-4 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+                >
+                  <Fingerprint className="h-4 w-4" />
+                  Sign in with biometrics
+                </button>
+              </>
+            )}
           </form>
         )}
       </div>
