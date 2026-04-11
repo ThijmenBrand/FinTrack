@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { auditLog } from "@/db/schema";
-import { eq, and, gte, lte, desc, sql, type SQL } from "drizzle-orm";
+import { eq, and, gte, lte, sql, type SQL } from "drizzle-orm";
 import { requireAdmin } from "@/lib/auth";
 import { cleanupOldAuditLogs } from "@/lib/audit";
 

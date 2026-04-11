@@ -83,7 +83,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Display name cannot be empty" }, { status: 400 });
     }
     await db.run(
-      sql`UPDATE "user" SET name = ${displayUsername.trim()}, display_username = ${displayUsername.trim()}, updated_at = ${Date.now()} WHERE id = ${userId}`
+      sql`UPDATE "user" SET name = ${displayUsername.trim()}, display_username = ${displayUsername.trim()}, updated_at = ${new Date().toISOString()} WHERE id = ${userId}`
     );
   }
 
@@ -98,7 +98,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Username already taken" }, { status: 409 });
     }
     await db.run(
-      sql`UPDATE "user" SET username = ${username.trim()}, email = ${username.trim() + '@local'}, updated_at = ${Date.now()} WHERE id = ${userId}`
+      sql`UPDATE "user" SET username = ${username.trim()}, email = ${username.trim() + '@local'}, updated_at = ${new Date().toISOString()} WHERE id = ${userId}`
     );
   }
 
@@ -145,7 +145,7 @@ export async function PATCH(req: NextRequest) {
     }
     const hashed = await hashPassword(newPassword);
     await db.run(
-      sql`UPDATE account SET password = ${hashed}, updated_at = ${Date.now()} WHERE user_id = ${userId} AND provider_id = 'credential'`
+      sql`UPDATE account SET password = ${hashed}, updated_at = ${new Date().toISOString()} WHERE user_id = ${userId} AND provider_id = 'credential'`
     );
   }
 

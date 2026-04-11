@@ -65,61 +65,64 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    // Get all transactions in this batch
-    const batchTxs = await db
-      .select({
-        id: transactions.id,
-        linkedTransactionId: transactions.linkedTransactionId,
-      })
-      .from(transactions)
-      .where(and(eq(transactions.importBatchId, batchId), eq(transactions.userId, userId)));
-
-    const batchTxIds = new Set(batchTxs.map((tx) => tx.id));
-
-    // Handle linked transactions (internal transfers)
-    for (const tx of batchTxs) {
-      if (!tx.linkedTransactionId) continue;
-      // Skip if the linked tx is also in this batch (will be deleted anyway)
-      if (batchTxIds.has(tx.linkedTransactionId)) continue;
-
-      const [linkedTx] = await db
+    // Wrap the entire rollback in a transaction for atomicity
+    await db.transaction(async (tx) => {
+      // Get all transactions in this batch
+      const batchTxs = await tx
         .select({
           id: transactions.id,
-          isManual: transactions.isManual,
-          amount: transactions.amount,
+          linkedTransactionId: transactions.linkedTransactionId,
         })
         .from(transactions)
-        .where(and(eq(transactions.id, tx.linkedTransactionId), eq(transactions.userId, userId)));
+        .where(and(eq(transactions.importBatchId, batchId), eq(transactions.userId, userId)));
 
-      if (!linkedTx) continue;
+      const batchTxIds = new Set(batchTxs.map((t) => t.id));
 
-      if (linkedTx.isManual) {
-        // Auto-created mirror — delete it
-        await db
-          .delete(transactions)
-          .where(and(eq(transactions.id, linkedTx.id), eq(transactions.userId, userId)));
-      } else {
-        // Came from another CSV import — revert to normal
-        await db
-          .update(transactions)
-          .set({
-            type: linkedTx.amount >= 0 ? "income" : "expense",
-            linkedTransactionId: null,
-            categoryId: null,
+      // Handle linked transactions (internal transfers)
+      for (const btx of batchTxs) {
+        if (!btx.linkedTransactionId) continue;
+        // Skip if the linked tx is also in this batch (will be deleted anyway)
+        if (batchTxIds.has(btx.linkedTransactionId)) continue;
+
+        const [linkedTx] = await tx
+          .select({
+            id: transactions.id,
+            isManual: transactions.isManual,
+            amount: transactions.amount,
           })
-          .where(and(eq(transactions.id, linkedTx.id), eq(transactions.userId, userId)));
+          .from(transactions)
+          .where(and(eq(transactions.id, btx.linkedTransactionId), eq(transactions.userId, userId)));
+
+        if (!linkedTx) continue;
+
+        if (linkedTx.isManual) {
+          // Auto-created mirror — delete it
+          await tx
+            .delete(transactions)
+            .where(and(eq(transactions.id, linkedTx.id), eq(transactions.userId, userId)));
+        } else {
+          // Came from another CSV import — revert to normal
+          await tx
+            .update(transactions)
+            .set({
+              type: linkedTx.amount >= 0 ? "income" : "expense",
+              linkedTransactionId: null,
+              categoryId: null,
+            })
+            .where(and(eq(transactions.id, linkedTx.id), eq(transactions.userId, userId)));
+        }
       }
-    }
 
-    // Delete all transactions in this batch
-    await db
-      .delete(transactions)
-      .where(and(eq(transactions.importBatchId, batchId), eq(transactions.userId, userId)));
+      // Delete all transactions in this batch
+      await tx
+        .delete(transactions)
+        .where(and(eq(transactions.importBatchId, batchId), eq(transactions.userId, userId)));
 
-    // Delete the batch record
-    await db
-      .delete(importBatches)
-      .where(and(eq(importBatches.id, batchId), eq(importBatches.userId, userId)));
+      // Delete the batch record
+      await tx
+        .delete(importBatches)
+        .where(and(eq(importBatches.id, batchId), eq(importBatches.userId, userId)));
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {
