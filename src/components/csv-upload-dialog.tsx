@@ -100,13 +100,25 @@ export function CsvUploadDialog({
     setPreviewSkipped(0);
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) return;
     setFile(f);
     setError(null);
 
-    Papa.parse(f, {
+    // Detect encoding (UTF-16 LE/BE vs UTF-8) and decode to string
+    const rawBytes = new Uint8Array(await f.arrayBuffer());
+    let csvText: string;
+    if (rawBytes[0] === 0xFF && rawBytes[1] === 0xFE) {
+      csvText = new TextDecoder("utf-16le").decode(rawBytes);
+    } else if (rawBytes[0] === 0xFE && rawBytes[1] === 0xFF) {
+      csvText = new TextDecoder("utf-16be").decode(rawBytes);
+    } else {
+      csvText = new TextDecoder("utf-8").decode(rawBytes);
+    }
+    csvText = csvText.replace(/^\uFEFF/, "");
+
+    Papa.parse(csvText, {
       header: true,
       preview: 6,
       skipEmptyLines: true,
@@ -124,11 +136,11 @@ export function CsvUploadDialog({
 
         const autoMapping = { date: "", description: "", amount: "", balance: "", counterpartyIban: "" };
 
-        const descPriority = ["omschrijving", "description", "memo", "naam", "name"];
+        const descPriority = ["omschrijving", "description", "memo", "naam", "name", "partnername", "buchungs-details", "buchungsdetails"];
         const amountPriority = ["bedrag", "betrag", "amount", "value"];
         const balancePriority = ["saldo voor", "balance", "saldo", "kontostand"];
-        const datePriority = ["datum", "date"];
-        const ibanPriority = ["tegenrekening", "iban", "counterparty", "contra"];
+        const datePriority = ["buchungsdatum", "datum", "date"];
+        const ibanPriority = ["tegenrekening", "iban", "counterparty", "contra", "partner iban"];
 
         function findBestMatch(cols: string[], keywords: string[]): string {
           for (const kw of keywords) {

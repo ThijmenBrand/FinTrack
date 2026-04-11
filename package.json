@@ -11,7 +11,8 @@
     "db:init": "tsx scripts/db-init.ts",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "setup": "bash scripts/setup.sh"
   },
   "dependencies": {
     "@better-auth/passkey": "^1.5.6",

@@ -38,10 +38,32 @@ export async function POST(request: NextRequest) {
     }
 
     const mapping: ColumnMapping = JSON.parse(mappingJson);
-    // Strip UTF-8 BOM that bank exports often include — the browser's FileReader
-    // handles BOM automatically, but server-side file.text() preserves it, which
-    // causes the first column name to mismatch the client-side mapping.
-    const csvText = (await file.text()).replace(/^\uFEFF/, "");
+    console.log("[CSV DEBUG] === Starting CSV preview ===");
+    console.log("[CSV DEBUG] Mapping:", JSON.stringify(mapping));
+
+    // Handle various encodings: UTF-16 LE/BE (common in Austrian/German bank exports)
+    // and UTF-8 with BOM. file.text() assumes UTF-8, which garbles UTF-16 files.
+    const rawBytes = new Uint8Array(await file.arrayBuffer());
+    let csvText: string;
+    if (rawBytes[0] === 0xFF && rawBytes[1] === 0xFE) {
+      // UTF-16 LE BOM
+      console.log("[CSV DEBUG] Detected UTF-16 LE encoding");
+      const decoder = new TextDecoder("utf-16le");
+      csvText = decoder.decode(rawBytes);
+    } else if (rawBytes[0] === 0xFE && rawBytes[1] === 0xFF) {
+      // UTF-16 BE BOM
+      console.log("[CSV DEBUG] Detected UTF-16 BE encoding");
+      const decoder = new TextDecoder("utf-16be");
+      csvText = decoder.decode(rawBytes);
+    } else {
+      // UTF-8 (with or without BOM)
+      csvText = new TextDecoder("utf-8").decode(rawBytes);
+    }
+    // Strip any remaining BOM character
+    csvText = csvText.replace(/^\uFEFF/, "");
+
+    console.log("[CSV DEBUG] CSV text length:", csvText.length);
+    console.log("[CSV DEBUG] First 500 chars:", csvText.substring(0, 500));
 
     const parsed = Papa.parse<CsvRow>(csvText, {
       header: true,
@@ -49,6 +71,19 @@ export async function POST(request: NextRequest) {
       dynamicTyping: false,
       transformHeader: (header: string) => header.trim(),
     });
+
+    console.log("[CSV DEBUG] PapaParse results: rows=%d, errors=%d, fields=%s",
+      parsed.data.length,
+      parsed.errors.length,
+      JSON.stringify(parsed.meta.fields),
+    );
+    if (parsed.errors.length > 0) {
+      console.log("[CSV DEBUG] PapaParse errors:", JSON.stringify(parsed.errors.slice(0, 5)));
+    }
+    if (parsed.data.length > 0) {
+      console.log("[CSV DEBUG] First row:", JSON.stringify(parsed.data[0]));
+      console.log("[CSV DEBUG] Row keys:", Object.keys(parsed.data[0]));
+    }
 
     // Only fail if no data was parsed; ignore non-fatal PapaParse warnings
     // (e.g. TooFewFields on trailing empty lines, FieldMismatch, etc.)
@@ -83,11 +118,18 @@ export async function POST(request: NextRequest) {
     const allColumns = (parsed.meta.fields || []).filter((c) => c.length > 0);
     const transactions: PreviewTransaction[] = [];
     let skipped = 0;
+    const skipReasons: { row: number; reason: string; rawValues: Record<string, string | undefined> }[] = [];
 
-    for (const row of parsed.data) {
+    for (let rowIndex = 0; rowIndex < parsed.data.length; rowIndex++) {
+      const row = parsed.data[rowIndex];
       const dateRaw = row[mapping.date]?.trim();
       let description = row[mapping.description]?.trim();
       const amountRaw = row[mapping.amount]?.trim();
+
+      if (rowIndex < 5) {
+        console.log(`[CSV DEBUG] Row ${rowIndex + 1}: date="${dateRaw}" (col "${mapping.date}"), amount="${amountRaw}" (col "${mapping.amount}"), desc="${description?.substring(0, 50)}" (col "${mapping.description}")`);
+        console.log(`[CSV DEBUG] Row ${rowIndex + 1} raw:`, JSON.stringify(row));
+      }
       const balanceRaw = mapping.balance ? row[mapping.balance]?.trim() : undefined;
 
       // Description fallback logic
@@ -112,20 +154,35 @@ export async function POST(request: NextRequest) {
             .substring(0, 200) || "Unknown transaction";
       }
 
+      const rawValues = {
+        date: dateRaw,
+        amount: amountRaw,
+        description: description?.substring(0, 80),
+        mappedDateCol: mapping.date,
+        mappedAmountCol: mapping.amount,
+      };
+
       if (!dateRaw || !amountRaw) {
+        const reason = !dateRaw && !amountRaw ? "Missing date and amount" : !dateRaw ? "Missing date" : "Missing amount";
+        if (skipped < 10) console.log(`[CSV DEBUG] SKIP row ${rowIndex + 1}: ${reason} | dateRaw="${dateRaw}" amountRaw="${amountRaw}"`);
         skipped++;
+        skipReasons.push({ row: rowIndex + 1, reason, rawValues });
         continue;
       }
 
       const amount = parseAmount(amountRaw);
       if (isNaN(amount)) {
+        if (skipped < 10) console.log(`[CSV DEBUG] SKIP row ${rowIndex + 1}: Amount parse failed: "${amountRaw}" → NaN`);
         skipped++;
+        skipReasons.push({ row: rowIndex + 1, reason: `Amount parse failed: "${amountRaw}" → NaN`, rawValues });
         continue;
       }
 
       const date = parseDate(dateRaw);
       if (!date) {
+        if (skipped < 10) console.log(`[CSV DEBUG] SKIP row ${rowIndex + 1}: Date parse failed: "${dateRaw}" → null`);
         skipped++;
+        skipReasons.push({ row: rowIndex + 1, reason: `Date parse failed: "${dateRaw}" → null`, rawValues });
         continue;
       }
 
@@ -176,6 +233,16 @@ export async function POST(request: NextRequest) {
         targetAccountId,
         targetAccountName,
       });
+    }
+
+    console.log(`[CSV DEBUG] === Result: ${transactions.length} imported, ${skipped} skipped out of ${parsed.data.length} rows ===`);
+    if (skipped > 0) {
+      const reasonCounts: Record<string, number> = {};
+      for (const sr of skipReasons) {
+        const key = sr.reason.split(":")[0];
+        reasonCounts[key] = (reasonCounts[key] || 0) + 1;
+      }
+      console.log("[CSV DEBUG] Skip reason summary:", JSON.stringify(reasonCounts));
     }
 
     return NextResponse.json({
