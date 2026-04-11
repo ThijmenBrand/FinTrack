@@ -3,6 +3,7 @@ import { auth, getUserId, hashPassword, verifyPassword } from "@/lib/auth";
 import { db } from "@/db";
 import { sql } from "drizzle-orm";
 import { headers } from "next/headers";
+import { logAuthEvent, logDataEvent, getRequestMeta } from "@/lib/audit";
 
 // Common passwords list (top entries from breached password databases)
 const COMMON_PASSWORDS = new Set([
@@ -150,6 +151,26 @@ export async function PATCH(req: NextRequest) {
 
   if (!displayUsername && !username && !newPassword) {
     return NextResponse.json({ error: "No changes provided" }, { status: 400 });
+  }
+
+  // Audit logging
+  const { ipAddress, userAgent } = getRequestMeta(req.headers);
+  if (newPassword) {
+    logAuthEvent({ userId, action: "password_change", ipAddress, userAgent });
+  }
+  if (displayUsername !== undefined || username !== undefined) {
+    logDataEvent({
+      userId,
+      action: "profile_update",
+      targetId: userId,
+      targetType: "user",
+      details: {
+        ...(displayUsername !== undefined && { displayUsername }),
+        ...(username !== undefined && { username }),
+      },
+      ipAddress,
+      userAgent,
+    });
   }
 
   return NextResponse.json({ success: true });

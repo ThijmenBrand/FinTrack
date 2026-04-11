@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { transactions, accounts, categories } from "@/db/schema";
 import { eq, desc, asc, and, gte, lte, like, sql } from "drizzle-orm";
 import { getUserId } from "@/lib/auth";
+import { logDataEvent } from "@/lib/audit";
 
 // GET /api/transactions — list transactions with filtering, sorting, pagination
 export async function GET(request: NextRequest) {
@@ -211,6 +212,9 @@ export async function DELETE(request: NextRequest) {
     }
 
     await db.delete(transactions).where(and(eq(transactions.id, id), eq(transactions.userId, userId)));
+
+    logDataEvent({ userId, action: "transaction_delete", targetId: id, targetType: "transaction" });
+
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Failed to delete transaction:", error);

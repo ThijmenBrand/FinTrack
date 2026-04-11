@@ -6,6 +6,7 @@ import { eq, and } from "drizzle-orm";
 import { headers } from "next/headers";
 import { validateCsrfOrigin } from "@/lib/csrf";
 import { validatePin } from "@/lib/pin-utils";
+import { logAuthEvent, getRequestMeta } from "@/lib/audit";
 
 // POST: Set or update PIN (requires active session + current password)
 export async function POST(req: NextRequest) {
@@ -66,6 +67,8 @@ export async function POST(req: NextRequest) {
       .where(eq(userPin.userId, session.user.id))
       .get();
 
+    const { ipAddress, userAgent } = getRequestMeta(req.headers);
+
     if (existing) {
       await db
         .update(userPin)
@@ -77,6 +80,13 @@ export async function POST(req: NextRequest) {
         pinHash,
       });
     }
+
+    logAuthEvent({
+      userId: session.user.id,
+      action: existing ? "pin_change" : "pin_setup",
+      ipAddress,
+      userAgent,
+    });
 
     return NextResponse.json({ success: true });
   } catch {
@@ -128,6 +138,14 @@ export async function DELETE(req: NextRequest) {
     }
 
     await db.delete(userPin).where(eq(userPin.userId, session.user.id));
+
+    const { ipAddress, userAgent } = getRequestMeta(req.headers);
+    logAuthEvent({
+      userId: session.user.id,
+      action: "pin_remove",
+      ipAddress,
+      userAgent,
+    });
 
     return NextResponse.json({ success: true });
   } catch {

@@ -5,6 +5,7 @@ import { db } from "@/db/index";
 import { account } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { headers } from "next/headers";
+import { logAuthEvent, getRequestMeta } from "@/lib/audit";
 
 const { GET: _GET, POST: _POST } = toNextJsHandler(auth);
 
@@ -84,7 +85,7 @@ export function GET(req: NextRequest) {
   return _GET(req);
 }
 
-export function POST(req: NextRequest) {
+export async function POST(req: NextRequest) {
   if (isBlocked(req)) {
     return NextResponse.json(
       { error: "Sign-up is disabled" },
@@ -95,6 +96,51 @@ export function POST(req: NextRequest) {
   const url = new URL(req.url);
   if (url.pathname.endsWith("/passkey/delete-passkey")) {
     return handleDeletePasskey(req);
+  }
+
+  const { ipAddress, userAgent } = getRequestMeta(req.headers);
+
+  // Intercept sign-in attempts to log failures
+  if (url.pathname.endsWith("/sign-in/email")) {
+    const clonedReq = req.clone();
+    const response = await _POST(req);
+    if (!response.ok) {
+      try {
+        const body = await clonedReq.json();
+        logAuthEvent({
+          userId: null,
+          action: "login_failure",
+          details: { username: body.username || null },
+          ipAddress,
+          userAgent,
+        });
+      } catch { /* body already consumed or missing */ }
+    }
+    return response;
+  }
+
+  // Log passkey authentication
+  if (url.pathname.endsWith("/passkey/authenticate")) {
+    const response = await _POST(req);
+    logAuthEvent({
+      userId: null,
+      action: response.ok ? "passkey_auth_success" : "passkey_auth_failure",
+      ipAddress,
+      userAgent,
+    });
+    return response;
+  }
+
+  // Log logout
+  if (url.pathname.endsWith("/sign-out")) {
+    const session = await auth.api.getSession({ headers: await headers() });
+    logAuthEvent({
+      userId: session?.user?.id || null,
+      action: "logout",
+      ipAddress,
+      userAgent,
+    });
+    return _POST(req);
   }
 
   return _POST(req);

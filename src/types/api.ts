@@ -105,6 +105,11 @@ export interface AdminUser {
   displayUsername: string;
   isAdmin: boolean;
   createdAt: string;
+  lastActive: string | null;
+  accountCount: number;
+  transactionCount: number;
+  hasPin: boolean;
+  passkeyCount: number;
 }
 
 export interface RecurringTx {
@@ -236,6 +241,44 @@ export interface HistoryData {
     status: "ok" | "warning" | "exceeded";
     isCurrent: boolean;
   }[];
+}
+
+export interface ImportBatch {
+  id: string;
+  accountName: string;
+  fileName: string;
+  transactionCount: number;
+  importedAt: string;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  userId: string | null;
+  username: string | null;
+  displayUsername: string | null;
+  category: "auth" | "data" | "admin";
+  action: string;
+  targetId: string | null;
+  targetType: string | null;
+  details: Record<string, unknown> | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+  createdAt: string;
+}
+
+export interface AuditLogFilters {
+  page?: number;
+  limit?: number;
+  userId?: string;
+  category?: string;
+  action?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+export interface AuditLogResponse {
+  data: AuditLogEntry[];
+  pagination: Pagination;
 }
 
 export interface PreviewTransaction {

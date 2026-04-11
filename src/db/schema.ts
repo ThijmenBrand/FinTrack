@@ -321,21 +321,28 @@ export const transactionGroupsRelations = relations(
   })
 );
 
-// ─── Admin Audit Log ──────────────────────────────────────────────────────
-// Tracks sensitive admin actions (password resets, role changes, user deletion, etc.)
-export const adminAuditLog = sqliteTable("admin_audit_log", {
+// ─── Audit Log ──────────────────────────────────────────────────────────
+// Unified audit log for auth events, data mutations, and admin actions
+export const auditLog = sqliteTable("audit_log", {
   id: text("id")
     .primaryKey()
     .$defaultFn(() => crypto.randomUUID()),
-  adminId: text("admin_id").notNull(),
-  action: text("action").notNull(), // e.g. "password_reset", "role_change", "user_create", "user_delete"
-  targetUserId: text("target_user_id").notNull(),
+  userId: text("user_id"), // nullable — failed login attempts may not have a resolved userId
+  category: text("category").notNull(), // "auth" | "data" | "admin"
+  action: text("action").notNull(),
+  targetId: text("target_id"),
+  targetType: text("target_type"), // e.g. "transaction", "account", "budget", "category", "user"
   details: text("details"), // JSON string with extra context
   ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
-});
+}, (table) => [
+  index("idx_audit_log_user_created").on(table.userId, table.createdAt),
+  index("idx_audit_log_category_created").on(table.category, table.createdAt),
+  index("idx_audit_log_created").on(table.createdAt),
+]);
 
 // ─── Type Exports ────────────────────────────────────────────────────────────
 export type User = typeof user.$inferSelect;
@@ -358,7 +365,7 @@ export type ReimbursementLink = typeof reimbursementLinks.$inferSelect;
 export type NewReimbursementLink = typeof reimbursementLinks.$inferInsert;
 export type TransactionGroup = typeof transactionGroups.$inferSelect;
 export type NewTransactionGroup = typeof transactionGroups.$inferInsert;
-export type AdminAuditLog = typeof adminAuditLog.$inferSelect;
-export type NewAdminAuditLog = typeof adminAuditLog.$inferInsert;
+export type AuditLog = typeof auditLog.$inferSelect;
+export type NewAuditLog = typeof auditLog.$inferInsert;
 export type Passkey = typeof passkey.$inferSelect;
 export type UserPin = typeof userPin.$inferSelect;

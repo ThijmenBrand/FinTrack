@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { sql } from "drizzle-orm";
 import { requireAdmin, hashPassword } from "@/lib/auth";
 import { seedCategoriesForUser } from "@/db/migrate";
+import { logAudit, getRequestMeta } from "@/lib/audit";
 import { headers } from "next/headers";
 
 async function logAdminAction(
@@ -12,23 +13,17 @@ async function logAdminAction(
   details?: Record<string, unknown>,
 ) {
   const hdrs = await headers();
-  const ipAddress =
-    hdrs.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    hdrs.get("x-real-ip") ||
-    null;
-
-  await db.run(sql`
-    INSERT INTO admin_audit_log (id, admin_id, action, target_user_id, details, ip_address, created_at)
-    VALUES (
-      ${crypto.randomUUID()},
-      ${adminId},
-      ${action},
-      ${targetUserId},
-      ${details ? JSON.stringify(details) : null},
-      ${ipAddress},
-      ${new Date().toISOString()}
-    )
-  `);
+  const { ipAddress, userAgent } = getRequestMeta(hdrs);
+  await logAudit({
+    userId: adminId,
+    category: "admin",
+    action,
+    targetId: targetUserId,
+    targetType: "user",
+    details,
+    ipAddress,
+    userAgent,
+  });
 }
 
 // GET /api/admin/users — list all users
@@ -36,9 +31,17 @@ export async function GET() {
   try {
     await requireAdmin();
 
-    const result = await db.run(
-      sql`SELECT id, username, name, display_username, role, created_at FROM "user" ORDER BY created_at ASC`
-    );
+    const result = await db.run(sql`
+      SELECT
+        u.id, u.username, u.name, u.display_username, u.role, u.created_at,
+        (SELECT MAX(s.updated_at) FROM session s WHERE s.user_id = u.id) AS last_active,
+        (SELECT COUNT(*) FROM accounts a WHERE a.user_id = u.id) AS account_count,
+        (SELECT COUNT(*) FROM transactions t WHERE t.user_id = u.id) AS transaction_count,
+        (SELECT COUNT(*) FROM user_pin p WHERE p.user_id = u.id) AS has_pin,
+        (SELECT COUNT(*) FROM passkey pk WHERE pk.user_id = u.id) AS passkey_count
+      FROM "user" u
+      ORDER BY u.created_at ASC
+    `);
 
     return NextResponse.json(
       result.rows.map((row: Record<string, unknown>) => ({
@@ -47,6 +50,11 @@ export async function GET() {
         displayUsername: row.display_username || row.name,
         isAdmin: row.role === "admin",
         createdAt: row.created_at,
+        lastActive: row.last_active ?? null,
+        accountCount: Number(row.account_count) || 0,
+        transactionCount: Number(row.transaction_count) || 0,
+        hasPin: Number(row.has_pin) > 0,
+        passkeyCount: Number(row.passkey_count) || 0,
       }))
     );
   } catch (error) {

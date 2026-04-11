@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { categories, categoryRules, transactions } from "@/db/schema";
 import { eq, sql, and } from "drizzle-orm";
 import { getUserId } from "@/lib/auth";
+import { logDataEvent } from "@/lib/audit";
 
 // GET /api/categories — list all categories with transaction counts
 export async function GET() {
@@ -69,6 +70,8 @@ export async function POST(request: NextRequest) {
       .from(categories)
       .where(eq(categories.id, id));
 
+    logDataEvent({ userId, action: "category_create", targetId: id, targetType: "category", details: { name } });
+
     return NextResponse.json(newCategory, { status: 201 });
   } catch (error) {
     console.error("Failed to create category:", error);
@@ -103,6 +106,8 @@ export async function PUT(request: NextRequest) {
       .from(categories)
       .where(and(eq(categories.id, id), eq(categories.userId, userId)));
 
+    logDataEvent({ userId, action: "category_update", targetId: id, targetType: "category", details: { name } });
+
     return NextResponse.json(updated);
   } catch (error) {
     console.error("Failed to update category:", error);
@@ -134,6 +139,9 @@ export async function DELETE(request: NextRequest) {
       .where(and(eq(transactions.categoryId, id), eq(transactions.userId, userId)));
 
     await db.delete(categories).where(and(eq(categories.id, id), eq(categories.userId, userId)));
+
+    logDataEvent({ userId, action: "category_delete", targetId: id, targetType: "category" });
+
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Failed to delete category:", error);

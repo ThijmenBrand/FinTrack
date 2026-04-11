@@ -6,6 +6,7 @@ import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { validateCsrfOrigin } from "@/lib/csrf";
 import { validatePin } from "@/lib/pin-utils";
+import { logAuthEvent, getRequestMeta } from "@/lib/audit";
 
 // POST: Initial PIN setup after first login (requires session, no password needed)
 // Only works if user does NOT already have a PIN set.
@@ -50,6 +51,14 @@ export async function POST(req: NextRequest) {
     await db.insert(userPin).values({
       userId: session.user.id,
       pinHash,
+    });
+
+    const { ipAddress, userAgent } = getRequestMeta(req.headers);
+    logAuthEvent({
+      userId: session.user.id,
+      action: "pin_initial_setup",
+      ipAddress,
+      userAgent,
     });
 
     return NextResponse.json({ success: true });

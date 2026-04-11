@@ -5,6 +5,7 @@ import { userPin } from "@/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { validateCsrfOrigin } from "@/lib/csrf";
 import { MAX_FAILED_ATTEMPTS, MAX_LOCKOUT_CYCLES, getLockoutDuration, getClientIp, isRateLimited } from "@/lib/pin-utils";
+import { logAuthEvent } from "@/lib/audit";
 
 export async function POST(req: NextRequest) {
   try {
@@ -108,6 +109,14 @@ export async function POST(req: NextRequest) {
     const pinValid = await verifyPassword(pin, pinHash);
 
     if (!pinValid) {
+      logAuthEvent({
+        userId,
+        action: "pin_unlock_failure",
+        details: { attemptsUsed: newAttempts },
+        ipAddress: ip,
+        userAgent: req.headers.get("user-agent"),
+      });
+
       if (newAttempts >= MAX_FAILED_ATTEMPTS) {
         const newLockoutCount = lockoutCount + 1;
 
@@ -151,6 +160,13 @@ export async function POST(req: NextRequest) {
       .update(userPin)
       .set({ failedAttempts: 0, lockoutCount: 0, lockedUntil: null, updatedAt: new Date().toISOString() })
       .where(eq(userPin.userId, userId));
+
+    logAuthEvent({
+      userId,
+      action: "pin_unlock_success",
+      ipAddress: ip,
+      userAgent: req.headers.get("user-agent"),
+    });
 
     return NextResponse.json({ success: true });
   } catch {

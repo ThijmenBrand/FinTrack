@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { accounts, transactions } from "@/db/schema";
 import { eq, sum, asc, count, and } from "drizzle-orm";
 import { getUserId } from "@/lib/auth";
+import { logDataEvent } from "@/lib/audit";
 
 // GET /api/accounts — list all accounts with computed balances
 export async function GET() {
@@ -75,6 +76,8 @@ export async function POST(request: NextRequest) {
       .from(accounts)
       .where(eq(accounts.id, id));
 
+    logDataEvent({ userId, action: "account_create", targetId: id, targetType: "account", details: { name, type } });
+
     return NextResponse.json(newAccount, { status: 201 });
   } catch (error) {
     console.error("Failed to create account:", error);
@@ -116,6 +119,8 @@ export async function PUT(request: NextRequest) {
       .select()
       .from(accounts)
       .where(and(eq(accounts.id, id), eq(accounts.userId, userId)));
+
+    logDataEvent({ userId, action: "account_update", targetId: id, targetType: "account", details: { name, type } });
 
     return NextResponse.json(updated);
   } catch (error) {
@@ -173,6 +178,9 @@ export async function DELETE(request: NextRequest) {
     }
 
     await db.delete(accounts).where(and(eq(accounts.id, id), eq(accounts.userId, userId)));
+
+    logDataEvent({ userId, action: "account_delete", targetId: id, targetType: "account" });
+
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Failed to delete account:", error);
