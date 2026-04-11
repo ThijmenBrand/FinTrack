@@ -4,6 +4,7 @@ import { transactions, importBatches, categoryRules, categories } from "@/db/sch
 import { eq, and, isNull, sql } from "drizzle-orm";
 import { getUserId } from "@/lib/auth";
 import { detectTransfers } from "@/lib/detect-transfers";
+import { logDataEvent } from "@/lib/audit";
 
 interface CommitTransaction {
   tempId: string;
@@ -209,6 +210,14 @@ export async function POST(request: NextRequest) {
 
     // Auto-detect internal transfers among all transactions
     const transferResult = await detectTransfers(db, userId);
+
+    logDataEvent({
+      userId,
+      action: "csv_import",
+      targetId: batchId,
+      targetType: "import_batch",
+      details: { fileName: fileName || "import.csv", transactionCount: records.length, accountId },
+    });
 
     return NextResponse.json({
       success: true,

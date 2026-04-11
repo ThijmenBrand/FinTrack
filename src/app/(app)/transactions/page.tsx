@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useMemo, Suspense } from "react";
+import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -57,6 +58,7 @@ import {
   Plus,
   Package,
   Minus,
+  History,
 } from "lucide-react";
 import { useAccounts } from "@/hooks/use-accounts";
 import { useCategories } from "@/hooks/use-categories";
@@ -659,6 +661,12 @@ function TransactionsPage() {
               <ArrowLeftRight className="sm:mr-2 h-4 w-4" />
             )}
             <span className="hidden sm:inline">Detect Transfers</span>
+          </Button>
+          <Button size="sm" variant="outline" asChild>
+            <Link href="/import-history">
+              <History className="sm:mr-2 h-4 w-4" />
+              <span className="hidden sm:inline">Import History</span>
+            </Link>
           </Button>
           <Button size="sm" onClick={() => setUploadOpen(true)}>
             <Upload className="sm:mr-2 h-4 w-4" />

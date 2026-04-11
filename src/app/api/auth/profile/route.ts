@@ -3,6 +3,7 @@ import { auth, getUserId, hashPassword, verifyPassword } from "@/lib/auth";
 import { db } from "@/db";
 import { sql } from "drizzle-orm";
 import { headers } from "next/headers";
+import { logAuthEvent, logDataEvent, getRequestMeta } from "@/lib/audit";
 
 // Common passwords list (top entries from breached password databases)
 const COMMON_PASSWORDS = new Set([
@@ -82,7 +83,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Display name cannot be empty" }, { status: 400 });
     }
     await db.run(
-      sql`UPDATE "user" SET name = ${displayUsername.trim()}, display_username = ${displayUsername.trim()}, updated_at = ${Date.now()} WHERE id = ${userId}`
+      sql`UPDATE "user" SET name = ${displayUsername.trim()}, display_username = ${displayUsername.trim()}, updated_at = ${new Date().toISOString()} WHERE id = ${userId}`
     );
   }
 
@@ -97,7 +98,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Username already taken" }, { status: 409 });
     }
     await db.run(
-      sql`UPDATE "user" SET username = ${username.trim()}, email = ${username.trim() + '@local'}, updated_at = ${Date.now()} WHERE id = ${userId}`
+      sql`UPDATE "user" SET username = ${username.trim()}, email = ${username.trim() + '@local'}, updated_at = ${new Date().toISOString()} WHERE id = ${userId}`
     );
   }
 
@@ -144,12 +145,32 @@ export async function PATCH(req: NextRequest) {
     }
     const hashed = await hashPassword(newPassword);
     await db.run(
-      sql`UPDATE account SET password = ${hashed}, updated_at = ${Date.now()} WHERE user_id = ${userId} AND provider_id = 'credential'`
+      sql`UPDATE account SET password = ${hashed}, updated_at = ${new Date().toISOString()} WHERE user_id = ${userId} AND provider_id = 'credential'`
     );
   }
 
   if (!displayUsername && !username && !newPassword) {
     return NextResponse.json({ error: "No changes provided" }, { status: 400 });
+  }
+
+  // Audit logging
+  const { ipAddress, userAgent } = getRequestMeta(req.headers);
+  if (newPassword) {
+    logAuthEvent({ userId, action: "password_change", ipAddress, userAgent });
+  }
+  if (displayUsername !== undefined || username !== undefined) {
+    logDataEvent({
+      userId,
+      action: "profile_update",
+      targetId: userId,
+      targetType: "user",
+      details: {
+        ...(displayUsername !== undefined && { displayUsername }),
+        ...(username !== undefined && { username }),
+      },
+      ipAddress,
+      userAgent,
+    });
   }
 
   return NextResponse.json({ success: true });

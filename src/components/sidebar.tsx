@@ -103,7 +103,7 @@ export function Sidebar() {
             </Link>
           );
         })}
-        {user?.isAdmin && (
+        {mounted && user?.isAdmin && (
           <Link
             href="/admin"
             className={cn(
@@ -122,7 +122,7 @@ export function Sidebar() {
       {/* User info + theme + logout */}
       <div className="border-t px-3 py-3 space-y-1">
         {/* User display */}
-        {user && (
+        {mounted && user && (
           <Link
             href="/profile"
             className={cn(

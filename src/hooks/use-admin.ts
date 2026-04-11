@@ -32,3 +32,12 @@ export function useResetPassword() {
       apiFetch("/api/admin/users", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
   });
 }
+
+export function useUpdateDisplayName() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { id: string; displayUsername: string }) =>
+      apiFetch("/api/admin/users", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["admin-users"] }); },
+  });
+}

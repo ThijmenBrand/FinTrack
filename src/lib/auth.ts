@@ -9,6 +9,7 @@ import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import crypto from "crypto";
+import { logAuthEvent } from "@/lib/audit";
 
 // ─── Password Hashing (scrypt — compatible with existing hashes) ────────────
 
@@ -93,6 +94,14 @@ export const auth = betterAuth({
             .update(userPin)
             .set({ failedAttempts: 0, lockoutCount: 0, lockedUntil: null, updatedAt: new Date().toISOString() })
             .where(eq(userPin.userId, session.userId));
+
+          // Log successful login
+          logAuthEvent({
+            userId: session.userId,
+            action: "login_success",
+            ipAddress: (session as Record<string, unknown>).ipAddress as string || null,
+            userAgent: (session as Record<string, unknown>).userAgent as string || null,
+          });
         },
       },
     },

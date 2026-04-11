@@ -9,6 +9,7 @@ import {
 } from "@/db/schema";
 import { eq, and, gte, lte, sql } from "drizzle-orm";
 import { getUserId } from "@/lib/auth";
+import { logDataEvent } from "@/lib/audit";
 
 /**
  * Get current month date range
@@ -377,6 +378,7 @@ export async function POST(request: NextRequest) {
         .update(budgets)
         .set({ amount })
         .where(and(eq(budgets.categoryId, categoryId), eq(budgets.userId, userId)));
+      logDataEvent({ userId, action: "budget_update", targetId: existing[0].id, targetType: "budget", details: { categoryId, amount } });
       return NextResponse.json({ success: true, id: existing[0].id });
     }
 
@@ -390,6 +392,8 @@ export async function POST(request: NextRequest) {
       createdAt: new Date().toISOString(),
       userId,
     });
+
+    logDataEvent({ userId, action: "budget_create", targetId: id, targetType: "budget", details: { categoryId, amount } });
 
     return NextResponse.json({ success: true, id }, { status: 201 });
   } catch (error) {
@@ -420,6 +424,8 @@ export async function PUT(request: NextRequest) {
       .set({ amount })
       .where(and(eq(budgets.id, id), eq(budgets.userId, userId)));
 
+    logDataEvent({ userId, action: "budget_update", targetId: id, targetType: "budget", details: { amount } });
+
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Failed to update allocation:", error);
@@ -445,6 +451,9 @@ export async function DELETE(request: NextRequest) {
     }
 
     await db.delete(budgets).where(and(eq(budgets.id, id), eq(budgets.userId, userId)));
+
+    logDataEvent({ userId, action: "budget_delete", targetId: id, targetType: "budget" });
+
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Failed to delete allocation:", error);

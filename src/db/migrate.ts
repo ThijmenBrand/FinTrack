@@ -173,6 +173,38 @@ export async function initializeDatabase() {
     FROM transactions WHERE reimburses_transaction_id IS NOT NULL
   `);
 
+  // ── Audit log migration ────────────────────────────────────────────────
+  // Create unified audit_log table and migrate old admin_audit_log data
+  await db.run(sql`
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      category TEXT NOT NULL,
+      action TEXT NOT NULL,
+      target_id TEXT,
+      target_type TEXT,
+      details TEXT,
+      ip_address TEXT,
+      user_agent TEXT,
+      created_at TEXT NOT NULL
+    )
+  `);
+
+  // Migrate existing admin_audit_log entries
+  try {
+    const oldTable = await db.run(sql`SELECT name FROM sqlite_master WHERE type='table' AND name='admin_audit_log'`);
+    if (oldTable.rows.length > 0) {
+      await db.run(sql`
+        INSERT OR IGNORE INTO audit_log (id, user_id, category, action, target_id, target_type, details, ip_address, created_at)
+        SELECT id, admin_id, 'admin', action, target_user_id, 'user', details, ip_address, created_at
+        FROM admin_audit_log
+      `);
+      await db.run(sql`DROP TABLE admin_audit_log`);
+    }
+  } catch (e) {
+    console.error("Failed to migrate admin_audit_log:", e);
+  }
+
   // ── Indexes ────────────────────────────────────────────────────────────
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_transactions_account ON transactions(account_id)`);
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date)`);
@@ -193,6 +225,9 @@ export async function initializeDatabase() {
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_import_batches_user ON import_batches(user_id)`);
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_transaction_groups_user ON transaction_groups(user_id)`);
   await db.run(sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_name_user ON categories(name, user_id)`);
+  await db.run(sql`CREATE INDEX IF NOT EXISTS idx_audit_log_user_created ON audit_log(user_id, created_at)`);
+  await db.run(sql`CREATE INDEX IF NOT EXISTS idx_audit_log_category_created ON audit_log(category, created_at)`);
+  await db.run(sql`CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at)`);
 
   // ── Seed default categories for admin user ──────────────────────────────
   if (!adminUserId) {
