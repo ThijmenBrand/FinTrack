@@ -8,8 +8,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { db } from "@/db";
-import { accounts, transactions, budgets, categories, recurringTransactions } from "@/db/schema";
-import { eq, and, gte, lte, sql, sum } from "drizzle-orm";
+import { accounts, transactions, budgets, categories } from "@/db/schema";
+import { eq, and, gte, lte, sql, sum, inArray } from "drizzle-orm";
 import { requireAuth } from "@/lib/auth";
 import {
   Landmark,
@@ -60,26 +60,15 @@ function getPeriodRange(period: string): { from: string; to: string } {
   }
 }
 
+function reimbursementAdjustment() {
+  return sql`COALESCE(
+    (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id AND r.user_id = "transactions"."user_id" WHERE rl.expense_id = "transactions"."id"),
+    0
+  )`;
+}
+
 async function getDashboardData(userId: string) {
   try {
-    const allAccounts = await db.select().from(accounts).where(eq(accounts.userId, userId));
-
-    const accountBalances = await Promise.all(
-      allAccounts.map(async (account) => {
-        const result = await db
-          .select({ total: sum(transactions.amount) })
-          .from(transactions)
-          .where(eq(transactions.accountId, account.id));
-        const txTotal = Number(result[0]?.total) || 0;
-        return { ...account, currentBalance: account.initialBalance + txTotal };
-      })
-    );
-
-    const totalBalance = accountBalances.reduce(
-      (acc, a) => acc + a.currentBalance,
-      0
-    );
-
     // Date ranges
     const now = new Date();
     const y = now.getFullYear();
@@ -90,205 +79,240 @@ async function getDashboardData(userId: string) {
     const monthStart = toLocalDateStr(new Date(y, m, 1));
     const monthEnd = toLocalDateStr(new Date(y, m + 1, 0));
 
-    // Week range (Monday-Sunday)
     const weekOff = dow === 0 ? -6 : 1 - dow;
     const weekStart = toLocalDateStr(new Date(y, m, d + weekOff));
-    const weekEndDate = new Date(y, m, d + weekOff + 6);
-    const weekEnd = toLocalDateStr(weekEndDate);
+    const weekEnd = toLocalDateStr(new Date(y, m, d + weekOff + 6));
 
-    // Last week range for comparison
     const lastWeekStart = toLocalDateStr(new Date(y, m, d + weekOff - 7));
     const lastWeekEnd = toLocalDateStr(new Date(y, m, d + weekOff - 1));
 
-    // Weekly spending (exclude internal transfers, grouped transactions, use effective amounts)
-    const weekExpense = await db
-      .select({
-        total: sql<number>`sum(
-          abs(${transactions.amount}) - COALESCE(
-            (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id AND r.user_id = "transactions"."user_id" WHERE rl.expense_id = "transactions"."id"),
-            0
+    // Round 1: all independent queries in parallel
+    const [
+      accountBalanceRows,
+      weekExpense,
+      lastWeekExpense,
+      monthIncome,
+      monthExpense,
+      allBudgets,
+      topCats,
+      weekPotContrib,
+      monthPotContrib,
+    ] = await Promise.all([
+      // Account balances — single query with LEFT JOIN instead of N+1
+      db
+        .select({
+          id: accounts.id,
+          userId: accounts.userId,
+          name: accounts.name,
+          type: accounts.type,
+          bankName: accounts.bankName,
+          iban: accounts.iban,
+          currency: accounts.currency,
+          initialBalance: accounts.initialBalance,
+          sortOrder: accounts.sortOrder,
+          createdAt: accounts.createdAt,
+          updatedAt: accounts.updatedAt,
+          txTotal: sql<number>`COALESCE(SUM(${transactions.amount}), 0)`,
+        })
+        .from(accounts)
+        .leftJoin(transactions, eq(accounts.id, transactions.accountId))
+        .where(eq(accounts.userId, userId))
+        .groupBy(accounts.id),
+
+      // Week expenses
+      db
+        .select({
+          total: sql<number>`sum(abs(${transactions.amount}) - ${reimbursementAdjustment()})`,
+        })
+        .from(transactions)
+        .leftJoin(categories, eq(transactions.categoryId, categories.id))
+        .where(
+          and(
+            eq(transactions.userId, userId),
+            eq(transactions.type, "expense"),
+            sql`COALESCE(${categories.name}, '') <> 'Internal Transfer'`,
+            sql`${transactions.groupId} IS NULL`,
+            gte(transactions.date, weekStart),
+            lte(transactions.date, weekEnd)
           )
-        )`,
-      })
-      .from(transactions)
-      .leftJoin(categories, eq(transactions.categoryId, categories.id))
-      .where(
-        and(
-          eq(transactions.userId, userId),
-          eq(transactions.type, "expense"),
-          sql`COALESCE(${categories.name}, '') <> 'Internal Transfer'`,
-          sql`${transactions.groupId} IS NULL`,
-          gte(transactions.date, weekStart),
-          lte(transactions.date, weekEnd)
-        )
-      );
+        ),
 
-    const lastWeekExpense = await db
-      .select({
-        total: sql<number>`sum(
-          abs(${transactions.amount}) - COALESCE(
-            (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id AND r.user_id = "transactions"."user_id" WHERE rl.expense_id = "transactions"."id"),
-            0
+      // Last week expenses
+      db
+        .select({
+          total: sql<number>`sum(abs(${transactions.amount}) - ${reimbursementAdjustment()})`,
+        })
+        .from(transactions)
+        .leftJoin(categories, eq(transactions.categoryId, categories.id))
+        .where(
+          and(
+            eq(transactions.userId, userId),
+            eq(transactions.type, "expense"),
+            sql`COALESCE(${categories.name}, '') <> 'Internal Transfer'`,
+            sql`${transactions.groupId} IS NULL`,
+            gte(transactions.date, lastWeekStart),
+            lte(transactions.date, lastWeekEnd)
           )
-        )`,
-      })
-      .from(transactions)
-      .leftJoin(categories, eq(transactions.categoryId, categories.id))
-      .where(
-        and(
-          eq(transactions.userId, userId),
-          eq(transactions.type, "expense"),
-          sql`COALESCE(${categories.name}, '') <> 'Internal Transfer'`,
-          sql`${transactions.groupId} IS NULL`,
-          gte(transactions.date, lastWeekStart),
-          lte(transactions.date, lastWeekEnd)
-        )
-      );
+        ),
 
-    // Monthly income (exclude reimbursements — they're not real income)
-    const monthIncome = await db
-      .select({ total: sum(transactions.amount) })
-      .from(transactions)
-      .where(
-        and(
-          eq(transactions.userId, userId),
-          eq(transactions.type, "income"),
-          gte(transactions.date, monthStart),
-          lte(transactions.date, monthEnd)
-        )
-      );
-
-    // Monthly expenses (effective amounts after reimbursements, exclude grouped)
-    const monthExpense = await db
-      .select({
-        total: sql<number>`sum(
-          ${transactions.amount} + COALESCE(
-            (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id AND r.user_id = "transactions"."user_id" WHERE rl.expense_id = "transactions"."id"),
-            0
+      // Month income
+      db
+        .select({ total: sum(transactions.amount) })
+        .from(transactions)
+        .where(
+          and(
+            eq(transactions.userId, userId),
+            eq(transactions.type, "income"),
+            gte(transactions.date, monthStart),
+            lte(transactions.date, monthEnd)
           )
-        )`,
-      })
-      .from(transactions)
-      .leftJoin(categories, eq(transactions.categoryId, categories.id))
-      .where(
-        and(
-          eq(transactions.userId, userId),
-          eq(transactions.type, "expense"),
-          sql`COALESCE(${categories.name}, '') <> 'Internal Transfer'`,
-          sql`${transactions.groupId} IS NULL`,
-          gte(transactions.date, monthStart),
-          lte(transactions.date, monthEnd)
+        ),
+
+      // Month expenses
+      db
+        .select({
+          total: sql<number>`sum(${transactions.amount} + ${reimbursementAdjustment()})`,
+        })
+        .from(transactions)
+        .leftJoin(categories, eq(transactions.categoryId, categories.id))
+        .where(
+          and(
+            eq(transactions.userId, userId),
+            eq(transactions.type, "expense"),
+            sql`COALESCE(${categories.name}, '') <> 'Internal Transfer'`,
+            sql`${transactions.groupId} IS NULL`,
+            gte(transactions.date, monthStart),
+            lte(transactions.date, monthEnd)
+          )
+        ),
+
+      // Active budgets
+      db
+        .select({
+          id: budgets.id,
+          categoryId: budgets.categoryId,
+          categoryName: categories.name,
+          categoryColor: categories.color,
+          amount: budgets.amount,
+          period: budgets.period,
+        })
+        .from(budgets)
+        .leftJoin(categories, eq(budgets.categoryId, categories.id))
+        .where(and(eq(budgets.isActive, true), eq(budgets.userId, userId))),
+
+      // Top 5 spending categories this month
+      db
+        .select({
+          categoryName: categories.name,
+          categoryColor: categories.color,
+          total: sql<number>`sum(abs(${transactions.amount}) - ${reimbursementAdjustment()})`,
+        })
+        .from(transactions)
+        .leftJoin(categories, eq(transactions.categoryId, categories.id))
+        .where(
+          and(
+            eq(transactions.userId, userId),
+            eq(transactions.type, "expense"),
+            sql`COALESCE(${categories.name}, '') <> 'Internal Transfer'`,
+            sql`${transactions.groupId} IS NULL`,
+            gte(transactions.date, monthStart),
+            lte(transactions.date, monthEnd)
+          )
         )
-      );
+        .groupBy(transactions.categoryId)
+        .orderBy(sql`sum(abs(${transactions.amount})) DESC`)
+        .limit(5),
 
-    // Budget data: all allocations with spending this month
-    const allBudgets = await db
-      .select({
-        id: budgets.id,
-        categoryId: budgets.categoryId,
-        categoryName: categories.name,
-        categoryColor: categories.color,
-        amount: budgets.amount,
-        period: budgets.period,
-      })
-      .from(budgets)
-      .leftJoin(categories, eq(budgets.categoryId, categories.id))
-      .where(and(eq(budgets.isActive, true), eq(budgets.userId, userId)));
+      // Week pot contributions
+      db
+        .select({
+          potNet: sql<number>`SUM(t.amount)`,
+        })
+        .from(sql`transactions t`)
+        .innerJoin(sql`transaction_groups g`, sql`t.group_id = g.id`)
+        .where(
+          sql`t.group_id IS NOT NULL AND t.user_id = ${userId} AND t.date >= ${weekStart} AND t.date <= ${weekEnd}`
+        ),
 
-    const budgetItems = await Promise.all(
-      allBudgets.map(async (b) => {
-        const { from, to } = getPeriodRange(b.period);
-        const spentResult = await db
+      // Month pot contributions
+      db
+        .select({
+          potNet: sql<number>`SUM(t.amount)`,
+        })
+        .from(sql`transactions t`)
+        .innerJoin(sql`transaction_groups g`, sql`t.group_id = g.id`)
+        .where(
+          sql`t.group_id IS NOT NULL AND t.user_id = ${userId} AND t.date >= ${monthStart} AND t.date <= ${monthEnd}`
+        ),
+    ]);
+
+    // Process account balances
+    const accountBalances = accountBalanceRows.map((row) => ({
+      ...row,
+      currentBalance: row.initialBalance + Number(row.txTotal),
+    }));
+    const totalBalance = accountBalances.reduce(
+      (acc, a) => acc + a.currentBalance,
+      0
+    );
+
+    // Round 2: budget spending — batched by period instead of N+1
+    const budgetsByPeriod = new Map<string, typeof allBudgets>();
+    for (const b of allBudgets) {
+      const existing = budgetsByPeriod.get(b.period) || [];
+      existing.push(b);
+      budgetsByPeriod.set(b.period, existing);
+    }
+
+    const spendingByCategory = new Map<string, number>();
+    await Promise.all(
+      Array.from(budgetsByPeriod.entries()).map(async ([period, periodBudgets]) => {
+        const { from, to } = getPeriodRange(period);
+        const categoryIds = periodBudgets.map((b) => b.categoryId);
+        const results = await db
           .select({
-            total: sql<number>`sum(
-              abs(${transactions.amount}) - COALESCE(
-                (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id AND r.user_id = "transactions"."user_id" WHERE rl.expense_id = "transactions"."id"),
-                0
-              )
-            )`,
+            categoryId: transactions.categoryId,
+            total: sql<number>`sum(abs(${transactions.amount}) - ${reimbursementAdjustment()})`,
           })
           .from(transactions)
           .where(
             and(
               eq(transactions.userId, userId),
-              eq(transactions.categoryId, b.categoryId),
+              inArray(transactions.categoryId, categoryIds),
               eq(transactions.type, "expense"),
               sql`${transactions.groupId} IS NULL`,
               gte(transactions.date, from),
               lte(transactions.date, to)
             )
-          );
-        const spent = spentResult[0]?.total || 0;
-        const pct = b.amount > 0 ? (spent / b.amount) * 100 : 0;
-        return {
-          categoryName: b.categoryName,
-          categoryColor: b.categoryColor,
-          spent,
-          limit: b.amount,
-          percentage: Math.round(pct),
-          status: pct >= 100 ? "exceeded" : pct >= 80 ? "warning" : "ok" as "ok" | "warning" | "exceeded",
-        };
+          )
+          .groupBy(transactions.categoryId);
+        for (const r of results) {
+          if (r.categoryId) {
+            spendingByCategory.set(r.categoryId, r.total || 0);
+          }
+        }
       })
     );
 
-    // Total budget overview
+    const budgetItems = allBudgets.map((b) => {
+      const spent = spendingByCategory.get(b.categoryId) || 0;
+      const pct = b.amount > 0 ? (spent / b.amount) * 100 : 0;
+      return {
+        categoryName: b.categoryName,
+        categoryColor: b.categoryColor,
+        spent,
+        limit: b.amount,
+        percentage: Math.round(pct),
+        status: pct >= 100 ? "exceeded" : pct >= 80 ? "warning" : "ok" as "ok" | "warning" | "exceeded",
+      };
+    });
+
     const totalBudgeted = allBudgets.reduce((s, b) => s + b.amount, 0);
     const totalBudgetSpent = budgetItems.reduce((s, b) => s + b.spent, 0);
 
-    // Top 5 spending categories this month (exclude internal transfers, grouped, use effective amounts)
-    const topCats = await db
-      .select({
-        categoryName: categories.name,
-        categoryColor: categories.color,
-        total: sql<number>`sum(
-          abs(${transactions.amount}) - COALESCE(
-            (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id AND r.user_id = "transactions"."user_id" WHERE rl.expense_id = "transactions"."id"),
-            0
-          )
-        )`,
-      })
-      .from(transactions)
-      .leftJoin(categories, eq(transactions.categoryId, categories.id))
-      .where(
-        and(
-          eq(transactions.userId, userId),
-          eq(transactions.type, "expense"),
-          sql`COALESCE(${categories.name}, '') <> 'Internal Transfer'`,
-          sql`${transactions.groupId} IS NULL`,
-          gte(transactions.date, monthStart),
-          lte(transactions.date, monthEnd)
-        )
-      )
-      .groupBy(transactions.categoryId)
-      .orderBy(sql`sum(abs(${transactions.amount})) DESC`)
-      .limit(5);
-
-    // Pot aggregation: add pot net amounts to relevant totals
-    // Week pot contributions (pots whose earliest tx date falls in the week)
-    const weekPotContrib = await db
-      .select({
-        potNet: sql<number>`SUM(t.amount)`,
-      })
-      .from(sql`transactions t`)
-      .innerJoin(sql`transaction_groups g`, sql`t.group_id = g.id`)
-      .where(
-        sql`t.group_id IS NOT NULL AND t.user_id = ${userId} AND t.date >= ${weekStart} AND t.date <= ${weekEnd}`
-      );
     const weekPotExpense = Math.abs(Math.min(0, weekPotContrib[0]?.potNet || 0));
-
-    // Month pot contributions
-    const monthPotContrib = await db
-      .select({
-        potNet: sql<number>`SUM(t.amount)`,
-      })
-      .from(sql`transactions t`)
-      .innerJoin(sql`transaction_groups g`, sql`t.group_id = g.id`)
-      .where(
-        sql`t.group_id IS NOT NULL AND t.user_id = ${userId} AND t.date >= ${monthStart} AND t.date <= ${monthEnd}`
-      );
     const monthPotExpense = Math.min(0, monthPotContrib[0]?.potNet || 0);
 
-    // Day of month progress (for pace indicator)
     const daysInMonth = new Date(y, m + 1, 0).getDate();
     const monthProgress = d / daysInMonth;
 

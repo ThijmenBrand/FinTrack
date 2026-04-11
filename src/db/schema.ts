@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, uniqueIndex, index } from "drizzle-orm/sqlite-core";
 import { relations, sql } from "drizzle-orm";
 export { user, session, account, verification, passkey, sessionRelations, accountRelations, passkeyRelations } from "./auth-schema";
 import { user, session, account, passkey } from "./auth-schema";
@@ -46,7 +46,9 @@ export const accounts = sqliteTable("accounts", {
   updatedAt: text("updated_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
-});
+}, (table) => [
+  index("idx_accounts_user").on(table.userId),
+]);
 
 // ─── Transactions ────────────────────────────────────────────────────────────
 // Individual financial transactions imported from CSV or entered manually
@@ -77,7 +79,12 @@ export const transactions = sqliteTable("transactions", {
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
-});
+}, (table) => [
+  index("idx_transactions_user_date").on(table.userId, table.date),
+  index("idx_transactions_account").on(table.accountId),
+  index("idx_transactions_user_category_type_date").on(table.userId, table.categoryId, table.type, table.date),
+  index("idx_transactions_user_group").on(table.userId, table.groupId),
+]);
 
 // ─── Categories ──────────────────────────────────────────────────────────────
 // User-defined spending categories (unique per user)
@@ -136,7 +143,9 @@ export const budgets = sqliteTable("budgets", {
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
-});
+}, (table) => [
+  index("idx_budgets_user_active").on(table.userId, table.isActive),
+]);
 
 // ─── Recurring Transactions ──────────────────────────────────────────────────
 // Expected recurring incomes and expenses
@@ -214,7 +223,9 @@ export const reimbursementLinks = sqliteTable("reimbursement_links", {
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
-});
+}, (table) => [
+  index("idx_reimbursement_expense").on(table.expenseId),
+]);
 
 // ─── Relations ───────────────────────────────────────────────────────────────
 

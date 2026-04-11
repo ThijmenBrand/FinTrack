@@ -28,12 +28,14 @@ import {
   useState,
   useEffect,
   useCallback,
+  useRef,
   type ReactNode,
 } from "react";
 import { useHasPin } from "@/hooks/use-pin";
 
 const LS_USERNAME_KEY = "lockscreen_username";
 const LS_HAS_PIN_KEY = "lockscreen_has_pin";
+const LOCK_DELAY_MS = 60_000; // 60 seconds grace period before requiring PIN
 
 interface LockScreenContextValue {
   isLocked: boolean;
@@ -57,6 +59,7 @@ export function LockScreenProvider({ children }: { children: ReactNode }) {
   const [isLocked, setIsLocked] = useState(false);
   const [username, setUsername] = useState("");
   const { data: pinStatus } = useHasPin();
+  const hiddenAtRef = useRef<number | null>(null);
 
   // Cache hasPin into localStorage whenever it changes
   useEffect(() => {
@@ -76,16 +79,23 @@ export function LockScreenProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Lock on visibility change (tab hidden / app backgrounded)
+  // Lock on visibility change after grace period (tab hidden / app backgrounded)
   useEffect(() => {
     function handleVisibilityChange() {
       if (document.visibilityState === "hidden") {
-        const storedUsername = localStorage.getItem(LS_USERNAME_KEY);
-        const storedHasPin = localStorage.getItem(LS_HAS_PIN_KEY);
+        hiddenAtRef.current = Date.now();
+      } else if (document.visibilityState === "visible") {
+        const hiddenAt = hiddenAtRef.current;
+        hiddenAtRef.current = null;
 
-        if (storedUsername && storedHasPin === "true") {
-          setUsername(storedUsername);
-          setIsLocked(true);
+        if (hiddenAt && Date.now() - hiddenAt >= LOCK_DELAY_MS) {
+          const storedUsername = localStorage.getItem(LS_USERNAME_KEY);
+          const storedHasPin = localStorage.getItem(LS_HAS_PIN_KEY);
+
+          if (storedUsername && storedHasPin === "true") {
+            setUsername(storedUsername);
+            setIsLocked(true);
+          }
         }
       }
     }
