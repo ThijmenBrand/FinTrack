@@ -309,6 +309,8 @@ function TransactionsPage() {
   const [categoryFilter, setCategoryFilter] = useState(searchParams.get("category") || "all");
   const [typeFilter, setTypeFilter] = useState(searchParams.get("type") || "all");
   const [periodFilter, setPeriodFilter] = useState(searchParams.get("period") || "all");
+  const [dateFromOverride, setDateFromOverride] = useState(searchParams.get("dateFrom") || "");
+  const [dateToOverride, setDateToOverride] = useState(searchParams.get("dateTo") || "");
   const [sortBy, setSortBy] = useState(searchParams.get("sortBy") || "date");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">((searchParams.get("sortOrder") as "asc" | "desc") || "desc");
 
@@ -327,12 +329,14 @@ function TransactionsPage() {
     if (categoryFilter !== "all") params.set("category", categoryFilter);
     if (typeFilter !== "all") params.set("type", typeFilter);
     if (periodFilter !== "all") params.set("period", periodFilter);
+    if (dateFromOverride) params.set("dateFrom", dateFromOverride);
+    if (dateToOverride) params.set("dateTo", dateToOverride);
     if (sortBy !== "date") params.set("sortBy", sortBy);
     if (sortOrder !== "desc") params.set("sortOrder", sortOrder);
     const qs = params.toString();
     const newUrl = qs ? `/transactions?${qs}` : "/transactions";
     router.replace(newUrl, { scroll: false });
-  }, [search, accountFilter, categoryFilter, typeFilter, periodFilter, sortBy, sortOrder, router]);
+  }, [search, accountFilter, categoryFilter, typeFilter, periodFilter, dateFromOverride, dateToOverride, sortBy, sortOrder, router]);
 
   // Compute active filter tokens for display
   const activeTokens = useMemo(() => {
@@ -349,7 +353,10 @@ function TransactionsPage() {
       const t = TYPE_OPTIONS.find((o) => o.value === typeFilter);
       tokens.push({ key: "type", value: typeFilter, label: `type:${t?.label || typeFilter}` });
     }
-    if (periodFilter !== "all") {
+    if (dateFromOverride || dateToOverride) {
+      const parts = [dateFromOverride && formatDate(dateFromOverride), dateToOverride && formatDate(dateToOverride)].filter(Boolean);
+      tokens.push({ key: "period", value: "custom", label: `period:${parts.join(" — ")}` });
+    } else if (periodFilter !== "all") {
       const p = PERIOD_OPTIONS.find((o) => o.value === periodFilter);
       tokens.push({ key: "period", value: periodFilter, label: `period:${p?.label || periodFilter}` });
     }
@@ -357,13 +364,15 @@ function TransactionsPage() {
       tokens.push({ key: "search", value: search, label: search });
     }
     return tokens;
-  }, [accountFilter, categoryFilter, typeFilter, periodFilter, search, accounts, categories]);
+  }, [accountFilter, categoryFilter, typeFilter, periodFilter, dateFromOverride, dateToOverride, search, accounts, categories]);
 
-  // Compute dateFrom/dateTo from periodFilter
-  const { from: dateFrom, to: dateTo } = useMemo(
-    () => computeDateRange(periodFilter),
-    [periodFilter]
-  );
+  // Compute dateFrom/dateTo — URL overrides win over period preset
+  const { from: dateFrom, to: dateTo } = useMemo(() => {
+    if (dateFromOverride || dateToOverride) {
+      return { from: dateFromOverride, to: dateToOverride };
+    }
+    return computeDateRange(periodFilter);
+  }, [periodFilter, dateFromOverride, dateToOverride]);
 
   // Transaction data via React Query
   const { data: txData, isLoading: loading } = useTransactions({
@@ -450,7 +459,11 @@ function TransactionsPage() {
     if (key === "account") setAccountFilter(value);
     else if (key === "category") setCategoryFilter(value);
     else if (key === "type") setTypeFilter(value);
-    else if (key === "period") setPeriodFilter(value);
+    else if (key === "period") {
+      setPeriodFilter(value);
+      setDateFromOverride("");
+      setDateToOverride("");
+    }
     else if (key === "search") setSearch(value);
     setPagination((p) => ({ ...p, page: 1 }));
   };
@@ -459,7 +472,11 @@ function TransactionsPage() {
     if (key === "account") setAccountFilter("all");
     else if (key === "category") setCategoryFilter("all");
     else if (key === "type") setTypeFilter("all");
-    else if (key === "period") setPeriodFilter("all");
+    else if (key === "period") {
+      setPeriodFilter("all");
+      setDateFromOverride("");
+      setDateToOverride("");
+    }
     else if (key === "search") setSearch("");
     setPagination((p) => ({ ...p, page: 1 }));
   };
@@ -469,6 +486,8 @@ function TransactionsPage() {
     setCategoryFilter("all");
     setTypeFilter("all");
     setPeriodFilter("all");
+    setDateFromOverride("");
+    setDateToOverride("");
     setSearch("");
     setPagination((p) => ({ ...p, page: 1 }));
   };
@@ -765,7 +784,7 @@ function TransactionsPage() {
       </div>
 
       {/* Active filter summary with date range */}
-      {periodFilter !== "all" && (
+      {(periodFilter !== "all" || dateFromOverride || dateToOverride) && (
         <div className="flex items-center gap-2">
           <span className="text-sm text-muted-foreground">
             Showing: {dateFrom && formatDate(dateFrom)}

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Landmark } from "lucide-react";
 import {
   Card,
@@ -32,9 +33,10 @@ export async function AccountsCard({ userId }: { userId: string }) {
         ) : (
           <div className="space-y-2">
             {accountBalances.map((account) => (
-              <div
+              <Link
                 key={account.id}
-                className="flex items-center justify-between rounded-lg border p-3"
+                href="/accounts"
+                className="flex items-center justify-between rounded-lg border p-3 transition-colors hover:bg-muted/50"
               >
                 <div className="flex items-center gap-3">
                   <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
@@ -57,7 +59,7 @@ export async function AccountsCard({ userId }: { userId: string }) {
                 >
                   {formatCurrency(account.currentBalance)}
                 </p>
-              </div>
+              </Link>
             ))}
           </div>
         )}
