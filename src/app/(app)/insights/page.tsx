@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Card,
   CardContent,
@@ -34,6 +35,13 @@ function formatCurrency(amount: number) {
 }
 
 type PresetKey = "this_month" | "last_month" | "this_year" | "last_3_months" | "all" | "custom";
+
+const PRESET_TO_TX_PERIOD: Partial<Record<PresetKey, string>> = {
+  this_month: "this-month",
+  last_month: "last-month",
+  last_3_months: "last-3-months",
+  this_year: "this-year",
+};
 
 function getPresetRange(preset: PresetKey): { from: string; to: string } {
   const now = new Date();
@@ -74,16 +82,34 @@ function Bar({
   color,
   label,
   amount,
+  onClick,
 }: {
   value: number;
   maxValue: number;
   color: string;
   label: string;
   amount: string;
+  onClick?: () => void;
 }) {
   const pct = maxValue > 0 ? (value / maxValue) * 100 : 0;
+  const clickable = Boolean(onClick);
   return (
-    <div className="flex items-center gap-3">
+    <div
+      className={`flex items-center gap-3 rounded-md -mx-2 px-2 py-1 ${clickable ? "cursor-pointer hover:bg-muted/60 transition-colors" : ""}`}
+      onClick={onClick}
+      role={clickable ? "button" : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={
+        clickable
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onClick?.();
+              }
+            }
+          : undefined
+      }
+    >
       <div className="w-28 text-sm truncate text-right" title={label}>
         {label}
       </div>
@@ -99,6 +125,7 @@ function Bar({
 }
 
 export default function InsightsPage() {
+  const router = useRouter();
   const [preset, setPreset] = useState<PresetKey>("this_month");
   const [dateFrom, setDateFrom] = useState(() => getPresetRange("this_month").from);
   const [dateTo, setDateTo] = useState(() => getPresetRange("this_month").to);
@@ -112,6 +139,19 @@ export default function InsightsPage() {
     const range = getPresetRange(key);
     setDateFrom(range.from);
     setDateTo(range.to);
+  };
+
+  const navigateToCategory = (categoryId: string | null) => {
+    const params = new URLSearchParams();
+    if (categoryId) params.set("category", categoryId);
+    const mappedPeriod = PRESET_TO_TX_PERIOD[preset];
+    if (mappedPeriod) {
+      params.set("period", mappedPeriod);
+    } else if (preset !== "all") {
+      if (dateFrom) params.set("dateFrom", dateFrom);
+      if (dateTo) params.set("dateTo", dateTo);
+    }
+    router.push(`/transactions?${params.toString()}`);
   };
 
   if (isLoading && !data) {
@@ -240,6 +280,7 @@ export default function InsightsPage() {
                     color={cat.categoryColor}
                     label={cat.categoryName}
                     amount={formatCurrency(cat.total)}
+                    onClick={cat.categoryId ? () => navigateToCategory(cat.categoryId) : undefined}
                   />
                 ))}
                 <div className="border-t pt-2 mt-3 flex justify-between text-sm font-semibold">
@@ -286,10 +327,14 @@ export default function InsightsPage() {
                       totalExpenses > 0
                         ? ((cat.total / totalExpenses) * 100).toFixed(1)
                         : "0";
+                    const clickable = Boolean(cat.categoryId);
                     return (
-                      <div
+                      <button
                         key={cat.categoryId || "none"}
-                        className="flex items-center gap-2 truncate"
+                        type="button"
+                        disabled={!clickable}
+                        onClick={clickable ? () => navigateToCategory(cat.categoryId) : undefined}
+                        className={`flex items-center gap-2 truncate text-left rounded-sm px-1 -mx-1 py-0.5 ${clickable ? "cursor-pointer hover:bg-muted/60 transition-colors" : "cursor-default"}`}
                       >
                         <span
                           className="h-2.5 w-2.5 rounded-sm shrink-0"
@@ -299,7 +344,7 @@ export default function InsightsPage() {
                         <span className="text-muted-foreground ml-auto shrink-0">
                           {pct}%
                         </span>
-                      </div>
+                      </button>
                     );
                   })}
                 </div>

@@ -42,4 +42,5 @@ data/*.db-journal
 prisma/*.db
 prisma/*.db-journal
 data/*
+drizzle/
 .vercel
