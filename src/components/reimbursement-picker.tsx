@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -45,6 +45,7 @@ interface ReimbursementPickerProps {
   transactionId: string;
   transactionAmount: number;
   transactionDescription: string;
+  transactionDate: string;
   accountId: string;
   onLinked: () => void;
 }
@@ -55,26 +56,39 @@ export function ReimbursementPicker({
   transactionId,
   transactionAmount,
   transactionDescription,
+  transactionDate,
   accountId,
   onLinked,
 }: ReimbursementPickerProps) {
   const [linkingId, setLinkingId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
 
   const { data: expenseData, isLoading: loading } = useQuery({
-    queryKey: ["expenses", accountId],
-    queryFn: () => apiFetch<{ data: ExpenseTransaction[] }>(`/api/transactions?type=expense&accountId=${accountId}&limit=50&sortBy=date&sortOrder=desc`).then(r => r.data),
+    queryKey: ["expenses", accountId, debouncedSearch, transactionDate, transactionAmount],
+    queryFn: () => {
+      const params = new URLSearchParams({
+        type: "expense",
+        accountId,
+        limit: "50",
+        sortBy: "date",
+        sortOrder: "desc",
+        nearDate: transactionDate,
+        nearAmount: String(Math.abs(transactionAmount)),
+      });
+      if (debouncedSearch) params.set("search", debouncedSearch);
+      return apiFetch<{ data: ExpenseTransaction[] }>(`/api/transactions?${params.toString()}`).then(r => r.data);
+    },
     enabled: open,
   });
   const expenses = expenseData ?? [];
 
   const reimburse = useReimburseTransaction();
-
-  const filtered = search
-    ? expenses.filter((e) =>
-        e.description.toLowerCase().includes(search.toLowerCase())
-      )
-    : expenses;
 
   const handleSelect = async (expenseId: string) => {
     setLinkingId(expenseId);
@@ -115,13 +129,13 @@ export function ReimbursementPicker({
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
-          ) : filtered.length === 0 ? (
+          ) : expenses.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-8">
-              {search ? "No matching expenses found." : "No recent expenses in this account."}
+              {debouncedSearch ? "No matching expenses found." : "No recent expenses in this account."}
             </p>
           ) : (
             <div className="space-y-1">
-              {filtered.map((expense) => (
+              {expenses.map((expense) => (
                 <button
                   key={expense.id}
                   className="w-full flex items-center rounded-lg border px-3 py-2 text-left transition-colors hover:bg-muted/50"

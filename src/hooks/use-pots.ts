@@ -18,6 +18,18 @@ export function useCreatePot() {
   });
 }
 
+export function useUpdatePot() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { id: string; name?: string; categoryId?: string | null }) =>
+      apiFetch("/api/pots", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["pots"] });
+      qc.invalidateQueries({ queryKey: ["transactions"] });
+    },
+  });
+}
+
 export function useDeletePot() {
   const qc = useQueryClient();
   return useMutation({

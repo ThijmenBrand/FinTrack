@@ -33,6 +33,8 @@ import { TransactionDetailDialog } from "@/components/transaction-detail-dialog"
 import { CategorizePopover } from "@/components/categorize-popover";
 import { ReimbursementPicker } from "@/components/reimbursement-picker";
 import { CreatePotDialog } from "@/components/create-pot-dialog";
+import { EditPotDialog } from "@/components/edit-pot-dialog";
+import { PotCategoryPopover } from "@/components/pot-category-popover";
 import { CategoryIcon } from "@/components/category-icon";
 import { PotTransactionPicker } from "@/components/pot-transaction-picker";
 import {
@@ -59,6 +61,7 @@ import {
   Package,
   Minus,
   History,
+  Pencil,
 } from "lucide-react";
 import { useAccounts } from "@/hooks/use-accounts";
 import { useCategories } from "@/hooks/use-categories";
@@ -301,6 +304,7 @@ function TransactionsPage() {
   const [createPotOpen, setCreatePotOpen] = useState(false);
   const [addToPotPicker, setAddToPotPicker] = useState<Pot | null>(null);
   const [deletePotConfirm, setDeletePotConfirm] = useState<string | null>(null);
+  const [editPot, setEditPot] = useState<Pot | null>(null);
   const [addToPotTx, setAddToPotTx] = useState<Transaction | null>(null);
 
   // Filters — initialized from URL params
@@ -982,15 +986,15 @@ function TransactionsPage() {
                             </TableCell>
                             <TableCell className="hidden sm:table-cell">
                             </TableCell>
-                            <TableCell>
-                              {pot.categoryName && (
-                                <div className="flex items-center gap-1.5">
-                                  {pot.categoryColor && (
-                                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: pot.categoryColor }} />
-                                  )}
-                                  <span className="text-xs text-muted-foreground">{pot.categoryName}</span>
-                                </div>
-                              )}
+                            <TableCell onClick={(e) => e.stopPropagation()}>
+                              <PotCategoryPopover
+                                potId={pot.id}
+                                potName={pot.name}
+                                currentCategoryId={pot.categoryId}
+                                currentCategoryName={pot.categoryName}
+                                currentCategoryColor={pot.categoryColor}
+                                categories={categories}
+                              />
                             </TableCell>
                             <TableCell className="hidden sm:table-cell">
                               <Badge variant="outline" className="text-xs">Pot</Badge>
@@ -1012,6 +1016,15 @@ function TransactionsPage() {
                                   onClick={() => setAddToPotPicker(pot)}
                                 >
                                   <Plus className="h-3 w-3" />
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                                  title="Edit pot"
+                                  onClick={() => setEditPot(pot)}
+                                >
+                                  <Pencil className="h-3 w-3" />
                                 </Button>
                                 {deletePotConfirm === pot.id ? (
                                   <>
@@ -1242,6 +1255,15 @@ function TransactionsPage() {
                           >
                             <Plus className="h-3 w-3" />
                           </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 text-muted-foreground"
+                            aria-label="Edit pot"
+                            onClick={() => setEditPot(pot)}
+                          >
+                            <Pencil className="h-3 w-3" />
+                          </Button>
                           {deletePotConfirm === pot.id ? (
                             <>
                               <Button size="icon" variant="destructive" className="h-7 w-7" onClick={() => handleDeletePot(pot.id)}>
@@ -1402,6 +1424,7 @@ function TransactionsPage() {
           transactionId={reimbursePicker.id}
           transactionAmount={reimbursePicker.amount}
           transactionDescription={reimbursePicker.description}
+          transactionDate={reimbursePicker.date}
           accountId={reimbursePicker.accountId}
           onLinked={() => {}}
         />
@@ -1413,6 +1436,14 @@ function TransactionsPage() {
         onOpenChange={setCreatePotOpen}
         categories={categories}
         onCreated={() => {}}
+      />
+
+      {/* Edit Pot Dialog */}
+      <EditPotDialog
+        open={!!editPot}
+        onOpenChange={(open) => { if (!open) setEditPot(null); }}
+        categories={categories}
+        pot={editPot}
       />
 
       {/* Add Transaction to Pot Dialog */}
