@@ -22,6 +22,9 @@ export async function GET(request: NextRequest) {
     const categoryId = searchParams.get("categoryId");
     const uncategorized = searchParams.get("uncategorized");
     const reimbursesExpenseId = searchParams.get("reimbursesExpenseId");
+    const nearDate = searchParams.get("nearDate");
+    const nearAmountRaw = searchParams.get("nearAmount");
+    const nearAmount = nearAmountRaw ? Number(nearAmountRaw) : null;
 
     // Build conditions — always filter by userId
     const conditions = [eq(transactions.userId, userId)];
@@ -49,6 +52,28 @@ export async function GET(request: NextRequest) {
       : transactions.date;
 
     const orderFn = sortOrder === "asc" ? asc : desc;
+
+    // When a reference date is provided, rank by "probable match": exact absolute-amount
+    // matches first, then clean-division matches (e.g. 3-way split of a larger expense),
+    // then by closest date. Used by the reimbursement picker.
+    const absNearAmount = nearAmount !== null && Number.isFinite(nearAmount) ? Math.abs(nearAmount) : null;
+    const orderBy = nearDate
+      ? [
+          ...(absNearAmount !== null && absNearAmount > 0
+            ? [
+                sql`CASE
+                  WHEN ABS(ABS(${transactions.amount}) - ${absNearAmount}) < 0.01 THEN 0
+                  WHEN ABS(${transactions.amount}) > ${absNearAmount}
+                       AND ABS(${transactions.amount}) / ${absNearAmount} <= 20
+                       AND ABS((ABS(${transactions.amount}) / ${absNearAmount}) - ROUND(ABS(${transactions.amount}) / ${absNearAmount})) < 0.02
+                  THEN 1
+                  ELSE 2
+                END ASC`,
+              ]
+            : []),
+          sql`ABS(julianday(${transactions.date}) - julianday(${nearDate})) ASC`,
+        ]
+      : [orderFn(sortColumn)];
 
     // Get total count
     const countResult = await db
@@ -115,7 +140,7 @@ export async function GET(request: NextRequest) {
       .leftJoin(accounts, eq(transactions.accountId, accounts.id))
       .leftJoin(categories, eq(transactions.categoryId, categories.id))
       .where(whereClause)
-      .orderBy(orderFn(sortColumn))
+      .orderBy(...orderBy)
       .limit(limit)
       .offset(offset);
 

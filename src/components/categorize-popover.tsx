@@ -17,9 +17,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tag, Check, X } from "lucide-react";
+import { Tag, Check } from "lucide-react";
 import { extractPattern } from "@/lib/csv-utils";
 import { CategoryIcon } from "@/components/category-icon";
+import { CategorySelect } from "@/components/category-select";
 import { useCategorizeTransaction } from "@/hooks/use-transactions";
 import type { Category } from "@/types/api";
 
@@ -104,24 +105,11 @@ export function CategorizePopover({
 
           <div className="space-y-2">
             <Label className="text-xs">Category</Label>
-            <Select
+            <CategorySelect
               value={selectedCategoryId}
               onValueChange={setSelectedCategoryId}
-            >
-              <SelectTrigger className="h-8 text-sm">
-                <SelectValue placeholder="Select a category..." />
-              </SelectTrigger>
-              <SelectContent>
-                {categories.map((cat) => (
-                  <SelectItem key={cat.id} value={cat.id}>
-                    <span className="flex items-center gap-2">
-                      <CategoryIcon icon={cat.icon} color={cat.color} size="sm" />
-                      {cat.name}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              categories={categories}
+            />
           </div>
 
           {/* Create Rule Checkbox */}
