@@ -27,6 +27,13 @@ function isIos() {
   return /iPad|iPhone|iPod/.test(ua) && !("MSStream" in window);
 }
 
+function isIosSafari() {
+  if (typeof window === "undefined") return false;
+  const ua = window.navigator.userAgent;
+  // Other iOS browsers identify themselves: Chrome=CriOS, Firefox=FxiOS, Edge=EdgiOS, Opera=OPiOS
+  return !/CriOS|FxiOS|EdgiOS|OPiOS/.test(ua);
+}
+
 function wasDismissedRecently() {
   if (typeof window === "undefined") return false;
   const raw = window.localStorage.getItem(DISMISS_KEY);
@@ -106,6 +113,7 @@ export function PwaInstallPrompt() {
   }
 
   if (showIos) {
+    const inSafari = isIosSafari();
     return (
       <div className="fixed inset-x-4 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-50 mx-auto max-w-md rounded-lg border bg-card p-4 shadow-lg md:bottom-6">
         <div className="flex items-start gap-3">
@@ -114,10 +122,39 @@ export function PwaInstallPrompt() {
           </div>
           <div className="flex-1">
             <p className="text-sm font-semibold">Install FinTrack</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Tap <Share className="inline h-3 w-3 align-text-bottom" /> Share, then{" "}
-              <Plus className="inline h-3 w-3 align-text-bottom" /> Add to Home Screen.
-            </p>
+            {inSafari ? (
+              <ol className="mt-2 space-y-1.5 text-xs text-muted-foreground">
+                <li className="flex items-center gap-2">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-foreground">
+                    1
+                  </span>
+                  <span className="flex items-center gap-1">
+                    Tap
+                    <Share
+                      aria-hidden
+                      className="inline h-3.5 w-3.5 text-primary motion-safe:animate-pulse"
+                    />
+                    <span className="font-medium text-foreground">Share</span>
+                  </span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-foreground">
+                    2
+                  </span>
+                  <span className="flex items-center gap-1">
+                    Choose
+                    <Plus aria-hidden className="inline h-3.5 w-3.5 text-primary" />
+                    <span className="font-medium text-foreground">Add to Home Screen</span>
+                  </span>
+                </li>
+              </ol>
+            ) : (
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Open this page in <span className="font-medium text-foreground">Safari</span>, then
+                tap <Share className="inline h-3 w-3 align-text-bottom" /> Share →{" "}
+                <Plus className="inline h-3 w-3 align-text-bottom" /> Add to Home Screen.
+              </p>
+            )}
           </div>
           <button
             aria-label="Dismiss"
