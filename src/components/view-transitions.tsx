@@ -102,8 +102,11 @@ export function ViewTransitions() {
       );
     }
 
-    document.addEventListener("click", onClick);
-    return () => document.removeEventListener("click", onClick);
+    // Capture phase so we run before Next.js Link's onClick (which calls
+    // preventDefault); a bubble-phase listener would always see
+    // event.defaultPrevented === true and skip the transition.
+    document.addEventListener("click", onClick, true);
+    return () => document.removeEventListener("click", onClick, true);
   }, [router]);
 
   return null;
