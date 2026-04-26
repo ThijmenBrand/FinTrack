@@ -232,6 +232,14 @@ export async function initializeDatabase() {
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_audit_log_category_created ON audit_log(category, created_at)`);
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at)`);
 
+  // Auth-schema indexes (defined in auth-schema.ts). Created here so they
+  // exist before drizzle-kit push tries to diff against them on next deploy.
+  await db.run(sql`CREATE INDEX IF NOT EXISTS account_userId_idx ON account(user_id)`);
+  await db.run(sql`CREATE INDEX IF NOT EXISTS session_userId_idx ON session(user_id)`);
+  await db.run(sql`CREATE INDEX IF NOT EXISTS verification_identifier_idx ON verification(identifier)`);
+  await db.run(sql`CREATE INDEX IF NOT EXISTS passkey_userId_idx ON passkey(user_id)`);
+  await db.run(sql`CREATE INDEX IF NOT EXISTS passkey_credentialID_idx ON passkey(credential_id)`);
+
   // ── Seed default categories for admin user ──────────────────────────────
   if (!adminUserId) {
     const adminResult = await db.run(sql`SELECT id FROM "user" WHERE role = 'admin' LIMIT 1`);
