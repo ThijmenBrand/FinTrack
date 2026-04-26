@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { transactions, categoryRules, categories } from "@/db/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { getUserId } from "@/lib/auth";
+import { validatePattern } from "@/lib/validation";
 
 // PUT /api/transactions/categorize — categorize a transaction (and optionally create a rule)
 export async function PUT(request: NextRequest) {
@@ -52,12 +53,18 @@ export async function PUT(request: NextRequest) {
 
     // Optionally create a categorization rule
     if (createRule && rulePattern && categoryId) {
+      const validated = validatePattern(rulePattern);
+      if (!validated.ok) {
+        return NextResponse.json({ error: validated.error }, { status: 400 });
+      }
+      const cleanPattern = validated.value;
+
       ruleId = crypto.randomUUID();
       const matchType = ruleMatchType || "contains";
 
       await db.insert(categoryRules).values({
         id: ruleId,
-        pattern: rulePattern,
+        pattern: cleanPattern,
         categoryId,
         matchType,
         isActive: true,
@@ -69,20 +76,20 @@ export async function PUT(request: NextRequest) {
       let sqlPattern: string;
       switch (matchType) {
         case "exact":
-          sqlPattern = rulePattern;
+          sqlPattern = cleanPattern;
           break;
         case "starts_with":
-          sqlPattern = `${rulePattern}%`;
+          sqlPattern = `${cleanPattern}%`;
           break;
         case "contains":
         default:
-          sqlPattern = `%${rulePattern}%`;
+          sqlPattern = `%${cleanPattern}%`;
           break;
       }
 
       const condition =
         matchType === "exact"
-          ? sql`LOWER(${transactions.description}) = LOWER(${rulePattern}) AND ${transactions.categoryId} IS NULL AND ${transactions.userId} = ${userId}`
+          ? sql`LOWER(${transactions.description}) = LOWER(${cleanPattern}) AND ${transactions.categoryId} IS NULL AND ${transactions.userId} = ${userId}`
           : sql`LOWER(${transactions.description}) LIKE LOWER(${sqlPattern}) AND ${transactions.categoryId} IS NULL AND ${transactions.userId} = ${userId}`;
 
       const result = await db

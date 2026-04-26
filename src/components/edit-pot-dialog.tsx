@@ -12,6 +12,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -42,22 +43,35 @@ export function EditPotDialog({
 }: EditPotDialogProps) {
   const [name, setName] = useState("");
   const [categoryId, setCategoryId] = useState<string>(NO_CATEGORY);
+  const [hasTarget, setHasTarget] = useState(false);
+  const [targetAmount, setTargetAmount] = useState("");
+  const [targetDate, setTargetDate] = useState("");
   const updatePot = useUpdatePot();
 
   useEffect(() => {
     if (pot) {
       setName(pot.name);
       setCategoryId(pot.categoryId ?? NO_CATEGORY);
+      const had = pot.targetAmount != null && pot.targetDate != null;
+      setHasTarget(had);
+      setTargetAmount(pot.targetAmount != null ? String(pot.targetAmount) : "");
+      setTargetDate(pot.targetDate ?? "");
     }
   }, [pot]);
 
+  const targetValid =
+    !hasTarget ||
+    (Number(targetAmount) > 0 && /^\d{4}-\d{2}-\d{2}$/.test(targetDate));
+
   const handleSave = async () => {
-    if (!pot || !name.trim()) return;
+    if (!pot || !name.trim() || !targetValid) return;
     try {
       await updatePot.mutateAsync({
         id: pot.id,
         name: name.trim(),
         categoryId: categoryId === NO_CATEGORY ? null : categoryId,
+        targetAmount: hasTarget ? Number(targetAmount) : null,
+        targetDate: hasTarget ? targetDate : null,
       });
       onSaved?.();
       onOpenChange(false);
@@ -69,7 +83,12 @@ export function EditPotDialog({
   const isDirty =
     !!pot &&
     (name.trim() !== pot.name ||
-      (categoryId === NO_CATEGORY ? null : categoryId) !== (pot.categoryId ?? null));
+      (categoryId === NO_CATEGORY ? null : categoryId) !==
+        (pot.categoryId ?? null) ||
+      hasTarget !== (pot.targetAmount != null && pot.targetDate != null) ||
+      (hasTarget &&
+        (Number(targetAmount) !== (pot.targetAmount ?? 0) ||
+          targetDate !== (pot.targetDate ?? ""))));
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -77,7 +96,7 @@ export function EditPotDialog({
         <DialogHeader>
           <DialogTitle>Edit Pot</DialogTitle>
           <DialogDescription>
-            Rename this pot or change the category it belongs to. Member transactions stay grouped.
+            Rename, recategorise, or set a target so this pot becomes a planned spike.
           </DialogDescription>
         </DialogHeader>
 
@@ -91,7 +110,7 @@ export function EditPotDialog({
               onChange={(e) => setName(e.target.value)}
               autoFocus
               onKeyDown={(e) => {
-                if (e.key === "Enter") handleSave();
+                if (e.key === "Enter" && !hasTarget) handleSave();
               }}
             />
           </div>
@@ -122,6 +141,56 @@ export function EditPotDialog({
               </SelectContent>
             </Select>
           </div>
+
+          <div className="flex items-start gap-3 pt-1">
+            <Checkbox
+              id="edit-pot-has-target"
+              checked={hasTarget}
+              onCheckedChange={(c) => setHasTarget(c === true)}
+              className="mt-0.5"
+            />
+            <div className="space-y-1">
+              <Label htmlFor="edit-pot-has-target" className="cursor-pointer">
+                Plan for a spike
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Clearing this resets the funded amount.
+              </p>
+            </div>
+          </div>
+
+          {hasTarget && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="edit-pot-target-amount">Target amount (€)</Label>
+                <Input
+                  id="edit-pot-target-amount"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="450"
+                  value={targetAmount}
+                  onChange={(e) => setTargetAmount(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-pot-target-date">Target date</Label>
+                <Input
+                  id="edit-pot-target-date"
+                  type="date"
+                  value={targetDate}
+                  onChange={(e) => setTargetDate(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
+
+          {pot && pot.targetAmount != null && hasTarget && (
+            <p className="text-xs text-muted-foreground">
+              Funded so far: €{(pot.fundedAmount ?? 0).toFixed(2)} / €
+              {pot.targetAmount.toFixed(2)}
+            </p>
+          )}
         </div>
 
         <DialogFooter>
@@ -130,9 +199,11 @@ export function EditPotDialog({
           </Button>
           <Button
             onClick={handleSave}
-            disabled={!name.trim() || !isDirty || updatePot.isPending}
+            disabled={!name.trim() || !isDirty || !targetValid || updatePot.isPending}
           >
-            {updatePot.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+            {updatePot.isPending && (
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            )}
             Save changes
           </Button>
         </DialogFooter>

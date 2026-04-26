@@ -22,6 +22,14 @@ import {
   AccountsCard,
   AccountsCardSkeleton,
 } from "./_components/accounts-card";
+import {
+  ComingUpThisMonthCard,
+  ComingUpThisMonthCardSkeleton,
+} from "./_components/coming-up-this-month-card";
+import {
+  SavingTowardCard,
+  SavingTowardCardSkeleton,
+} from "./_components/saving-toward-card";
 
 export default async function DashboardPage() {
   const session = await requireAuth();
@@ -33,12 +41,20 @@ export default async function DashboardPage() {
         <HeroWeeklySpending userId={userId} />
       </Suspense>
 
+      <Suspense fallback={<MonthSummaryGridSkeleton />}>
+        <MonthSummaryGrid userId={userId} />
+      </Suspense>
+
+      <Suspense fallback={<ComingUpThisMonthCardSkeleton />}>
+        <ComingUpThisMonthCard userId={userId} />
+      </Suspense>
+
       <Suspense fallback={<BudgetOverviewSkeleton />}>
         <BudgetOverview userId={userId} />
       </Suspense>
 
-      <Suspense fallback={<MonthSummaryGridSkeleton />}>
-        <MonthSummaryGrid userId={userId} />
+      <Suspense fallback={<SavingTowardCardSkeleton />}>
+        <SavingTowardCard userId={userId} />
       </Suspense>
 
       <div className="grid gap-6 lg:grid-cols-2">

@@ -1,7 +1,23 @@
 import { cache } from "react";
 import { db } from "@/db";
-import { accounts, transactions, budgets, categories } from "@/db/schema";
-import { eq, and, gte, lte, sql, sum, inArray } from "drizzle-orm";
+import {
+  accounts,
+  transactions,
+  budgets,
+  categories,
+  transactionGroups,
+} from "@/db/schema";
+import { eq, and, gte, lte, sql, sum, inArray, isNotNull } from "drizzle-orm";
+import { getPaySchedule, paydaysBetween, type PaySchedule } from "@/lib/pay-schedule";
+import { getMonthMoneyMath } from "@/lib/month-money";
+import { classifyOnTrack } from "@/lib/on-track";
+import type {
+  MonthMoneyView,
+  SavingTowardSpike,
+  SpikeImpactStatus,
+  ThisMonthSpike,
+  UpcomingSpike,
+} from "@/types/api";
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
@@ -213,6 +229,7 @@ export async function getBudgetOverview(userId: string) {
       const spent = spendingByCategory.get(b.categoryId) || 0;
       const pct = b.amount > 0 ? (spent / b.amount) * 100 : 0;
       return {
+        categoryId: b.categoryId,
         categoryName: b.categoryName,
         categoryColor: b.categoryColor,
         spent,
@@ -328,11 +345,281 @@ export async function getMonthSummary(userId: string) {
   };
 }
 
+interface SpikeRow {
+  id: string;
+  name: string;
+  categoryId: string | null;
+  categoryName: string | null;
+  categoryColor: string | null;
+  targetAmount: number;
+  targetDate: string;
+  fundedAmount: number;
+  createdAt: string;
+}
+
+async function loadSpikeRowsBetween(
+  userId: string,
+  fromIso: string,
+  toIso: string
+): Promise<SpikeRow[]> {
+  const rows = await db
+    .select({
+      id: transactionGroups.id,
+      name: transactionGroups.name,
+      categoryId: transactionGroups.categoryId,
+      categoryName: categories.name,
+      categoryColor: categories.color,
+      targetAmount: transactionGroups.targetAmount,
+      targetDate: transactionGroups.targetDate,
+      fundedAmount: transactionGroups.fundedAmount,
+      createdAt: transactionGroups.createdAt,
+    })
+    .from(transactionGroups)
+    .leftJoin(categories, eq(transactionGroups.categoryId, categories.id))
+    .where(
+      and(
+        eq(transactionGroups.userId, userId),
+        isNotNull(transactionGroups.targetAmount),
+        isNotNull(transactionGroups.targetDate),
+        gte(transactionGroups.targetDate, fromIso),
+        lte(transactionGroups.targetDate, toIso)
+      )
+    )
+    .orderBy(transactionGroups.targetDate);
+
+  return rows
+    .filter(
+      (r): r is typeof r & { targetAmount: number; targetDate: string } =>
+        r.targetAmount != null && !!r.targetDate
+    )
+    .map((r) => ({
+      id: r.id,
+      name: r.name,
+      categoryId: r.categoryId,
+      categoryName: r.categoryName,
+      categoryColor: r.categoryColor,
+      targetAmount: r.targetAmount,
+      targetDate: r.targetDate,
+      fundedAmount: r.fundedAmount ?? 0,
+      createdAt: r.createdAt,
+    }));
+}
+
+function baseSpikeFields(
+  row: SpikeRow,
+  today: Date,
+  schedule: PaySchedule
+): UpcomingSpike {
+  const target = new Date(row.targetDate);
+  target.setHours(0, 0, 0, 0);
+  const daysUntil = Math.max(
+    0,
+    Math.round((target.getTime() - today.getTime()) / 86400000)
+  );
+  const paydays = paydaysBetween(schedule, today, target);
+  const paydaysRemaining = Math.max(1, paydays.length);
+  const remaining = Math.max(0, row.targetAmount - row.fundedAmount);
+  const suggested = Math.max(0, remaining / paydaysRemaining);
+  return {
+    id: row.id,
+    name: row.name,
+    categoryName: row.categoryName,
+    categoryColor: row.categoryColor,
+    targetAmount: row.targetAmount,
+    targetDate: row.targetDate,
+    fundedAmount: row.fundedAmount,
+    remaining,
+    paydaysRemaining: paydays.length,
+    suggestedAllocation: suggested,
+    daysUntil,
+  };
+}
+
+/**
+ * Returns the dashboard's "free to spend this month" view, including each
+ * upcoming this-month spike with a per-spike "fits / tight / over" badge and
+ * an inline category warning when the spike would push its category's
+ * allocation over budget.
+ */
+export async function getMonthMoneyView(userId: string): Promise<MonthMoneyView> {
+  const { monthStart, monthEnd } = getDateRanges();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayIso = toLocalDateStr(today);
+
+  const [math, schedule, rows] = await Promise.all([
+    getMonthMoneyMath(userId),
+    getPaySchedule(userId),
+    loadSpikeRowsBetween(userId, todayIso, monthEnd),
+  ]);
+
+  // Sort by date so the per-spike "free after" lines accumulate in time order.
+  const sorted = rows
+    .map((r) => ({ row: r, base: baseSpikeFields(r, today, schedule) }))
+    .sort((a, b) => a.row.targetDate.localeCompare(b.row.targetDate));
+
+  // Per-pot spend already booked this month. `math.freeToSpend` and
+  // `alloc.spent` already include these amounts, so we subtract the spend
+  // from each spike's targetAmount to avoid double-counting.
+  const potIds = sorted.map(({ row }) => row.id);
+  const spentByPot = new Map<string, number>();
+  if (potIds.length > 0) {
+    const inMonth = await db
+      .select({
+        groupId: transactions.groupId,
+        spent: sql<number>`abs(sum(case when ${transactions.amount} < 0 then ${transactions.amount} else 0 end))`,
+      })
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.userId, userId),
+          inArray(transactions.groupId, potIds),
+          gte(transactions.date, monthStart),
+          lte(transactions.date, monthEnd)
+        )
+      )
+      .groupBy(transactions.groupId);
+    for (const r of inMonth) {
+      if (r.groupId) spentByPot.set(r.groupId, Number(r.spent) || 0);
+    }
+  }
+
+  const remainingByPot = new Map<string, number>();
+  for (const { row } of sorted) {
+    remainingByPot.set(
+      row.id,
+      Math.max(0, row.targetAmount - (spentByPot.get(row.id) ?? 0))
+    );
+  }
+
+  const upcomingThisMonthTotal = sorted.reduce(
+    (s, { row }) => s + (remainingByPot.get(row.id) ?? 0),
+    0
+  );
+
+  // Per-spike running deduction: each row's "freeAfter" is freeToSpend minus
+  // the sum of this spike and every earlier-dated spike.
+  let runningDeduction = 0;
+  const thisMonthSpikes: ThisMonthSpike[] = sorted.map(({ row, base }) => {
+    const remainingThisMonth = remainingByPot.get(row.id) ?? 0;
+    runningDeduction += remainingThisMonth;
+    const freeAfter = math.freeToSpend - runningDeduction;
+
+    let status: SpikeImpactStatus = "fits";
+    if (freeAfter < 0) status = "over";
+    else if (math.freeToSpend > 0 && freeAfter < math.freeToSpend * 0.1)
+      status = "tight";
+
+    let categoryWarning: string | null = null;
+    if (row.categoryId) {
+      const alloc = math.allocations.get(row.categoryId);
+      if (alloc) {
+        const projected = alloc.spent + remainingThisMonth;
+        if (projected > alloc.amount) {
+          const overBy = projected - alloc.amount;
+          categoryWarning = `Would push ${alloc.categoryName ?? "this category"} ${formatCurrency(overBy)} over budget`;
+        }
+      }
+    }
+
+    return { ...base, freeAfter, status, categoryWarning };
+  });
+
+  const freeToSpendAfterSpikes = math.freeToSpend - upcomingThisMonthTotal;
+
+  return {
+    monthlyIncome: math.monthlyIncome,
+    totalFixedCosts: math.totalFixedCosts,
+    spentThisMonth: math.spentThisMonth,
+    freeToSpend: math.freeToSpend,
+    freeToSpendAfterSpikes,
+    upcomingThisMonthTotal,
+    hasIncome: math.hasIncome,
+    thisMonthSpikes,
+  };
+}
+
+/**
+ * Returns spikes whose target date falls *after* the current month, with
+ * pay-cycle on-track math attached. This drives the "Saving toward" card.
+ */
+export async function getSavingTowardSpikes(
+  userId: string
+): Promise<SavingTowardSpike[]> {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const horizon = new Date(today);
+  horizon.setDate(horizon.getDate() + 365);
+
+  const { monthEnd } = getDateRanges();
+  const startIso = toLocalDateStr(
+    new Date(new Date(monthEnd).getTime() + 86400000)
+  );
+  const endIso = toLocalDateStr(horizon);
+
+  const [rows, schedule] = await Promise.all([
+    loadSpikeRowsBetween(userId, startIso, endIso),
+    getPaySchedule(userId),
+  ]);
+
+  if (rows.length === 0) return [];
+
+  return rows.map((row) => {
+    const base = baseSpikeFields(row, today, schedule);
+    const created = new Date(row.createdAt);
+    created.setHours(0, 0, 0, 0);
+    const target = new Date(row.targetDate);
+    target.setHours(0, 0, 0, 0);
+
+    const totalPaydays = paydaysBetween(
+      schedule,
+      created < today ? created : today,
+      target
+    ).length;
+    const elapsedPaydays = paydaysBetween(schedule, created, today).length;
+
+    const { expectedFundedByNow, onTrack } = classifyOnTrack({
+      fundedAmount: row.fundedAmount,
+      targetAmount: row.targetAmount,
+      totalPaydays,
+      elapsedPaydays,
+    });
+
+    return {
+      ...base,
+      expectedFundedByNow,
+      onTrack,
+    };
+  });
+}
+
+/**
+ * Backwards-compatible export: returns all upcoming-targeted pots within 90
+ * days. Phase-2 callers should prefer `getMonthMoneyView` /
+ * `getSavingTowardSpikes`.
+ */
+export async function getUpcomingSpikes(userId: string): Promise<UpcomingSpike[]> {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayIso = toLocalDateStr(today);
+  const horizon = new Date(today);
+  horizon.setDate(horizon.getDate() + 90);
+  const horizonIso = toLocalDateStr(horizon);
+
+  const [rows, schedule] = await Promise.all([
+    loadSpikeRowsBetween(userId, todayIso, horizonIso),
+    getPaySchedule(userId),
+  ]);
+
+  return rows.map((row) => baseSpikeFields(row, today, schedule));
+}
+
 export async function getTopCategories(userId: string) {
   const { monthStart, monthEnd } = getDateRanges();
 
   const topCats = await db
     .select({
+      categoryId: categories.id,
       categoryName: categories.name,
       categoryColor: categories.color,
       total: sql<number>`sum(abs(${transactions.amount}) - ${reimbursementAdjustment()})`,
@@ -349,11 +636,12 @@ export async function getTopCategories(userId: string) {
         lte(transactions.date, monthEnd)
       )
     )
-    .groupBy(transactions.categoryId)
+    .groupBy(transactions.categoryId, categories.id)
     .orderBy(sql`sum(abs(${transactions.amount})) DESC`)
     .limit(5);
 
   return topCats.map((c) => ({
+    categoryId: c.categoryId,
     name: c.categoryName || "Uncategorized",
     color: c.categoryColor || "#94a3b8",
     total: c.total,

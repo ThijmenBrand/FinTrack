@@ -196,6 +196,8 @@ export const importBatches = sqliteTable("import_batches", {
 // ─── Transaction Groups (Pots) ──────────────────────────────────────────────
 // Named groups of transactions (e.g. "Weekend trip") with a category.
 // The pot's net amount counts in summaries instead of individual transactions.
+// When targetAmount + targetDate are set, the pot is a "spike": a planned
+// irregular event that surfaces on the dashboard and forecast.
 export const transactionGroups = sqliteTable("transaction_groups", {
   id: text("id")
     .primaryKey()
@@ -203,6 +205,9 @@ export const transactionGroups = sqliteTable("transaction_groups", {
   userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   categoryId: text("category_id").references(() => categories.id),
+  targetAmount: real("target_amount"),
+  targetDate: text("target_date"),
+  fundedAmount: real("funded_amount").notNull().default(0),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),

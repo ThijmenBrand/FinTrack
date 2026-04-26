@@ -11,6 +11,7 @@ import {
   Wallet,
   RefreshCcw,
   Landmark,
+  PiggyBank,
   ChevronLeft,
   ChevronRight,
   Sun,
@@ -30,6 +31,7 @@ const navigation = [
   { name: "Categories", href: "/categories", icon: Tags },
   { name: "Insights", href: "/insights", icon: PieChart },
   { name: "Budgets", href: "/budgets", icon: Wallet },
+  { name: "Pots", href: "/pots", icon: PiggyBank },
   { name: "Recurring", href: "/recurring", icon: RefreshCcw },
 ];
 
@@ -67,6 +69,7 @@ export function Sidebar() {
         "relative hidden md:flex flex-col border-r bg-sidebar transition-all duration-200",
         collapsed ? "w-16" : "w-60"
       )}
+      style={{ viewTransitionName: "app-sidebar" }}
     >
       {/* Header / Logo */}
       <div className="flex h-16 items-center gap-3 border-b px-4">

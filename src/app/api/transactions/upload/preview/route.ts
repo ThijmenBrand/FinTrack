@@ -9,6 +9,7 @@ import {
   parseDate,
   matchesRule,
   extractPattern,
+  combineNameAndDescription,
   type ColumnMapping,
   type PreviewTransaction,
 } from "@/lib/csv-utils";
@@ -101,16 +102,20 @@ export async function POST(request: NextRequest) {
     for (let rowIndex = 0; rowIndex < parsed.data.length; rowIndex++) {
       const row = parsed.data[rowIndex];
       const dateRaw = row[mapping.date]?.trim();
-      let description = row[mapping.description]?.trim();
+      const nameRaw = mapping.name ? row[mapping.name]?.trim() : undefined;
+      const descRaw = row[mapping.description]?.trim();
       const amountRaw = row[mapping.amount]?.trim();
       const balanceRaw = mapping.balance ? row[mapping.balance]?.trim() : undefined;
 
-      // Description fallback logic
+      let description = combineNameAndDescription(nameRaw, descRaw);
+
+      // Fallback: scan other columns if both mapped fields were empty
       if (!description) {
         const fallbackKeys = ["omschrijving", "description", "memo", "naam", "name"];
+        const skipCols = [mapping.description, mapping.name].filter(Boolean);
         for (const key of fallbackKeys) {
           const col = allColumns.find(
-            (c) => c.toLowerCase().includes(key) && c !== mapping.description
+            (c) => c.toLowerCase().includes(key) && !skipCols.includes(c)
           );
           if (col && row[col]?.trim()) {
             description = row[col].trim();

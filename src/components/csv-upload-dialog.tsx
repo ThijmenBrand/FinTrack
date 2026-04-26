@@ -69,6 +69,7 @@ export function CsvUploadDialog({
     date: "",
     description: "",
     amount: "",
+    name: "",
     balance: "",
     counterpartyIban: "",
   });
@@ -93,7 +94,7 @@ export function CsvUploadDialog({
     setFile(null);
     setHeaders([]);
     setPreviewRows([]);
-    setMapping({ date: "", description: "", amount: "", balance: "", counterpartyIban: "" });
+    setMapping({ date: "", description: "", amount: "", name: "", balance: "", counterpartyIban: "" });
     setResult(null);
     setError(null);
     setPreviewData([]);
@@ -134,27 +135,37 @@ export function CsvUploadDialog({
         setHeaders(cols);
         setPreviewRows(results.data as Record<string, string>[]);
 
-        const autoMapping = { date: "", description: "", amount: "", balance: "", counterpartyIban: "" };
+        const autoMapping = { date: "", description: "", amount: "", name: "", balance: "", counterpartyIban: "" };
 
-        const descPriority = ["omschrijving", "description", "memo", "naam", "name", "partnername", "buchungs-details", "buchungsdetails"];
+        const namePriority = ["partnername", "counterparty name", "naam", "name"];
+        const descPriority = ["omschrijving", "description", "memo", "buchungs-details", "buchungsdetails"];
         const amountPriority = ["bedrag", "betrag", "amount", "value"];
         const balancePriority = ["saldo voor", "balance", "saldo", "kontostand"];
         const datePriority = ["buchungsdatum", "datum", "date"];
         const ibanPriority = ["tegenrekening", "iban", "counterparty", "contra", "partner iban"];
 
-        function findBestMatch(cols: string[], keywords: string[]): string {
+        function findBestMatch(cols: string[], keywords: string[], exclude: string[] = []): string {
           for (const kw of keywords) {
-            const match = cols.find((c) => c.toLowerCase().includes(kw));
+            const match = cols.find(
+              (c) => c.toLowerCase().includes(kw) && !exclude.includes(c),
+            );
             if (match) return match;
           }
           return "";
         }
 
         autoMapping.date = findBestMatch(cols, datePriority);
-        autoMapping.description = findBestMatch(cols, descPriority);
+        autoMapping.name = findBestMatch(cols, namePriority);
+        autoMapping.description = findBestMatch(cols, descPriority, [autoMapping.name]);
         autoMapping.amount = findBestMatch(cols, amountPriority);
         autoMapping.balance = findBestMatch(cols, balancePriority);
         autoMapping.counterpartyIban = findBestMatch(cols, ibanPriority);
+
+        // If neither description nor name auto-detected, fall back to name keywords
+        // for the required description field so import still proceeds.
+        if (!autoMapping.description && !autoMapping.name) {
+          autoMapping.description = findBestMatch(cols, namePriority);
+        }
         setMapping(autoMapping);
         setStep("map-columns");
       },
@@ -348,6 +359,31 @@ export function CsvUploadDialog({
                       <SelectValue placeholder="Select column..." />
                     </SelectTrigger>
                     <SelectContent>
+                      {headers.map((h) => (
+                        <SelectItem key={h} value={h}>
+                          {h}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="grid gap-2">
+                  <Label>Name Column (optional)</Label>
+                  <Select
+                    value={mapping.name || "none"}
+                    onValueChange={(v) =>
+                      setMapping((m) => ({
+                        ...m,
+                        name: v === "none" ? "" : v,
+                      }))
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select column..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None</SelectItem>
                       {headers.map((h) => (
                         <SelectItem key={h} value={h}>
                           {h}

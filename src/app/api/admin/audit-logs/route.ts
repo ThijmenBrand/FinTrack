@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { auditLog } from "@/db/schema";
-import { eq, and, gte, lte, sql, type SQL } from "drizzle-orm";
+import { user } from "@/db/auth-schema";
+import { eq, and, gte, lte, desc, sql, type SQL } from "drizzle-orm";
 import { requireAdmin } from "@/lib/auth";
 import { cleanupOldAuditLogs } from "@/lib/audit";
 
@@ -37,29 +38,42 @@ export async function GET(request: NextRequest) {
       .where(whereClause);
     const total = countResult[0]?.count || 0;
 
-    // Get paginated results with user info via raw join
-    const result = await db.run(sql`
-      SELECT a.*, u.username, u.display_username, u.name as user_display_name
-      FROM audit_log a
-      LEFT JOIN "user" u ON a.user_id = u.id
-      ${whereClause ? sql`WHERE ${whereClause}` : sql``}
-      ORDER BY a.created_at DESC
-      LIMIT ${limit} OFFSET ${offset}
-    `);
+    const rows = await db
+      .select({
+        id: auditLog.id,
+        userId: auditLog.userId,
+        category: auditLog.category,
+        action: auditLog.action,
+        targetId: auditLog.targetId,
+        targetType: auditLog.targetType,
+        details: auditLog.details,
+        ipAddress: auditLog.ipAddress,
+        userAgent: auditLog.userAgent,
+        createdAt: auditLog.createdAt,
+        username: user.username,
+        displayUsername: user.displayUsername,
+        userDisplayName: user.name,
+      })
+      .from(auditLog)
+      .leftJoin(user, eq(auditLog.userId, user.id))
+      .where(whereClause)
+      .orderBy(desc(auditLog.createdAt))
+      .limit(limit)
+      .offset(offset);
 
-    const data = result.rows.map((row: Record<string, unknown>) => ({
+    const data = rows.map((row) => ({
       id: row.id,
-      userId: row.user_id,
+      userId: row.userId,
       username: row.username || null,
-      displayUsername: row.display_username || row.user_display_name || null,
+      displayUsername: row.displayUsername || row.userDisplayName || null,
       category: row.category,
       action: row.action,
-      targetId: row.target_id || null,
-      targetType: row.target_type || null,
-      details: row.details ? (() => { try { return JSON.parse(row.details as string); } catch { return null; } })() : null,
-      ipAddress: row.ip_address || null,
-      userAgent: row.user_agent || null,
-      createdAt: row.created_at,
+      targetId: row.targetId || null,
+      targetType: row.targetType || null,
+      details: row.details ? (() => { try { return JSON.parse(row.details); } catch { return null; } })() : null,
+      ipAddress: row.ipAddress || null,
+      userAgent: row.userAgent || null,
+      createdAt: row.createdAt,
     }));
 
     return NextResponse.json({

@@ -62,6 +62,7 @@ import {
   Minus,
   History,
   Pencil,
+  Target,
 } from "lucide-react";
 import { useAccounts } from "@/hooks/use-accounts";
 import { useCategories } from "@/hooks/use-categories";
@@ -296,7 +297,9 @@ function TransactionsPage() {
   });
 
   // UI state
-  const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(
+    () => searchParams.get("action") === "upload",
+  );
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [transferResult, setTransferResult] = useState<string | null>(null);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
@@ -976,12 +979,30 @@ function TransactionsPage() {
                               —
                             </TableCell>
                             <TableCell className="text-sm font-semibold">
-                              <div className="flex items-center gap-2">
-                                <Package className="h-4 w-4 text-muted-foreground" />
-                                <span>{pot.name}</span>
-                                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                                  {pot.transactionCount} tx
-                                </Badge>
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2">
+                                  <Package className="h-4 w-4 text-muted-foreground" />
+                                  <span>{pot.name}</span>
+                                  <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                                    {pot.transactionCount} tx
+                                  </Badge>
+                                  {pot.targetAmount != null && pot.targetDate && (
+                                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-1 font-normal">
+                                      <Target className="h-2.5 w-2.5" />
+                                      {formatCurrency(pot.fundedAmount)} / {formatCurrency(pot.targetAmount)} by {formatDate(pot.targetDate)}
+                                    </Badge>
+                                  )}
+                                </div>
+                                {pot.targetAmount != null && pot.targetAmount > 0 && (
+                                  <div className="h-1 w-40 bg-muted rounded-full overflow-hidden">
+                                    <div
+                                      className="h-full rounded-full bg-primary transition-all duration-500"
+                                      style={{
+                                        width: `${Math.min(100, Math.round((pot.fundedAmount / pot.targetAmount) * 100))}%`,
+                                      }}
+                                    />
+                                  </div>
+                                )}
                               </div>
                             </TableCell>
                             <TableCell className="hidden sm:table-cell">
@@ -1239,7 +1260,27 @@ function TransactionsPage() {
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-semibold truncate">{pot.name}</p>
-                          <p className="text-xs text-muted-foreground">{pot.transactionCount} transaction{pot.transactionCount !== 1 ? "s" : ""}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {pot.transactionCount} transaction{pot.transactionCount !== 1 ? "s" : ""}
+                          </p>
+                          {pot.targetAmount != null && pot.targetDate && (
+                            <div className="mt-1 space-y-1">
+                              <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                                <Target className="h-2.5 w-2.5" />
+                                {formatCurrency(pot.fundedAmount)} / {formatCurrency(pot.targetAmount)} by {formatDate(pot.targetDate)}
+                              </p>
+                              {pot.targetAmount > 0 && (
+                                <div className="h-1 w-full bg-muted rounded-full overflow-hidden">
+                                  <div
+                                    className="h-full rounded-full bg-primary transition-all duration-500"
+                                    style={{
+                                      width: `${Math.min(100, Math.round((pot.fundedAmount / pot.targetAmount) * 100))}%`,
+                                    }}
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                         <span className={`text-sm font-mono font-semibold shrink-0 ${
                           pot.netAmount >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"

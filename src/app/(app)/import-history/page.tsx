@@ -44,7 +44,7 @@ export default function ImportHistoryPage() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 p-6">
+    <div className="mx-auto max-w-4xl space-y-6 p-4 sm:p-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
           <History className="h-6 w-6" />
@@ -80,29 +80,27 @@ export default function ImportHistoryPage() {
               {batches.map((batch) => (
                 <div
                   key={batch.id}
-                  className="flex items-center justify-between rounded-lg border p-4 group hover:bg-muted/50 transition-colors"
+                  className="group flex items-start gap-3 rounded-lg border p-4 hover:bg-muted/50 transition-colors"
                 >
-                  <div className="flex items-center gap-4 min-w-0">
-                    <FileSpreadsheet className="h-5 w-5 text-muted-foreground shrink-0" />
-                    <div className="min-w-0">
-                      <p className="font-medium truncate">{batch.fileName}</p>
-                      <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                        <span>{batch.accountName}</span>
-                        <span>&middot;</span>
-                        <span>{batch.transactionCount} transaction{batch.transactionCount !== 1 ? "s" : ""}</span>
-                        <span>&middot;</span>
-                        <span>{formatDate(batch.importedAt)}</span>
-                      </div>
-                    </div>
+                  <FileSpreadsheet className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium truncate">{batch.fileName}</p>
+                    <p className="mt-0.5 text-sm text-muted-foreground truncate">
+                      {batch.accountName} &middot; {batch.transactionCount} transaction{batch.transactionCount !== 1 ? "s" : ""}
+                    </p>
+                    <p className="mt-0.5 text-xs text-muted-foreground/80">
+                      {formatDate(batch.importedAt)}
+                    </p>
                   </div>
                   <Button
-                    variant="outline"
+                    variant="ghost"
                     size="sm"
-                    className="shrink-0 ml-4 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive hover:bg-destructive/10"
+                    aria-label={`Roll back ${batch.fileName}`}
+                    className="shrink-0 -mr-2 -mt-1 h-10 w-10 p-0 sm:h-9 sm:w-auto sm:px-3 text-destructive hover:text-destructive hover:bg-destructive/10 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 sm:transition-opacity"
                     onClick={() => setConfirmBatch(batch)}
                   >
-                    <Undo2 className="h-4 w-4 mr-1.5" />
-                    Roll back
+                    <Undo2 className="h-4 w-4 sm:mr-1.5" />
+                    <span className="hidden sm:inline">Roll back</span>
                   </Button>
                 </div>
               ))}
