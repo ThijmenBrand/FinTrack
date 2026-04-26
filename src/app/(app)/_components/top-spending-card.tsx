@@ -8,6 +8,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { TransactionsFilterLink } from "@/components/transactions-filter-link";
 import { getTopCategories, formatCurrency } from "../_lib/dashboard-queries";
 
 export async function TopSpendingCard({ userId }: { userId: string }) {
@@ -39,30 +40,48 @@ export async function TopSpendingCard({ userId }: { userId: string }) {
             No expenses this month yet.
           </p>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-1">
             {(() => {
               const max = topCategories[0]?.total || 1;
-              return topCategories.map((cat, i) => (
-                <div key={i} className="flex items-center gap-3">
-                  <span
-                    className="h-3 w-3 rounded-full shrink-0"
-                    style={{ backgroundColor: cat.color }}
-                  />
-                  <span className="text-sm w-28 truncate">{cat.name}</span>
-                  <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-                    <div
-                      className="h-full rounded-full"
-                      style={{
-                        width: `${(cat.total / max) * 100}%`,
-                        backgroundColor: cat.color,
-                      }}
+              return topCategories.map((cat) => {
+                const rowContent = (
+                  <>
+                    <span
+                      className="h-3 w-3 rounded-full shrink-0"
+                      style={{ backgroundColor: cat.color }}
                     />
+                    <span className="text-sm w-28 truncate">{cat.name}</span>
+                    <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full"
+                        style={{
+                          width: `${(cat.total / max) * 100}%`,
+                          backgroundColor: cat.color,
+                        }}
+                      />
+                    </div>
+                    <span className="text-sm font-semibold w-24 text-right tabular-nums">
+                      {formatCurrency(cat.total)}
+                    </span>
+                  </>
+                );
+                const rowClass =
+                  "flex items-center gap-3 -mx-2 px-2 py-1.5 rounded-md";
+                return cat.categoryId ? (
+                  <TransactionsFilterLink
+                    key={cat.categoryId}
+                    category={cat.categoryId}
+                    period="this-month"
+                    className={`${rowClass} transition-colors hover:bg-muted/50`}
+                  >
+                    {rowContent}
+                  </TransactionsFilterLink>
+                ) : (
+                  <div key={cat.name} className={rowClass}>
+                    {rowContent}
                   </div>
-                  <span className="text-sm font-semibold w-24 text-right tabular-nums">
-                    {formatCurrency(cat.total)}
-                  </span>
-                </div>
-              ));
+                );
+              });
             })()}
           </div>
         )}

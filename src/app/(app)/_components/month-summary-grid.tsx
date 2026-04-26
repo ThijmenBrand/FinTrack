@@ -2,6 +2,7 @@ import {
   Landmark,
   TrendingUp,
   TrendingDown,
+  Wallet,
 } from "lucide-react";
 import {
   Card,
@@ -10,10 +11,17 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getMonthSummary, formatCurrency } from "../_lib/dashboard-queries";
+import {
+  getMonthSummary,
+  getMonthMoneyView,
+  formatCurrency,
+} from "../_lib/dashboard-queries";
 
 export async function MonthSummaryGrid({ userId }: { userId: string }) {
-  const data = await getMonthSummary(userId);
+  const [data, money] = await Promise.all([
+    getMonthSummary(userId),
+    getMonthMoneyView(userId),
+  ]);
 
   const now = new Date();
   const monthLabel = now.toLocaleDateString("en-US", {
@@ -23,8 +31,17 @@ export async function MonthSummaryGrid({ userId }: { userId: string }) {
 
   const net = data.monthIncome - data.monthExpenses;
 
+  // The "after upcoming events" line is shown only when there's something to
+  // deduct; otherwise the headline number stands on its own.
+  const hasUpcomingDeduction = money.upcomingThisMonthTotal > 0;
+  const freeColor = money.hasIncome
+    ? money.freeToSpend < 0
+      ? "text-red-600 dark:text-red-400"
+      : "text-emerald-600 dark:text-emerald-400"
+    : "text-muted-foreground";
+
   return (
-    <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-5">
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-sm font-medium">Balance</CardTitle>
@@ -38,6 +55,38 @@ export async function MonthSummaryGrid({ userId }: { userId: string }) {
             {data.accountCount} account
             {data.accountCount !== 1 ? "s" : ""}
           </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle className="text-sm font-medium">Free to spend</CardTitle>
+          <Wallet className="h-4 w-4 text-primary" />
+        </CardHeader>
+        <CardContent>
+          <div className={`text-2xl font-bold ${freeColor}`}>
+            {money.hasIncome ? formatCurrency(money.freeToSpend) : "—"}
+          </div>
+          {!money.hasIncome ? (
+            <p className="text-xs text-muted-foreground">
+              Set a recurring income to see this
+            </p>
+          ) : hasUpcomingDeduction ? (
+            <p
+              className={`text-xs tabular-nums ${
+                money.freeToSpendAfterSpikes < 0
+                  ? "text-red-600 dark:text-red-400"
+                  : "text-muted-foreground"
+              }`}
+            >
+              {formatCurrency(money.freeToSpendAfterSpikes)} after upcoming
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Income {formatCurrency(money.monthlyIncome)} − fixed{" "}
+              {formatCurrency(money.totalFixedCosts)}
+            </p>
+          )}
         </CardContent>
       </Card>
 
@@ -95,8 +144,8 @@ export async function MonthSummaryGrid({ userId }: { userId: string }) {
 
 export function MonthSummaryGridSkeleton() {
   return (
-    <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-      {[1, 2, 3, 4].map((i) => (
+    <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-5">
+      {[1, 2, 3, 4, 5].map((i) => (
         <Card key={i}>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <Skeleton className="h-4 w-16" />

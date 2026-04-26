@@ -190,6 +190,46 @@
   }
 }
 
+/* View Transitions: cross-fade the main page area on client nav.
+   Sidebar and bottom-nav opt out via their own view-transition-name
+   so they stay visually stable (no flicker) across navigations. */
+@keyframes vt-page-out {
+  to {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+@keyframes vt-page-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+::view-transition-old(root) {
+  animation: vt-page-out 180ms ease-out both;
+}
+::view-transition-new(root) {
+  animation: vt-page-in 220ms ease-out both;
+}
+@media (max-width: 768px) {
+  ::view-transition-old(root) {
+    animation-duration: 140ms;
+  }
+  ::view-transition-new(root) {
+    animation-duration: 160ms;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root),
+  ::view-transition-old(app-sidebar),
+  ::view-transition-new(app-sidebar),
+  ::view-transition-old(app-bottom-nav),
+  ::view-transition-new(app-bottom-nav) {
+    animation: none !important;
+  }
+}
+
 /* Advice notification banners */
 .advice-warning {
   background-color: rgba(245, 158, 11, 0.15);

@@ -5,6 +5,7 @@ import { eq, and, isNull, sql } from "drizzle-orm";
 import { getUserId } from "@/lib/auth";
 import { detectTransfers } from "@/lib/detect-transfers";
 import { logDataEvent } from "@/lib/audit";
+import { validatePattern } from "@/lib/validation";
 
 interface CommitTransaction {
   tempId: string;
@@ -45,6 +46,20 @@ export async function POST(request: NextRequest) {
         { error: "accountId and transactions are required" },
         { status: 400 }
       );
+    }
+
+    // Validate all rule patterns upfront so we don't write a partial import.
+    const cleanRules: NewRule[] = [];
+    for (const rule of newRules || []) {
+      if (!rule.pattern || !rule.categoryId) continue;
+      const validated = validatePattern(rule.pattern);
+      if (!validated.ok) {
+        return NextResponse.json(
+          { error: `Invalid rule pattern: ${validated.error}` },
+          { status: 400 }
+        );
+      }
+      cleanRules.push({ ...rule, pattern: validated.value });
     }
 
     // Create import batch
@@ -156,9 +171,7 @@ export async function POST(request: NextRequest) {
     let rulesCreated = 0;
     let existingUpdated = 0;
 
-    for (const rule of newRules) {
-      if (!rule.pattern || !rule.categoryId) continue;
-
+    for (const rule of cleanRules) {
       const ruleId = crypto.randomUUID();
       await db.insert(categoryRules).values({
         id: ruleId,

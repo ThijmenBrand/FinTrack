@@ -1,12 +1,17 @@
 {
+  "id": "/",
   "name": "Finance Tracker",
   "short_name": "FinTrack",
   "description": "Personal finance tracking with smart categorization and budgeting",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#f5f7fa",
   "theme_color": "#1d6ec1",
   "orientation": "portrait-primary",
+  "lang": "en",
+  "dir": "ltr",
+  "categories": ["finance", "productivity"],
   "icons": [
     {
       "src": "/icons/icon-192x192.png",
@@ -31,6 +36,60 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Import CSV",
+      "short_name": "Import",
+      "description": "Upload a bank statement",
+      "url": "/transactions?action=upload",
+      "icons": [
+        {
+          "src": "/icons/shortcut-upload-96.png",
+          "sizes": "96x96",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "View Pots",
+      "short_name": "Pots",
+      "description": "Manage savings pots",
+      "url": "/pots",
+      "icons": [
+        {
+          "src": "/icons/shortcut-pots-96.png",
+          "sizes": "96x96",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "View Insights",
+      "short_name": "Insights",
+      "description": "Spending insights and trends",
+      "url": "/insights",
+      "icons": [
+        {
+          "src": "/icons/shortcut-insights-96.png",
+          "sizes": "96x96",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "View Transactions",
+      "short_name": "Transactions",
+      "description": "Browse and filter transactions",
+      "url": "/transactions",
+      "icons": [
+        {
+          "src": "/icons/shortcut-transactions-96.png",
+          "sizes": "96x96",
+          "type": "image/png"
+        }
+      ]
     }
   ]
 }

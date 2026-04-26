@@ -2,6 +2,7 @@ import { ArrowRight } from "lucide-react";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { TransactionsFilterLink } from "@/components/transactions-filter-link";
 import { getBudgetOverview, formatCurrency } from "../_lib/dashboard-queries";
 
 function RingProgress({
@@ -189,11 +190,8 @@ export async function BudgetOverview({ userId }: { userId: string }) {
                     : item.categoryColor || "var(--color-primary)";
               const left = Math.max(0, item.limit - item.spent);
 
-              return (
-                <div
-                  key={i}
-                  className="flex items-center gap-2.5 rounded-xl border px-3 py-2.5 shrink-0 min-w-[170px]"
-                >
+              const chipContent = (
+                <>
                   <div className="relative">
                     <RingProgress
                       percentage={pct}
@@ -237,6 +235,24 @@ export async function BudgetOverview({ userId }: { userId: string }) {
                         : `${formatCurrency(left)} left`}
                     </p>
                   </div>
+                </>
+              );
+
+              const chipClass =
+                "flex items-center gap-2.5 rounded-xl border px-3 py-2.5 shrink-0 min-w-[170px]";
+
+              return item.categoryId ? (
+                <TransactionsFilterLink
+                  key={item.categoryId}
+                  category={item.categoryId}
+                  period="this-month"
+                  className={`${chipClass} transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
+                >
+                  {chipContent}
+                </TransactionsFilterLink>
+              ) : (
+                <div key={i} className={chipClass}>
+                  {chipContent}
                 </div>
               );
             })}

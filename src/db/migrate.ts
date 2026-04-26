@@ -88,6 +88,9 @@ export async function initializeDatabase() {
   await db.run(sql`ALTER TABLE accounts ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0`).catch(() => {});
   await db.run(sql`ALTER TABLE transactions ADD COLUMN reimburses_transaction_id TEXT`).catch(() => {});
   await db.run(sql`ALTER TABLE transactions ADD COLUMN group_id TEXT`).catch(() => {});
+  await db.run(sql`ALTER TABLE transaction_groups ADD COLUMN target_amount REAL`).catch(() => {});
+  await db.run(sql`ALTER TABLE transaction_groups ADD COLUMN target_date TEXT`).catch(() => {});
+  await db.run(sql`ALTER TABLE transaction_groups ADD COLUMN funded_amount REAL NOT NULL DEFAULT 0`).catch(() => {});
 
   // Add user_id to data tables and backfill with admin user
   if (!adminUserId) {

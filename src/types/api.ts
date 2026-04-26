@@ -88,7 +88,82 @@ export interface Pot {
   categoryColor: string | null;
   netAmount: number;
   transactionCount: number;
+  targetAmount: number | null;
+  targetDate: string | null;
+  fundedAmount: number;
   createdAt: string;
+}
+
+export interface UpcomingSpike {
+  id: string;
+  name: string;
+  categoryName: string | null;
+  categoryColor: string | null;
+  targetAmount: number;
+  targetDate: string;
+  fundedAmount: number;
+  remaining: number;
+  paydaysRemaining: number;
+  suggestedAllocation: number;
+  daysUntil: number;
+}
+
+export type SpikeImpactStatus = "fits" | "tight" | "over";
+
+export interface ThisMonthSpike extends UpcomingSpike {
+  freeAfter: number;
+  status: SpikeImpactStatus;
+  categoryWarning: string | null;
+}
+
+export type SpikeOnTrack = "ahead" | "on_pace" | "behind";
+
+export interface SavingTowardSpike extends UpcomingSpike {
+  expectedFundedByNow: number;
+  onTrack: SpikeOnTrack;
+}
+
+export interface PotAllocationEvent {
+  date: string;
+  delta: number;
+  fundedAfter: number;
+}
+
+export interface PotLinkedTransaction {
+  id: string;
+  date: string;
+  description: string;
+  amount: number;
+  type: "income" | "expense" | "internal_transfer" | "reimbursement";
+  categoryName: string | null;
+  categoryColor: string | null;
+}
+
+export interface PotSpikeStats {
+  daysUntil: number;
+  paydaysRemaining: number;
+  suggestedAllocation: number;
+  expectedFundedByNow: number;
+  onTrack: SpikeOnTrack;
+  paydaySchedule: { date: string; expectedFunded: number }[];
+}
+
+export interface PotDetails {
+  pot: Pot;
+  spike: PotSpikeStats | null;
+  allocations: PotAllocationEvent[];
+  transactions: PotLinkedTransaction[];
+}
+
+export interface MonthMoneyView {
+  monthlyIncome: number;
+  totalFixedCosts: number;
+  spentThisMonth: number;
+  freeToSpend: number;
+  freeToSpendAfterSpikes: number;
+  upcomingThisMonthTotal: number;
+  hasIncome: boolean;
+  thisMonthSpikes: ThisMonthSpike[];
 }
 
 export interface Profile {
@@ -152,6 +227,7 @@ export interface ForecastData {
     type: string;
     categoryName: string | null;
     categoryColor: string | null;
+    source?: "recurring" | "spike";
   }[];
   advice: { type: "info" | "warning" | "success"; message: string }[];
 }
@@ -191,6 +267,13 @@ export interface BudgetData {
   allocations: Allocation[];
   categoryAverages: Record<string, number>;
   month: { from: string; to: string; label: string };
+}
+
+export interface BalanceTimelineData {
+  historical: { date: string; balance: number }[];
+  projected: { date: string; balance: number }[];
+  currentBalance: number;
+  accountName: string | null;
 }
 
 export interface InsightsData {

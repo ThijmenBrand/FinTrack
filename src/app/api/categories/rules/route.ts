@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { categoryRules, transactions, categories } from "@/db/schema";
 import { eq, and, like, sql } from "drizzle-orm";
 import { getUserId } from "@/lib/auth";
+import { validatePattern } from "@/lib/validation";
 
 // GET /api/categories/rules — list all rules
 export async function GET() {
@@ -48,10 +49,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const validated = validatePattern(pattern);
+    if (!validated.ok) {
+      return NextResponse.json({ error: validated.error }, { status: 400 });
+    }
+
     const id = crypto.randomUUID();
     await db.insert(categoryRules).values({
       id,
-      pattern,
+      pattern: validated.value,
       categoryId,
       matchType: matchType || "contains",
       isActive: true,
@@ -63,7 +69,7 @@ export async function POST(request: NextRequest) {
 
     // Optionally apply rule to all existing uncategorized transactions
     if (applyToExisting) {
-      applied = await applyRuleToTransactions(pattern, categoryId, matchType || "contains", userId);
+      applied = await applyRuleToTransactions(validated.value, categoryId, matchType || "contains", userId);
     }
 
     return NextResponse.json({ success: true, ruleId: id, applied }, { status: 201 });
@@ -90,8 +96,17 @@ export async function PUT(request: NextRequest) {
       );
     }
 
+    let validatedPattern: string | undefined;
+    if (pattern !== undefined) {
+      const validated = validatePattern(pattern);
+      if (!validated.ok) {
+        return NextResponse.json({ error: validated.error }, { status: 400 });
+      }
+      validatedPattern = validated.value;
+    }
+
     const updates: Record<string, unknown> = {};
-    if (pattern !== undefined) updates.pattern = pattern;
+    if (validatedPattern !== undefined) updates.pattern = validatedPattern;
     if (categoryId !== undefined) updates.categoryId = categoryId;
     if (matchType !== undefined) updates.matchType = matchType;
     if (isActive !== undefined) updates.isActive = isActive;
@@ -102,9 +117,9 @@ export async function PUT(request: NextRequest) {
       .where(and(eq(categoryRules.id, id), eq(categoryRules.userId, userId)));
 
     let applied = 0;
-    if (applyToExisting && pattern && categoryId) {
+    if (applyToExisting && validatedPattern && categoryId) {
       applied = await applyRuleToTransactions(
-        pattern,
+        validatedPattern,
         categoryId,
         matchType || "contains",
         userId

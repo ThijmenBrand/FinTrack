@@ -2,6 +2,9 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ["@libsql/client"],
+  experimental: {
+    viewTransition: true,
+  },
   async headers() {
     return [
       {

@@ -12,6 +12,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -38,14 +39,33 @@ export function CreatePotDialog({
 }: CreatePotDialogProps) {
   const [name, setName] = useState("");
   const [categoryId, setCategoryId] = useState("");
+  const [hasTarget, setHasTarget] = useState(false);
+  const [targetAmount, setTargetAmount] = useState("");
+  const [targetDate, setTargetDate] = useState("");
   const createPot = useCreatePot();
 
+  const reset = () => {
+    setName("");
+    setCategoryId("");
+    setHasTarget(false);
+    setTargetAmount("");
+    setTargetDate("");
+  };
+
+  const targetValid =
+    !hasTarget ||
+    (Number(targetAmount) > 0 && /^\d{4}-\d{2}-\d{2}$/.test(targetDate));
+
   const handleCreate = async () => {
-    if (!name.trim()) return;
+    if (!name.trim() || !targetValid) return;
     try {
-      await createPot.mutateAsync({ name: name.trim(), categoryId: categoryId || null });
-      setName("");
-      setCategoryId("");
+      await createPot.mutateAsync({
+        name: name.trim(),
+        categoryId: categoryId || null,
+        targetAmount: hasTarget ? Number(targetAmount) : null,
+        targetDate: hasTarget ? targetDate : null,
+      });
+      reset();
       onCreated();
       onOpenChange(false);
     } catch (err) {
@@ -59,7 +79,7 @@ export function CreatePotDialog({
         <DialogHeader>
           <DialogTitle>Create Pot</DialogTitle>
           <DialogDescription>
-            Group related transactions (e.g. a weekend trip) into a pot. The pot&apos;s net amount counts in summaries.
+            Group related transactions (e.g. a weekend trip) into a pot. Add a target to plan for an upcoming spike.
           </DialogDescription>
         </DialogHeader>
 
@@ -73,7 +93,7 @@ export function CreatePotDialog({
               onChange={(e) => setName(e.target.value)}
               autoFocus
               onKeyDown={(e) => {
-                if (e.key === "Enter") handleCreate();
+                if (e.key === "Enter" && !hasTarget) handleCreate();
               }}
             />
           </div>
@@ -101,14 +121,62 @@ export function CreatePotDialog({
               </SelectContent>
             </Select>
           </div>
+
+          <div className="flex items-start gap-3 pt-1">
+            <Checkbox
+              id="pot-has-target"
+              checked={hasTarget}
+              onCheckedChange={(c) => setHasTarget(c === true)}
+              className="mt-0.5"
+            />
+            <div className="space-y-1">
+              <Label htmlFor="pot-has-target" className="cursor-pointer">
+                Plan for a spike
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Set a target amount and date so the pot shows up in your forecast and dashboard.
+              </p>
+            </div>
+          </div>
+
+          {hasTarget && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="pot-target-amount">Target amount (€)</Label>
+                <Input
+                  id="pot-target-amount"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="450"
+                  value={targetAmount}
+                  onChange={(e) => setTargetAmount(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="pot-target-date">Target date</Label>
+                <Input
+                  id="pot-target-date"
+                  type="date"
+                  value={targetDate}
+                  onChange={(e) => setTargetDate(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleCreate} disabled={!name.trim() || createPot.isPending}>
-            {createPot.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+          <Button
+            onClick={handleCreate}
+            disabled={!name.trim() || !targetValid || createPot.isPending}
+          >
+            {createPot.isPending && (
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            )}
             Create Pot
           </Button>
         </DialogFooter>

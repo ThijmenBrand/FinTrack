@@ -22,9 +22,12 @@ import {
   TrendingDown,
   BarChart3,
   Calendar,
+  Landmark,
   Loader2,
 } from "lucide-react";
-import { useInsights } from "@/hooks/use-insights";
+import { useInsights, useBalanceTimeline } from "@/hooks/use-insights";
+import { useAccounts } from "@/hooks/use-accounts";
+import { BalanceChart } from "./_components/balance-chart";
 import type { InsightsData } from "@/types/api";
 
 function formatCurrency(amount: number) {
@@ -124,13 +127,30 @@ function Bar({
   );
 }
 
+const ALL_ACCOUNTS = "__all__";
+
 export default function InsightsPage() {
   const router = useRouter();
   const [preset, setPreset] = useState<PresetKey>("this_month");
   const [dateFrom, setDateFrom] = useState(() => getPresetRange("this_month").from);
   const [dateTo, setDateTo] = useState(() => getPresetRange("this_month").to);
+  const [selectedAccountId, setSelectedAccountId] = useState<string>(ALL_ACCOUNTS);
 
-  const { data, isLoading } = useInsights({ dateFrom, dateTo });
+  const { data: accountsData } = useAccounts();
+  const accountIdParam =
+    selectedAccountId === ALL_ACCOUNTS ? undefined : selectedAccountId;
+  const selectedAccount = accountsData?.find((a) => a.id === accountIdParam);
+  const accountLabel = selectedAccount ? selectedAccount.name : "All accounts";
+
+  const { data, isLoading } = useInsights({
+    dateFrom,
+    dateTo,
+    accountId: accountIdParam,
+  });
+  const { data: balanceData, isLoading: balanceLoading } = useBalanceTimeline({
+    accountId: accountIdParam,
+    forecastMonths: 3,
+  });
 
   const handlePresetChange = (value: string) => {
     const key = value as PresetKey;
@@ -182,6 +202,23 @@ export default function InsightsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <Select
+            value={selectedAccountId}
+            onValueChange={setSelectedAccountId}
+          >
+            <SelectTrigger className="w-[200px]">
+              <Landmark className="mr-2 h-4 w-4" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_ACCOUNTS}>All accounts</SelectItem>
+              {accountsData?.map((acc) => (
+                <SelectItem key={acc.id} value={acc.id}>
+                  {acc.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Select value={preset} onValueChange={handlePresetChange}>
             <SelectTrigger className="w-[160px]">
               <Calendar className="mr-2 h-4 w-4" />
@@ -258,6 +295,13 @@ export default function InsightsPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Balance Over Time */}
+      <BalanceChart
+        data={balanceData}
+        isLoading={balanceLoading}
+        accountLabel={accountLabel}
+      />
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Spending by Category - Pie-style horizontal bar */}

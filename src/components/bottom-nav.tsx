@@ -11,6 +11,7 @@ import {
   MoreHorizontal,
   Tags,
   PieChart,
+  PiggyBank,
   RefreshCcw,
   Sun,
   Moon,
@@ -39,6 +40,7 @@ const mainTabs = [
 const moreItems = [
   { name: "Accounts", href: "/accounts", icon: Landmark },
   { name: "Categories", href: "/categories", icon: Tags },
+  { name: "Pots", href: "/pots", icon: PiggyBank },
   { name: "Recurring", href: "/recurring", icon: RefreshCcw },
 ];
 
@@ -76,7 +78,10 @@ export function BottomNav() {
 
   return (
     <>
-      <nav className="fixed inset-x-0 bottom-0 z-50 flex md:hidden border-t bg-background/95 backdrop-blur-sm supports-[backdrop-filter]:bg-background/80 pb-[env(safe-area-inset-bottom)]">
+      <nav
+        className="fixed inset-x-0 bottom-0 z-50 flex md:hidden border-t bg-background/95 backdrop-blur-sm supports-[backdrop-filter]:bg-background/80 pb-[env(safe-area-inset-bottom)]"
+        style={{ viewTransitionName: "app-bottom-nav" }}
+      >
         <div className="flex w-full h-16">
           {mainTabs.map((item) => {
             const isActive =

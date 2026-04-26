@@ -7,6 +7,7 @@ export interface ColumnMapping {
   date: string;
   description: string;
   amount: string;
+  name?: string;
   balance?: string;
   counterpartyIban?: string;
 }
@@ -101,6 +102,34 @@ export function matchesRule(
     default:
       return desc.includes(pat);
   }
+}
+
+/**
+ * Combine the bank's "name" (counterparty) and "description" (memo) CSV fields
+ * into a single human-readable label for `transactions.description`.
+ *
+ * Returns an empty string when both inputs are empty so the caller can run
+ * its own last-resort fallback.
+ */
+export function combineNameAndDescription(
+  name: string | undefined,
+  description: string | undefined,
+): string {
+  const n = name?.trim() ?? "";
+  const d = description?.trim() ?? "";
+  if (n && d) {
+    return looksLikeCodeOrReference(d) ? n : `${n} — ${d}`;
+  }
+  return n || d;
+}
+
+function looksLikeCodeOrReference(s: string): boolean {
+  if (s.length <= 6) return true;
+  const digitCount = (s.match(/\d/g) ?? []).length;
+  if (digitCount / s.length >= 0.6) return true;
+  if (/^[A-Z0-9_-]+$/.test(s)) return true;
+  if (/^[A-Z]{1,4}\d{4,}/.test(s)) return true;
+  return false;
 }
 
 /**

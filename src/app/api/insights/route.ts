@@ -19,11 +19,13 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const dateFrom = searchParams.get("dateFrom");
     const dateTo = searchParams.get("dateTo");
+    const accountId = searchParams.get("accountId");
 
     // Build date conditions
     const conditions = [eq(transactions.userId, userId)];
     if (dateFrom) conditions.push(gte(transactions.date, dateFrom));
     if (dateTo) conditions.push(lte(transactions.date, dateTo));
+    if (accountId) conditions.push(eq(transactions.accountId, accountId));
 
     const dateWhere =
       conditions.length > 0 ? and(...conditions) : undefined;

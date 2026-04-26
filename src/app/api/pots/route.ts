@@ -16,6 +16,9 @@ export async function GET() {
         categoryId: transactionGroups.categoryId,
         categoryName: categories.name,
         categoryColor: categories.color,
+        targetAmount: transactionGroups.targetAmount,
+        targetDate: transactionGroups.targetDate,
+        fundedAmount: transactionGroups.fundedAmount,
         createdAt: transactionGroups.createdAt,
         netAmount: sql<number>`COALESCE((
           SELECT SUM(t.amount) FROM transactions t WHERE t.group_id = ${transactionGroups.id} AND t.user_id = ${userId}
@@ -36,13 +39,34 @@ export async function GET() {
   }
 }
 
+// Validate that a target, if provided, has both amount > 0 and a date.
+function validateTarget(targetAmount: unknown, targetDate: unknown): string | null {
+  const hasAmount = targetAmount !== undefined && targetAmount !== null;
+  const hasDate = targetDate !== undefined && targetDate !== null && targetDate !== "";
+  if (hasAmount !== hasDate) {
+    return "targetAmount and targetDate must be set together";
+  }
+  if (hasAmount) {
+    const n = Number(targetAmount);
+    if (!Number.isFinite(n) || n <= 0) return "targetAmount must be a positive number";
+  }
+  if (hasDate && !/^\d{4}-\d{2}-\d{2}$/.test(String(targetDate))) {
+    return "targetDate must be a YYYY-MM-DD string";
+  }
+  return null;
+}
+
 // POST /api/pots — create a pot
 export async function POST(request: NextRequest) {
   try {
     const userId = await getUserId();
-    const { name, categoryId } = await request.json();
+    const { name, categoryId, targetAmount, targetDate } = await request.json();
     if (!name) {
       return NextResponse.json({ error: "name is required" }, { status: 400 });
+    }
+    const targetError = validateTarget(targetAmount, targetDate);
+    if (targetError) {
+      return NextResponse.json({ error: targetError }, { status: 400 });
     }
 
     const id = crypto.randomUUID();
@@ -50,6 +74,9 @@ export async function POST(request: NextRequest) {
       id,
       name,
       categoryId: categoryId || null,
+      targetAmount: targetAmount != null ? Number(targetAmount) : null,
+      targetDate: targetDate || null,
+      fundedAmount: 0,
       userId,
       createdAt: new Date().toISOString(),
     });
@@ -65,14 +92,50 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const userId = await getUserId();
-    const { id, name, categoryId } = await request.json();
+    const { id, name, categoryId, targetAmount, targetDate } = await request.json();
     if (!id) {
       return NextResponse.json({ error: "id is required" }, { status: 400 });
+    }
+
+    // If either target field is being touched, validate the pair.
+    if (targetAmount !== undefined || targetDate !== undefined) {
+      // Read existing values to validate the resulting pair, since the client
+      // may only send one half of the change.
+      const existing = await db
+        .select({
+          targetAmount: transactionGroups.targetAmount,
+          targetDate: transactionGroups.targetDate,
+        })
+        .from(transactionGroups)
+        .where(and(eq(transactionGroups.id, id), eq(transactionGroups.userId, userId)))
+        .get();
+      if (!existing) {
+        return NextResponse.json({ error: "Pot not found" }, { status: 404 });
+      }
+      const nextAmount = targetAmount === undefined ? existing.targetAmount : targetAmount;
+      const nextDate = targetDate === undefined ? existing.targetDate : targetDate;
+      const targetError = validateTarget(nextAmount, nextDate);
+      if (targetError) {
+        return NextResponse.json({ error: targetError }, { status: 400 });
+      }
     }
 
     const updates: Record<string, unknown> = {};
     if (name !== undefined) updates.name = name;
     if (categoryId !== undefined) updates.categoryId = categoryId;
+    if (targetAmount !== undefined) {
+      updates.targetAmount = targetAmount === null ? null : Number(targetAmount);
+    }
+    if (targetDate !== undefined) {
+      updates.targetDate = targetDate === null || targetDate === "" ? null : targetDate;
+    }
+    // When a target is cleared, also reset funded so a future re-target starts fresh.
+    if (
+      (targetAmount === null || targetDate === null || targetDate === "") &&
+      (targetAmount !== undefined || targetDate !== undefined)
+    ) {
+      updates.fundedAmount = 0;
+    }
 
     if (Object.keys(updates).length > 0) {
       await db.update(transactionGroups).set(updates).where(and(eq(transactionGroups.id, id), eq(transactionGroups.userId, userId)));

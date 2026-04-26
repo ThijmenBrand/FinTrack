@@ -5,6 +5,9 @@ import { eq, desc, asc, and, gte, lte, like, sql } from "drizzle-orm";
 import { getUserId } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
 
+const VALID_TX_TYPES = ["income", "expense", "internal_transfer", "reimbursement"] as const;
+type TxType = (typeof VALID_TX_TYPES)[number];
+
 // GET /api/transactions — list transactions with filtering, sorting, pagination
 export async function GET(request: NextRequest) {
   try {
@@ -34,7 +37,12 @@ export async function GET(request: NextRequest) {
         SELECT rl.reimbursement_id FROM reimbursement_links rl WHERE rl.expense_id = ${reimbursesExpenseId}
       )`);
     }
-    if (type) conditions.push(eq(transactions.type, type as "income" | "expense" | "internal_transfer" | "reimbursement"));
+    if (type) {
+      if (!VALID_TX_TYPES.includes(type as TxType)) {
+        return NextResponse.json({ error: "Invalid type" }, { status: 400 });
+      }
+      conditions.push(eq(transactions.type, type as TxType));
+    }
     if (search) conditions.push(like(transactions.description, `%${search}%`));
     if (dateFrom) conditions.push(gte(transactions.date, dateFrom));
     if (dateTo) conditions.push(lte(transactions.date, dateTo));
