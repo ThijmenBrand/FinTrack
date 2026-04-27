@@ -126,7 +126,10 @@ export const categoryRules = sqliteTable("category_rules", {
 });
 
 // ─── Budgets ─────────────────────────────────────────────────────────────────
-// Budget limits per category with configurable time periods
+// Budget limits per category with configurable time periods.
+// `status` distinguishes user-applied budgets ("active") from system-generated
+// proposals waiting for user approval ("suggested"). `source` records whether
+// a budget was set manually or generated from historical spending.
 export const budgets = sqliteTable("budgets", {
   id: text("id")
     .primaryKey()
@@ -140,12 +143,38 @@ export const budgets = sqliteTable("budgets", {
     enum: ["daily", "weekly", "monthly", "yearly"],
   }).notNull(),
   isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  status: text("status", { enum: ["active", "suggested"] }).notNull().default("active"),
+  source: text("source", { enum: ["manual", "auto"] }).notNull().default("manual"),
+  generatedAt: text("generated_at"),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
 }, (table) => [
   index("idx_budgets_user_active").on(table.userId, table.isActive),
+  index("idx_budgets_user_status").on(table.userId, table.status),
 ]);
+
+// ─── User Preferences ────────────────────────────────────────────────────────
+// Per-user automation and feature preferences. Currently used for auto-budget.
+export const userPreferences = sqliteTable("user_preferences", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" })
+    .unique(),
+  autoBudgetEnabled: integer("auto_budget_enabled", { mode: "boolean" }).notNull().default(true),
+  autoBudgetIntervalMonths: integer("auto_budget_interval_months").notNull().default(1),
+  autoBudgetLookbackMonths: integer("auto_budget_lookback_months").notNull().default(3),
+  lastAutoBudgetCheckAt: text("last_auto_budget_check_at"),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
 
 // ─── Recurring Transactions ──────────────────────────────────────────────────
 // Expected recurring incomes and expenses
@@ -374,3 +403,5 @@ export type AuditLog = typeof auditLog.$inferSelect;
 export type NewAuditLog = typeof auditLog.$inferInsert;
 export type Passkey = typeof passkey.$inferSelect;
 export type UserPin = typeof userPin.$inferSelect;
+export type UserPreferences = typeof userPreferences.$inferSelect;
+export type NewUserPreferences = typeof userPreferences.$inferInsert;

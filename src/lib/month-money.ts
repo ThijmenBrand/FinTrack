@@ -168,7 +168,7 @@ export async function getMonthMoneyMath(userId: string): Promise<MonthMoneyMath>
       })
       .from(budgets)
       .leftJoin(categories, eq(budgets.categoryId, categories.id))
-      .where(and(eq(budgets.userId, userId), eq(budgets.isActive, true))),
+      .where(and(eq(budgets.userId, userId), eq(budgets.isActive, true), eq(budgets.status, "active"))),
   ]);
 
   const monthlyIncome = recurringIncome.reduce(

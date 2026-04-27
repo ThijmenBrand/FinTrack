@@ -6,10 +6,8 @@ import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
   Upload,
-  Tags,
   PieChart,
   Wallet,
-  RefreshCcw,
   Landmark,
   PiggyBank,
   ChevronLeft,
@@ -19,20 +17,27 @@ import {
   Heart,
   Shield,
   LogOut,
+  User,
+  Settings,
+  Check,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useTheme } from "next-themes";
 import { useSession, signOut } from "@/lib/auth-client";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 
 const navigation = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
-  { name: "Accounts", href: "/accounts", icon: Landmark },
   { name: "Transactions", href: "/transactions", icon: Upload },
-  { name: "Categories", href: "/categories", icon: Tags },
   { name: "Insights", href: "/insights", icon: PieChart },
   { name: "Budgets", href: "/budgets", icon: Wallet },
   { name: "Pots", href: "/pots", icon: PiggyBank },
-  { name: "Recurring", href: "/recurring", icon: RefreshCcw },
 ];
 
 export function Sidebar() {
@@ -45,8 +50,11 @@ export function Sidebar() {
 
   const user = session?.user
     ? {
-        displayUsername: (session.user as Record<string, unknown>).displayUsername as string || session.user.name || "",
-        username: (session.user as Record<string, unknown>).username as string || "",
+        displayUsername:
+          ((session.user as Record<string, unknown>).displayUsername as string) ||
+          session.user.name ||
+          "",
+        username: ((session.user as Record<string, unknown>).username as string) || "",
         isAdmin: (session.user as Record<string, unknown>).role === "admin",
       }
     : null;
@@ -106,76 +114,100 @@ export function Sidebar() {
             </Link>
           );
         })}
-        {mounted && user?.isAdmin && (
-          <Link
-            href="/admin"
-            className={cn(
-              "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-              pathname.startsWith("/admin")
-                ? "bg-primary/10 text-primary"
-                : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-            )}
-          >
-            <Shield className="h-4 w-4 shrink-0" />
-            {!collapsed && <span>Admin</span>}
-          </Link>
-        )}
       </nav>
 
-      {/* User info + theme + logout */}
-      <div className="border-t px-3 py-3 space-y-1">
-        {/* User display */}
+      {/* User dropdown */}
+      <div className="border-t p-3">
         {mounted && user && (
-          <Link
-            href="/profile"
-            className={cn(
-              "flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-sidebar-accent",
-              pathname === "/profile" && "bg-primary/10"
-            )}
-          >
-            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
-              {user.displayUsername.charAt(0).toUpperCase()}
-            </div>
-            {!collapsed && (
-              <span className="text-sm font-medium text-sidebar-foreground truncate">
-                {user.displayUsername}
-              </span>
-            )}
-          </Link>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              className={cn(
+                "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-sidebar-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                (pathname === "/profile" ||
+                  pathname.startsWith("/settings") ||
+                  pathname.startsWith("/admin")) &&
+                  "bg-sidebar-accent"
+              )}
+            >
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
+                {user.displayUsername.charAt(0).toUpperCase()}
+              </div>
+              {!collapsed && (
+                <span className="truncate text-sm font-medium text-sidebar-foreground">
+                  {user.displayUsername}
+                </span>
+              )}
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="start"
+              side="top"
+              className="w-56"
+            >
+              <DropdownMenuItem asChild>
+                <Link href="/profile" className="flex items-center gap-2">
+                  <User className="h-4 w-4" />
+                  Profile
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href="/settings" className="flex items-center gap-2">
+                  <Settings className="h-4 w-4" />
+                  Settings
+                </Link>
+              </DropdownMenuItem>
+              {user.isAdmin && (
+                <DropdownMenuItem asChild>
+                  <Link href="/admin" className="flex items-center gap-2">
+                    <Shield className="h-4 w-4" />
+                    Admin
+                  </Link>
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={(e) => {
+                  e.preventDefault();
+                  setTheme("light");
+                }}
+                className="flex items-center gap-2"
+              >
+                <Sun className="h-4 w-4" />
+                Light
+                {theme === "light" && <Check className="ml-auto h-4 w-4" />}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={(e) => {
+                  e.preventDefault();
+                  setTheme("dark");
+                }}
+                className="flex items-center gap-2"
+              >
+                <Moon className="h-4 w-4" />
+                Dark
+                {theme === "dark" && <Check className="ml-auto h-4 w-4" />}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={(e) => {
+                  e.preventDefault();
+                  setTheme("pink");
+                }}
+                className="flex items-center gap-2"
+              >
+                <Heart className="h-4 w-4 fill-current" />
+                Pink
+                {theme === "pink" && <Check className="ml-auto h-4 w-4" />}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={handleLogout}
+                className="flex items-center gap-2 text-destructive focus:text-destructive"
+              >
+                <LogOut className="h-4 w-4" />
+                Sign Out
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
-
-        {/* Theme toggle */}
-        <button
-          onClick={() => {
-            const next = theme === "light" ? "dark" : theme === "dark" ? "pink" : "light";
-            setTheme(next);
-          }}
-          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors"
-        >
-          {!mounted ? (
-            <Sun className="h-4 w-4 shrink-0" />
-          ) : theme === "pink" ? (
-            <Heart className="h-4 w-4 shrink-0 fill-current" />
-          ) : theme === "dark" ? (
-            <Moon className="h-4 w-4 shrink-0" />
-          ) : (
-            <Sun className="h-4 w-4 shrink-0" />
-          )}
-          {!collapsed && (
-            <span>
-              {!mounted ? "Theme" : theme === "pink" ? "Pink Mode" : theme === "dark" ? "Dark Mode" : "Light Mode"}
-            </span>
-          )}
-        </button>
-
-        {/* Logout */}
-        <button
-          onClick={handleLogout}
-          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors"
-        >
-          <LogOut className="h-4 w-4 shrink-0" />
-          {!collapsed && <span>Sign Out</span>}
-        </button>
       </div>
 
       {/* Collapse toggle */}

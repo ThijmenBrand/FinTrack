@@ -35,7 +35,7 @@ export async function AccountsCard({ userId }: { userId: string }) {
             {accountBalances.map((account) => (
               <Link
                 key={account.id}
-                href="/accounts"
+                href="/settings/accounts"
                 className="flex items-center justify-between rounded-lg border p-3 transition-colors hover:bg-muted/50"
               >
                 <div className="flex items-center gap-3">

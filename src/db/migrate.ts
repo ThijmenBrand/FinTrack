@@ -91,6 +91,23 @@ export async function initializeDatabase() {
   await db.run(sql`ALTER TABLE transaction_groups ADD COLUMN target_amount REAL`).catch(() => {});
   await db.run(sql`ALTER TABLE transaction_groups ADD COLUMN target_date TEXT`).catch(() => {});
   await db.run(sql`ALTER TABLE transaction_groups ADD COLUMN funded_amount REAL NOT NULL DEFAULT 0`).catch(() => {});
+  await db.run(sql`ALTER TABLE budgets ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`).catch(() => {});
+  await db.run(sql`ALTER TABLE budgets ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'`).catch(() => {});
+  await db.run(sql`ALTER TABLE budgets ADD COLUMN generated_at TEXT`).catch(() => {});
+
+  // user_preferences table — automation settings per user
+  await db.run(sql`
+    CREATE TABLE IF NOT EXISTS user_preferences (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL UNIQUE REFERENCES "user"(id) ON DELETE CASCADE,
+      auto_budget_enabled INTEGER NOT NULL DEFAULT 1,
+      auto_budget_interval_months INTEGER NOT NULL DEFAULT 1,
+      auto_budget_lookback_months INTEGER NOT NULL DEFAULT 3,
+      last_auto_budget_check_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `);
 
   // Add user_id to data tables and backfill with admin user
   if (!adminUserId) {
@@ -224,6 +241,7 @@ export async function initializeDatabase() {
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_categories_user ON categories(user_id)`);
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_category_rules_user ON category_rules(user_id)`);
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_budgets_user ON budgets(user_id)`);
+  await db.run(sql`CREATE INDEX IF NOT EXISTS idx_budgets_user_status ON budgets(user_id, status)`);
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_recurring_transactions_user ON recurring_transactions(user_id)`);
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_import_batches_user ON import_batches(user_id)`);
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_transaction_groups_user ON transaction_groups(user_id)`);
