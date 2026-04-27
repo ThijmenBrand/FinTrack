@@ -5,19 +5,18 @@ import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
-  Landmark,
   Upload,
   Wallet,
   MoreHorizontal,
-  Tags,
   PieChart,
   PiggyBank,
-  RefreshCcw,
   Sun,
   Moon,
   Heart,
   Shield,
   LogOut,
+  Settings,
+  User,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useTheme } from "next-themes";
@@ -38,10 +37,7 @@ const mainTabs = [
 ];
 
 const moreItems = [
-  { name: "Accounts", href: "/accounts", icon: Landmark },
-  { name: "Categories", href: "/categories", icon: Tags },
   { name: "Pots", href: "/pots", icon: PiggyBank },
-  { name: "Recurring", href: "/recurring", icon: RefreshCcw },
 ];
 
 export function BottomNav() {
@@ -72,9 +68,13 @@ export function BottomNav() {
     router.refresh();
   }
 
-  const isMoreActive = moreItems.some((item) =>
-    item.href === "/" ? pathname === "/" : pathname.startsWith(item.href)
-  );
+  const isMoreActive =
+    moreItems.some((item) =>
+      item.href === "/" ? pathname === "/" : pathname.startsWith(item.href)
+    ) ||
+    pathname.startsWith("/settings") ||
+    pathname.startsWith("/admin") ||
+    pathname === "/profile";
 
   return (
     <>
@@ -150,6 +150,20 @@ export function BottomNav() {
                 </Link>
               );
             })}
+            <div className="border-t my-3" />
+            <Link
+              href="/settings"
+              onClick={() => setMoreOpen(false)}
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium transition-colors min-h-[44px]",
+                pathname.startsWith("/settings")
+                  ? "bg-primary/10 text-primary"
+                  : "text-foreground hover:bg-muted"
+              )}
+            >
+              <Settings className="h-5 w-5" />
+              <span>Settings</span>
+            </Link>
             {user?.isAdmin && (
               <Link
                 href="/admin"
@@ -165,14 +179,24 @@ export function BottomNav() {
                 <span>Admin</span>
               </Link>
             )}
-            <div className="border-t my-3" />
-            {/* User info */}
             {user && (
               <Link
                 href="/profile"
                 onClick={() => setMoreOpen(false)}
-                className="flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-muted"
+                className={cn(
+                  "flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium transition-colors min-h-[44px]",
+                  pathname === "/profile"
+                    ? "bg-primary/10 text-primary"
+                    : "text-foreground hover:bg-muted"
+                )}
               >
+                <User className="h-5 w-5" />
+                <span>Profile</span>
+              </Link>
+            )}
+            <div className="border-t my-3" />
+            {user && (
+              <div className="flex items-center gap-3 rounded-lg px-3 py-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
                   {user.displayUsername.charAt(0).toUpperCase()}
                 </div>
@@ -180,7 +204,7 @@ export function BottomNav() {
                   <p className="text-sm font-medium">{user.displayUsername}</p>
                   <p className="text-xs text-muted-foreground">@{user.username}</p>
                 </div>
-              </Link>
+              </div>
             )}
             <button
               onClick={() => {

@@ -28,6 +28,7 @@ import {
 import { useInsights, useBalanceTimeline } from "@/hooks/use-insights";
 import { useAccounts } from "@/hooks/use-accounts";
 import { BalanceChart } from "./_components/balance-chart";
+import { SpendingByPeriod } from "./_components/spending-by-period";
 import type { InsightsData } from "@/types/api";
 
 function formatCurrency(amount: number) {
@@ -397,6 +398,12 @@ export default function InsightsPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Spending by Period (daily/weekly/monthly toggle) */}
+      <SpendingByPeriod
+        dailyTotals={data.dailyTotals}
+        monthlyTotals={data.monthlyTotals}
+      />
 
       {/* Monthly Income vs Expenses Bar Chart */}
       <Card>

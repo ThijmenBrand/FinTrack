@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
-import type { BudgetData, HistoryData, Transaction } from "@/types/api";
+import type { BudgetData, BudgetSuggestion, HistoryData, Transaction } from "@/types/api";
 
 export function useBudgets() {
   return useQuery({
@@ -41,6 +41,47 @@ export function useBudgetHistory(categoryId: string | null, enabled: boolean) {
     queryFn: () => apiFetch<HistoryData>(`/api/budgets/history?categoryId=${categoryId}`),
     enabled: !!categoryId && enabled,
     staleTime: 60 * 1000,
+  });
+}
+
+export function useGenerateBudgets() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<{ suggestions: BudgetSuggestion[] }>("/api/budgets/generate", { method: "POST" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["budgets"] });
+    },
+  });
+}
+
+export function useAcceptBudgetSuggestions() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (items: { id: string; amount?: number }[]) =>
+      apiFetch<{ success: boolean; count: number }>("/api/budgets/suggestions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "accept", items }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["budgets"] });
+    },
+  });
+}
+
+export function useRejectBudgetSuggestions() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: string[]) =>
+      apiFetch<{ success: boolean; count: number }>("/api/budgets/suggestions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reject", ids }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["budgets"] });
+    },
   });
 }
 

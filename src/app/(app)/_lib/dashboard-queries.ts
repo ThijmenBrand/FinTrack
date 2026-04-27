@@ -182,7 +182,7 @@ export async function getBudgetOverview(userId: string) {
     })
     .from(budgets)
     .leftJoin(categories, eq(budgets.categoryId, categories.id))
-    .where(and(eq(budgets.isActive, true), eq(budgets.userId, userId)));
+    .where(and(eq(budgets.isActive, true), eq(budgets.status, "active"), eq(budgets.userId, userId)));
 
   // Round 2: budget spending batched by period
   const budgetsByPeriod = new Map<string, typeof allBudgets>();

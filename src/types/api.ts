@@ -257,6 +257,26 @@ export interface Allocation {
   avgMonths: number;
 }
 
+export interface BudgetSuggestion {
+  id: string;
+  categoryId: string;
+  categoryName: string | null;
+  categoryColor: string | null;
+  suggestedAmount: number;
+  currentAmount: number | null;
+  avgMonthly: number;
+  monthsOfData: number;
+  generatedAt: string | null;
+}
+
+export interface AutomationState {
+  enabled: boolean;
+  intervalMonths: number;
+  lookbackMonths: number;
+  lastCheckAt: string | null;
+  regenerationDue: boolean;
+}
+
 export interface BudgetData {
   monthlyIncome: number;
   totalFixedCosts: number;
@@ -265,8 +285,17 @@ export interface BudgetData {
   unallocated: number;
   fixedCosts: FixedCost[];
   allocations: Allocation[];
+  suggestions: BudgetSuggestion[];
+  automation: AutomationState;
   categoryAverages: Record<string, number>;
   month: { from: string; to: string; label: string };
+}
+
+export interface UserPreferencesData {
+  autoBudgetEnabled: boolean;
+  autoBudgetIntervalMonths: number;
+  autoBudgetLookbackMonths: number;
+  lastAutoBudgetCheckAt: string | null;
 }
 
 export interface BalanceTimelineData {

@@ -7,7 +7,7 @@
     "build": "next build && npx drizzle-kit push && tsx scripts/db-init.ts",
     "auth:generate": "npx @better-auth/cli generate --output ./src/db/auth-schema.ts",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
     "db:init": "tsx scripts/db-init.ts",
@@ -51,6 +51,8 @@
     "vaul": "^1.1.2"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@next/eslint-plugin-next": "^16.2.4",
     "@tailwindcss/postcss": "^4.2.2",
     "@types/node": "^25.5.0",
     "@types/papaparse": "^5.5.2",
@@ -59,10 +61,16 @@
     "@vitest/ui": "^4.1.5",
     "drizzle-kit": "^0.31.10",
     "eslint": "^10.1.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.5.0",
     "postcss": "^8.5.8",
     "tailwindcss": "^4.2.2",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2",
+    "typescript-eslint": "^8.59.0",
     "vitest": "^4.1.5"
+  },
+  "overrides": {
+    "esbuild": "^0.27.0"
   }
 }

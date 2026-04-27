@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
     const [budget] = await db
       .select({ amount: budgets.amount })
       .from(budgets)
-      .where(and(eq(budgets.categoryId, categoryId), eq(budgets.userId, userId)));
+      .where(and(eq(budgets.categoryId, categoryId), eq(budgets.userId, userId), eq(budgets.status, "active")));
 
     const currentBudgetAmount = budget?.amount || 0;
 

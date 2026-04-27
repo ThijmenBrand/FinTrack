@@ -10,6 +10,8 @@ import {
 import { eq, and, gte, lte, sql } from "drizzle-orm";
 import { getUserId } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
+import { isRegenerationDue } from "@/lib/auto-budget";
+import { getUserPreferences } from "@/lib/preferences";
 
 /**
  * Get current month date range
@@ -161,7 +163,7 @@ export async function GET() {
       0
     );
 
-    // 3. Get user-defined budget allocations
+    // 3. Get user-defined budget allocations (active only — suggestions are returned separately)
     const allAllocations = await db
       .select({
         id: budgets.id,
@@ -171,85 +173,89 @@ export async function GET() {
         amount: budgets.amount,
         period: budgets.period,
         isActive: budgets.isActive,
+        source: budgets.source,
+        generatedAt: budgets.generatedAt,
       })
       .from(budgets)
       .leftJoin(categories, eq(budgets.categoryId, categories.id))
-      .where(eq(budgets.userId, userId));
+      .where(
+        and(
+          eq(budgets.userId, userId),
+          eq(budgets.status, "active"),
+          eq(budgets.isActive, true),
+        ),
+      );
 
-    // 4. Calculate actual spending per allocated category this month (effective amounts, exclude grouped)
-    const allocationsWithSpending = await Promise.all(
-      allAllocations.map(async (alloc) => {
-        const spentResult = await db
-          .select({
-            total: sql<number>`sum(
-              abs(${transactions.amount}) - COALESCE(
-                (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id AND r.user_id = "transactions"."user_id" WHERE rl.expense_id = "transactions"."id"),
-                0
-              )
-            )`,
-          })
-          .from(transactions)
-          .where(
-            and(
-              eq(transactions.categoryId, alloc.categoryId),
-              eq(transactions.type, "expense"),
-              sql`${transactions.groupId} IS NULL`,
-              gte(transactions.date, from),
-              lte(transactions.date, to),
-              eq(transactions.userId, userId)
-            )
-          );
-
-        const txSpent = spentResult[0]?.total || 0;
-        const potSpent = potSpendingByCategory.get(alloc.categoryId) || 0;
-        const spent = txSpent + potSpent;
-        const percentage =
-          alloc.amount > 0 ? (spent / alloc.amount) * 100 : 0;
-
-        return {
-          ...alloc,
-          spent,
-          remaining: Math.max(0, alloc.amount - spent),
-          percentage: Math.round(percentage * 10) / 10,
-          status:
-            percentage >= 100
-              ? "exceeded"
-              : percentage >= 80
-                ? "warning"
-                : ("ok" as "ok" | "warning" | "exceeded"),
-        };
+    // 3b. Get pending suggestions (system-generated proposals)
+    const suggestionRows = await db
+      .select({
+        id: budgets.id,
+        categoryId: budgets.categoryId,
+        categoryName: categories.name,
+        categoryColor: categories.color,
+        amount: budgets.amount,
+        generatedAt: budgets.generatedAt,
       })
-    );
+      .from(budgets)
+      .leftJoin(categories, eq(budgets.categoryId, categories.id))
+      .where(and(eq(budgets.userId, userId), eq(budgets.status, "suggested")));
 
-    // Also compute spending for fixed cost categories this month (effective amounts, exclude grouped)
-    const fixedCostsWithSpending = await Promise.all(
-      fixedCosts.map(async (fc) => {
-        if (fc.categoryId === "uncategorized") return { ...fc, spent: 0 };
-        const spentResult = await db
-          .select({
-            total: sql<number>`sum(
-              abs(${transactions.amount}) - COALESCE(
-                (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id AND r.user_id = "transactions"."user_id" WHERE rl.expense_id = "transactions"."id"),
-                0
-              )
-            )`,
-          })
-          .from(transactions)
-          .where(
-            and(
-              eq(transactions.categoryId, fc.categoryId),
-              eq(transactions.type, "expense"),
-              sql`${transactions.groupId} IS NULL`,
-              gte(transactions.date, from),
-              lte(transactions.date, to),
-              eq(transactions.userId, userId)
-            )
-          );
-        const txSpent = spentResult[0]?.total || 0;
-        const potSpent = potSpendingByCategory.get(fc.categoryId) || 0;
-        return { ...fc, spent: txSpent + potSpent };
+    // 4. Calculate actual spending per category for the current month in a
+    // single grouped query (effective amounts, exclude grouped). We then look
+    // up per allocation / fixed cost from the resulting map.
+    const monthSpendRows = await db
+      .select({
+        categoryId: transactions.categoryId,
+        total: sql<number>`sum(
+          abs(${transactions.amount}) - COALESCE(
+            (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id AND r.user_id = "transactions"."user_id" WHERE rl.expense_id = "transactions"."id"),
+            0
+          )
+        )`,
       })
-    );
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.userId, userId),
+          eq(transactions.type, "expense"),
+          sql`${transactions.groupId} IS NULL`,
+          gte(transactions.date, from),
+          lte(transactions.date, to),
+        ),
+      )
+      .groupBy(transactions.categoryId);
+
+    const monthSpendByCategory = new Map<string, number>();
+    for (const row of monthSpendRows) {
+      if (!row.categoryId) continue;
+      monthSpendByCategory.set(row.categoryId, row.total ?? 0);
+    }
+
+    const allocationsWithSpending = allAllocations.map((alloc) => {
+      const txSpent = monthSpendByCategory.get(alloc.categoryId) || 0;
+      const potSpent = potSpendingByCategory.get(alloc.categoryId) || 0;
+      const spent = txSpent + potSpent;
+      const percentage = alloc.amount > 0 ? (spent / alloc.amount) * 100 : 0;
+      return {
+        ...alloc,
+        spent,
+        remaining: Math.max(0, alloc.amount - spent),
+        percentage: Math.round(percentage * 10) / 10,
+        status:
+          percentage >= 100
+            ? "exceeded"
+            : percentage >= 80
+              ? "warning"
+              : ("ok" as "ok" | "warning" | "exceeded"),
+      };
+    });
+
+    const fixedCostsWithSpending = fixedCosts.map((fc) => {
+      if (fc.categoryId === "uncategorized") return { ...fc, spent: 0 };
+      const txSpent = monthSpendByCategory.get(fc.categoryId) || 0;
+      const potSpent = potSpendingByCategory.get(fc.categoryId) || 0;
+      return { ...fc, spent: txSpent + potSpent };
+    });
 
     // 5. Calculate average monthly spending per category (across all past complete months)
     // Must match the current-month logic: exclude grouped transactions, subtract reimbursements
@@ -325,6 +331,27 @@ export async function GET() {
     const availableToAllocate = monthlyIncome - totalFixedCosts;
     const unallocated = availableToAllocate - totalAllocated;
 
+    // Build suggestion DTOs with per-category context (current amount, avg).
+    const activeAmountByCategory = new Map<string, number>();
+    for (const a of allAllocations) activeAmountByCategory.set(a.categoryId, a.amount);
+    const suggestions = suggestionRows.map((s) => {
+      const avg = avgSpendingMap.get(s.categoryId);
+      return {
+        id: s.id,
+        categoryId: s.categoryId,
+        categoryName: s.categoryName,
+        categoryColor: s.categoryColor,
+        suggestedAmount: s.amount,
+        currentAmount: activeAmountByCategory.get(s.categoryId) ?? null,
+        avgMonthly: avg?.avgMonthly ?? 0,
+        monthsOfData: avg?.monthCount ?? 0,
+        generatedAt: s.generatedAt,
+      };
+    });
+
+    const prefs = await getUserPreferences(userId);
+    const regenerationDue = prefs.autoBudgetEnabled && isRegenerationDue(prefs.lastAutoBudgetCheckAt, prefs.autoBudgetIntervalMonths);
+
     return NextResponse.json({
       monthlyIncome: Math.round(monthlyIncome * 100) / 100,
       totalFixedCosts: Math.round(totalFixedCosts * 100) / 100,
@@ -333,7 +360,15 @@ export async function GET() {
       unallocated: Math.round(unallocated * 100) / 100,
       fixedCosts: fixedCostsWithAvg,
       allocations: allocationsWithAvg,
+      suggestions,
       categoryAverages: allCategoryAvgs,
+      automation: {
+        enabled: prefs.autoBudgetEnabled,
+        intervalMonths: prefs.autoBudgetIntervalMonths,
+        lookbackMonths: prefs.autoBudgetLookbackMonths,
+        lastCheckAt: prefs.lastAutoBudgetCheckAt,
+        regenerationDue,
+      },
       month: {
         from,
         to,
@@ -366,18 +401,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if allocation already exists
+    // Check if an active allocation already exists (suggestions are kept separate)
     const existing = await db
       .select()
       .from(budgets)
-      .where(and(eq(budgets.categoryId, categoryId), eq(budgets.userId, userId)));
+      .where(
+        and(
+          eq(budgets.categoryId, categoryId),
+          eq(budgets.userId, userId),
+          eq(budgets.status, "active"),
+        ),
+      );
 
     if (existing.length > 0) {
       // Update existing
       await db
         .update(budgets)
-        .set({ amount })
-        .where(and(eq(budgets.categoryId, categoryId), eq(budgets.userId, userId)));
+        .set({ amount, source: "manual" })
+        .where(and(eq(budgets.id, existing[0].id), eq(budgets.userId, userId)));
       logDataEvent({ userId, action: "budget_update", targetId: existing[0].id, targetType: "budget", details: { categoryId, amount } });
       return NextResponse.json({ success: true, id: existing[0].id });
     }
@@ -389,6 +430,8 @@ export async function POST(request: NextRequest) {
       amount,
       period: "monthly",
       isActive: true,
+      status: "active",
+      source: "manual",
       createdAt: new Date().toISOString(),
       userId,
     });
