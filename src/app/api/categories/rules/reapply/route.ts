@@ -6,18 +6,25 @@ import { getUserId } from "@/lib/auth";
 
 /**
  * POST /api/categories/rules/reapply
- * Clears all transaction categories, then reapplies every active rule in order.
- * This ensures the current ruleset is the single source of truth.
+ * Clears rule-applied transaction categories, then reapplies every active rule
+ * in order. Manually categorized transactions (categorySource = 'manual') are
+ * preserved — the current ruleset is the source of truth only for rule-applied
+ * categories.
  */
 export async function POST() {
   try {
     const userId = await getUserId();
 
-    // Step 1: Clear all category assignments
+    // Step 1: Clear only rule-applied category assignments. Manual ones survive.
     await db
       .update(transactions)
-      .set({ categoryId: null })
-      .where(and(sql`${transactions.categoryId} IS NOT NULL`, eq(transactions.userId, userId)));
+      .set({ categoryId: null, categorySource: null })
+      .where(
+        and(
+          eq(transactions.userId, userId),
+          eq(transactions.categorySource, "rule")
+        )
+      );
 
     // Step 2: Fetch all active rules
     const allRules = await db
@@ -97,7 +104,7 @@ async function applyRule(
 
   const result = await db
     .update(transactions)
-    .set({ categoryId })
+    .set({ categoryId, categorySource: "rule" })
     .where(condition);
 
   return result.rowsAffected;

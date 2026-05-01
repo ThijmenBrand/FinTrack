@@ -1,4 +1,4 @@
-const CACHE_NAME = 'finance-tracker-v1';
+const CACHE_NAME = 'finance-tracker-v2';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -44,12 +44,14 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Static assets: cache-first with network fallback
+  // Static assets: cache-first with network fallback.
+  // _next/static URLs are content-hashed, so cache-first is safe across deploys.
+  // We deliberately do NOT match a bare `.js` suffix — that would catch /sw.js
+  // and any non-hashed scripts and pin them to a stale chunk graph.
   if (
     url.pathname.startsWith('/_next/static/') ||
     url.pathname.startsWith('/icons/') ||
-    url.pathname.endsWith('.css') ||
-    url.pathname.endsWith('.js')
+    url.pathname.endsWith('.css')
   ) {
     event.respondWith(
       caches.match(request).then(

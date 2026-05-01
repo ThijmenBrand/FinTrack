@@ -7,6 +7,7 @@ export interface AutoBudgetPreferences {
   autoBudgetIntervalMonths: number;
   autoBudgetLookbackMonths: number;
   lastAutoBudgetCheckAt: string | null;
+  financialMonthStartDay: number;
 }
 
 const DEFAULTS: AutoBudgetPreferences = {
@@ -14,6 +15,7 @@ const DEFAULTS: AutoBudgetPreferences = {
   autoBudgetIntervalMonths: 1,
   autoBudgetLookbackMonths: 3,
   lastAutoBudgetCheckAt: null,
+  financialMonthStartDay: 1,
 };
 
 function toAutoBudget(row: UserPreferences): AutoBudgetPreferences {
@@ -22,6 +24,7 @@ function toAutoBudget(row: UserPreferences): AutoBudgetPreferences {
     autoBudgetIntervalMonths: row.autoBudgetIntervalMonths,
     autoBudgetLookbackMonths: row.autoBudgetLookbackMonths,
     lastAutoBudgetCheckAt: row.lastAutoBudgetCheckAt,
+    financialMonthStartDay: row.financialMonthStartDay,
   };
 }
 
@@ -50,6 +53,7 @@ async function ensureRow(userId: string): Promise<void> {
     autoBudgetIntervalMonths: DEFAULTS.autoBudgetIntervalMonths,
     autoBudgetLookbackMonths: DEFAULTS.autoBudgetLookbackMonths,
     lastAutoBudgetCheckAt: null,
+    financialMonthStartDay: DEFAULTS.financialMonthStartDay,
     createdAt: now,
     updatedAt: now,
   });
@@ -70,6 +74,9 @@ export async function updateUserPreferences(
     updates.autoBudgetLookbackMonths = Math.max(1, Math.min(12, Math.round(patch.autoBudgetLookbackMonths)));
   }
   if (patch.lastAutoBudgetCheckAt !== undefined) updates.lastAutoBudgetCheckAt = patch.lastAutoBudgetCheckAt;
+  if (patch.financialMonthStartDay !== undefined) {
+    updates.financialMonthStartDay = Math.max(1, Math.min(28, Math.round(patch.financialMonthStartDay)));
+  }
   await db.update(userPreferences).set(updates).where(eq(userPreferences.userId, userId));
   return getUserPreferences(userId);
 }

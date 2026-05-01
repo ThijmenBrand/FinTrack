@@ -229,7 +229,9 @@ export function CsvUploadDialog({
       setStep("done");
       onUploadComplete();
     } catch (err) {
-      setError(String(err));
+      console.error("CSV commit failed:", err);
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
       setStep("review");
     }
   };
@@ -554,6 +556,7 @@ export function CsvUploadDialog({
             transactions={previewData}
             categories={categories}
             skipped={previewSkipped}
+            error={error}
             onBack={() => setStep("map-columns")}
             onConfirm={handleCommit}
           />

@@ -61,20 +61,23 @@ export function CategorizePopover({
     }
   }, [open, transactionDescription]);
 
-  const handleSave = async () => {
-    try {
-      await categorize.mutateAsync({
+  const handleSave = () => {
+    setOpen(false);
+    onCategorized(selectedCategoryId || null);
+    categorize.mutate(
+      {
         transactionId,
         categoryId: selectedCategoryId || null,
         createRule,
         rulePattern: createRule ? rulePattern : undefined,
         ruleMatchType: createRule ? ruleMatchType : undefined,
-      });
-      setOpen(false);
-      onCategorized(selectedCategoryId || null);
-    } catch (err) {
-      console.error("Failed to categorize:", err);
-    }
+      },
+      {
+        onError: (err) => {
+          console.error("Failed to categorize:", err);
+        },
+      }
+    );
   };
 
   return (

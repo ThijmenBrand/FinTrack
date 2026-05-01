@@ -7,7 +7,7 @@ import {
   recurringTransactions,
   transactionGroups,
 } from "@/db/schema";
-import { eq, and, gte, lte, sql } from "drizzle-orm";
+import { eq, and, gte, lte, sql, inArray } from "drizzle-orm";
 import { getUserId } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
 import { isRegenerationDue } from "@/lib/auto-budget";
@@ -331,6 +331,59 @@ export async function GET() {
     const availableToAllocate = monthlyIncome - totalFixedCosts;
     const unallocated = availableToAllocate - totalAllocated;
 
+    // Build set of "tracked" category IDs (those with an allocation or fixed cost)
+    const trackedCatIds = new Set<string>();
+    for (const a of allAllocations) trackedCatIds.add(a.categoryId);
+    for (const fc of fixedCosts) {
+      if (fc.categoryId !== "uncategorized") trackedCatIds.add(fc.categoryId);
+    }
+
+    // Unbudgeted spending: per-category spend (transactions + pots) for categories not tracked
+    const unbudgetedSpentByCategory = new Map<string, number>();
+    for (const [catId, amount] of monthSpendByCategory) {
+      if (!trackedCatIds.has(catId)) {
+        unbudgetedSpentByCategory.set(catId, (unbudgetedSpentByCategory.get(catId) || 0) + amount);
+      }
+    }
+    for (const [catId, amount] of potSpendingByCategory) {
+      if (!trackedCatIds.has(catId)) {
+        unbudgetedSpentByCategory.set(catId, (unbudgetedSpentByCategory.get(catId) || 0) + amount);
+      }
+    }
+
+    const unbudgetedCatIds = Array.from(unbudgetedSpentByCategory.keys());
+    const unbudgetedCategoryRows = unbudgetedCatIds.length > 0
+      ? await db
+          .select({ id: categories.id, name: categories.name, color: categories.color })
+          .from(categories)
+          .where(inArray(categories.id, unbudgetedCatIds))
+      : [];
+    const unbudgetedCategoryMeta = new Map<string, { name: string; color: string }>();
+    for (const row of unbudgetedCategoryRows) {
+      unbudgetedCategoryMeta.set(row.id, {
+        name: row.name,
+        color: row.color || "#94a3b8",
+      });
+    }
+
+    const unbudgetedSpending = unbudgetedCatIds
+      .map((catId) => {
+        const meta = unbudgetedCategoryMeta.get(catId);
+        return {
+          categoryId: catId,
+          categoryName: meta?.name || "Uncategorized",
+          categoryColor: meta?.color || "#94a3b8",
+          spent: Math.round((unbudgetedSpentByCategory.get(catId) || 0) * 100) / 100,
+        };
+      })
+      .sort((a, b) => b.spent - a.spent);
+
+    // Total spending this month — matches inclusion rules used for allocation/fixed cost spent
+    let totalSpentThisMonth = 0;
+    for (const amount of monthSpendByCategory.values()) totalSpentThisMonth += amount;
+    for (const amount of potSpendingByCategory.values()) totalSpentThisMonth += amount;
+    const totalBudget = totalFixedCosts + totalAllocated;
+
     // Build suggestion DTOs with per-category context (current amount, avg).
     const activeAmountByCategory = new Map<string, number>();
     for (const a of allAllocations) activeAmountByCategory.set(a.categoryId, a.amount);
@@ -358,6 +411,9 @@ export async function GET() {
       availableToAllocate: Math.round(availableToAllocate * 100) / 100,
       totalAllocated: Math.round(totalAllocated * 100) / 100,
       unallocated: Math.round(unallocated * 100) / 100,
+      totalBudget: Math.round(totalBudget * 100) / 100,
+      totalSpentThisMonth: Math.round(totalSpentThisMonth * 100) / 100,
+      unbudgetedSpending,
       fixedCosts: fixedCostsWithAvg,
       allocations: allocationsWithAvg,
       suggestions,
