@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Card,
   CardContent,
@@ -27,8 +27,15 @@ import {
 } from "lucide-react";
 import { useInsights, useBalanceTimeline } from "@/hooks/use-insights";
 import { useAccounts } from "@/hooks/use-accounts";
+import { useBudgets } from "@/hooks/use-budgets";
+import { usePreferences } from "@/hooks/use-preferences";
+import {
+  getFinancialMonthRange,
+  getPreviousFinancialMonth,
+} from "@/lib/financial-month";
 import { BalanceChart } from "./_components/balance-chart";
 import { SpendingByPeriod } from "./_components/spending-by-period";
+import { BudgetPerformance } from "./_components/budget-performance";
 import type { InsightsData } from "@/types/api";
 
 function formatCurrency(amount: number) {
@@ -47,26 +54,27 @@ const PRESET_TO_TX_PERIOD: Partial<Record<PresetKey, string>> = {
   this_year: "this-year",
 };
 
-function getPresetRange(preset: PresetKey): { from: string; to: string } {
+function toLocalDateString(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function getPresetRange(preset: PresetKey, startDay: number): { from: string; to: string } {
   const now = new Date();
   const y = now.getFullYear();
   const m = now.getMonth();
 
   switch (preset) {
     case "this_month":
-      return {
-        from: new Date(y, m, 1).toISOString().slice(0, 10),
-        to: new Date(y, m + 1, 0).toISOString().slice(0, 10),
-      };
+      return getFinancialMonthRange(now, startDay);
     case "last_month":
-      return {
-        from: new Date(y, m - 1, 1).toISOString().slice(0, 10),
-        to: new Date(y, m, 0).toISOString().slice(0, 10),
-      };
+      return getPreviousFinancialMonth(now, startDay);
     case "last_3_months":
       return {
-        from: new Date(y, m - 2, 1).toISOString().slice(0, 10),
-        to: new Date(y, m + 1, 0).toISOString().slice(0, 10),
+        from: toLocalDateString(new Date(y, m - 2, 1)),
+        to: toLocalDateString(new Date(y, m + 1, 0)),
       };
     case "this_year":
       return {
@@ -78,6 +86,25 @@ function getPresetRange(preset: PresetKey): { from: string; to: string } {
       return { from: "", to: "" };
   }
 }
+
+const VALID_PRESETS = new Set<PresetKey>([
+  "this_month",
+  "last_month",
+  "last_3_months",
+  "this_year",
+  "all",
+  "custom",
+]);
+
+function parsePreset(value: string | null): PresetKey {
+  return value && VALID_PRESETS.has(value as PresetKey) ? (value as PresetKey) : "this_month";
+}
+
+const ordinal = (n: number): string => {
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return `${n}${s[(v - 20) % 10] ?? s[v] ?? s[0]}`;
+};
 
 // Simple bar component
 function Bar({
@@ -132,10 +159,39 @@ const ALL_ACCOUNTS = "__all__";
 
 export default function InsightsPage() {
   const router = useRouter();
-  const [preset, setPreset] = useState<PresetKey>("this_month");
-  const [dateFrom, setDateFrom] = useState(() => getPresetRange("this_month").from);
-  const [dateTo, setDateTo] = useState(() => getPresetRange("this_month").to);
-  const [selectedAccountId, setSelectedAccountId] = useState<string>(ALL_ACCOUNTS);
+  const searchParams = useSearchParams();
+  const { data: prefs } = usePreferences();
+  const startDay = prefs?.financialMonthStartDay ?? 1;
+  const usingFinancialMonth = startDay !== 1;
+
+  const [preset, setPreset] = useState<PresetKey>(() => parsePreset(searchParams.get("preset")));
+  const [customDateFrom, setCustomDateFrom] = useState<string>(
+    () => searchParams.get("dateFrom") || "",
+  );
+  const [customDateTo, setCustomDateTo] = useState<string>(
+    () => searchParams.get("dateTo") || "",
+  );
+  const [selectedAccountId, setSelectedAccountId] = useState<string>(
+    () => searchParams.get("account") || ALL_ACCOUNTS,
+  );
+
+  // Non-custom presets are derived; custom uses user-controlled state.
+  const computedRange = preset === "custom" ? null : getPresetRange(preset, startDay);
+  const dateFrom = computedRange ? computedRange.from : customDateFrom;
+  const dateTo = computedRange ? computedRange.to : customDateTo;
+
+  // Sync filter state back into the URL so a back-nav restores the same view.
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (preset !== "this_month") params.set("preset", preset);
+    if (selectedAccountId !== ALL_ACCOUNTS) params.set("account", selectedAccountId);
+    if (preset === "custom") {
+      if (customDateFrom) params.set("dateFrom", customDateFrom);
+      if (customDateTo) params.set("dateTo", customDateTo);
+    }
+    const qs = params.toString();
+    router.replace(qs ? `/insights?${qs}` : "/insights", { scroll: false });
+  }, [preset, selectedAccountId, customDateFrom, customDateTo, router]);
 
   const { data: accountsData } = useAccounts();
   const accountIdParam =
@@ -152,21 +208,29 @@ export default function InsightsPage() {
     accountId: accountIdParam,
     forecastMonths: 3,
   });
+  const { data: budgetData } = useBudgets();
 
   const handlePresetChange = (value: string) => {
     const key = value as PresetKey;
+    if (key === "custom") {
+      // Seed custom inputs with the previously-shown range so they aren't blank.
+      const range = preset === "custom" ? null : getPresetRange(preset, startDay);
+      if (range) {
+        setCustomDateFrom(range.from);
+        setCustomDateTo(range.to);
+      }
+    }
     setPreset(key);
-    if (key === "custom") return;
-    const range = getPresetRange(key);
-    setDateFrom(range.from);
-    setDateTo(range.to);
   };
 
   const navigateToCategory = (categoryId: string | null) => {
     const params = new URLSearchParams();
     if (categoryId) params.set("category", categoryId);
     const mappedPeriod = PRESET_TO_TX_PERIOD[preset];
-    if (mappedPeriod) {
+    // When a financial month is active, the transactions page's "this-month"/"last-month"
+    // shortcut still means calendar months, so pass explicit dates instead.
+    const usePeriodShortcut = mappedPeriod && !(usingFinancialMonth && (preset === "this_month" || preset === "last_month"));
+    if (usePeriodShortcut) {
       params.set("period", mappedPeriod);
     } else if (preset !== "all") {
       if (dateFrom) params.set("dateFrom", dateFrom);
@@ -200,6 +264,11 @@ export default function InsightsPage() {
           <h1 className="text-3xl font-bold tracking-tight">Insights</h1>
           <p className="text-muted-foreground">
             Visual breakdowns of your spending.
+            {usingFinancialMonth && (preset === "this_month" || preset === "last_month") && (
+              <span className="ml-2 text-xs">
+                · Financial month: {ordinal(startDay)} – {ordinal(startDay === 1 ? 31 : startDay - 1)} of next month
+              </span>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -238,15 +307,15 @@ export default function InsightsPage() {
             <>
               <Input
                 type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
+                value={customDateFrom}
+                onChange={(e) => setCustomDateFrom(e.target.value)}
                 className="w-[150px]"
               />
               <span className="text-muted-foreground">to</span>
               <Input
                 type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
+                value={customDateTo}
+                onChange={(e) => setCustomDateTo(e.target.value)}
                 className="w-[150px]"
               />
             </>
@@ -296,6 +365,9 @@ export default function InsightsPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Monthly Budget Performance */}
+      <BudgetPerformance data={budgetData ?? null} />
 
       {/* Balance Over Time */}
       <BalanceChart

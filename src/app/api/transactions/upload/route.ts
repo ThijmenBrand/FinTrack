@@ -157,6 +157,7 @@ export async function POST(request: NextRequest) {
         amount,
         balance: isNaN(balance as number) ? null : balance,
         categoryId,
+        categorySource: categoryId ? ("rule" as const) : null,
         type: type as "income" | "expense" | "internal_transfer",
         linkedTransactionId: null,
         notes: null,

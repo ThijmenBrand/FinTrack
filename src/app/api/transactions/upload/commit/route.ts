@@ -6,6 +6,7 @@ import { getUserId } from "@/lib/auth";
 import { detectTransfers } from "@/lib/detect-transfers";
 import { logDataEvent } from "@/lib/audit";
 import { validatePattern } from "@/lib/validation";
+import { matchesRule } from "@/lib/csv-utils";
 
 interface CommitTransaction {
   tempId: string;
@@ -79,6 +80,27 @@ export async function POST(request: NextRequest) {
       .from(categories)
       .where(and(eq(categories.name, "Internal Transfer"), eq(categories.userId, userId)));
 
+    // Pre-fetch active rules so we can detect, per row, whether an incoming
+    // categoryId is the result of a rule match (auto) or a user override during
+    // review. Overrides must be marked 'manual' so Recalculate All preserves them.
+    const activeRules = await db
+      .select()
+      .from(categoryRules)
+      .where(and(eq(categoryRules.isActive, true), eq(categoryRules.userId, userId)));
+
+    const sourceForReviewedTx = (
+      description: string,
+      categoryId: string | null
+    ): "manual" | "rule" | null => {
+      if (!categoryId) return null;
+      for (const rule of activeRules) {
+        if (matchesRule(description, rule.pattern, rule.matchType) && rule.categoryId === categoryId) {
+          return "rule";
+        }
+      }
+      return "manual";
+    };
+
     // Build transaction records, creating mirror transactions for internal transfers
     const records: Array<{
       id: string;
@@ -89,6 +111,7 @@ export async function POST(request: NextRequest) {
       amount: number;
       balance: number | null;
       categoryId: string | null;
+      categorySource: "manual" | "rule" | null;
       type: "income" | "expense" | "internal_transfer";
       linkedTransactionId: string | null;
       notes: string | null;
@@ -105,6 +128,7 @@ export async function POST(request: NextRequest) {
 
       if (isTransfer) {
         const mirrorId = crypto.randomUUID();
+        const transferCatId = transferCategory?.id || tx.categoryId;
         // Source transaction (in the importing account)
         records.push({
           id: sourceId,
@@ -114,7 +138,8 @@ export async function POST(request: NextRequest) {
           description: tx.description,
           amount: tx.amount,
           balance: tx.balance,
-          categoryId: transferCategory?.id || tx.categoryId,
+          categoryId: transferCatId,
+          categorySource: transferCatId ? "rule" : null,
           type: "internal_transfer",
           linkedTransactionId: mirrorId,
           notes: null,
@@ -131,7 +156,8 @@ export async function POST(request: NextRequest) {
           description: tx.description,
           amount: -tx.amount,
           balance: null,
-          categoryId: transferCategory?.id || tx.categoryId,
+          categoryId: transferCatId,
+          categorySource: transferCatId ? "rule" : null,
           type: "internal_transfer",
           linkedTransactionId: sourceId,
           notes: null,
@@ -149,6 +175,7 @@ export async function POST(request: NextRequest) {
           amount: tx.amount,
           balance: tx.balance,
           categoryId: tx.categoryId,
+          categorySource: sourceForReviewedTx(tx.description, tx.categoryId),
           type: tx.type as "income" | "expense" | "internal_transfer",
           linkedTransactionId: null,
           notes: null,
@@ -215,7 +242,7 @@ export async function POST(request: NextRequest) {
 
       const result = await db
         .update(transactions)
-        .set({ categoryId: rule.categoryId })
+        .set({ categoryId: rule.categoryId, categorySource: "rule" })
         .where(condition!);
 
       existingUpdated += (result as unknown as { rowsAffected?: number }).rowsAffected || 0;

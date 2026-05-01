@@ -238,6 +238,7 @@ export async function DELETE(request: NextRequest) {
               type: (linkedFull?.amount ?? 0) >= 0 ? "income" : "expense",
               linkedTransactionId: null,
               categoryId: null,
+              categorySource: null,
             })
             .where(and(eq(transactions.id, linkedTx.id), eq(transactions.userId, userId)));
         }

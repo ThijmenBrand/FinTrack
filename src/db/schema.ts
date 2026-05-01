@@ -65,6 +65,9 @@ export const transactions = sqliteTable("transactions", {
   amount: real("amount").notNull(), // Positive = income, Negative = expense
   balance: real("balance"), // Running balance if provided by bank
   categoryId: text("category_id").references(() => categories.id),
+  // Tracks how categoryId was set so "Recalculate All" can wipe rule-applied
+  // categories without destroying manual user assignments. Null when no category.
+  categorySource: text("category_source", { enum: ["manual", "rule"] }),
   type: text("type", {
     enum: ["income", "expense", "internal_transfer", "reimbursement"],
   }).notNull(),
@@ -168,6 +171,8 @@ export const userPreferences = sqliteTable("user_preferences", {
   autoBudgetIntervalMonths: integer("auto_budget_interval_months").notNull().default(1),
   autoBudgetLookbackMonths: integer("auto_budget_lookback_months").notNull().default(3),
   lastAutoBudgetCheckAt: text("last_auto_budget_check_at"),
+  // 1 = calendar month; 2-28 shifts the "financial month" boundary (e.g. 8 = 8th to 7th).
+  financialMonthStartDay: integer("financial_month_start_day").notNull().default(1),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),

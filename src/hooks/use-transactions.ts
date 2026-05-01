@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
-import type { Transaction, Pagination } from "@/types/api";
+import type { Transaction, Pagination, Category } from "@/types/api";
 
 interface TransactionFilters {
   page?: number;
@@ -65,12 +65,77 @@ export function useDetectTransfers() {
   });
 }
 
+type CategorizePayload = {
+  transactionId: string;
+  categoryId: string | null;
+  createRule?: boolean;
+  rulePattern?: string;
+  ruleMatchType?: string;
+};
+
+type TransactionsQueryKey = readonly [string, TransactionFilters];
+
 export function useCategorizeTransaction() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { transactionId: string; categoryId: string | null; createRule?: boolean; rulePattern?: string; ruleMatchType?: string }) =>
+    mutationFn: (payload: CategorizePayload) =>
       apiFetch("/api/transactions/categorize", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
-    onSuccess: () => {
+    onMutate: async (payload) => {
+      await qc.cancelQueries({ queryKey: ["transactions"] });
+
+      const previous = qc.getQueriesData<TransactionsResponse>({ queryKey: ["transactions"] });
+
+      const categories = qc.getQueryData<Category[]>(["categories"]) ?? [];
+      const target = payload.categoryId
+        ? categories.find((c) => c.id === payload.categoryId) ?? null
+        : null;
+
+      for (const [key, data] of previous) {
+        if (!data) continue;
+        const filters = (key as TransactionsQueryKey)[1] ?? {};
+        const isUncategorizedList = filters.uncategorized === true;
+
+        if (isUncategorizedList && payload.categoryId) {
+          const filtered = data.data.filter((tx) => tx.id !== payload.transactionId);
+          if (filtered.length === data.data.length) continue;
+          qc.setQueryData<TransactionsResponse>(key, {
+            ...data,
+            data: filtered,
+            pagination: {
+              ...data.pagination,
+              total: Math.max(0, data.pagination.total - 1),
+              totalPages: Math.max(
+                1,
+                Math.ceil(Math.max(0, data.pagination.total - 1) / data.pagination.limit)
+              ),
+            },
+          });
+        } else {
+          let changed = false;
+          const next = data.data.map((tx) => {
+            if (tx.id !== payload.transactionId) return tx;
+            changed = true;
+            return {
+              ...tx,
+              categoryId: payload.categoryId,
+              categoryName: target?.name ?? null,
+              categoryColor: target?.color ?? null,
+              categoryIcon: target?.icon ?? null,
+            };
+          });
+          if (changed) qc.setQueryData<TransactionsResponse>(key, { ...data, data: next });
+        }
+      }
+
+      return { previous };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (!ctx?.previous) return;
+      for (const [key, data] of ctx.previous) {
+        qc.setQueryData(key, data);
+      }
+    },
+    onSettled: () => {
       qc.invalidateQueries({ queryKey: ["transactions"] });
       qc.invalidateQueries({ queryKey: ["categories"] });
       qc.invalidateQueries({ queryKey: ["budgets"] });

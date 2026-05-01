@@ -199,7 +199,7 @@ async function applyRuleToTransactions(
 
   const result = await db
     .update(transactions)
-    .set({ categoryId })
+    .set({ categoryId, categorySource: "rule" })
     .where(condition);
 
   return result.rowsAffected;

@@ -33,7 +33,10 @@ export async function PUT(request: NextRequest) {
     const isRemovingTransfer = !isAssigningTransfer && currentTx?.type === "internal_transfer";
 
     // Build update: sync type with category
-    const updateSet: Record<string, unknown> = { categoryId: categoryId || null };
+    const updateSet: Record<string, unknown> = {
+      categoryId: categoryId || null,
+      categorySource: categoryId ? "manual" : null,
+    };
 
     if (isAssigningTransfer) {
       updateSet.type = "internal_transfer";
@@ -94,7 +97,7 @@ export async function PUT(request: NextRequest) {
 
       const result = await db
         .update(transactions)
-        .set({ categoryId })
+        .set({ categoryId, categorySource: "rule" })
         .where(condition);
 
       appliedCount = result.rowsAffected;

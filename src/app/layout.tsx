@@ -55,7 +55,14 @@ export default function RootLayout({
           </QueryProvider>
         </ThemeProvider>
         <Script id="sw-register" strategy="afterInteractive">
-          {`if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js'); }`}
+          {`if ('serviceWorker' in navigator) {
+            if (${JSON.stringify(process.env.NODE_ENV === "production")}) {
+              navigator.serviceWorker.register('/sw.js');
+            } else {
+              navigator.serviceWorker.getRegistrations().then(function (rs) { rs.forEach(function (r) { r.unregister(); }); });
+              if (window.caches) { caches.keys().then(function (ks) { ks.forEach(function (k) { caches.delete(k); }); }); }
+            }
+          }`}
         </Script>
       </body>
     </html>

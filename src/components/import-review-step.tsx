@@ -43,6 +43,7 @@ interface ImportReviewStepProps {
   transactions: PreviewTransaction[];
   categories: Category[];
   skipped: number;
+  error?: string | null;
   onBack: () => void;
   onConfirm: (
     transactions: PreviewTransaction[],
@@ -238,6 +239,7 @@ export function ImportReviewStep({
   transactions: initialTransactions,
   categories,
   skipped,
+  error,
   onBack,
   onConfirm,
 }: ImportReviewStepProps) {
@@ -562,6 +564,17 @@ export function ImportReviewStep({
           {renderTransactionList(transactions, visibleCount)}
         </TabsContent>
       </Tabs>
+
+      {/* Error banner */}
+      {error && (
+        <div className="flex items-start gap-2 rounded-lg border border-red-300 dark:border-red-900/60 bg-red-50 dark:bg-red-950/30 px-3 py-2 text-sm text-red-700 dark:text-red-300">
+          <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+          <div className="min-w-0 break-words">
+            <p className="font-medium">Import failed</p>
+            <p className="opacity-90">{error}</p>
+          </div>
+        </div>
+      )}
 
       {/* Footer */}
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between pt-2">

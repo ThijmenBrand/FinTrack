@@ -277,12 +277,22 @@ export interface AutomationState {
   regenerationDue: boolean;
 }
 
+export interface UnbudgetedSpending {
+  categoryId: string;
+  categoryName: string;
+  categoryColor: string;
+  spent: number;
+}
+
 export interface BudgetData {
   monthlyIncome: number;
   totalFixedCosts: number;
   availableToAllocate: number;
   totalAllocated: number;
   unallocated: number;
+  totalBudget: number;
+  totalSpentThisMonth: number;
+  unbudgetedSpending: UnbudgetedSpending[];
   fixedCosts: FixedCost[];
   allocations: Allocation[];
   suggestions: BudgetSuggestion[];
@@ -296,6 +306,7 @@ export interface UserPreferencesData {
   autoBudgetIntervalMonths: number;
   autoBudgetLookbackMonths: number;
   lastAutoBudgetCheckAt: string | null;
+  financialMonthStartDay: number;
 }
 
 export interface BalanceTimelineData {

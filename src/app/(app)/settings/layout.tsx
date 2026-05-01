@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { Landmark, Tags, Sparkles, RefreshCcw } from "lucide-react";
+import { Landmark, Tags, Sparkles, RefreshCcw, Settings } from "lucide-react";
 
 const tabs = [
+  { name: "General", href: "/settings/general", icon: Settings },
   { name: "Accounts", href: "/settings/accounts", icon: Landmark },
   { name: "Categories", href: "/settings/categories", icon: Tags },
   { name: "Automation", href: "/settings/automation", icon: Sparkles },
