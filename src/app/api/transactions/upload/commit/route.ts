@@ -11,6 +11,7 @@ import { matchesRule } from "@/lib/csv-utils";
 interface CommitTransaction {
   tempId: string;
   date: string;
+  name: string | null;
   description: string;
   amount: number;
   balance: number | null;
@@ -89,12 +90,14 @@ export async function POST(request: NextRequest) {
       .where(and(eq(categoryRules.isActive, true), eq(categoryRules.userId, userId)));
 
     const sourceForReviewedTx = (
+      name: string | null,
       description: string,
       categoryId: string | null
     ): "manual" | "rule" | null => {
       if (!categoryId) return null;
+      const matchTarget = name ? `${name} — ${description}` : description;
       for (const rule of activeRules) {
-        if (matchesRule(description, rule.pattern, rule.matchType) && rule.categoryId === categoryId) {
+        if (matchesRule(matchTarget, rule.pattern, rule.matchType) && rule.categoryId === categoryId) {
           return "rule";
         }
       }
@@ -107,6 +110,7 @@ export async function POST(request: NextRequest) {
       userId: string;
       accountId: string;
       date: string;
+      name: string | null;
       description: string;
       amount: number;
       balance: number | null;
@@ -135,6 +139,7 @@ export async function POST(request: NextRequest) {
           userId,
           accountId,
           date: tx.date,
+          name: tx.name,
           description: tx.description,
           amount: tx.amount,
           balance: tx.balance,
@@ -153,6 +158,7 @@ export async function POST(request: NextRequest) {
           userId,
           accountId: tx.targetAccountId!,
           date: tx.date,
+          name: tx.name,
           description: tx.description,
           amount: -tx.amount,
           balance: null,
@@ -171,11 +177,12 @@ export async function POST(request: NextRequest) {
           userId,
           accountId,
           date: tx.date,
+          name: tx.name,
           description: tx.description,
           amount: tx.amount,
           balance: tx.balance,
           categoryId: tx.categoryId,
-          categorySource: sourceForReviewedTx(tx.description, tx.categoryId),
+          categorySource: sourceForReviewedTx(tx.name, tx.description, tx.categoryId),
           type: tx.type as "income" | "expense" | "internal_transfer",
           linkedTransactionId: null,
           notes: null,
@@ -227,15 +234,19 @@ export async function POST(request: NextRequest) {
           break;
       }
 
+      // Match against the combined "name — description" so legacy rows (where
+      // name IS NULL) still match on description alone, and new rows match on
+      // either field via the concatenation.
+      const matchTargetSql = sql`LOWER(IIF(${transactions.name} IS NOT NULL, ${transactions.name} || ' — ', '') || ${transactions.description})`;
       const condition =
         rule.matchType === "exact"
           ? and(
-              eq(sql`LOWER(${transactions.description})`, rule.pattern.toLowerCase()),
+              sql`${matchTargetSql} = ${rule.pattern.toLowerCase()}`,
               isNull(transactions.categoryId),
               eq(transactions.userId, userId)
             )
           : and(
-              sql`LOWER(${transactions.description}) LIKE LOWER(${sqlPattern})`,
+              sql`${matchTargetSql} LIKE LOWER(${sqlPattern})`,
               isNull(transactions.categoryId),
               eq(transactions.userId, userId)
             );

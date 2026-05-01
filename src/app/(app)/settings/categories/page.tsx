@@ -508,8 +508,13 @@ export default function CategoriesPage() {
                         >
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium truncate">
-                              {tx.description}
+                              {tx.name || tx.description}
                             </p>
+                            {tx.name && tx.description && tx.description !== tx.name && (
+                              <p className="text-xs text-muted-foreground truncate">
+                                {tx.description}
+                              </p>
+                            )}
                             <p className="text-xs text-muted-foreground">
                               {tx.date}
                               {tx.accountName && ` · ${tx.accountName}`}
@@ -528,7 +533,7 @@ export default function CategoriesPage() {
                           <div onClick={(e) => e.stopPropagation()}>
                             <CategorizePopover
                               transactionId={tx.id}
-                              transactionDescription={tx.description}
+                              transactionDescription={tx.name || tx.description}
                               currentCategoryId={null}
                               currentCategoryName={null}
                               currentCategoryColor={null}

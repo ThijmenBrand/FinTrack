@@ -8,7 +8,7 @@ import {
   parseAmount,
   parseDate,
   matchesRule,
-  combineNameAndDescription,
+  splitNameAndDescription,
   type ColumnMapping,
 } from "@/lib/csv-utils";
 
@@ -92,7 +92,9 @@ export async function POST(request: NextRequest) {
       const amountRaw = row[mapping.amount]?.trim();
       const balanceRaw = mapping.balance ? row[mapping.balance]?.trim() : undefined;
 
-      let description = combineNameAndDescription(nameRaw, descRaw);
+      const split = splitNameAndDescription(nameRaw, descRaw);
+      const name: string | null = split.name;
+      let description = split.description;
 
       // Fallback: scan other columns if both mapped fields were empty
       if (!description) {
@@ -137,10 +139,12 @@ export async function POST(request: NextRequest) {
       const balance = balanceRaw ? parseAmount(balanceRaw) : null;
       const type = amount >= 0 ? "income" : "expense";
 
-      // Auto-categorize using rules
+      // Auto-categorize using rules. Match against combined "name — description"
+      // so legacy rules continue to match after the split.
+      const matchTarget = name ? `${name} — ${description}` : description;
       let categoryId: string | null = null;
       for (const rule of rules) {
-        const matches = matchesRule(description, rule.pattern, rule.matchType);
+        const matches = matchesRule(matchTarget, rule.pattern, rule.matchType);
         if (matches) {
           categoryId = rule.categoryId;
           break;
@@ -153,6 +157,7 @@ export async function POST(request: NextRequest) {
         userId,
         accountId,
         date,
+        name,
         description,
         amount,
         balance: isNaN(balance as number) ? null : balance,

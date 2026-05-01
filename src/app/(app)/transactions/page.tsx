@@ -1091,7 +1091,7 @@ function TransactionsPage() {
                           </TableCell>
                           <TableCell className="max-w-[150px] sm:max-w-[300px] text-sm font-medium">
                             <div className="flex items-center gap-1.5">
-                              <span className={`truncate ${isInPot ? "line-through" : ""}`}>{tx.description}</span>
+                              <span className={`truncate ${isInPot ? "line-through" : ""}`}>{tx.name || tx.description}</span>
                               {tx.groupName && (
                                 <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0 gap-0.5">
                                   <Package className="h-2.5 w-2.5" />
@@ -1099,6 +1099,11 @@ function TransactionsPage() {
                                 </Badge>
                               )}
                             </div>
+                            {tx.name && tx.description && tx.description !== tx.name && (
+                              <div className={`text-xs text-muted-foreground truncate mt-0.5 ${isInPot ? "line-through" : ""}`}>
+                                {tx.description}
+                              </div>
+                            )}
                             {isReimbursement && tx.reimbursesDescription && (
                               <div className="text-xs text-muted-foreground truncate mt-0.5">
                                 Reimburses: {tx.reimbursesDescription}
@@ -1111,7 +1116,7 @@ function TransactionsPage() {
                           <TableCell onClick={(e) => e.stopPropagation()}>
                             <CategorizePopover
                               transactionId={tx.id}
-                              transactionDescription={tx.description}
+                              transactionDescription={tx.name || tx.description}
                               currentCategoryId={tx.categoryId}
                               currentCategoryName={tx.categoryName}
                               currentCategoryColor={tx.categoryColor}

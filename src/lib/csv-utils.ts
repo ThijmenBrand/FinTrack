@@ -15,6 +15,7 @@ export interface ColumnMapping {
 export interface PreviewTransaction {
   tempId: string;
   date: string;
+  name: string | null;
   description: string;
   amount: number;
   balance: number | null;
@@ -105,31 +106,25 @@ export function matchesRule(
 }
 
 /**
- * Combine the bank's "name" (counterparty) and "description" (memo) CSV fields
- * into a single human-readable label for `transactions.description`.
+ * Split the bank's "name" (counterparty) and "description" (memo) CSV fields
+ * into the two `transactions.name` / `transactions.description` columns.
  *
- * Returns an empty string when both inputs are empty so the caller can run
- * its own last-resort fallback.
+ * - If both are present → keep them separate so the UI can render two lines.
+ * - If only one is present → put it in `description` (keeps single-line
+ *   display for old-style imports that only had one column mapped).
+ * - If neither is present → returns an empty description; the caller is
+ *   responsible for any last-resort fallback.
  */
-export function combineNameAndDescription(
+export function splitNameAndDescription(
   name: string | undefined,
   description: string | undefined,
-): string {
+): { name: string | null; description: string } {
   const n = name?.trim() ?? "";
   const d = description?.trim() ?? "";
   if (n && d) {
-    return looksLikeCodeOrReference(d) ? n : `${n} — ${d}`;
+    return { name: n, description: d };
   }
-  return n || d;
-}
-
-function looksLikeCodeOrReference(s: string): boolean {
-  if (s.length <= 6) return true;
-  const digitCount = (s.match(/\d/g) ?? []).length;
-  if (digitCount / s.length >= 0.6) return true;
-  if (/^[A-Z0-9_-]+$/.test(s)) return true;
-  if (/^[A-Z]{1,4}\d{4,}/.test(s)) return true;
-  return false;
+  return { name: null, description: n || d };
 }
 
 /**

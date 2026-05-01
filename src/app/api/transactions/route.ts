@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { transactions, accounts, categories } from "@/db/schema";
-import { eq, desc, asc, and, gte, lte, like, sql } from "drizzle-orm";
+import { eq, desc, asc, and, gte, lte, like, or, sql } from "drizzle-orm";
 import { getUserId } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
 
@@ -43,7 +43,15 @@ export async function GET(request: NextRequest) {
       }
       conditions.push(eq(transactions.type, type as TxType));
     }
-    if (search) conditions.push(like(transactions.description, `%${search}%`));
+    if (search) {
+      const searchPattern = `%${search}%`;
+      conditions.push(
+        or(
+          like(transactions.description, searchPattern),
+          like(transactions.name, searchPattern)
+        )!
+      );
+    }
     if (dateFrom) conditions.push(gte(transactions.date, dateFrom));
     if (dateTo) conditions.push(lte(transactions.date, dateTo));
     if (uncategorized === "true") {
@@ -98,6 +106,7 @@ export async function GET(request: NextRequest) {
         accountId: transactions.accountId,
         accountName: accounts.name,
         date: transactions.date,
+        name: transactions.name,
         description: transactions.description,
         amount: transactions.amount,
         balance: transactions.balance,
