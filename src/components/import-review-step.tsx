@@ -71,12 +71,11 @@ function findSimilar(
   currentId: string,
   transactions: PreviewTransaction[]
 ): PreviewTransaction[] {
-  return transactions.filter(
-    (tx) =>
-      tx.tempId !== currentId &&
-      !tx.categoryId &&
-      matchesRule(tx.description, pattern, "contains")
-  );
+  return transactions.filter((tx) => {
+    if (tx.tempId === currentId || tx.categoryId) return false;
+    const target = tx.name ? `${tx.name} — ${tx.description}` : tx.description;
+    return matchesRule(target, pattern, "contains");
+  });
 }
 
 interface BatchApplyBanner {
@@ -196,17 +195,24 @@ const TransactionRow = memo(function TransactionRow({
           {formatDate(tx.date)}
         </span>
 
-        {/* Description */}
+        {/* Name (primary) and description (secondary) */}
         <button
           type="button"
           onClick={() => setExpanded((prev) => !prev)}
           className={cn(
             "text-sm text-left flex-1 min-w-0 cursor-pointer hover:text-foreground/80 transition-colors",
-            !expanded && "truncate"
+            !expanded && "overflow-hidden"
           )}
-          title={expanded ? undefined : tx.description}
+          title={expanded ? undefined : (tx.name ? `${tx.name}\n${tx.description}` : tx.description)}
         >
-          {tx.description}
+          <span className={cn("block", !expanded && "truncate")}>
+            {tx.name || tx.description}
+          </span>
+          {tx.name && tx.description && tx.description !== tx.name && (
+            <span className={cn("block text-xs text-muted-foreground", !expanded && "truncate")}>
+              {tx.description}
+            </span>
+          )}
         </button>
 
         {/* Amount */}
@@ -275,7 +281,7 @@ export function ImportReviewStep({
       const tx = transactions.find((t) => t.tempId === tempId);
       if (!tx) return;
 
-      const pattern = extractPattern(tx.description);
+      const pattern = extractPattern(tx.name || tx.description);
       const similar = findSimilar(pattern, tempId, transactions);
       const cat = categories.find((c) => c.id === categoryId);
 

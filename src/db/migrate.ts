@@ -88,6 +88,7 @@ export async function initializeDatabase() {
   await db.run(sql`ALTER TABLE accounts ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0`).catch(() => {});
   await db.run(sql`ALTER TABLE transactions ADD COLUMN reimburses_transaction_id TEXT`).catch(() => {});
   await db.run(sql`ALTER TABLE transactions ADD COLUMN group_id TEXT`).catch(() => {});
+  await db.run(sql`ALTER TABLE transactions ADD COLUMN name TEXT`).catch(() => {});
 
   // category_source: tracks whether categoryId was set by a rule or manually.
   // Backfill existing categorized rows as 'manual' so a subsequent "Recalculate

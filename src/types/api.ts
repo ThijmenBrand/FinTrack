@@ -50,6 +50,7 @@ export interface Transaction {
   accountId: string;
   accountName: string | null;
   date: string;
+  name: string | null;
   description: string;
   amount: number;
   balance: number | null;
@@ -406,6 +407,7 @@ export interface AuditLogResponse {
 
 export interface PreviewTransaction {
   date: string;
+  name: string | null;
   description: string;
   amount: number;
   balance: number | null;

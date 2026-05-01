@@ -9,7 +9,7 @@ import {
   parseDate,
   matchesRule,
   extractPattern,
-  combineNameAndDescription,
+  splitNameAndDescription,
   type ColumnMapping,
   type PreviewTransaction,
 } from "@/lib/csv-utils";
@@ -107,7 +107,9 @@ export async function POST(request: NextRequest) {
       const amountRaw = row[mapping.amount]?.trim();
       const balanceRaw = mapping.balance ? row[mapping.balance]?.trim() : undefined;
 
-      let description = combineNameAndDescription(nameRaw, descRaw);
+      const split = splitNameAndDescription(nameRaw, descRaw);
+      const name: string | null = split.name;
+      let description = split.description;
 
       // Fallback: scan other columns if both mapped fields were empty
       if (!description) {
@@ -170,13 +172,16 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Auto-categorize using rules (skip if already detected as transfer)
+      // Auto-categorize using rules (skip if already detected as transfer).
+      // Match against the combined "name — description" so existing rules built
+      // against the previously-concatenated label keep working after the split.
+      const matchTarget = name ? `${name} — ${description}` : description;
       let categoryId: string | null = null;
       if (type === "internal_transfer" && transferCategory) {
         categoryId = transferCategory.id;
       } else {
         for (const rule of rules) {
-          if (matchesRule(description, rule.pattern, rule.matchType)) {
+          if (matchesRule(matchTarget, rule.pattern, rule.matchType)) {
             categoryId = rule.categoryId;
             break;
           }
@@ -186,6 +191,7 @@ export async function POST(request: NextRequest) {
       transactions.push({
         tempId: crypto.randomUUID(),
         date,
+        name,
         description,
         amount,
         balance: balance !== null && isNaN(balance) ? null : balance,

@@ -90,10 +90,11 @@ export async function PUT(request: NextRequest) {
           break;
       }
 
+      const matchTargetSql = sql`LOWER(IIF(${transactions.name} IS NOT NULL, ${transactions.name} || ' — ', '') || ${transactions.description})`;
       const condition =
         matchType === "exact"
-          ? sql`LOWER(${transactions.description}) = LOWER(${cleanPattern}) AND ${transactions.categoryId} IS NULL AND ${transactions.userId} = ${userId}`
-          : sql`LOWER(${transactions.description}) LIKE LOWER(${sqlPattern}) AND ${transactions.categoryId} IS NULL AND ${transactions.userId} = ${userId}`;
+          ? sql`${matchTargetSql} = LOWER(${cleanPattern}) AND ${transactions.categoryId} IS NULL AND ${transactions.userId} = ${userId}`
+          : sql`${matchTargetSql} LIKE LOWER(${sqlPattern}) AND ${transactions.categoryId} IS NULL AND ${transactions.userId} = ${userId}`;
 
       const result = await db
         .update(transactions)

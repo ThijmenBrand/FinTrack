@@ -61,6 +61,9 @@ export const transactions = sqliteTable("transactions", {
     .notNull()
     .references(() => accounts.id, { onDelete: "cascade" }),
   date: text("date").notNull(), // ISO date string
+  // Counterparty / payee from the CSV "name" column. Null for legacy rows
+  // imported before name and description were stored separately.
+  name: text("name"),
   description: text("description").notNull(),
   amount: real("amount").notNull(), // Positive = income, Negative = expense
   balance: real("balance"), // Running balance if provided by bank

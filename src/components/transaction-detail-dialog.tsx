@@ -110,14 +110,19 @@ export function TransactionDetailDialog({ transaction, onOpenChange, categories,
             <Tooltip>
               <TooltipTrigger asChild>
                 <DialogTitle className="text-base font-semibold leading-snug pr-6 truncate cursor-default">
-                  {tx.description}
+                  {tx.name || tx.description}
                 </DialogTitle>
               </TooltipTrigger>
               <TooltipContent side="bottom" className="max-w-sm break-words">
-                {tx.description}
+                {tx.name || tx.description}
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
+          {tx.name && tx.description && tx.description !== tx.name && (
+            <p className="text-xs text-muted-foreground pr-6 break-words pt-0.5">
+              {tx.description}
+            </p>
+          )}
           <DialogDescription asChild>
             <div className="flex items-center gap-2 pt-1">
               <Badge variant={typeInfo.variant} className="text-xs">
@@ -176,7 +181,7 @@ export function TransactionDetailDialog({ transaction, onOpenChange, categories,
             <span className="text-muted-foreground w-20 shrink-0">Category</span>
             <CategorizePopover
               transactionId={tx.id}
-              transactionDescription={tx.description}
+              transactionDescription={tx.name || tx.description}
               currentCategoryId={tx.categoryId}
               currentCategoryName={tx.categoryName}
               currentCategoryColor={tx.categoryColor}
