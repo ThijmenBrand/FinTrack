@@ -191,18 +191,31 @@ async function applyRuleToTransactions(
       break;
   }
 
+  // Look up the target category's kind so reserved categories also flip the
+  // matched transactions' type to 'reserved'.
+  const [targetCategory] = await db
+    .select({ kind: categories.kind })
+    .from(categories)
+    .where(eq(categories.id, categoryId))
+    .limit(1);
+  const isReserved = targetCategory?.kind === "reserved";
+
   // Update transactions that match the pattern and have no category. Match
   // against the combined "name — description" so legacy rows (name IS NULL)
-  // match on description alone, and new rows match on either field.
+  // match on description alone, and new rows match on either field. Restrict
+  // to income/expense rows so transfers/reimbursements aren't reclassified.
   const matchTargetSql = sql`LOWER(IIF(${transactions.name} IS NOT NULL, ${transactions.name} || ' — ', '') || ${transactions.description})`;
   const condition =
     matchType === "exact"
-      ? sql`${matchTargetSql} = LOWER(${pattern}) AND ${transactions.categoryId} IS NULL AND ${transactions.userId} = ${userId}`
-      : sql`${matchTargetSql} LIKE LOWER(${sqlPattern}) AND ${transactions.categoryId} IS NULL AND ${transactions.userId} = ${userId}`;
+      ? sql`${matchTargetSql} = LOWER(${pattern}) AND ${transactions.categoryId} IS NULL AND ${transactions.userId} = ${userId} AND ${transactions.type} IN ('income', 'expense')`
+      : sql`${matchTargetSql} LIKE LOWER(${sqlPattern}) AND ${transactions.categoryId} IS NULL AND ${transactions.userId} = ${userId} AND ${transactions.type} IN ('income', 'expense')`;
+
+  const updateSet: Record<string, unknown> = { categoryId, categorySource: "rule" };
+  if (isReserved) updateSet.type = "reserved";
 
   const result = await db
     .update(transactions)
-    .set({ categoryId, categorySource: "rule" })
+    .set(updateSet)
     .where(condition);
 
   return result.rowsAffected;

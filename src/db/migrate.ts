@@ -108,6 +108,7 @@ export async function initializeDatabase() {
   await db.run(sql`ALTER TABLE budgets ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`).catch(() => {});
   await db.run(sql`ALTER TABLE budgets ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'`).catch(() => {});
   await db.run(sql`ALTER TABLE budgets ADD COLUMN generated_at TEXT`).catch(() => {});
+  await db.run(sql`ALTER TABLE categories ADD COLUMN kind TEXT NOT NULL DEFAULT 'spending'`).catch(() => {});
 
   // user_preferences table — automation settings per user
   await db.run(sql`
@@ -165,11 +166,17 @@ export async function initializeDatabase() {
     console.error("Failed to migrate categories UNIQUE constraint:", e);
   }
 
-  // Migrate transactions CHECK constraint to include 'reimbursement'
+  // Migrate transactions CHECK constraint to include 'reimbursement' and 'reserved'.
+  // Two distinct upgrade paths converge on the same final shape:
+  //   (a) very old DB: missing 'reimbursement' (and 'reserved').
+  //   (b) DB already migrated past (a) but missing 'reserved'.
   try {
     const tableInfo = await db.run(sql`SELECT sql FROM sqlite_master WHERE type='table' AND name='transactions'`);
     const createSql = (tableInfo.rows[0] as Record<string, unknown>)?.sql as string || "";
-    if (createSql.includes("'internal_transfer')") && !createSql.includes("'reimbursement'")) {
+    const needsRebuild =
+      createSql.includes("'internal_transfer')") ||
+      (createSql.includes("'reimbursement'") && !createSql.includes("'reserved'"));
+    if (needsRebuild) {
       await db.run(sql`PRAGMA foreign_keys = OFF`);
       await db.run(sql`
         CREATE TABLE transactions_new (
@@ -179,7 +186,7 @@ export async function initializeDatabase() {
           date TEXT NOT NULL, description TEXT NOT NULL,
           amount REAL NOT NULL, balance REAL,
           category_id TEXT REFERENCES categories(id),
-          type TEXT NOT NULL CHECK(type IN ('income', 'expense', 'internal_transfer', 'reimbursement')),
+          type TEXT NOT NULL CHECK(type IN ('income', 'expense', 'internal_transfer', 'reimbursement', 'reserved')),
           linked_transaction_id TEXT, reimburses_transaction_id TEXT,
           notes TEXT, is_manual INTEGER NOT NULL DEFAULT 0,
           import_batch_id TEXT, group_id TEXT, created_at TEXT NOT NULL
@@ -198,6 +205,44 @@ export async function initializeDatabase() {
     }
   } catch (e) {
     console.error("Failed to migrate transactions CHECK constraint:", e);
+  }
+
+  // recurring_transactions originally had CHECK(type IN ('income', 'expense')).
+  // Add 'reserved' so users can schedule recurring set-aside transfers.
+  try {
+    const tableInfo = await db.run(sql`SELECT sql FROM sqlite_master WHERE type='table' AND name='recurring_transactions'`);
+    const createSql = (tableInfo.rows[0] as Record<string, unknown>)?.sql as string || "";
+    if (createSql.length > 0 && !createSql.includes("'reserved'")) {
+      await db.run(sql`PRAGMA foreign_keys = OFF`);
+      await db.run(sql`
+        CREATE TABLE recurring_transactions_new (
+          id TEXT PRIMARY KEY,
+          user_id TEXT REFERENCES "user"(id) ON DELETE CASCADE,
+          account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+          description TEXT NOT NULL,
+          amount REAL NOT NULL,
+          type TEXT NOT NULL CHECK(type IN ('income', 'expense', 'reserved')),
+          category_id TEXT REFERENCES categories(id),
+          frequency TEXT NOT NULL,
+          day_of_week INTEGER, day_of_month INTEGER, month_of_year INTEGER,
+          start_date TEXT NOT NULL, end_date TEXT,
+          is_active INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT NOT NULL
+        )
+      `);
+      await db.run(sql`
+        INSERT INTO recurring_transactions_new
+        SELECT id, user_id, account_id, description, amount, type, category_id,
+               frequency, day_of_week, day_of_month, month_of_year,
+               start_date, end_date, is_active, created_at
+        FROM recurring_transactions
+      `);
+      await db.run(sql`DROP TABLE recurring_transactions`);
+      await db.run(sql`ALTER TABLE recurring_transactions_new RENAME TO recurring_transactions`);
+      await db.run(sql`PRAGMA foreign_keys = ON`);
+    }
+  } catch (e) {
+    console.error("Failed to migrate recurring_transactions CHECK constraint:", e);
   }
 
   // Migrate existing 1:1 reimbursement links to junction table

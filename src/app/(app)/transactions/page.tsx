@@ -96,6 +96,7 @@ const TYPE_BADGES: Record<string, { label: string; variant: "default" | "seconda
   expense: { label: "Expense", variant: "destructive" },
   internal_transfer: { label: "Transfer", variant: "secondary" },
   reimbursement: { label: "Reimbursement", variant: "outline" },
+  reserved: { label: "Reserved", variant: "secondary" },
 };
 
 const TYPE_OPTIONS = [
@@ -103,6 +104,7 @@ const TYPE_OPTIONS = [
   { value: "expense", label: "Expense" },
   { value: "internal_transfer", label: "Transfer" },
   { value: "reimbursement", label: "Reimbursement" },
+  { value: "reserved", label: "Reserved" },
 ];
 
 const PERIOD_OPTIONS = [

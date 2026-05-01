@@ -19,9 +19,13 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    // Check if we're assigning or removing the "Internal Transfer" category
+    // Look up target category to derive transaction type from category kind
+    // (kind='reserved' → type='reserved'; "Internal Transfer" → 'internal_transfer').
     const [targetCategory] = categoryId
-      ? await db.select({ name: categories.name }).from(categories).where(eq(categories.id, categoryId))
+      ? await db
+          .select({ name: categories.name, kind: categories.kind })
+          .from(categories)
+          .where(eq(categories.id, categoryId))
       : [null];
 
     const [currentTx] = await db
@@ -30,7 +34,9 @@ export async function PUT(request: NextRequest) {
       .where(and(eq(transactions.id, transactionId), eq(transactions.userId, userId)));
 
     const isAssigningTransfer = targetCategory?.name === "Internal Transfer";
+    const isAssigningReserved = targetCategory?.kind === "reserved";
     const isRemovingTransfer = !isAssigningTransfer && currentTx?.type === "internal_transfer";
+    const isRemovingReserved = !isAssigningReserved && currentTx?.type === "reserved";
 
     // Build update: sync type with category
     const updateSet: Record<string, unknown> = {
@@ -40,9 +46,13 @@ export async function PUT(request: NextRequest) {
 
     if (isAssigningTransfer) {
       updateSet.type = "internal_transfer";
+    } else if (isAssigningReserved) {
+      updateSet.type = "reserved";
     } else if (isRemovingTransfer && currentTx) {
       updateSet.type = currentTx.amount >= 0 ? "income" : "expense";
       updateSet.linkedTransactionId = null;
+    } else if (isRemovingReserved && currentTx) {
+      updateSet.type = currentTx.amount >= 0 ? "income" : "expense";
     }
 
     // Update the transaction's category (and type if needed)
@@ -93,12 +103,18 @@ export async function PUT(request: NextRequest) {
       const matchTargetSql = sql`LOWER(IIF(${transactions.name} IS NOT NULL, ${transactions.name} || ' — ', '') || ${transactions.description})`;
       const condition =
         matchType === "exact"
-          ? sql`${matchTargetSql} = LOWER(${cleanPattern}) AND ${transactions.categoryId} IS NULL AND ${transactions.userId} = ${userId}`
-          : sql`${matchTargetSql} LIKE LOWER(${sqlPattern}) AND ${transactions.categoryId} IS NULL AND ${transactions.userId} = ${userId}`;
+          ? sql`${matchTargetSql} = LOWER(${cleanPattern}) AND ${transactions.categoryId} IS NULL AND ${transactions.userId} = ${userId} AND ${transactions.type} IN ('income', 'expense')`
+          : sql`${matchTargetSql} LIKE LOWER(${sqlPattern}) AND ${transactions.categoryId} IS NULL AND ${transactions.userId} = ${userId} AND ${transactions.type} IN ('income', 'expense')`;
+
+      const ruleUpdate: Record<string, unknown> = {
+        categoryId,
+        categorySource: "rule",
+      };
+      if (isAssigningReserved) ruleUpdate.type = "reserved";
 
       const result = await db
         .update(transactions)
-        .set({ categoryId, categorySource: "rule" })
+        .set(ruleUpdate)
         .where(condition);
 
       appliedCount = result.rowsAffected;

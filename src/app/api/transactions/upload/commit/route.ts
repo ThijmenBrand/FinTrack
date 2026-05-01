@@ -81,6 +81,15 @@ export async function POST(request: NextRequest) {
       .from(categories)
       .where(and(eq(categories.name, "Internal Transfer"), eq(categories.userId, userId)));
 
+    // Reserved category IDs — when a rule maps a transaction here, type='reserved'.
+    const categoryKindRows = await db
+      .select({ id: categories.id, kind: categories.kind })
+      .from(categories)
+      .where(eq(categories.userId, userId));
+    const reservedCategoryIds = new Set(
+      categoryKindRows.filter((c) => c.kind === "reserved").map((c) => c.id)
+    );
+
     // Pre-fetch active rules so we can detect, per row, whether an incoming
     // categoryId is the result of a rule match (auto) or a user override during
     // review. Overrides must be marked 'manual' so Recalculate All preserves them.
@@ -116,7 +125,7 @@ export async function POST(request: NextRequest) {
       balance: number | null;
       categoryId: string | null;
       categorySource: "manual" | "rule" | null;
-      type: "income" | "expense" | "internal_transfer";
+      type: "income" | "expense" | "internal_transfer" | "reserved";
       linkedTransactionId: string | null;
       notes: string | null;
       isManual: boolean;
@@ -183,7 +192,7 @@ export async function POST(request: NextRequest) {
           balance: tx.balance,
           categoryId: tx.categoryId,
           categorySource: sourceForReviewedTx(tx.name, tx.description, tx.categoryId),
-          type: tx.type as "income" | "expense" | "internal_transfer",
+          type: tx.type as "income" | "expense" | "internal_transfer" | "reserved",
           linkedTransactionId: null,
           notes: null,
           isManual: false,
@@ -236,24 +245,34 @@ export async function POST(request: NextRequest) {
 
       // Match against the combined "name — description" so legacy rows (where
       // name IS NULL) still match on description alone, and new rows match on
-      // either field via the concatenation.
+      // either field via the concatenation. Restrict to income/expense rows so
+      // we don't overwrite intentional transfers/reimbursements.
       const matchTargetSql = sql`LOWER(IIF(${transactions.name} IS NOT NULL, ${transactions.name} || ' — ', '') || ${transactions.description})`;
+      const typeFilter = sql`${transactions.type} IN ('income', 'expense')`;
       const condition =
         rule.matchType === "exact"
           ? and(
               sql`${matchTargetSql} = ${rule.pattern.toLowerCase()}`,
               isNull(transactions.categoryId),
-              eq(transactions.userId, userId)
+              eq(transactions.userId, userId),
+              typeFilter
             )
           : and(
               sql`${matchTargetSql} LIKE LOWER(${sqlPattern})`,
               isNull(transactions.categoryId),
-              eq(transactions.userId, userId)
+              eq(transactions.userId, userId),
+              typeFilter
             );
+
+      const updateSet: Record<string, unknown> = {
+        categoryId: rule.categoryId,
+        categorySource: "rule",
+      };
+      if (reservedCategoryIds.has(rule.categoryId)) updateSet.type = "reserved";
 
       const result = await db
         .update(transactions)
-        .set({ categoryId: rule.categoryId, categorySource: "rule" })
+        .set(updateSet)
         .where(condition!);
 
       existingUpdated += (result as unknown as { rowsAffected?: number }).rowsAffected || 0;

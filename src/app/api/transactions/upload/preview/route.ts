@@ -96,6 +96,16 @@ export async function POST(request: NextRequest) {
       .from(categories)
       .where(and(eq(categories.name, "Internal Transfer"), eq(categories.userId, userId)));
 
+    // Reserved category IDs — when a rule maps a transaction into one of these,
+    // the resulting type is 'reserved' rather than 'expense' / 'income'.
+    const categoryKindRows = await db
+      .select({ id: categories.id, kind: categories.kind })
+      .from(categories)
+      .where(eq(categories.userId, userId));
+    const reservedCategoryIds = new Set(
+      categoryKindRows.filter((c) => c.kind === "reserved").map((c) => c.id)
+    );
+
     const allColumns = (parsed.meta.fields || []).filter((c) => c.length > 0);
     const transactions: PreviewTransaction[] = [];
     let skipped = 0;
@@ -152,7 +162,8 @@ export async function POST(request: NextRequest) {
       }
 
       const balance = balanceRaw ? parseAmount(balanceRaw) : null;
-      let type: "income" | "expense" | "internal_transfer" = amount >= 0 ? "income" : "expense";
+      let type: "income" | "expense" | "internal_transfer" | "reserved" =
+        amount >= 0 ? "income" : "expense";
 
       // Check for internal transfer via counterparty IBAN
       let targetAccountId: string | undefined;
@@ -186,6 +197,11 @@ export async function POST(request: NextRequest) {
             break;
           }
         }
+      }
+
+      // If the matched rule points at a reserved category, type follows.
+      if (categoryId && reservedCategoryIds.has(categoryId)) {
+        type = "reserved";
       }
 
       transactions.push({

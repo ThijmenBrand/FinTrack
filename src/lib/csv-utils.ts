@@ -19,7 +19,7 @@ export interface PreviewTransaction {
   description: string;
   amount: number;
   balance: number | null;
-  type: "income" | "expense" | "internal_transfer";
+  type: "income" | "expense" | "internal_transfer" | "reserved";
   categoryId: string | null;
   suggestedPattern: string;
   counterpartyIban?: string;

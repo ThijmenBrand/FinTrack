@@ -1,6 +1,6 @@
 import { db as defaultDb } from "@/db";
 import { transactions, categories } from "@/db/schema";
-import { eq, ne, and } from "drizzle-orm";
+import { eq, and, notInArray } from "drizzle-orm";
 
 /**
  * Detects internal transfers between accounts.
@@ -22,14 +22,20 @@ export async function detectTransfers(db: typeof defaultDb = defaultDb, userId?:
     return { matchedPairs: 0, totalTransactionsUpdated: 0 };
   }
 
-  // Find all transactions not yet flagged as transfers
+  // Find all transactions not yet flagged as transfers and not already
+  // intentionally categorized as reserved (e.g. savings) — those aren't
+  // candidates for transfer-pair detection.
+  const excludedTypes: ("internal_transfer" | "reserved")[] = [
+    "internal_transfer",
+    "reserved",
+  ];
   const allTx = await db
     .select()
     .from(transactions)
     .where(
       userId
-        ? and(ne(transactions.type, "internal_transfer"), eq(transactions.userId, userId))
-        : ne(transactions.type, "internal_transfer")
+        ? and(notInArray(transactions.type, excludedTypes), eq(transactions.userId, userId))
+        : notInArray(transactions.type, excludedTypes)
     );
 
   // Group by absolute amount for efficient matching

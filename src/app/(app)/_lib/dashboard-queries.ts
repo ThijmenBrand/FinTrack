@@ -325,7 +325,7 @@ export async function getMonthSummary(userId: string) {
         .from(sql`transactions t`)
         .innerJoin(sql`transaction_groups g`, sql`t.group_id = g.id`)
         .where(
-          sql`t.group_id IS NOT NULL AND t.user_id = ${userId} AND t.date >= ${monthStart} AND t.date <= ${monthEnd}`
+          sql`t.group_id IS NOT NULL AND t.type <> 'reserved' AND t.user_id = ${userId} AND t.date >= ${monthStart} AND t.date <= ${monthEnd}`
         ),
     ]);
 
@@ -530,6 +530,7 @@ export async function getMonthMoneyView(userId: string): Promise<MonthMoneyView>
   return {
     monthlyIncome: math.monthlyIncome,
     totalFixedCosts: math.totalFixedCosts,
+    reservedTotal: math.reservedTotal,
     spentThisMonth: math.spentThisMonth,
     freeToSpend: math.freeToSpend,
     freeToSpendAfterSpikes,

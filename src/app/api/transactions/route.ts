@@ -5,7 +5,7 @@ import { eq, desc, asc, and, gte, lte, like, or, sql } from "drizzle-orm";
 import { getUserId } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
 
-const VALID_TX_TYPES = ["income", "expense", "internal_transfer", "reimbursement"] as const;
+const VALID_TX_TYPES = ["income", "expense", "internal_transfer", "reimbursement", "reserved"] as const;
 type TxType = (typeof VALID_TX_TYPES)[number];
 
 // GET /api/transactions — list transactions with filtering, sorting, pagination

@@ -57,6 +57,7 @@ async function createSchema() {
     user_id TEXT,
     name TEXT NOT NULL,
     icon TEXT, color TEXT,
+    kind TEXT NOT NULL DEFAULT 'spending',
     created_at TEXT NOT NULL
   )`);
 

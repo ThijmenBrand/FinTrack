@@ -163,13 +163,16 @@ export async function GET() {
       0
     );
 
-    // 3. Get user-defined budget allocations (active only — suggestions are returned separately)
-    const allAllocations = await db
+    // 3. Get user-defined budget allocations (active only — suggestions are returned separately).
+    // Reserved-kind categories don't have spending limits; they are returned via
+    // a separate `reserved` array built from kind='reserved' categories below.
+    const allAllocationsRaw = await db
       .select({
         id: budgets.id,
         categoryId: budgets.categoryId,
         categoryName: categories.name,
         categoryColor: categories.color,
+        categoryKind: categories.kind,
         amount: budgets.amount,
         period: budgets.period,
         isActive: budgets.isActive,
@@ -185,6 +188,28 @@ export async function GET() {
           eq(budgets.isActive, true),
         ),
       );
+
+    const allAllocations = allAllocationsRaw.filter((a) => a.categoryKind !== "reserved");
+
+    // Reserved categories drive the "Reserved" section. Funded amount comes
+    // from actual type='reserved' transactions this month. An optional
+    // monthly target — stored as a budget on the reserved category — acts
+    // as a planned reservation.
+    const reservedCategories = await db
+      .select({
+        id: categories.id,
+        name: categories.name,
+        color: categories.color,
+      })
+      .from(categories)
+      .where(and(eq(categories.userId, userId), eq(categories.kind, "reserved")));
+
+    const reservedTargetByCategory = new Map<string, number>();
+    for (const a of allAllocationsRaw) {
+      if (a.categoryKind === "reserved") {
+        reservedTargetByCategory.set(a.categoryId, a.amount);
+      }
+    }
 
     // 3b. Get pending suggestions (system-generated proposals)
     const suggestionRows = await db
@@ -229,6 +254,32 @@ export async function GET() {
     for (const row of monthSpendRows) {
       if (!row.categoryId) continue;
       monthSpendByCategory.set(row.categoryId, row.total ?? 0);
+    }
+
+    // 3c. Reserved amount per category for the current month — sum of
+    // |amount| for type='reserved' transactions. Dynamic, no budget needed.
+    const reservedCategoryIds = reservedCategories.map((c) => c.id);
+    const reservedFundedByCategory = new Map<string, number>();
+    if (reservedCategoryIds.length > 0) {
+      const reservedFundedRows = await db
+        .select({
+          categoryId: transactions.categoryId,
+          total: sql<number>`sum(abs(${transactions.amount}))`,
+        })
+        .from(transactions)
+        .where(
+          and(
+            eq(transactions.userId, userId),
+            eq(transactions.type, "reserved"),
+            inArray(transactions.categoryId, reservedCategoryIds),
+            gte(transactions.date, from),
+            lte(transactions.date, to),
+          ),
+        )
+        .groupBy(transactions.categoryId);
+      for (const row of reservedFundedRows) {
+        if (row.categoryId) reservedFundedByCategory.set(row.categoryId, row.total ?? 0);
+      }
     }
 
     const allocationsWithSpending = allAllocations.map((alloc) => {
@@ -328,8 +379,32 @@ export async function GET() {
       (s, a) => s + a.amount,
       0
     );
-    const availableToAllocate = monthlyIncome - totalFixedCosts;
+    // Per-category reservation = max(actual, target). Matches month-money math
+    // so Free to Spend and the Budgets page agree.
+    let totalReserved = 0;
+    const reservedRowsBuilt = reservedCategories.map((c) => {
+      const funded = reservedFundedByCategory.get(c.id) || 0;
+      const target = reservedTargetByCategory.get(c.id) ?? null;
+      const effective = Math.max(funded, target ?? 0);
+      totalReserved += effective;
+      return {
+        categoryId: c.id,
+        categoryName: c.name,
+        categoryColor: c.color,
+        funded: Math.round(funded * 100) / 100,
+        target: target !== null ? Math.round(target * 100) / 100 : null,
+      };
+    });
+    const availableToAllocate = monthlyIncome - totalFixedCosts - totalReserved;
     const unallocated = availableToAllocate - totalAllocated;
+
+    const reserved = reservedRowsBuilt.sort((a, b) => {
+      // Sort by target if set, otherwise by funded — keeps planned categories
+      // visually anchored.
+      const aWeight = a.target ?? a.funded;
+      const bWeight = b.target ?? b.funded;
+      return bWeight - aWeight;
+    });
 
     // Build set of "tracked" category IDs (those with an allocation or fixed cost)
     const trackedCatIds = new Set<string>();
@@ -408,6 +483,7 @@ export async function GET() {
     return NextResponse.json({
       monthlyIncome: Math.round(monthlyIncome * 100) / 100,
       totalFixedCosts: Math.round(totalFixedCosts * 100) / 100,
+      totalReserved: Math.round(totalReserved * 100) / 100,
       availableToAllocate: Math.round(availableToAllocate * 100) / 100,
       totalAllocated: Math.round(totalAllocated * 100) / 100,
       unallocated: Math.round(unallocated * 100) / 100,
@@ -416,6 +492,7 @@ export async function GET() {
       unbudgetedSpending,
       fixedCosts: fixedCostsWithAvg,
       allocations: allocationsWithAvg,
+      reserved,
       suggestions,
       categoryAverages: allCategoryAvgs,
       automation: {
@@ -535,7 +612,7 @@ export async function PUT(request: NextRequest) {
   }
 }
 
-// DELETE /api/budgets — delete a budget allocation
+// DELETE /api/budgets — delete a budget allocation.
 export async function DELETE(request: NextRequest) {
   try {
     const userId = await getUserId();

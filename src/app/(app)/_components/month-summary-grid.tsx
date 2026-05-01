@@ -85,6 +85,9 @@ export async function MonthSummaryGrid({ userId }: { userId: string }) {
             <p className="text-xs text-muted-foreground">
               Income {formatCurrency(money.monthlyIncome)} − fixed{" "}
               {formatCurrency(money.totalFixedCosts)}
+              {money.reservedTotal > 0 && (
+                <> − reserved {formatCurrency(money.reservedTotal)}</>
+              )}
             </p>
           )}
         </CardContent>
