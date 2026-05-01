@@ -165,10 +165,7 @@ export function Sidebar() {
               )}
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                onSelect={(e) => {
-                  e.preventDefault();
-                  setTheme("light");
-                }}
+                onSelect={() => setTheme("light")}
                 className="flex items-center gap-2"
               >
                 <Sun className="h-4 w-4" />
@@ -176,10 +173,7 @@ export function Sidebar() {
                 {theme === "light" && <Check className="ml-auto h-4 w-4" />}
               </DropdownMenuItem>
               <DropdownMenuItem
-                onSelect={(e) => {
-                  e.preventDefault();
-                  setTheme("dark");
-                }}
+                onSelect={() => setTheme("dark")}
                 className="flex items-center gap-2"
               >
                 <Moon className="h-4 w-4" />
@@ -187,10 +181,7 @@ export function Sidebar() {
                 {theme === "dark" && <Check className="ml-auto h-4 w-4" />}
               </DropdownMenuItem>
               <DropdownMenuItem
-                onSelect={(e) => {
-                  e.preventDefault();
-                  setTheme("pink");
-                }}
+                onSelect={() => setTheme("pink")}
                 className="flex items-center gap-2"
               >
                 <Heart className="h-4 w-4 fill-current" />

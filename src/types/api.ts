@@ -308,6 +308,7 @@ export interface UserPreferencesData {
   autoBudgetLookbackMonths: number;
   lastAutoBudgetCheckAt: string | null;
   financialMonthStartDay: number;
+  defaultAccountId: string | null;
 }
 
 export interface BalanceTimelineData {

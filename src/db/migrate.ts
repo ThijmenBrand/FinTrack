@@ -108,6 +108,7 @@ export async function initializeDatabase() {
   await db.run(sql`ALTER TABLE budgets ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`).catch(() => {});
   await db.run(sql`ALTER TABLE budgets ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'`).catch(() => {});
   await db.run(sql`ALTER TABLE budgets ADD COLUMN generated_at TEXT`).catch(() => {});
+  await db.run(sql`ALTER TABLE user_preferences ADD COLUMN default_account_id TEXT REFERENCES accounts(id) ON DELETE SET NULL`).catch(() => {});
 
   // user_preferences table — automation settings per user
   await db.run(sql`

@@ -2,10 +2,16 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import type { BudgetData, BudgetSuggestion, HistoryData, Transaction } from "@/types/api";
 
-export function useBudgets() {
+export function useBudgets(opts?: { dateFrom?: string; dateTo?: string }) {
+  const dateFrom = opts?.dateFrom || "";
+  const dateTo = opts?.dateTo || "";
+  const params = new URLSearchParams();
+  if (dateFrom) params.set("dateFrom", dateFrom);
+  if (dateTo) params.set("dateTo", dateTo);
+  const qs = params.toString();
   return useQuery({
-    queryKey: ["budgets"],
-    queryFn: () => apiFetch<BudgetData>("/api/budgets"),
+    queryKey: ["budgets", { dateFrom, dateTo }],
+    queryFn: () => apiFetch<BudgetData>(qs ? `/api/budgets?${qs}` : "/api/budgets"),
   });
 }
 

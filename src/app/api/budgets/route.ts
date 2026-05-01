@@ -26,6 +26,31 @@ function getCurrentMonthRange(): { from: string; to: string } {
   };
 }
 
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const AVG_DAYS_PER_MONTH = 30.4375;
+
+function rangeLabel(from: string, to: string): string {
+  const fromDate = new Date(from + "T00:00:00");
+  const toDate = new Date(to + "T00:00:00");
+  const sameYear = fromDate.getFullYear() === toDate.getFullYear();
+  const sameMonth = sameYear && fromDate.getMonth() === toDate.getMonth();
+
+  // Single calendar month covering its full span: "May 2026"
+  if (
+    sameMonth &&
+    fromDate.getDate() === 1 &&
+    toDate.getDate() ===
+      new Date(toDate.getFullYear(), toDate.getMonth() + 1, 0).getDate()
+  ) {
+    return fromDate.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  }
+
+  const monthFmt: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
+  const fromStr = fromDate.toLocaleDateString("en-US", monthFmt);
+  const toStr = toDate.toLocaleDateString("en-US", { ...monthFmt, year: "numeric" });
+  return `${fromStr} – ${toStr}`;
+}
+
 /**
  * Calculate monthly equivalent for a recurring transaction
  */
@@ -54,10 +79,33 @@ function toMonthly(amount: number, frequency: string): number {
  *  - unallocated: remaining amount not yet assigned
  *  - each allocation includes actual spending this month
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const userId = await getUserId();
-    const { from, to } = getCurrentMonthRange();
+    const { searchParams } = new URL(request.url);
+    const dateFromParam = searchParams.get("dateFrom");
+    const dateToParam = searchParams.get("dateTo");
+
+    // Use the requested range when both dates are present and well-formed;
+    // otherwise default to the current calendar month.
+    const useRange =
+      !!dateFromParam &&
+      !!dateToParam &&
+      ISO_DATE.test(dateFromParam) &&
+      ISO_DATE.test(dateToParam) &&
+      dateFromParam <= dateToParam;
+    const { from, to } = useRange
+      ? { from: dateFromParam!, to: dateToParam! }
+      : getCurrentMonthRange();
+
+    // Scale monthly budget figures so they're comparable to spending in the range.
+    // E.g. a 3-month range scales the monthly cap ×3 so spent-vs-budget is apples-to-apples.
+    // Only applied when the caller passed an explicit range — without it (the Budgets page),
+    // amounts stay at their stored monthly values.
+    const fromTime = new Date(from + "T00:00:00").getTime();
+    const toTime = new Date(to + "T00:00:00").getTime();
+    const daysInRange = Math.max(1, (toTime - fromTime) / 86_400_000 + 1);
+    const monthsScale = useRange ? daysInRange / AVG_DAYS_PER_MONTH : 1;
 
     // 0. Get pot spending by category for current month
     // Each pot's net amount (abs of sum of member transactions) counts toward the pot's category
@@ -232,14 +280,16 @@ export async function GET() {
     }
 
     const allocationsWithSpending = allAllocations.map((alloc) => {
+      const scaledAmount = alloc.amount * monthsScale;
       const txSpent = monthSpendByCategory.get(alloc.categoryId) || 0;
       const potSpent = potSpendingByCategory.get(alloc.categoryId) || 0;
       const spent = txSpent + potSpent;
-      const percentage = alloc.amount > 0 ? (spent / alloc.amount) * 100 : 0;
+      const percentage = scaledAmount > 0 ? (spent / scaledAmount) * 100 : 0;
       return {
         ...alloc,
+        amount: scaledAmount,
         spent,
-        remaining: Math.max(0, alloc.amount - spent),
+        remaining: Math.max(0, scaledAmount - spent),
         percentage: Math.round(percentage * 10) / 10,
         status:
           percentage >= 100
@@ -251,10 +301,13 @@ export async function GET() {
     });
 
     const fixedCostsWithSpending = fixedCosts.map((fc) => {
-      if (fc.categoryId === "uncategorized") return { ...fc, spent: 0 };
+      const scaledMonthly = fc.monthlyAmount * monthsScale;
+      if (fc.categoryId === "uncategorized") {
+        return { ...fc, monthlyAmount: scaledMonthly, spent: 0 };
+      }
       const txSpent = monthSpendByCategory.get(fc.categoryId) || 0;
       const potSpent = potSpendingByCategory.get(fc.categoryId) || 0;
-      return { ...fc, spent: txSpent + potSpent };
+      return { ...fc, monthlyAmount: scaledMonthly, spent: txSpent + potSpent };
     });
 
     // 5. Calculate average monthly spending per category (across all past complete months)
@@ -324,11 +377,14 @@ export async function GET() {
       allCategoryAvgs[catId] = data.avgMonthly;
     }
 
-    const totalAllocated = allAllocations.reduce(
+    const totalAllocatedMonthly = allAllocations.reduce(
       (s, a) => s + a.amount,
       0
     );
-    const availableToAllocate = monthlyIncome - totalFixedCosts;
+    const scaledMonthlyIncome = monthlyIncome * monthsScale;
+    const scaledTotalFixedCosts = totalFixedCosts * monthsScale;
+    const totalAllocated = totalAllocatedMonthly * monthsScale;
+    const availableToAllocate = scaledMonthlyIncome - scaledTotalFixedCosts;
     const unallocated = availableToAllocate - totalAllocated;
 
     // Build set of "tracked" category IDs (those with an allocation or fixed cost)
@@ -382,7 +438,7 @@ export async function GET() {
     let totalSpentThisMonth = 0;
     for (const amount of monthSpendByCategory.values()) totalSpentThisMonth += amount;
     for (const amount of potSpendingByCategory.values()) totalSpentThisMonth += amount;
-    const totalBudget = totalFixedCosts + totalAllocated;
+    const totalBudget = scaledTotalFixedCosts + totalAllocated;
 
     // Build suggestion DTOs with per-category context (current amount, avg).
     const activeAmountByCategory = new Map<string, number>();
@@ -406,8 +462,8 @@ export async function GET() {
     const regenerationDue = prefs.autoBudgetEnabled && isRegenerationDue(prefs.lastAutoBudgetCheckAt, prefs.autoBudgetIntervalMonths);
 
     return NextResponse.json({
-      monthlyIncome: Math.round(monthlyIncome * 100) / 100,
-      totalFixedCosts: Math.round(totalFixedCosts * 100) / 100,
+      monthlyIncome: Math.round(scaledMonthlyIncome * 100) / 100,
+      totalFixedCosts: Math.round(scaledTotalFixedCosts * 100) / 100,
       availableToAllocate: Math.round(availableToAllocate * 100) / 100,
       totalAllocated: Math.round(totalAllocated * 100) / 100,
       unallocated: Math.round(unallocated * 100) / 100,
@@ -428,10 +484,7 @@ export async function GET() {
       month: {
         from,
         to,
-        label: new Date(from).toLocaleDateString("en-US", {
-          month: "long",
-          year: "numeric",
-        }),
+        label: rangeLabel(from, to),
       },
     });
   } catch (error) {
