@@ -11,6 +11,7 @@ import { eq, and, gte, lte, sql, inArray } from "drizzle-orm";
 export interface MonthMoneyMath {
   monthlyIncome: number;
   totalFixedCosts: number;
+  reservedTotal: number;
   spentThisMonth: number;
   freeToSpend: number;
   hasIncome: boolean;
@@ -80,14 +81,24 @@ function getCurrentMonthRange(): { from: string; to: string } {
 /**
  * Compute the discretionary-remaining math for the current month.
  *
- * `freeToSpend = monthlyIncome − totalFixedCosts − spentThisMonth`
+ * `freeToSpend = monthlyIncome − totalFixedCosts − reservedTotal − spentThisMonth`
  *
- * `spentThisMonth` includes both ungrouped expense transactions (excluding
- * internal transfers) and the net spending from pots whose member transactions
- * fall in this month — matching the dashboard's existing month-summary logic.
+ * For each reserved-kind category, the contribution to `reservedTotal` is
+ * `max(actualThisMonth, monthlyTarget)`:
+ *   - With no target set, only actual `type='reserved'` transactions count
+ *     (dynamic).
+ *   - With a target set, the planned amount is reserved off the top — even
+ *     before any transactions land — so Free to Spend reflects the user's
+ *     savings commitment up front. Once actuals exceed the target, the
+ *     larger amount is used.
+ *
+ * `spentThisMonth` includes ungrouped expense transactions (excluding
+ * internal transfers and reserved transactions) and the net spending from pots
+ * whose member transactions fall in this month.
  *
  * The returned `allocations` map lets callers surface per-category warnings
- * (e.g. "this would push Entertainment over budget").
+ * (e.g. "this would push Entertainment over budget"). Reserved-kind categories
+ * are not included in `allocations`.
  */
 export async function getMonthMoneyMath(userId: string): Promise<MonthMoneyMath> {
   const { from, to } = getCurrentMonthRange();
@@ -97,6 +108,7 @@ export async function getMonthMoneyMath(userId: string): Promise<MonthMoneyMath>
     recurringExpenses,
     txExpense,
     potExpense,
+    txReserved,
     allBudgets,
   ] = await Promise.all([
     db
@@ -156,15 +168,34 @@ export async function getMonthMoneyMath(userId: string): Promise<MonthMoneyMath>
       .from(sql`transactions t`)
       .innerJoin(sql`transaction_groups g`, sql`t.group_id = g.id`)
       .where(
-        sql`t.group_id IS NOT NULL AND t.user_id = ${userId} AND t.date >= ${from} AND t.date <= ${to}`
+        sql`t.group_id IS NOT NULL AND t.type <> 'reserved' AND t.user_id = ${userId} AND t.date >= ${from} AND t.date <= ${to}`
       ),
+
+    db
+      .select({
+        categoryId: transactions.categoryId,
+        total: sql<number>`sum(abs(${transactions.amount}))`,
+      })
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.userId, userId),
+          eq(transactions.type, "reserved"),
+          sql`${transactions.groupId} IS NULL`,
+          gte(transactions.date, from),
+          lte(transactions.date, to)
+        )
+      )
+      .groupBy(transactions.categoryId),
 
     db
       .select({
         id: budgets.id,
         categoryId: budgets.categoryId,
         categoryName: categories.name,
+        categoryKind: categories.kind,
         amount: budgets.amount,
+        period: budgets.period,
       })
       .from(budgets)
       .leftJoin(categories, eq(budgets.categoryId, categories.id))
@@ -184,6 +215,36 @@ export async function getMonthMoneyMath(userId: string): Promise<MonthMoneyMath>
   const potNet = Number(potExpense[0]?.potNet) || 0;
   const spentThisMonth = combineMonthSpend(txTotal, potNet);
 
+  // Per-reserved-category math: the contribution is `max(actual, target)`.
+  // Without a target, only actual transactions count (dynamic). With a
+  // target, the planned amount is reserved up front; if actual exceeds it,
+  // the larger amount wins.
+  const reservedTargets = new Map<string, number>();
+  for (const b of allBudgets) {
+    if (b.categoryKind === "reserved") {
+      reservedTargets.set(b.categoryId, toMonthly(b.amount, b.period));
+    }
+  }
+  const reservedActuals = new Map<string, number>();
+  for (const r of txReserved) {
+    if (r.categoryId) reservedActuals.set(r.categoryId, Number(r.total) || 0);
+  }
+  const reservedCategoryIds = new Set<string>([
+    ...reservedTargets.keys(),
+    ...reservedActuals.keys(),
+  ]);
+  let reservedTotal = 0;
+  for (const id of reservedCategoryIds) {
+    reservedTotal += Math.max(
+      reservedActuals.get(id) ?? 0,
+      reservedTargets.get(id) ?? 0
+    );
+  }
+
+  // Reserved-kind categories never participate in the spending-allocation
+  // warnings — those are for discretionary categories with a spending limit.
+  const spendingBudgets = allBudgets.filter((b) => b.categoryKind !== "reserved");
+
   // Per-category spending for the budget warning. Pots count toward their
   // category, matching how the budgets page displays things.
   const allocations = new Map<
@@ -191,8 +252,8 @@ export async function getMonthMoneyMath(userId: string): Promise<MonthMoneyMath>
     { amount: number; spent: number; categoryName: string | null }
   >();
 
-  if (allBudgets.length > 0) {
-    const categoryIds = allBudgets.map((b) => b.categoryId);
+  if (spendingBudgets.length > 0) {
+    const categoryIds = spendingBudgets.map((b) => b.categoryId);
 
     const [perCatTx, perCatPot] = await Promise.all([
       db
@@ -240,7 +301,7 @@ export async function getMonthMoneyMath(userId: string): Promise<MonthMoneyMath>
 
     const spentByCat = mergeCategorySpend(perCatTx, perCatPot);
 
-    for (const b of allBudgets) {
+    for (const b of spendingBudgets) {
       allocations.set(b.categoryId, {
         amount: b.amount,
         spent: spentByCat.get(b.categoryId) ?? 0,
@@ -249,11 +310,12 @@ export async function getMonthMoneyMath(userId: string): Promise<MonthMoneyMath>
     }
   }
 
-  const freeToSpend = monthlyIncome - totalFixedCosts - spentThisMonth;
+  const freeToSpend = monthlyIncome - totalFixedCosts - reservedTotal - spentThisMonth;
 
   return {
     monthlyIncome,
     totalFixedCosts,
+    reservedTotal,
     spentThisMonth,
     freeToSpend,
     hasIncome: monthlyIncome > 0,

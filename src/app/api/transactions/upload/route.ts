@@ -67,6 +67,16 @@ export async function POST(request: NextRequest) {
       .from(categories)
       .where(and(eq(categories.name, "Internal Transfer"), eq(categories.userId, userId)));
 
+    // Map of categoryId → kind so we can derive type='reserved' when a rule
+    // points at a kind='reserved' category.
+    const categoryKindRows = await db
+      .select({ id: categories.id, kind: categories.kind })
+      .from(categories)
+      .where(eq(categories.userId, userId));
+    const reservedCategoryIds = new Set(
+      categoryKindRows.filter((c) => c.kind === "reserved").map((c) => c.id)
+    );
+
     // Create import batch
     const batchId = crypto.randomUUID();
     await db.insert(importBatches).values({
@@ -137,7 +147,7 @@ export async function POST(request: NextRequest) {
       }
 
       const balance = balanceRaw ? parseAmount(balanceRaw) : null;
-      const type = amount >= 0 ? "income" : "expense";
+      let type: "income" | "expense" | "reserved" = amount >= 0 ? "income" : "expense";
 
       // Auto-categorize using rules. Match against combined "name — description"
       // so legacy rules continue to match after the split.
@@ -149,6 +159,11 @@ export async function POST(request: NextRequest) {
           categoryId = rule.categoryId;
           break;
         }
+      }
+
+      // If the matched rule points at a reserved category, type follows.
+      if (categoryId && reservedCategoryIds.has(categoryId)) {
+        type = "reserved";
       }
 
       const txId = crypto.randomUUID();
@@ -163,7 +178,7 @@ export async function POST(request: NextRequest) {
         balance: isNaN(balance as number) ? null : balance,
         categoryId,
         categorySource: categoryId ? ("rule" as const) : null,
-        type: type as "income" | "expense" | "internal_transfer",
+        type,
         linkedTransactionId: null,
         notes: null,
         isManual: false,

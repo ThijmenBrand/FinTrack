@@ -49,6 +49,7 @@ import {
   Loader2,
   Lock,
   Coins,
+  PiggyBank,
   Sparkles,
   Check,
   ChevronDown,
@@ -513,6 +514,86 @@ export default function BudgetsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Reserved (savings / set-aside) */}
+      {data.reserved && data.reserved.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <PiggyBank className="h-4 w-4 text-blue-500 dark:text-blue-400" />
+                <CardTitle className="text-base">Reserved</CardTitle>
+              </div>
+              <span className="text-sm tabular-nums text-muted-foreground">
+                {formatCurrency(data.totalReserved)}/mo · {data.reserved.length}
+              </span>
+            </div>
+            <CardDescription className="pt-1">
+              Set aside off Free to Spend. Categories with a monthly target
+              count their target — or actuals, whichever is larger — toward
+              the budget.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="px-0 sm:px-6">
+            <ul className="divide-y border-y sm:border-x sm:rounded-md">
+              {data.reserved.map((r) => {
+                const hasTarget = r.target !== null && r.target > 0;
+                const pct =
+                  hasTarget && r.target! > 0
+                    ? Math.min(100, (r.funded / r.target!) * 100)
+                    : 0;
+                return (
+                  <li
+                    key={r.categoryId}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => router.push(`/transactions?category=${r.categoryId}`)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        router.push(`/transactions?category=${r.categoryId}`);
+                      }
+                    }}
+                    className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/40 transition-colors cursor-pointer"
+                  >
+                    <span
+                      className="h-2.5 w-2.5 rounded-sm shrink-0"
+                      style={{ backgroundColor: r.categoryColor || "#3b82f6" }}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-baseline justify-between gap-2 flex-wrap">
+                        <span className="text-sm font-medium truncate">
+                          {r.categoryName ?? "Unknown"}
+                        </span>
+                        <span className="text-xs tabular-nums text-muted-foreground">
+                          {hasTarget
+                            ? `${formatCurrency(r.funded)} of ${formatCurrency(r.target!)}`
+                            : formatCurrency(r.funded)}
+                        </span>
+                      </div>
+                      {hasTarget && (
+                        <div className="mt-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                          <div
+                            className="h-full bg-blue-500 dark:bg-blue-400 transition-all duration-500"
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+            <p className="px-4 pt-3 text-xs text-muted-foreground">
+              Set or change a monthly target on the{" "}
+              <Link href="/settings/categories" className="underline">
+                Categories
+              </Link>{" "}
+              page.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Fixed Costs — collapsible */}
       <Card>

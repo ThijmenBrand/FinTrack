@@ -74,6 +74,14 @@ export async function regenerateBudgetSuggestions(
     fixedCostRows.map((r) => r.categoryId).filter((id): id is string => !!id),
   );
 
+  // Reserved categories (savings/tax pot) are user-curated reservations, not
+  // discretionary spending — auto-budget shouldn't suggest amounts for them.
+  const reservedCategoryRows = await db
+    .select({ id: categories.id })
+    .from(categories)
+    .where(and(eq(categories.userId, userId), eq(categories.kind, "reserved")));
+  const reservedCategoryIds = new Set(reservedCategoryRows.map((r) => r.id));
+
   // Total expense per category over the lookback window, with reimbursements
   // subtracted and pot transactions excluded (mirroring the budget page logic).
   const spendRows = await db
@@ -131,6 +139,7 @@ export async function regenerateBudgetSuggestions(
   for (const row of spendRows) {
     if (!row.categoryId) continue;
     if (fixedCategoryIds.has(row.categoryId)) continue;
+    if (reservedCategoryIds.has(row.categoryId)) continue;
 
     const totalSpent = row.total ?? 0;
     const monthsObserved = row.monthsCovered ?? 0;

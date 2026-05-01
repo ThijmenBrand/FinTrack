@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { categoryRules, transactions } from "@/db/schema";
+import { categoryRules, categories, transactions } from "@/db/schema";
 import { sql, eq, and } from "drizzle-orm";
 import { getUserId } from "@/lib/auth";
 
@@ -16,6 +16,15 @@ export async function POST() {
     const userId = await getUserId();
 
     // Step 1: Clear only rule-applied category assignments. Manual ones survive.
+    // Rule-applied transactions in reserved categories carried type='reserved';
+    // restore type from amount sign before nulling the category.
+    await db.run(sql`
+      UPDATE transactions
+         SET type = CASE WHEN amount >= 0 THEN 'income' ELSE 'expense' END
+       WHERE user_id = ${userId}
+         AND category_source = 'rule'
+         AND type = 'reserved'
+    `);
     await db
       .update(transactions)
       .set({ categoryId: null, categorySource: null })
@@ -26,10 +35,18 @@ export async function POST() {
         )
       );
 
-    // Step 2: Fetch all active rules
+    // Step 2: Fetch all active rules joined with category kind so we can
+    // sync type='reserved' when applying.
     const allRules = await db
-      .select()
+      .select({
+        id: categoryRules.id,
+        pattern: categoryRules.pattern,
+        categoryId: categoryRules.categoryId,
+        matchType: categoryRules.matchType,
+        kind: categories.kind,
+      })
       .from(categoryRules)
+      .leftJoin(categories, eq(categoryRules.categoryId, categories.id))
       .where(and(eq(categoryRules.isActive, true), eq(categoryRules.userId, userId)));
 
     // Step 3: Apply each rule in order
@@ -37,7 +54,13 @@ export async function POST() {
     const ruleResults: { pattern: string; matchType: string; applied: number }[] = [];
 
     for (const rule of allRules) {
-      const applied = await applyRule(rule.pattern, rule.categoryId, rule.matchType, userId);
+      const applied = await applyRule(
+        rule.pattern,
+        rule.categoryId,
+        rule.matchType,
+        userId,
+        rule.kind === "reserved"
+      );
       totalApplied += applied;
       ruleResults.push({
         pattern: rule.pattern,
@@ -81,7 +104,8 @@ async function applyRule(
   pattern: string,
   categoryId: string,
   matchType: string,
-  userId: string
+  userId: string,
+  isReservedCategory: boolean
 ): Promise<number> {
   let sqlPattern: string;
   switch (matchType) {
@@ -99,15 +123,20 @@ async function applyRule(
 
   // Match against the combined "name — description" so legacy rows (name IS
   // NULL) match on description alone, and new rows match on either field.
+  // Only auto-categorize income/expense rows; transfers and reimbursements
+  // are managed through their own flows.
   const matchTargetSql = sql`LOWER(IIF(${transactions.name} IS NOT NULL, ${transactions.name} || ' — ', '') || ${transactions.description})`;
   const condition =
     matchType === "exact"
-      ? sql`${matchTargetSql} = LOWER(${pattern}) AND ${transactions.categoryId} IS NULL AND ${transactions.userId} = ${userId}`
-      : sql`${matchTargetSql} LIKE LOWER(${sqlPattern}) AND ${transactions.categoryId} IS NULL AND ${transactions.userId} = ${userId}`;
+      ? sql`${matchTargetSql} = LOWER(${pattern}) AND ${transactions.categoryId} IS NULL AND ${transactions.userId} = ${userId} AND ${transactions.type} IN ('income', 'expense')`
+      : sql`${matchTargetSql} LIKE LOWER(${sqlPattern}) AND ${transactions.categoryId} IS NULL AND ${transactions.userId} = ${userId} AND ${transactions.type} IN ('income', 'expense')`;
+
+  const updateSet: Record<string, unknown> = { categoryId, categorySource: "rule" };
+  if (isReservedCategory) updateSet.type = "reserved";
 
   const result = await db
     .update(transactions)
-    .set({ categoryId, categorySource: "rule" })
+    .set(updateSet)
     .where(condition);
 
   return result.rowsAffected;

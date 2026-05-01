@@ -17,6 +17,7 @@ export interface Category {
   name: string;
   color: string | null;
   icon: string | null;
+  kind: "spending" | "reserved";
 }
 
 export interface CategoryWithDetails extends Category {
@@ -58,7 +59,7 @@ export interface Transaction {
   categoryName: string | null;
   categoryColor: string | null;
   categoryIcon: string | null;
-  type: "income" | "expense" | "internal_transfer" | "reimbursement";
+  type: "income" | "expense" | "internal_transfer" | "reimbursement" | "reserved";
   linkedTransactionId: string | null;
   linkedAccountName: string | null;
   reimbursesTransactionId: string | null;
@@ -135,7 +136,7 @@ export interface PotLinkedTransaction {
   date: string;
   description: string;
   amount: number;
-  type: "income" | "expense" | "internal_transfer" | "reimbursement";
+  type: "income" | "expense" | "internal_transfer" | "reimbursement" | "reserved";
   categoryName: string | null;
   categoryColor: string | null;
 }
@@ -159,6 +160,7 @@ export interface PotDetails {
 export interface MonthMoneyView {
   monthlyIncome: number;
   totalFixedCosts: number;
+  reservedTotal: number;
   spentThisMonth: number;
   freeToSpend: number;
   freeToSpendAfterSpikes: number;
@@ -285,9 +287,18 @@ export interface UnbudgetedSpending {
   spent: number;
 }
 
+export interface ReservedCategory {
+  categoryId: string;
+  categoryName: string | null;
+  categoryColor: string | null;
+  funded: number;
+  target: number | null;
+}
+
 export interface BudgetData {
   monthlyIncome: number;
   totalFixedCosts: number;
+  totalReserved: number;
   availableToAllocate: number;
   totalAllocated: number;
   unallocated: number;
@@ -296,6 +307,7 @@ export interface BudgetData {
   unbudgetedSpending: UnbudgetedSpending[];
   fixedCosts: FixedCost[];
   allocations: Allocation[];
+  reserved: ReservedCategory[];
   suggestions: BudgetSuggestion[];
   automation: AutomationState;
   categoryAverages: Record<string, number>;

@@ -9,7 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { AlertTriangle, TrendingDown, ArrowRight } from "lucide-react";
+import { AlertTriangle, TrendingDown, ArrowRight, PiggyBank } from "lucide-react";
 import type { BudgetData } from "@/types/api";
 
 function formatCurrency(amount: number) {
@@ -43,11 +43,14 @@ export function BudgetPerformance({ data }: BudgetPerformanceProps) {
   const hasAnyBudget =
     data.totalBudget > 0 ||
     data.allocations.length > 0 ||
-    data.fixedCosts.length > 0;
+    data.fixedCosts.length > 0 ||
+    (data.reserved?.length ?? 0) > 0;
 
   if (!hasAnyBudget) return null;
 
   const { totalBudget, totalSpentThisMonth, unbudgetedSpending } = data;
+  const reserved = data.reserved ?? [];
+  const totalReserved = data.totalReserved ?? 0;
 
   // Budgeted spending split into within-cap and over-cap parts
   let withinBudget = 0;
@@ -183,6 +186,24 @@ export function BudgetPerformance({ data }: BudgetPerformanceProps) {
             )}
           </div>
         </div>
+
+        {/* Reserved (savings / set-aside) — separate from spending budgets */}
+        {totalReserved > 0 && (
+          <div className="flex items-start gap-3 pt-2 border-t">
+            <PiggyBank className="h-4 w-4 mt-0.5 text-blue-500 dark:text-blue-400 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <h3 className="text-sm font-medium">
+                Reserved {formatCurrency(totalReserved)}
+                <span className="text-xs text-muted-foreground font-normal ml-1">
+                  this month across {reserved.length} categor{reserved.length === 1 ? "y" : "ies"}
+                </span>
+              </h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Set aside off Free to Spend, not part of spending totals.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Unbudgeted leakage list */}
         {unbudgetedSpending.length > 0 && (

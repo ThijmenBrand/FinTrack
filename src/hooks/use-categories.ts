@@ -13,18 +13,38 @@ export function useCategories() {
 export function useCreateCategory() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { name: string; color: string; icon: string | null }) =>
+    mutationFn: (payload: {
+      name: string;
+      color: string;
+      icon: string | null;
+      kind?: "spending" | "reserved";
+      budgetAmount?: number;
+    }) =>
       apiFetch("/api/categories", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["categories"] }); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["categories"] });
+      qc.invalidateQueries({ queryKey: ["budgets"] });
+    },
   });
 }
 
 export function useUpdateCategory() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { id: string; name: string; color: string; icon: string | null }) =>
+    mutationFn: (payload: {
+      id: string;
+      name: string;
+      color: string;
+      icon: string | null;
+      kind?: "spending" | "reserved";
+      budgetAmount?: number;
+    }) =>
       apiFetch("/api/categories", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["categories"] }); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["categories"] });
+      qc.invalidateQueries({ queryKey: ["budgets"] });
+      qc.invalidateQueries({ queryKey: ["transactions"] });
+    },
   });
 }
 
