@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useAccounts, useCreateAccount, useUpdateAccount, useDeleteAccount, useReorderAccounts } from "@/hooks/use-accounts";
+import { usePreferences, useUpdatePreferences } from "@/hooks/use-preferences";
 import type { Account } from "@/types/api";
 import {
   DndContext,
@@ -54,6 +55,8 @@ import {
   MoreVertical,
   GripVertical,
   Wallet,
+  Star,
+  StarOff,
 } from "lucide-react";
 
 const ACCOUNT_TYPES = [
@@ -94,13 +97,17 @@ const ACCOUNT_ICON_BG: Record<string, string> = {
 
 function SortableAccountCard({
   account,
+  isDefault,
   onEdit,
   onDelete,
+  onToggleDefault,
   formatCurrency: fmt,
 }: {
   account: Account;
+  isDefault: boolean;
   onEdit: (account: Account) => void;
   onDelete: (id: string) => void;
+  onToggleDefault: (id: string, makeDefault: boolean) => void;
   formatCurrency: (amount: number, currency?: string) => string;
 }) {
   const {
@@ -155,9 +162,20 @@ function SortableAccountCard({
               )}
             </div>
             <div className="min-w-0">
-              <h3 className="font-semibold text-sm leading-tight truncate">
-                {account.name}
-              </h3>
+              <div className="flex items-center gap-1.5">
+                <h3 className="font-semibold text-sm leading-tight truncate">
+                  {account.name}
+                </h3>
+                {isDefault && (
+                  <span
+                    className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
+                    title="Default account for Insights"
+                  >
+                    <Star className="h-2.5 w-2.5 fill-current" />
+                    Default
+                  </span>
+                )}
+              </div>
               <p className="text-xs text-muted-foreground truncate">
                 {account.bankName || "No bank"}
               </p>
@@ -177,6 +195,19 @@ function SortableAccountCard({
               <DropdownMenuItem onClick={() => onEdit(account)}>
                 <Pencil className="h-4 w-4" />
                 Edit account
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onToggleDefault(account.id, !isDefault)}>
+                {isDefault ? (
+                  <>
+                    <StarOff className="h-4 w-4" />
+                    Remove as default
+                  </>
+                ) : (
+                  <>
+                    <Star className="h-4 w-4" />
+                    Set as default
+                  </>
+                )}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
@@ -232,6 +263,8 @@ const emptyAccounts: Account[] = [];
 
 export default function AccountsPage() {
   const { data: accountsData = emptyAccounts, isLoading: loading } = useAccounts();
+  const { data: prefs } = usePreferences();
+  const updatePrefs = useUpdatePreferences();
   const createAccount = useCreateAccount();
   const updateAccount = useUpdateAccount();
   const deleteAccount = useDeleteAccount();
@@ -294,6 +327,10 @@ export default function AccountsPage() {
 
   const handleDelete = async (id: string) => {
     await deleteAccount.mutateAsync(id);
+  };
+
+  const handleToggleDefault = async (id: string, makeDefault: boolean) => {
+    await updatePrefs.mutateAsync({ defaultAccountId: makeDefault ? id : null });
   };
 
   const sensors = useSensors(
@@ -505,8 +542,10 @@ export default function AccountsPage() {
                 <SortableAccountCard
                   key={account.id}
                   account={account}
+                  isDefault={prefs?.defaultAccountId === account.id}
                   onEdit={openEditDialog}
                   onDelete={handleDelete}
+                  onToggleDefault={handleToggleDefault}
                   formatCurrency={formatCurrency}
                 />
               ))}

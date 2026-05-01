@@ -182,6 +182,8 @@ export const userPreferences = sqliteTable("user_preferences", {
   lastAutoBudgetCheckAt: text("last_auto_budget_check_at"),
   // 1 = calendar month; 2-28 shifts the "financial month" boundary (e.g. 8 = 8th to 7th).
   financialMonthStartDay: integer("financial_month_start_day").notNull().default(1),
+  // Account selected by default in the Insights account filter. Null = "All accounts".
+  defaultAccountId: text("default_account_id").references(() => accounts.id, { onDelete: "set null" }),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),

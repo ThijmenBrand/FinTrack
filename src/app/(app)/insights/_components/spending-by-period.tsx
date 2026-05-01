@@ -98,7 +98,7 @@ export function SpendingByPeriod({
   dailyTotals,
   monthlyTotals,
 }: SpendingByPeriodProps) {
-  const [granularity, setGranularity] = useState<Granularity>("monthly");
+  const [granularity, setGranularity] = useState<Granularity>("weekly");
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
 
   const entries: PeriodEntry[] = useMemo(() => {

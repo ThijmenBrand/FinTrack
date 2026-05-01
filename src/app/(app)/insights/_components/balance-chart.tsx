@@ -224,7 +224,9 @@ export function BalanceChart({ data, isLoading, accountLabel }: Props) {
     return out;
   })();
 
-  const todayX = projStartIdx > 0 ? xFor(projStartIdx - 1) : null;
+  const hasProjection = data!.projected.length > 0;
+  const todayX =
+    hasProjection && projStartIdx > 0 ? xFor(projStartIdx - 1) : null;
   const isZoomed = view.start > 0.001 || view.end < 0.999;
 
   const onMove: React.MouseEventHandler<SVGSVGElement> = (e) => {
@@ -338,7 +340,8 @@ export function BalanceChart({ data, isLoading, accountLabel }: Props) {
           <div>
             <CardTitle className="text-base">Balance over time</CardTitle>
             <p className="text-xs text-muted-foreground mt-1">
-              {accountLabel} · projected for next 3 months
+              {accountLabel}
+              {hasProjection ? " · projected for next 3 months" : ""}
             </p>
           </div>
           <div className="text-right">
@@ -549,13 +552,15 @@ export function BalanceChart({ data, isLoading, accountLabel }: Props) {
             />
             Actual balance
           </span>
-          <span className="flex items-center gap-1.5">
-            <span
-              className="h-0.5 w-4 rounded-sm border-t-2 border-dashed"
-              style={{ borderColor: colorProj }}
-            />
-            Projected (recurring + spikes)
-          </span>
+          {hasProjection && (
+            <span className="flex items-center gap-1.5">
+              <span
+                className="h-0.5 w-4 rounded-sm border-t-2 border-dashed"
+                style={{ borderColor: colorProj }}
+              />
+              Projected (recurring + spikes)
+            </span>
+          )}
         </div>
       </CardContent>
     </Card>

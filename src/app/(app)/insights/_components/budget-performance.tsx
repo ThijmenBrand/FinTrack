@@ -27,6 +27,10 @@ function daysLeftInMonth(toDate: string): number {
   return Math.ceil(ms / (1000 * 60 * 60 * 24));
 }
 
+function isPastRange(toDate: string): boolean {
+  return new Date(toDate + "T23:59:59").getTime() < Date.now();
+}
+
 interface BudgetPerformanceProps {
   data: BudgetData | null;
 }
@@ -74,12 +78,14 @@ export function BudgetPerformance({ data }: BudgetPerformanceProps) {
   const unbudgetedPct = (unbudgetedTotal / reference) * 100;
   const budgetMarkerPct = (totalBudget / reference) * 100;
 
-  const daysLeft = daysLeftInMonth(data.month.to);
+  const pastRange = isPastRange(data.month.to);
+  const daysLeft = pastRange ? 0 : daysLeftInMonth(data.month.to);
 
   const navigateToCategory = (categoryId: string) => {
     const params = new URLSearchParams();
     params.set("category", categoryId);
-    params.set("period", "this-month");
+    params.set("dateFrom", data.month.from);
+    params.set("dateTo", data.month.to);
     router.push(`/transactions?${params.toString()}`);
   };
 
@@ -88,9 +94,12 @@ export function BudgetPerformance({ data }: BudgetPerformanceProps) {
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div>
-            <CardTitle className="text-base">Monthly Budget Performance</CardTitle>
+            <CardTitle className="text-base">Budget Performance</CardTitle>
             <CardDescription>
-              {data.month.label} · {daysLeft} day{daysLeft === 1 ? "" : "s"} left
+              {data.month.label}
+              {!pastRange && (
+                <> · {daysLeft} day{daysLeft === 1 ? "" : "s"} left</>
+              )}
             </CardDescription>
           </div>
         </div>

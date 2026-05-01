@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Card,
@@ -175,6 +175,22 @@ export default function InsightsPage() {
     () => searchParams.get("account") || ALL_ACCOUNTS,
   );
 
+  // Apply the user's default account on first load when the URL didn't pin
+  // one. After this runs once, the user is in control of the selection — even
+  // switching to "All accounts" must not get overridden by the default.
+  const hadInitialAccountParam = useRef(searchParams.get("account") !== null);
+  const defaultApplied = useRef(false);
+  useEffect(() => {
+    if (defaultApplied.current) return;
+    if (!prefs) return;
+    defaultApplied.current = true;
+    if (hadInitialAccountParam.current) return;
+    if (prefs.defaultAccountId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- One-shot sync from async-loaded prefs; can't derive during render because user must still be able to override.
+      setSelectedAccountId(prefs.defaultAccountId);
+    }
+  }, [prefs]);
+
   // Non-custom presets are derived; custom uses user-controlled state.
   const computedRange = preset === "custom" ? null : getPresetRange(preset, startDay);
   const dateFrom = computedRange ? computedRange.from : customDateFrom;
@@ -206,9 +222,14 @@ export default function InsightsPage() {
   });
   const { data: balanceData, isLoading: balanceLoading } = useBalanceTimeline({
     accountId: accountIdParam,
+    dateFrom: dateFrom || undefined,
+    dateTo: dateTo || undefined,
     forecastMonths: 3,
   });
-  const { data: budgetData } = useBudgets();
+  const { data: budgetData } = useBudgets({
+    dateFrom: dateFrom || undefined,
+    dateTo: dateTo || undefined,
+  });
 
   const handlePresetChange = (value: string) => {
     const key = value as PresetKey;
@@ -223,9 +244,12 @@ export default function InsightsPage() {
     setPreset(key);
   };
 
-  const navigateToCategory = (categoryId: string | null) => {
+  const navigateToTransactions = (extra: Record<string, string> = {}) => {
     const params = new URLSearchParams();
-    if (categoryId) params.set("category", categoryId);
+    for (const [k, v] of Object.entries(extra)) {
+      if (v) params.set(k, v);
+    }
+    if (accountIdParam) params.set("account", accountIdParam);
     const mappedPeriod = PRESET_TO_TX_PERIOD[preset];
     // When a financial month is active, the transactions page's "this-month"/"last-month"
     // shortcut still means calendar months, so pass explicit dates instead.
@@ -237,6 +261,10 @@ export default function InsightsPage() {
       if (dateTo) params.set("dateTo", dateTo);
     }
     router.push(`/transactions?${params.toString()}`);
+  };
+
+  const navigateToCategory = (categoryId: string | null) => {
+    navigateToTransactions(categoryId ? { category: categoryId } : {});
   };
 
   if (isLoading && !data) {
@@ -325,7 +353,18 @@ export default function InsightsPage() {
 
       {/* Summary Cards */}
       <div className="grid gap-4 sm:grid-cols-3">
-        <Card>
+        <Card
+          role="button"
+          tabIndex={0}
+          onClick={() => navigateToTransactions({ type: "income" })}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              navigateToTransactions({ type: "income" });
+            }
+          }}
+          className="cursor-pointer transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Income</CardTitle>
             <TrendingUp className="h-4 w-4 text-emerald-500 dark:text-emerald-400" />
@@ -339,7 +378,18 @@ export default function InsightsPage() {
             </p>
           </CardContent>
         </Card>
-        <Card>
+        <Card
+          role="button"
+          tabIndex={0}
+          onClick={() => navigateToTransactions({ type: "expense" })}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              navigateToTransactions({ type: "expense" });
+            }
+          }}
+          className="cursor-pointer transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Expenses</CardTitle>
             <TrendingDown className="h-4 w-4 text-red-500 dark:text-red-400" />

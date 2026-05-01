@@ -69,7 +69,11 @@ export function FinancialMonthSettingsCard() {
     !!data &&
     effectiveDay !== null &&
     data.financialMonthStartDay !== effectiveDay;
-  const suggestion = suggestionData?.suggestion ?? null;
+  const rawSuggestion = suggestionData?.suggestion ?? null;
+  const suggestion =
+    rawSuggestion && data?.financialMonthStartDay === rawSuggestion.day
+      ? null
+      : rawSuggestion;
 
   const handleSave = async () => {
     if (effectiveDay === null) return;
