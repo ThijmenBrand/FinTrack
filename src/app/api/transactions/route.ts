@@ -148,6 +148,10 @@ export async function GET(request: NextRequest) {
         groupName: sql<string | null>`(
           SELECT g.name FROM transaction_groups g WHERE g.id = ${transactions.groupId}
         )`,
+        recurringTransactionId: transactions.recurringTransactionId,
+        recurringDescription: sql<string | null>`(
+          SELECT r.description FROM recurring_transactions r WHERE r.id = ${transactions.recurringTransactionId}
+        )`,
         notes: transactions.notes,
         isManual: transactions.isManual,
         importBatchId: transactions.importBatchId,

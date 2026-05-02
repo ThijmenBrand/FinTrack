@@ -25,8 +25,10 @@ import {
   ArrowLeftRight,
   Receipt,
   Package,
+  Repeat,
 } from "lucide-react";
 import { CategorizePopover } from "@/components/categorize-popover";
+import { RecurringLinkPopover } from "@/components/recurring-link-popover";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useCategories } from "@/hooks/use-categories";
@@ -224,6 +226,20 @@ export function TransactionDetailDialog({ transaction, onOpenChange, categories,
                 <Package className="h-3 w-3" />
                 {tx.groupName}
               </Badge>
+            </div>
+          )}
+
+          {(tx.type === "expense" || tx.type === "income") && (
+            <div className="flex items-center gap-3">
+              <Repeat className="h-4 w-4 text-muted-foreground shrink-0" />
+              <span className="text-muted-foreground w-20 shrink-0">Recurring</span>
+              <RecurringLinkPopover
+                transactionId={tx.id}
+                transactionAmount={tx.amount}
+                transactionAccountId={tx.accountId}
+                currentRecurringId={tx.recurringTransactionId}
+                currentRecurringDescription={tx.recurringDescription}
+              />
             </div>
           )}
 

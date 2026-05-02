@@ -217,6 +217,7 @@ export function CsvUploadDialog({
           type: tx.type,
           categoryId: tx.categoryId,
           targetAccountId: tx.targetAccountId,
+          recurringTransactionId: tx.recurringTransactionId ?? null,
         })),
         newRules,
       });

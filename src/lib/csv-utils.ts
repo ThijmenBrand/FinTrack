@@ -25,6 +25,53 @@ export interface PreviewTransaction {
   counterpartyIban?: string;
   targetAccountId?: string;
   targetAccountName?: string;
+  recurringTransactionId?: string | null;
+  recurringDescription?: string | null;
+}
+
+/**
+ * Best-effort match a CSV row against a list of recurring plans. Returns the
+ * plan id whose description matches (case-insensitive substring either way)
+ * and whose monthly amount is within ±10% (or ±€2, whichever is greater) of
+ * the row amount, scoped to the same account and direction. Picks the closest
+ * amount when multiple plans match.
+ */
+export function findMatchingRecurring(
+  accountId: string,
+  amount: number,
+  description: string,
+  name: string | null,
+  plans: Array<{
+    id: string;
+    accountId: string;
+    description: string;
+    amount: number;
+    type: string;
+    isActive: boolean;
+  }>
+): string | null {
+  const isExpense = amount < 0;
+  const direction = isExpense ? "expense" : "income";
+  const haystack = `${name ?? ""} ${description}`.toLowerCase();
+  const tolerance = Math.max(2, Math.abs(amount) * 0.1);
+
+  let best: { id: string; diff: number } | null = null;
+  for (const plan of plans) {
+    if (!plan.isActive) continue;
+    if (plan.accountId !== accountId) continue;
+    if (plan.type !== direction) continue;
+    const planDesc = plan.description.trim().toLowerCase();
+    if (!planDesc) continue;
+    const descMatches =
+      haystack.includes(planDesc) || planDesc.includes(haystack.trim());
+    if (!descMatches) continue;
+    const diff = Math.abs(Math.abs(plan.amount) - Math.abs(amount));
+    if (diff > tolerance) continue;
+    if (!best || diff < best.diff) {
+      best = { id: plan.id, diff };
+    }
+  }
+  return best?.id ?? null;
 }
 
 /**

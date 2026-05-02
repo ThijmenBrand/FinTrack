@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { categoryRules, accounts, categories } from "@/db/schema";
+import { categoryRules, accounts, categories, recurringTransactions } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { getUserId } from "@/lib/auth";
 import Papa from "papaparse";
@@ -10,6 +10,7 @@ import {
   matchesRule,
   extractPattern,
   splitNameAndDescription,
+  findMatchingRecurring,
   type ColumnMapping,
   type PreviewTransaction,
 } from "@/lib/csv-utils";
@@ -105,6 +106,26 @@ export async function POST(request: NextRequest) {
     const reservedCategoryIds = new Set(
       categoryKindRows.filter((c) => c.kind === "reserved").map((c) => c.id)
     );
+
+    // Active recurring plans — used to auto-link rows that look like a
+    // recurring bill so they don't double-count in Free to Spend.
+    const recurringPlans = await db
+      .select({
+        id: recurringTransactions.id,
+        accountId: recurringTransactions.accountId,
+        description: recurringTransactions.description,
+        amount: recurringTransactions.amount,
+        type: recurringTransactions.type,
+        isActive: recurringTransactions.isActive,
+      })
+      .from(recurringTransactions)
+      .where(
+        and(
+          eq(recurringTransactions.userId, userId),
+          eq(recurringTransactions.isActive, true),
+        )
+      );
+    const recurringById = new Map(recurringPlans.map((p) => [p.id, p]));
 
     const allColumns = (parsed.meta.fields || []).filter((c) => c.length > 0);
     const transactions: PreviewTransaction[] = [];
@@ -204,6 +225,24 @@ export async function POST(request: NextRequest) {
         type = "reserved";
       }
 
+      // Try to match this row to an active recurring plan (skip transfers and
+      // reserved-typed rows — those flows aren't tracked as fixed costs).
+      let recurringTransactionId: string | null = null;
+      let recurringDescription: string | null = null;
+      if (type === "income" || type === "expense") {
+        recurringTransactionId = findMatchingRecurring(
+          accountId,
+          amount,
+          description,
+          name,
+          recurringPlans,
+        );
+        if (recurringTransactionId) {
+          recurringDescription =
+            recurringById.get(recurringTransactionId)?.description ?? null;
+        }
+      }
+
       transactions.push({
         tempId: crypto.randomUUID(),
         date,
@@ -217,6 +256,8 @@ export async function POST(request: NextRequest) {
         counterpartyIban,
         targetAccountId,
         targetAccountName,
+        recurringTransactionId,
+        recurringDescription,
       });
     }
 

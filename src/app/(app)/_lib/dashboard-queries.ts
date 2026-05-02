@@ -183,12 +183,10 @@ export async function getWeeklySpending(userId: string, accountId?: string) {
 export async function getBudgetOverview(
   userId: string,
   startDay: number = 1,
-  accountId?: string,
 ) {
+  // Budgets are envelope-style and span all of a user's spending, so they
+  // intentionally ignore the dashboard's defaultAccountId scoping.
   const { monthStart, monthEnd, monthProgress } = getDateRanges(startDay);
-  const accountFilterAlias = accountId
-    ? sql` AND t.account_id = ${accountId}`
-    : sql``;
 
   const [allBudgetsRaw, recurringExpenses, monthExpense, monthPotContrib] =
     await Promise.all([
@@ -238,7 +236,6 @@ export async function getBudgetOverview(
             sql`${transactions.groupId} IS NULL`,
             gte(transactions.date, monthStart),
             lte(transactions.date, monthEnd),
-            accountId ? eq(transactions.accountId, accountId) : sql`1=1`,
           ),
         ),
 
@@ -247,7 +244,7 @@ export async function getBudgetOverview(
         .from(sql`transactions t`)
         .innerJoin(sql`transaction_groups g`, sql`t.group_id = g.id`)
         .where(
-          sql`t.group_id IS NOT NULL AND t.type NOT IN ('reserved', 'internal_transfer') AND t.user_id = ${userId} AND t.date >= ${monthStart} AND t.date <= ${monthEnd}${accountFilterAlias}`,
+          sql`t.group_id IS NOT NULL AND t.type NOT IN ('reserved', 'internal_transfer') AND t.user_id = ${userId} AND t.date >= ${monthStart} AND t.date <= ${monthEnd}`,
         ),
     ]);
 
@@ -281,7 +278,6 @@ export async function getBudgetOverview(
               sql`${transactions.groupId} IS NULL`,
               gte(transactions.date, from),
               lte(transactions.date, to),
-              accountId ? eq(transactions.accountId, accountId) : sql`1=1`,
             )
           )
           .groupBy(transactions.categoryId);

@@ -18,6 +18,7 @@ interface CommitTransaction {
   type: string;
   categoryId: string | null;
   targetAccountId?: string;
+  recurringTransactionId?: string | null;
 }
 
 interface NewRule {
@@ -127,6 +128,7 @@ export async function POST(request: NextRequest) {
       categorySource: "manual" | "rule" | null;
       type: "income" | "expense" | "internal_transfer" | "reserved";
       linkedTransactionId: string | null;
+      recurringTransactionId: string | null;
       notes: string | null;
       isManual: boolean;
       importBatchId: string | null;
@@ -156,6 +158,7 @@ export async function POST(request: NextRequest) {
           categorySource: transferCatId ? "rule" : null,
           type: "internal_transfer",
           linkedTransactionId: mirrorId,
+          recurringTransactionId: null,
           notes: null,
           isManual: false,
           importBatchId: batchId,
@@ -175,12 +178,14 @@ export async function POST(request: NextRequest) {
           categorySource: transferCatId ? "rule" : null,
           type: "internal_transfer",
           linkedTransactionId: sourceId,
+          recurringTransactionId: null,
           notes: null,
           isManual: true,
           importBatchId: null,
           createdAt: new Date().toISOString(),
         });
       } else {
+        const txType = tx.type as "income" | "expense" | "internal_transfer" | "reserved";
         records.push({
           id: sourceId,
           userId,
@@ -192,8 +197,14 @@ export async function POST(request: NextRequest) {
           balance: tx.balance,
           categoryId: tx.categoryId,
           categorySource: sourceForReviewedTx(tx.name, tx.description, tx.categoryId),
-          type: tx.type as "income" | "expense" | "internal_transfer" | "reserved",
+          type: txType,
           linkedTransactionId: null,
+          // Only carry the recurring link for income/expense rows; transfers
+          // and reserved transactions don't represent fixed-cost spending.
+          recurringTransactionId:
+            (txType === "income" || txType === "expense") && tx.recurringTransactionId
+              ? tx.recurringTransactionId
+              : null,
           notes: null,
           isManual: false,
           importBatchId: batchId,
