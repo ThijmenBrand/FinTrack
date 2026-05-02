@@ -54,7 +54,7 @@ export default async function DashboardPage() {
       </Suspense>
 
       <Suspense fallback={<BudgetOverviewSkeleton />}>
-        <BudgetOverview userId={userId} startDay={startDay} accountId={accountId} />
+        <BudgetOverview userId={userId} startDay={startDay} />
       </Suspense>
 
       <Suspense fallback={<SavingTowardCardSkeleton />}>

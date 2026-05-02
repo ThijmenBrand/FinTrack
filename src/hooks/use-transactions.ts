@@ -144,6 +144,27 @@ export function useCategorizeTransaction() {
   });
 }
 
+export function useLinkRecurringTransaction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: {
+      transactionId: string;
+      recurringTransactionId: string | null;
+    }) =>
+      apiFetch("/api/transactions/recurring", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["transactions"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      qc.invalidateQueries({ queryKey: ["budgets"] });
+      qc.invalidateQueries({ queryKey: ["insights"] });
+    },
+  });
+}
+
 export function useReimburseTransaction() {
   const qc = useQueryClient();
   return useMutation({

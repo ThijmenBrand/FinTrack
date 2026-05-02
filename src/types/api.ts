@@ -69,6 +69,8 @@ export interface Transaction {
   reimbursedTotal: number;
   groupId: string | null;
   groupName: string | null;
+  recurringTransactionId: string | null;
+  recurringDescription: string | null;
   notes: string | null;
   isManual: boolean;
   importBatchId: string | null;

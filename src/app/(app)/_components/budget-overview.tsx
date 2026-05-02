@@ -63,13 +63,11 @@ function RingProgress({
 export async function BudgetOverview({
   userId,
   startDay = 1,
-  accountId,
 }: {
   userId: string;
   startDay?: number;
-  accountId?: string;
 }) {
-  const data = await getBudgetOverview(userId, startDay, accountId);
+  const data = await getBudgetOverview(userId, startDay);
 
   if (data.budgetItems.length === 0 && data.totalBudgeted === 0) return null;
 

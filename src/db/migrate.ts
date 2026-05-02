@@ -89,6 +89,7 @@ export async function initializeDatabase() {
   await db.run(sql`ALTER TABLE transactions ADD COLUMN reimburses_transaction_id TEXT`).catch(() => {});
   await db.run(sql`ALTER TABLE transactions ADD COLUMN group_id TEXT`).catch(() => {});
   await db.run(sql`ALTER TABLE transactions ADD COLUMN name TEXT`).catch(() => {});
+  await db.run(sql`ALTER TABLE transactions ADD COLUMN recurring_transaction_id TEXT REFERENCES recurring_transactions(id) ON DELETE SET NULL`).catch(() => {});
 
   // category_source: tracks whether categoryId was set by a rule or manually.
   // Backfill existing categorized rows as 'manual' so a subsequent "Recalculate
@@ -190,14 +191,16 @@ export async function initializeDatabase() {
           type TEXT NOT NULL CHECK(type IN ('income', 'expense', 'internal_transfer', 'reimbursement', 'reserved')),
           linked_transaction_id TEXT, reimburses_transaction_id TEXT,
           notes TEXT, is_manual INTEGER NOT NULL DEFAULT 0,
-          import_batch_id TEXT, group_id TEXT, created_at TEXT NOT NULL
+          import_batch_id TEXT, group_id TEXT,
+          recurring_transaction_id TEXT REFERENCES recurring_transactions(id) ON DELETE SET NULL,
+          created_at TEXT NOT NULL
         )
       `);
       await db.run(sql`
         INSERT INTO transactions_new
         SELECT id, user_id, account_id, date, description, amount, balance, category_id, type,
                linked_transaction_id, reimburses_transaction_id, notes, is_manual,
-               import_batch_id, group_id, created_at
+               import_batch_id, group_id, recurring_transaction_id, created_at
         FROM transactions
       `);
       await db.run(sql`DROP TABLE transactions`);
@@ -253,6 +256,66 @@ export async function initializeDatabase() {
     FROM transactions WHERE reimburses_transaction_id IS NOT NULL
   `);
 
+  // ── One-shot data backfills ────────────────────────────────────────────
+  // Marker table so each backfill runs exactly once across deploys. A user
+  // who later unlinks a transaction won't have it re-linked next startup.
+  await db.run(sql`
+    CREATE TABLE IF NOT EXISTS one_time_migrations (
+      name TEXT PRIMARY KEY,
+      completed_at TEXT NOT NULL
+    )
+  `);
+
+  // Backfill recurring_transaction_id on existing transactions using the same
+  // matching heuristic as `findMatchingRecurring` (csv-utils.ts): same account
+  // and direction, description substring match either way, amount within ±10%
+  // (or ±€2). When multiple plans match, the closest amount wins.
+  const backfillName = "recurring_link_backfill_v1";
+  const markerCheck = await db.run(
+    sql`SELECT 1 AS found FROM one_time_migrations WHERE name = ${backfillName}`
+  );
+  if (markerCheck.rows.length === 0) {
+    try {
+      await db.run(sql`
+        UPDATE transactions
+        SET recurring_transaction_id = (
+          SELECT p.id
+          FROM recurring_transactions p
+          WHERE p.user_id = transactions.user_id
+            AND p.account_id = transactions.account_id
+            AND p.is_active = 1
+            AND (
+              (transactions.amount < 0 AND p.type = 'expense')
+              OR (transactions.amount > 0 AND p.type = 'income')
+            )
+            AND TRIM(p.description) <> ''
+            AND TRIM(COALESCE(transactions.name || ' ', '') || transactions.description) <> ''
+            AND (
+              INSTR(
+                LOWER(COALESCE(transactions.name || ' ', '') || transactions.description),
+                LOWER(TRIM(p.description))
+              ) > 0
+              OR INSTR(
+                LOWER(TRIM(p.description)),
+                LOWER(TRIM(COALESCE(transactions.name || ' ', '') || transactions.description))
+              ) > 0
+            )
+            AND ABS(ABS(p.amount) - ABS(transactions.amount)) <= MAX(2.0, ABS(transactions.amount) * 0.1)
+          ORDER BY ABS(ABS(p.amount) - ABS(transactions.amount)) ASC
+          LIMIT 1
+        )
+        WHERE recurring_transaction_id IS NULL
+          AND type IN ('income', 'expense')
+      `);
+      await db.run(sql`
+        INSERT INTO one_time_migrations (name, completed_at)
+        VALUES (${backfillName}, ${new Date().toISOString()})
+      `);
+    } catch (e) {
+      console.error("Failed to backfill recurring_transaction_id:", e);
+    }
+  }
+
   // ── Audit log migration ────────────────────────────────────────────────
   // Create unified audit_log table and migrate old admin_audit_log data
   await db.run(sql`
@@ -293,6 +356,7 @@ export async function initializeDatabase() {
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_category_rules_pattern ON category_rules(pattern)`);
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_transactions_reimburses ON transactions(reimburses_transaction_id)`);
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_transactions_group ON transactions(group_id)`);
+  await db.run(sql`CREATE INDEX IF NOT EXISTS idx_transactions_recurring ON transactions(recurring_transaction_id)`);
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_reimb_links_reimbursement ON reimbursement_links(reimbursement_id)`);
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_reimb_links_expense ON reimbursement_links(expense_id)`);
   await db.run(sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_reimb_links_unique ON reimbursement_links(reimbursement_id, expense_id)`);

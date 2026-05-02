@@ -95,8 +95,11 @@ function getCurrentMonthRange(startDay: number = 1): { from: string; to: string 
  *     larger amount is used.
  *
  * `spentThisMonth` includes ungrouped expense transactions (excluding
- * internal transfers and reserved transactions) and the net spending from pots
- * whose member transactions fall in this month.
+ * internal transfers, reserved transactions, and transactions linked to a
+ * recurring plan) plus the net spending from pots whose member transactions
+ * fall in this month. Recurring-linked transactions are excluded because the
+ * planned monthly amount already lives in `totalFixedCosts` — counting both
+ * would double-deduct.
  *
  * When `options.accountId` is provided, transaction-derived numbers (income,
  * spent, reserved actuals) are scoped to that account. Recurring fixed costs
@@ -172,6 +175,10 @@ export async function getMonthMoneyMath(
           eq(transactions.userId, userId),
           eq(transactions.type, "expense"),
           sql`${transactions.groupId} IS NULL`,
+          // Exclude transactions tied to a recurring plan — those are already
+          // accounted for via `totalFixedCosts`. Counting both sides would
+          // double-deduct from Free to Spend once the bill clears.
+          sql`${transactions.recurringTransactionId} IS NULL`,
           gte(transactions.date, from),
           lte(transactions.date, to),
           accountId ? eq(transactions.accountId, accountId) : sql`1=1`,

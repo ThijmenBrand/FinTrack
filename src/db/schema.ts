@@ -82,6 +82,11 @@ export const transactions = sqliteTable("transactions", {
   isManual: integer("is_manual", { mode: "boolean" }).notNull().default(false),
   importBatchId: text("import_batch_id"), // Track which CSV upload this came from
   groupId: text("group_id"),
+  // Link to the recurring plan this transaction fulfills. When set, the
+  // transaction is excluded from `spentThisMonth` because the plan's monthly
+  // amount is already counted via `totalFixedCosts` — keeping both would
+  // double-count.
+  recurringTransactionId: text("recurring_transaction_id"),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
@@ -90,6 +95,7 @@ export const transactions = sqliteTable("transactions", {
   index("idx_transactions_account").on(table.accountId),
   index("idx_transactions_user_category_type_date").on(table.userId, table.categoryId, table.type, table.date),
   index("idx_transactions_user_group").on(table.userId, table.groupId),
+  index("idx_transactions_recurring").on(table.recurringTransactionId),
 ]);
 
 // ─── Categories ──────────────────────────────────────────────────────────────
@@ -311,6 +317,10 @@ export const transactionsRelations = relations(transactions, ({ one }) => ({
     fields: [transactions.groupId],
     references: [transactionGroups.id],
   }),
+  recurringTransaction: one(recurringTransactions, {
+    fields: [transactions.recurringTransactionId],
+    references: [recurringTransactions.id],
+  }),
 }));
 
 export const categoriesRelations = relations(categories, ({ one, many }) => ({
@@ -338,7 +348,7 @@ export const budgetsRelations = relations(budgets, ({ one }) => ({
 
 export const recurringTransactionsRelations = relations(
   recurringTransactions,
-  ({ one }) => ({
+  ({ one, many }) => ({
     user: one(user, { fields: [recurringTransactions.userId], references: [user.id] }),
     account: one(accounts, {
       fields: [recurringTransactions.accountId],
@@ -348,6 +358,7 @@ export const recurringTransactionsRelations = relations(
       fields: [recurringTransactions.categoryId],
       references: [categories.id],
     }),
+    transactions: many(transactions),
   })
 );
 
