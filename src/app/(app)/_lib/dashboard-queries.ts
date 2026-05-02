@@ -114,12 +114,70 @@ function getDateRanges(startDay: number = 1) {
   };
 }
 
+/**
+ * Resolve a single `defaultAccountId` to the set of accounts whose activity
+ * should count toward "your" spending: the default account itself, plus any
+ * account that received an `internal_transfer` paired with an outflow on the
+ * default account during the period.
+ *
+ * This handles the cross-account spending case: when the user transfers €X
+ * from their main account to a secondary account and then spends from the
+ * secondary, that spending was funded from the default account and should
+ * still appear in the account-scoped Expenses / Free to Spend tiles.
+ *
+ * Returns `undefined` (meaning "no scoping") when `defaultAccountId` is null.
+ */
+async function getFundedAccountIds(
+  userId: string,
+  defaultAccountId: string | undefined,
+  from: string,
+  to: string,
+): Promise<string[] | undefined> {
+  if (!defaultAccountId) return undefined;
+  const rows = await db
+    .select({ destAccountId: transactions.accountId })
+    .from(transactions)
+    .innerJoin(
+      sql`transactions src`,
+      sql`src.id = ${transactions.linkedTransactionId}
+          AND src.user_id = ${userId}
+          AND src.account_id = ${defaultAccountId}
+          AND src.amount < 0
+          AND src.date >= ${from} AND src.date <= ${to}`,
+    )
+    .where(
+      and(
+        eq(transactions.userId, userId),
+        eq(transactions.type, "internal_transfer"),
+        sql`${transactions.amount} > 0`,
+      ),
+    );
+  const set = new Set<string>([defaultAccountId]);
+  for (const r of rows) if (r.destAccountId) set.add(r.destAccountId);
+  return Array.from(set);
+}
+
 // ─── Per-widget queries ─────────────────────────────────────────────
 
 export async function getWeeklySpending(userId: string, accountId?: string) {
   const { weekStart, weekEnd, lastWeekStart, lastWeekEnd } = getDateRanges();
-  const accountFilterAlias = accountId
-    ? sql` AND t.account_id = ${accountId}`
+  // Expand to include accounts that received transfers from the default this
+  // week (and last week, for the comparison) so cross-account spending counts.
+  const [accountIds, lastWeekAccountIds] = await Promise.all([
+    getFundedAccountIds(userId, accountId, weekStart, weekEnd),
+    getFundedAccountIds(userId, accountId, lastWeekStart, lastWeekEnd),
+  ]);
+  const accountFilter = accountIds && accountIds.length > 0
+    ? inArray(transactions.accountId, accountIds)
+    : sql`1=1`;
+  const lastWeekFilter = lastWeekAccountIds && lastWeekAccountIds.length > 0
+    ? inArray(transactions.accountId, lastWeekAccountIds)
+    : sql`1=1`;
+  const accountFilterAlias = accountIds && accountIds.length > 0
+    ? sql` AND t.account_id IN (${sql.join(
+        accountIds.map((id) => sql`${id}`),
+        sql`, `,
+      )})`
     : sql``;
 
   const [weekExpense, lastWeekExpense, weekPotContrib] = await Promise.all([
@@ -136,7 +194,7 @@ export async function getWeeklySpending(userId: string, accountId?: string) {
           sql`${transactions.groupId} IS NULL`,
           gte(transactions.date, weekStart),
           lte(transactions.date, weekEnd),
-          accountId ? eq(transactions.accountId, accountId) : sql`1=1`,
+          accountFilter,
         )
       ),
 
@@ -153,7 +211,7 @@ export async function getWeeklySpending(userId: string, accountId?: string) {
           sql`${transactions.groupId} IS NULL`,
           gte(transactions.date, lastWeekStart),
           lte(transactions.date, lastWeekEnd),
-          accountId ? eq(transactions.accountId, accountId) : sql`1=1`,
+          lastWeekFilter,
         )
       ),
 
@@ -368,8 +426,15 @@ export async function getMonthSummary(
   accountId?: string,
 ) {
   const { monthStart, monthEnd } = getDateRanges(startDay);
-  const accountFilterAlias = accountId
-    ? sql` AND t.account_id = ${accountId}`
+  const accountIds = await getFundedAccountIds(userId, accountId, monthStart, monthEnd);
+  const accountFilter = accountIds && accountIds.length > 0
+    ? inArray(transactions.accountId, accountIds)
+    : sql`1=1`;
+  const accountFilterAlias = accountIds && accountIds.length > 0
+    ? sql` AND t.account_id IN (${sql.join(
+        accountIds.map((id) => sql`${id}`),
+        sql`, `,
+      )})`
     : sql``;
 
   const [accountBalances, monthIncome, monthExpense, monthPotContrib] =
@@ -385,7 +450,7 @@ export async function getMonthSummary(
             eq(transactions.type, "income"),
             gte(transactions.date, monthStart),
             lte(transactions.date, monthEnd),
-            accountId ? eq(transactions.accountId, accountId) : sql`1=1`,
+            accountFilter,
           )
         ),
 
@@ -402,7 +467,7 @@ export async function getMonthSummary(
               sql`${transactions.groupId} IS NULL`,
             gte(transactions.date, monthStart),
             lte(transactions.date, monthEnd),
-            accountId ? eq(transactions.accountId, accountId) : sql`1=1`,
+            accountFilter,
           )
         ),
 
@@ -539,8 +604,10 @@ export async function getMonthMoneyView(
   today.setHours(0, 0, 0, 0);
   const todayIso = toLocalDateStr(today);
 
+  const accountIds = await getFundedAccountIds(userId, accountId, monthStart, monthEnd);
+
   const [math, schedule, rows] = await Promise.all([
-    getMonthMoneyMath(userId, startDay, { accountId }),
+    getMonthMoneyMath(userId, startDay, { accountIds }),
     getPaySchedule(userId),
     loadSpikeRowsBetween(userId, todayIso, monthEnd),
   ]);
@@ -715,6 +782,10 @@ export async function getTopCategories(
   accountId?: string,
 ) {
   const { monthStart, monthEnd } = getDateRanges(startDay);
+  const accountIds = await getFundedAccountIds(userId, accountId, monthStart, monthEnd);
+  const accountFilter = accountIds && accountIds.length > 0
+    ? inArray(transactions.accountId, accountIds)
+    : sql`1=1`;
 
   const topCats = await db
     .select({
@@ -733,7 +804,7 @@ export async function getTopCategories(
         sql`${transactions.groupId} IS NULL`,
         gte(transactions.date, monthStart),
         lte(transactions.date, monthEnd),
-        accountId ? eq(transactions.accountId, accountId) : sql`1=1`,
+        accountFilter,
       )
     )
     .groupBy(transactions.categoryId, categories.id)

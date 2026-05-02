@@ -60,7 +60,13 @@ import {
   ChevronDown,
   ChevronRight,
   ArrowRight,
+  Info,
 } from "lucide-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { BudgetHistoryDialog } from "@/components/budget-history-dialog";
 import { BudgetSuggestionsDialog } from "@/components/budget-suggestions-dialog";
 
@@ -484,12 +490,34 @@ export default function BudgetsPage() {
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
-              <CardTitle className="text-base">Overview</CardTitle>
+              <div className="flex items-center gap-1.5">
+                <CardTitle className="text-base">Overview</CardTitle>
+                <Popover>
+                  <PopoverTrigger
+                    aria-label="What does this overview show?"
+                    className="text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <Info className="h-3.5 w-3.5" />
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-80 text-sm space-y-2">
+                    <p className="font-medium">Planning view</p>
+                    <p className="text-muted-foreground">
+                      These numbers are based on your <span className="font-medium text-foreground">recurring income plan</span>,
+                      not actual transactions. Unallocated = recurring income − fixed costs − reserved − allocated;
+                      it&apos;s the slice of your monthly plan you haven&apos;t assigned to a bucket yet.
+                    </p>
+                    <p className="text-muted-foreground">
+                      This is different from the dashboard&apos;s <span className="font-medium text-foreground">Free to spend</span>,
+                      which uses actual income and actual spending to show what&apos;s left in your wallet right now.
+                    </p>
+                  </PopoverContent>
+                </Popover>
+              </div>
               <CardDescription>
                 {formatCurrency(data.monthlyIncome)} income · {formatCurrency(data.totalFixedCosts)} fixed ·{" "}
                 {formatCurrency(data.totalAllocated)} allocated ·{" "}
                 <span className={data.unallocated >= 0 ? "" : "text-red-600 dark:text-red-400"}>
-                  {formatCurrency(Math.max(0, data.unallocated))} {data.unallocated < 0 ? "over" : "free"}
+                  {formatCurrency(Math.max(0, data.unallocated))} {data.unallocated < 0 ? "over" : "unallocated"}
                 </span>
               </CardDescription>
             </div>
@@ -538,7 +566,7 @@ export default function BudgetsPage() {
             </span>
             <span className="flex items-center gap-1.5 text-muted-foreground">
               <span className="h-2 w-2 rounded-sm bg-emerald-400/40" />
-              Free {Math.max(0, unallocatedPct).toFixed(0)}%
+              Unallocated {Math.max(0, unallocatedPct).toFixed(0)}%
             </span>
           </div>
           {data.unallocated < 0 && (
