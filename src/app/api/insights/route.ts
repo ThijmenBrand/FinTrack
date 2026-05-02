@@ -50,7 +50,6 @@ export async function GET(request: NextRequest) {
         and(
           eq(transactions.userId, userId),
           eq(transactions.type, "expense"),
-          sql`COALESCE(${categories.name}, '') <> 'Internal Transfer'`,
           sql`${transactions.groupId} IS NULL`,
           ...conditions
         )
@@ -130,7 +129,6 @@ export async function GET(request: NextRequest) {
         and(
           eq(transactions.userId, userId),
           eq(transactions.type, "expense"),
-          sql`COALESCE(${categories.name}, '') <> 'Internal Transfer'`,
           sql`${transactions.groupId} IS NULL`,
           ...conditions
         )
@@ -141,7 +139,7 @@ export async function GET(request: NextRequest) {
 
     // Pot (transaction-group) spending per category. Mirrors /api/budgets so
     // the Expenses card and Budget Performance reflect the same period spend.
-    // Each pot's absolute net is attributed to its assigned category.
+    // Reserved deposits and internal transfers don't count as spending.
     const potSpendingRows = await db
       .select({
         categoryId: transactionGroups.categoryId,
@@ -149,7 +147,13 @@ export async function GET(request: NextRequest) {
       })
       .from(transactionGroups)
       .innerJoin(transactions, eq(transactions.groupId, transactionGroups.id))
-      .where(and(sql`${transactionGroups.categoryId} IS NOT NULL`, dateWhere))
+      .where(
+        and(
+          sql`${transactionGroups.categoryId} IS NOT NULL`,
+          sql`${transactions.type} NOT IN ('reserved', 'internal_transfer')`,
+          dateWhere,
+        ),
+      )
       .groupBy(transactionGroups.id, transactionGroups.categoryId);
 
     const potSpendingByCategory = new Map<string, number>();

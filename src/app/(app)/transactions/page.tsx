@@ -1075,7 +1075,7 @@ function TransactionsPage() {
                       }
 
                       const tx = item.data;
-                      const isTransfer = tx.type === "internal_transfer" || tx.categoryName === "Internal Transfer";
+                      const isTransfer = tx.type === "internal_transfer";
                       const isReimbursement = tx.type === "reimbursement";
                       const isInPot = !!tx.groupId;
                       const hasReimbursements = tx.reimbursementCount > 0;
@@ -1337,7 +1337,7 @@ function TransactionsPage() {
                   }
 
                   const tx = item.data;
-                  const isTransfer = tx.type === "internal_transfer" || tx.categoryName === "Internal Transfer";
+                  const isTransfer = tx.type === "internal_transfer";
                   const isReimbursement = tx.type === "reimbursement";
                   const isInPot = !!tx.groupId;
                   const hasReimbursements = tx.reimbursementCount > 0;

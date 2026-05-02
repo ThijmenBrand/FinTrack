@@ -94,6 +94,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const dateFromParam = searchParams.get("dateFrom");
     const dateToParam = searchParams.get("dateTo");
+    const accountIdParam = searchParams.get("accountId");
     const noScaleParam = searchParams.get("noScale");
     const noScale = noScaleParam === "1" || noScaleParam === "true";
 
@@ -120,8 +121,10 @@ export async function GET(request: NextRequest) {
     const monthsScale =
       useRange && !noScale ? daysInRange / AVG_DAYS_PER_MONTH : 1;
 
-    // 0. Get pot spending by category for current month
-    // Each pot's net amount (abs of sum of member transactions) counts toward the pot's category
+    // 0. Get pot spending by category for current month.
+    // Each pot's net is the abs(sum) of its expense/income member transactions
+    // — reserved deposits and internal transfers don't count as spending,
+    // matching getMonthSummary's `t.type <> 'reserved'` rule.
     const potSpendingRows = await db
       .select({
         categoryId: transactionGroups.categoryId,
@@ -132,9 +135,11 @@ export async function GET(request: NextRequest) {
       .where(
         and(
           sql`${transactionGroups.categoryId} IS NOT NULL`,
+          sql`${transactions.type} NOT IN ('reserved', 'internal_transfer')`,
           gte(transactions.date, from),
           lte(transactions.date, to),
           eq(transactions.userId, userId),
+          ...(accountIdParam ? [eq(transactions.accountId, accountIdParam)] : []),
         ),
       )
       .groupBy(transactionGroups.id, transactionGroups.categoryId);
@@ -308,13 +313,21 @@ export async function GET(request: NextRequest) {
           sql`${transactions.groupId} IS NULL`,
           gte(transactions.date, from),
           lte(transactions.date, to),
+          ...(accountIdParam ? [eq(transactions.accountId, accountIdParam)] : []),
         ),
       )
       .groupBy(transactions.categoryId);
 
+    // Per-category aggregation for budget rows (only categorized rows match a
+    // budget). Uncategorized expenses are tracked separately and rolled into
+    // totalSpentThisMonth so it stays in sync with the Insights expense card.
     const monthSpendByCategory = new Map<string, number>();
+    let uncategorizedSpend = 0;
     for (const row of monthSpendRows) {
-      if (!row.categoryId) continue;
+      if (!row.categoryId) {
+        uncategorizedSpend += row.total ?? 0;
+        continue;
+      }
       monthSpendByCategory.set(row.categoryId, row.total ?? 0);
     }
 
@@ -550,8 +563,10 @@ export async function GET(request: NextRequest) {
       })
       .sort((a, b) => b.spent - a.spent);
 
-    // Total spending this month — matches inclusion rules used for allocation/fixed cost spent
-    let totalSpentThisMonth = 0;
+    // Total spending this month. Mirrors the Insights "Expenses" card so the
+    // headline numbers agree: per-category transactions + uncategorized
+    // transactions + pot spending (excluding reserved/internal-transfer).
+    let totalSpentThisMonth = uncategorizedSpend;
     for (const amount of monthSpendByCategory.values())
       totalSpentThisMonth += amount;
     for (const amount of potSpendingByCategory.values())

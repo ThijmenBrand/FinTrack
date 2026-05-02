@@ -20,10 +20,13 @@ export async function PUT(request: NextRequest) {
     }
 
     // Look up target category to derive transaction type from category kind
-    // (kind='reserved' → type='reserved'; "Internal Transfer" → 'internal_transfer').
+    // (kind='reserved' → type='reserved'). Internal-transfer status is a
+    // property of the transaction itself (set at import via IBAN matching),
+    // not tied to a category — so users can categorize transfers freely
+    // (e.g. label a savings transfer as "Saving") without changing the type.
     const [targetCategory] = categoryId
       ? await db
-          .select({ name: categories.name, kind: categories.kind })
+          .select({ kind: categories.kind })
           .from(categories)
           .where(eq(categories.id, categoryId))
       : [null];
@@ -33,24 +36,16 @@ export async function PUT(request: NextRequest) {
       .from(transactions)
       .where(and(eq(transactions.id, transactionId), eq(transactions.userId, userId)));
 
-    const isAssigningTransfer = targetCategory?.name === "Internal Transfer";
     const isAssigningReserved = targetCategory?.kind === "reserved";
-    const isRemovingTransfer = !isAssigningTransfer && currentTx?.type === "internal_transfer";
     const isRemovingReserved = !isAssigningReserved && currentTx?.type === "reserved";
 
-    // Build update: sync type with category
     const updateSet: Record<string, unknown> = {
       categoryId: categoryId || null,
       categorySource: categoryId ? "manual" : null,
     };
 
-    if (isAssigningTransfer) {
-      updateSet.type = "internal_transfer";
-    } else if (isAssigningReserved) {
+    if (isAssigningReserved) {
       updateSet.type = "reserved";
-    } else if (isRemovingTransfer && currentTx) {
-      updateSet.type = currentTx.amount >= 0 ? "income" : "expense";
-      updateSet.linkedTransactionId = null;
     } else if (isRemovingReserved && currentTx) {
       updateSet.type = currentTx.amount >= 0 ? "income" : "expense";
     }
