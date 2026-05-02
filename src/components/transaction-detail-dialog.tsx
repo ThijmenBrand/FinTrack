@@ -96,7 +96,7 @@ export function TransactionDetailDialog({ transaction, onOpenChange, categories,
   }
 
   const tx = transaction;
-  const isTransfer = tx.type === "internal_transfer" || tx.categoryName === "Internal Transfer";
+  const isTransfer = tx.type === "internal_transfer";
   const isReimbursement = tx.type === "reimbursement";
   const hasReimbursements = tx.reimbursementCount > 0;
   const typeInfo = isTransfer

@@ -129,7 +129,6 @@ export async function getWeeklySpending(userId: string) {
         and(
           eq(transactions.userId, userId),
           eq(transactions.type, "expense"),
-          sql`COALESCE(${categories.name}, '') <> 'Internal Transfer'`,
           sql`${transactions.groupId} IS NULL`,
           gte(transactions.date, weekStart),
           lte(transactions.date, weekEnd)
@@ -146,7 +145,6 @@ export async function getWeeklySpending(userId: string) {
         and(
           eq(transactions.userId, userId),
           eq(transactions.type, "expense"),
-          sql`COALESCE(${categories.name}, '') <> 'Internal Transfer'`,
           sql`${transactions.groupId} IS NULL`,
           gte(transactions.date, lastWeekStart),
           lte(transactions.date, lastWeekEnd)
@@ -160,7 +158,7 @@ export async function getWeeklySpending(userId: string) {
       .from(sql`transactions t`)
       .innerJoin(sql`transaction_groups g`, sql`t.group_id = g.id`)
       .where(
-        sql`t.group_id IS NOT NULL AND t.user_id = ${userId} AND t.date >= ${weekStart} AND t.date <= ${weekEnd}`
+        sql`t.group_id IS NOT NULL AND t.type NOT IN ('reserved', 'internal_transfer') AND t.user_id = ${userId} AND t.date >= ${weekStart} AND t.date <= ${weekEnd}`
       ),
   ]);
 
@@ -179,18 +177,21 @@ export async function getWeeklySpending(userId: string) {
 export async function getBudgetOverview(userId: string, startDay: number = 1) {
   const { monthProgress } = getDateRanges(startDay);
 
-  const allBudgets = await db
+  const allBudgetsRaw = await db
     .select({
       id: budgets.id,
       categoryId: budgets.categoryId,
       categoryName: categories.name,
       categoryColor: categories.color,
+      categoryKind: categories.kind,
       amount: budgets.amount,
       period: budgets.period,
     })
     .from(budgets)
     .leftJoin(categories, eq(budgets.categoryId, categories.id))
     .where(and(eq(budgets.isActive, true), eq(budgets.status, "active"), eq(budgets.userId, userId)));
+
+  const allBudgets = allBudgetsRaw.filter((b) => b.categoryKind !== "reserved");
 
   // Round 2: budget spending batched by period
   const budgetsByPeriod = new Map<string, typeof allBudgets>();
@@ -319,8 +320,7 @@ export async function getMonthSummary(userId: string, startDay: number = 1) {
           and(
             eq(transactions.userId, userId),
             eq(transactions.type, "expense"),
-            sql`COALESCE(${categories.name}, '') <> 'Internal Transfer'`,
-            sql`${transactions.groupId} IS NULL`,
+              sql`${transactions.groupId} IS NULL`,
             gte(transactions.date, monthStart),
             lte(transactions.date, monthEnd)
           )
@@ -333,7 +333,7 @@ export async function getMonthSummary(userId: string, startDay: number = 1) {
         .from(sql`transactions t`)
         .innerJoin(sql`transaction_groups g`, sql`t.group_id = g.id`)
         .where(
-          sql`t.group_id IS NOT NULL AND t.type <> 'reserved' AND t.user_id = ${userId} AND t.date >= ${monthStart} AND t.date <= ${monthEnd}`
+          sql`t.group_id IS NOT NULL AND t.type NOT IN ('reserved', 'internal_transfer') AND t.user_id = ${userId} AND t.date >= ${monthStart} AND t.date <= ${monthEnd}`
         ),
     ]);
 
@@ -485,6 +485,7 @@ export async function getMonthMoneyView(
         and(
           eq(transactions.userId, userId),
           inArray(transactions.groupId, potIds),
+          sql`${transactions.type} NOT IN ('reserved', 'internal_transfer')`,
           gte(transactions.date, monthStart),
           lte(transactions.date, monthEnd)
         )

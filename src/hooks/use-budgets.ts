@@ -5,18 +5,21 @@ import type { BudgetData, BudgetSuggestion, HistoryData, Transaction } from "@/t
 export function useBudgets(opts?: {
   dateFrom?: string;
   dateTo?: string;
+  accountId?: string;
   noScale?: boolean;
 }) {
   const dateFrom = opts?.dateFrom || "";
   const dateTo = opts?.dateTo || "";
+  const accountId = opts?.accountId || "";
   const noScale = !!opts?.noScale;
   const params = new URLSearchParams();
   if (dateFrom) params.set("dateFrom", dateFrom);
   if (dateTo) params.set("dateTo", dateTo);
+  if (accountId) params.set("accountId", accountId);
   if (noScale) params.set("noScale", "1");
   const qs = params.toString();
   return useQuery({
-    queryKey: ["budgets", { dateFrom, dateTo, noScale }],
+    queryKey: ["budgets", { dateFrom, dateTo, accountId, noScale }],
     queryFn: () => apiFetch<BudgetData>(qs ? `/api/budgets?${qs}` : "/api/budgets"),
   });
 }

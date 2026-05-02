@@ -154,7 +154,6 @@ export async function getMonthMoneyMath(
         and(
           eq(transactions.userId, userId),
           eq(transactions.type, "expense"),
-          sql`COALESCE(${categories.name}, '') <> 'Internal Transfer'`,
           sql`${transactions.groupId} IS NULL`,
           gte(transactions.date, from),
           lte(transactions.date, to)
@@ -166,7 +165,7 @@ export async function getMonthMoneyMath(
       .from(sql`transactions t`)
       .innerJoin(sql`transaction_groups g`, sql`t.group_id = g.id`)
       .where(
-        sql`t.group_id IS NOT NULL AND t.type <> 'reserved' AND t.user_id = ${userId} AND t.date >= ${from} AND t.date <= ${to}`
+        sql`t.group_id IS NOT NULL AND t.type NOT IN ('reserved', 'internal_transfer') AND t.user_id = ${userId} AND t.date >= ${from} AND t.date <= ${to}`
       ),
 
     db
@@ -290,6 +289,7 @@ export async function getMonthMoneyMath(
           and(
             eq(transactionGroups.userId, userId),
             inArray(transactionGroups.categoryId, categoryIds),
+            sql`${transactions.type} NOT IN ('reserved', 'internal_transfer')`,
             gte(transactions.date, from),
             lte(transactions.date, to)
           )

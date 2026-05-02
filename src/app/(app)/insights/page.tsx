@@ -229,6 +229,7 @@ export default function InsightsPage() {
   const { data: budgetData } = useBudgets({
     dateFrom: dateFrom || undefined,
     dateTo: dateTo || undefined,
+    accountId: accountIdParam,
   });
 
   const handlePresetChange = (value: string) => {
