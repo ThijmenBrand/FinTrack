@@ -48,7 +48,6 @@ import { CategoryIcon, resolveIcon } from "@/components/category-icon";
 import { EmojiPicker } from "@/components/emoji-picker";
 import { useCategories, useCreateCategory, useUpdateCategory, useDeleteCategory, useCategoryRules, useCreateCategoryRule, useUpdateCategoryRule, useDeleteCategoryRule, useReapplyCategoryRules } from "@/hooks/use-categories";
 import { useTransactions } from "@/hooks/use-transactions";
-import { useBudgets } from "@/hooks/use-budgets";
 import type { CategoryWithDetails, RuleWithCategory, Transaction } from "@/types/api";
 
 const MATCH_TYPE_LABELS: Record<string, string> = {
@@ -105,11 +104,7 @@ export default function CategoriesPage() {
   const [catColor, setCatColor] = useState("#3b82f6");
   const [catIcon, setCatIcon] = useState<string | null>(null);
   const [catKind, setCatKind] = useState<"spending" | "reserved">("spending");
-  const [catTargetAmount, setCatTargetAmount] = useState<string>("");
   const [catFormError, setCatFormError] = useState<string | null>(null);
-
-  // Used to prefill the optional monthly target when editing a reserved category.
-  const { data: budgetData } = useBudgets();
 
   // Rule form
   const [rulePattern, setRulePattern] = useState("");
@@ -123,7 +118,6 @@ export default function CategoriesPage() {
     setCatColor("#3b82f6");
     setCatIcon(null);
     setCatKind("spending");
-    setCatTargetAmount("");
     setCatFormError(null);
     setEditingCategory(null);
   };
@@ -139,20 +133,6 @@ export default function CategoriesPage() {
   const handleCategorySubmit = async () => {
     setCatFormError(null);
 
-    // Parse the optional target. Empty string → omit the field entirely
-    // (no change). A blank-out for an existing reserved category is signalled
-    // explicitly via "0".
-    const trimmed = catTargetAmount.trim();
-    let parsedTarget: number | undefined;
-    if (catKind === "reserved" && trimmed !== "") {
-      const n = Number(trimmed);
-      if (isNaN(n) || n < 0) {
-        setCatFormError("Monthly target must be a positive number, or 0 to clear.");
-        return;
-      }
-      parsedTarget = n;
-    }
-
     const payload: Record<string, unknown> = {
       ...(editingCategory ? { id: editingCategory.id } : {}),
       name: catName,
@@ -160,9 +140,6 @@ export default function CategoriesPage() {
       icon: catIcon,
       kind: catKind,
     };
-    if (parsedTarget !== undefined) {
-      payload.budgetAmount = parsedTarget;
-    }
 
     try {
       await (editingCategory ? updateCategory : createCategory).mutateAsync(payload as never);
@@ -207,8 +184,6 @@ export default function CategoriesPage() {
     setCatColor(cat.color || "#3b82f6");
     setCatIcon(resolveIcon(cat.icon) || cat.icon);
     setCatKind(cat.kind === "reserved" ? "reserved" : "spending");
-    const existing = budgetData?.reserved?.find((r) => r.categoryId === cat.id);
-    setCatTargetAmount(existing?.target != null ? String(existing.target) : "");
     setCatFormError(null);
     setCategoryDialogOpen(true);
   };
@@ -472,31 +447,11 @@ export default function CategoriesPage() {
                       <p className="text-xs text-muted-foreground mt-0.5">
                         Money you move into this category (e.g. savings) is
                         deducted from Free to Spend but doesn&apos;t count as
-                        spending.
+                        spending. Set a monthly target by allocating a budget
+                        to this category on the Budgets page.
                       </p>
                     </div>
                   </label>
-                  {catKind === "reserved" && (
-                    <div className="grid gap-1.5 pt-1">
-                      <Label htmlFor="reserved-target" className="text-xs">
-                        Monthly target (optional)
-                      </Label>
-                      <Input
-                        id="reserved-target"
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        placeholder="e.g. 400"
-                        value={catTargetAmount}
-                        onChange={(e) => setCatTargetAmount(e.target.value)}
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        When set, this amount is reserved off the top of your
-                        budget every month — even before you actually move it.
-                        Leave blank for purely transaction-driven tracking.
-                      </p>
-                    </div>
-                  )}
                 </div>
                 {catFormError && (
                   <p className="text-xs text-red-600 dark:text-red-400">

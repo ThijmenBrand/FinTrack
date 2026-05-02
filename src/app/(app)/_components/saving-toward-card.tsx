@@ -11,8 +11,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { getSavingTowardSpikes } from "../_lib/dashboard-queries";
 import { SavingTowardList } from "./saving-toward-list";
 
-export async function SavingTowardCard({ userId }: { userId: string }) {
-  const spikes = await getSavingTowardSpikes(userId);
+export async function SavingTowardCard({
+  userId,
+  startDay = 1,
+}: {
+  userId: string;
+  startDay?: number;
+}) {
+  const spikes = await getSavingTowardSpikes(userId, startDay);
 
   return (
     <Card>

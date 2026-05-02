@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { transactions, categories } from "@/db/schema";
-import { eq, and, gte, lte, sql } from "drizzle-orm";
+import { transactions, categories, transactionGroups } from "@/db/schema";
+import { eq, and, gte, lte, sql, inArray } from "drizzle-orm";
 import { getUserId } from "@/lib/auth";
 
 /**
@@ -139,8 +139,80 @@ export async function GET(request: NextRequest) {
       .orderBy(sql`sum(abs(${transactions.amount})) DESC`)
       .limit(10);
 
+    // Pot (transaction-group) spending per category. Mirrors /api/budgets so
+    // the Expenses card and Budget Performance reflect the same period spend.
+    // Each pot's absolute net is attributed to its assigned category.
+    const potSpendingRows = await db
+      .select({
+        categoryId: transactionGroups.categoryId,
+        potTotal: sql<number>`abs(sum(${transactions.amount}))`,
+      })
+      .from(transactionGroups)
+      .innerJoin(transactions, eq(transactions.groupId, transactionGroups.id))
+      .where(and(sql`${transactionGroups.categoryId} IS NOT NULL`, dateWhere))
+      .groupBy(transactionGroups.id, transactionGroups.categoryId);
+
+    const potSpendingByCategory = new Map<string, number>();
+    let totalPotSpending = 0;
+    for (const row of potSpendingRows) {
+      if (!row.categoryId) continue;
+      const amount = row.potTotal ?? 0;
+      potSpendingByCategory.set(
+        row.categoryId,
+        (potSpendingByCategory.get(row.categoryId) || 0) + amount,
+      );
+      totalPotSpending += amount;
+    }
+
+    // Merge pot totals into the category breakdown. Categories that only have
+    // pot activity (no direct expense rows) need their meta loaded.
+    type BreakdownEntry = {
+      categoryId: string | null;
+      categoryName: string | null;
+      categoryColor: string | null;
+      total: number;
+      count: number;
+    };
+    const breakdownByCat = new Map<string, BreakdownEntry>();
+    for (const c of catBreakdown) {
+      if (c.categoryId) breakdownByCat.set(c.categoryId, { ...c });
+    }
+    const missingCatIds = Array.from(potSpendingByCategory.keys()).filter(
+      (id) => !breakdownByCat.has(id),
+    );
+    if (missingCatIds.length > 0) {
+      const missingCats = await db
+        .select({
+          id: categories.id,
+          name: categories.name,
+          color: categories.color,
+        })
+        .from(categories)
+        .where(inArray(categories.id, missingCatIds));
+      for (const m of missingCats) {
+        breakdownByCat.set(m.id, {
+          categoryId: m.id,
+          categoryName: m.name,
+          categoryColor: m.color,
+          total: 0,
+          count: 0,
+        });
+      }
+    }
+    for (const [catId, potTotal] of potSpendingByCategory) {
+      const entry = breakdownByCat.get(catId);
+      if (entry) entry.total += potTotal;
+    }
+
+    const mergedBreakdown: BreakdownEntry[] = [
+      ...breakdownByCat.values(),
+      ...catBreakdown.filter((c) => !c.categoryId),
+    ];
+
+    const totalExpensesWithPots = summary.totalExpenses + totalPotSpending;
+
     return NextResponse.json({
-      categoryBreakdown: catBreakdown.map((c) => ({
+      categoryBreakdown: mergedBreakdown.map((c) => ({
         categoryId: c.categoryId,
         categoryName: c.categoryName || "Uncategorized",
         categoryColor: c.categoryColor || "#94a3b8",
@@ -159,8 +231,8 @@ export async function GET(request: NextRequest) {
       })),
       summary: {
         totalIncome: summary.totalIncome,
-        totalExpenses: summary.totalExpenses,
-        net: summary.totalIncome - summary.totalExpenses,
+        totalExpenses: totalExpensesWithPots,
+        net: summary.totalIncome - totalExpensesWithPots,
         txCount: summary.txCount,
       },
       topMerchants: topMerchants.map((m) => ({

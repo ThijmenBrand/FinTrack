@@ -10,21 +10,29 @@ import { CalendarClock } from "lucide-react";
 import { getMonthMoneyView } from "../_lib/dashboard-queries";
 import { ComingUpThisMonthList } from "./coming-up-this-month-list";
 
-export async function ComingUpThisMonthCard({ userId }: { userId: string }) {
-  const money = await getMonthMoneyView(userId);
+export async function ComingUpThisMonthCard({
+  userId,
+  startDay = 1,
+}: {
+  userId: string;
+  startDay?: number;
+}) {
+  const money = await getMonthMoneyView(userId, startDay);
 
   if (money.thisMonthSpikes.length === 0) return null;
+
+  const periodCopy = startDay === 1 ? "the month" : "this period";
 
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <CalendarClock className="h-4 w-4 text-primary" />
-          Coming up this month
+          {startDay === 1 ? "Coming up this month" : "Coming up this period"}
         </CardTitle>
         <CardDescription>
           {money.thisMonthSpikes.length} planned event
-          {money.thisMonthSpikes.length === 1 ? "" : "s"} between now and the end of the month
+          {money.thisMonthSpikes.length === 1 ? "" : "s"} between now and the end of {periodCopy}
         </CardDescription>
       </CardHeader>
       <CardContent>

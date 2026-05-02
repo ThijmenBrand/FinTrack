@@ -7,6 +7,7 @@ import {
   transactionGroups,
 } from "@/db/schema";
 import { eq, and, gte, lte, sql, inArray } from "drizzle-orm";
+import { getFinancialMonthRange } from "@/lib/financial-month";
 
 export interface MonthMoneyMath {
   monthlyIncome: number;
@@ -68,14 +69,8 @@ export function mergeCategorySpend(
   return out;
 }
 
-function getCurrentMonthRange(): { from: string; to: string } {
-  const now = new Date();
-  const from = new Date(now.getFullYear(), now.getMonth(), 1);
-  const to = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-  return {
-    from: from.toISOString().slice(0, 10),
-    to: to.toISOString().slice(0, 10),
-  };
+function getCurrentMonthRange(startDay: number = 1): { from: string; to: string } {
+  return getFinancialMonthRange(new Date(), startDay);
 }
 
 /**
@@ -100,8 +95,11 @@ function getCurrentMonthRange(): { from: string; to: string } {
  * (e.g. "this would push Entertainment over budget"). Reserved-kind categories
  * are not included in `allocations`.
  */
-export async function getMonthMoneyMath(userId: string): Promise<MonthMoneyMath> {
-  const { from, to } = getCurrentMonthRange();
+export async function getMonthMoneyMath(
+  userId: string,
+  startDay: number = 1,
+): Promise<MonthMoneyMath> {
+  const { from, to } = getCurrentMonthRange(startDay);
 
   const [
     recurringIncome,
