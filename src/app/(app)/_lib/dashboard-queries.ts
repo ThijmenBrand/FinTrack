@@ -5,11 +5,12 @@ import {
   transactions,
   budgets,
   categories,
+  recurringTransactions,
   transactionGroups,
 } from "@/db/schema";
 import { eq, and, gte, lte, sql, sum, inArray, isNotNull } from "drizzle-orm";
 import { getPaySchedule, paydaysBetween, type PaySchedule } from "@/lib/pay-schedule";
-import { getMonthMoneyMath } from "@/lib/month-money";
+import { getMonthMoneyMath, toMonthly } from "@/lib/month-money";
 import { classifyOnTrack } from "@/lib/on-track";
 import { getFinancialMonthRange } from "@/lib/financial-month";
 import type {
@@ -115,8 +116,11 @@ function getDateRanges(startDay: number = 1) {
 
 // ─── Per-widget queries ─────────────────────────────────────────────
 
-export async function getWeeklySpending(userId: string) {
+export async function getWeeklySpending(userId: string, accountId?: string) {
   const { weekStart, weekEnd, lastWeekStart, lastWeekEnd } = getDateRanges();
+  const accountFilterAlias = accountId
+    ? sql` AND t.account_id = ${accountId}`
+    : sql``;
 
   const [weekExpense, lastWeekExpense, weekPotContrib] = await Promise.all([
     db
@@ -131,7 +135,8 @@ export async function getWeeklySpending(userId: string) {
           eq(transactions.type, "expense"),
           sql`${transactions.groupId} IS NULL`,
           gte(transactions.date, weekStart),
-          lte(transactions.date, weekEnd)
+          lte(transactions.date, weekEnd),
+          accountId ? eq(transactions.accountId, accountId) : sql`1=1`,
         )
       ),
 
@@ -147,7 +152,8 @@ export async function getWeeklySpending(userId: string) {
           eq(transactions.type, "expense"),
           sql`${transactions.groupId} IS NULL`,
           gte(transactions.date, lastWeekStart),
-          lte(transactions.date, lastWeekEnd)
+          lte(transactions.date, lastWeekEnd),
+          accountId ? eq(transactions.accountId, accountId) : sql`1=1`,
         )
       ),
 
@@ -158,7 +164,7 @@ export async function getWeeklySpending(userId: string) {
       .from(sql`transactions t`)
       .innerJoin(sql`transaction_groups g`, sql`t.group_id = g.id`)
       .where(
-        sql`t.group_id IS NOT NULL AND t.type NOT IN ('reserved', 'internal_transfer') AND t.user_id = ${userId} AND t.date >= ${weekStart} AND t.date <= ${weekEnd}`
+        sql`t.group_id IS NOT NULL AND t.type NOT IN ('reserved', 'internal_transfer') AND t.user_id = ${userId} AND t.date >= ${weekStart} AND t.date <= ${weekEnd}${accountFilterAlias}`
       ),
   ]);
 
@@ -174,26 +180,80 @@ export async function getWeeklySpending(userId: string) {
   };
 }
 
-export async function getBudgetOverview(userId: string, startDay: number = 1) {
-  const { monthProgress } = getDateRanges(startDay);
+export async function getBudgetOverview(
+  userId: string,
+  startDay: number = 1,
+  accountId?: string,
+) {
+  const { monthStart, monthEnd, monthProgress } = getDateRanges(startDay);
+  const accountFilterAlias = accountId
+    ? sql` AND t.account_id = ${accountId}`
+    : sql``;
 
-  const allBudgetsRaw = await db
-    .select({
-      id: budgets.id,
-      categoryId: budgets.categoryId,
-      categoryName: categories.name,
-      categoryColor: categories.color,
-      categoryKind: categories.kind,
-      amount: budgets.amount,
-      period: budgets.period,
-    })
-    .from(budgets)
-    .leftJoin(categories, eq(budgets.categoryId, categories.id))
-    .where(and(eq(budgets.isActive, true), eq(budgets.status, "active"), eq(budgets.userId, userId)));
+  const [allBudgetsRaw, recurringExpenses, monthExpense, monthPotContrib] =
+    await Promise.all([
+      db
+        .select({
+          id: budgets.id,
+          categoryId: budgets.categoryId,
+          categoryName: categories.name,
+          categoryColor: categories.color,
+          categoryKind: categories.kind,
+          amount: budgets.amount,
+          period: budgets.period,
+        })
+        .from(budgets)
+        .leftJoin(categories, eq(budgets.categoryId, categories.id))
+        .where(
+          and(
+            eq(budgets.isActive, true),
+            eq(budgets.status, "active"),
+            eq(budgets.userId, userId),
+          ),
+        ),
+
+      db
+        .select({
+          amount: recurringTransactions.amount,
+          frequency: recurringTransactions.frequency,
+        })
+        .from(recurringTransactions)
+        .where(
+          and(
+            eq(recurringTransactions.type, "expense"),
+            eq(recurringTransactions.isActive, true),
+            eq(recurringTransactions.userId, userId),
+          ),
+        ),
+
+      db
+        .select({
+          total: sql<number>`sum(abs(${transactions.amount}) - ${reimbursementAdjustment()})`,
+        })
+        .from(transactions)
+        .where(
+          and(
+            eq(transactions.userId, userId),
+            eq(transactions.type, "expense"),
+            sql`${transactions.groupId} IS NULL`,
+            gte(transactions.date, monthStart),
+            lte(transactions.date, monthEnd),
+            accountId ? eq(transactions.accountId, accountId) : sql`1=1`,
+          ),
+        ),
+
+      db
+        .select({ potNet: sql<number>`SUM(t.amount)` })
+        .from(sql`transactions t`)
+        .innerJoin(sql`transaction_groups g`, sql`t.group_id = g.id`)
+        .where(
+          sql`t.group_id IS NOT NULL AND t.type NOT IN ('reserved', 'internal_transfer') AND t.user_id = ${userId} AND t.date >= ${monthStart} AND t.date <= ${monthEnd}${accountFilterAlias}`,
+        ),
+    ]);
 
   const allBudgets = allBudgetsRaw.filter((b) => b.categoryKind !== "reserved");
 
-  // Round 2: budget spending batched by period
+  // Per-budgeted-category spending — drives the per-category chips.
   const budgetsByPeriod = new Map<string, typeof allBudgets>();
   for (const b of allBudgets) {
     const existing = budgetsByPeriod.get(b.period) || [];
@@ -220,7 +280,8 @@ export async function getBudgetOverview(userId: string, startDay: number = 1) {
               eq(transactions.type, "expense"),
               sql`${transactions.groupId} IS NULL`,
               gte(transactions.date, from),
-              lte(transactions.date, to)
+              lte(transactions.date, to),
+              accountId ? eq(transactions.accountId, accountId) : sql`1=1`,
             )
           )
           .groupBy(transactions.categoryId);
@@ -253,8 +314,22 @@ export async function getBudgetOverview(userId: string, startDay: number = 1) {
     })
     .sort((a, b) => b.percentage - a.percentage);
 
-  const totalBudgeted = allBudgets.reduce((s, b) => s + b.amount, 0);
-  const totalBudgetSpent = budgetItems.reduce((s, b) => s + b.spent, 0);
+  // Headline totals treat recurring fixed costs as part of the budget too —
+  // money is still flowing out, so a "budget spent vs. budget total" bar
+  // should reflect both committed envelopes and recurring bills. `spent`
+  // counts every expense (and net pot outflow) in the period, not just
+  // spending in budgeted categories.
+  const totalAllocated = allBudgets.reduce((s, b) => s + b.amount, 0);
+  const totalFixedCosts = recurringExpenses.reduce(
+    (s, r) => s + toMonthly(r.amount, r.frequency),
+    0,
+  );
+  const totalBudgeted = totalAllocated + totalFixedCosts;
+
+  const txTotal = Number(monthExpense[0]?.total) || 0;
+  const potNet = Number(monthPotContrib[0]?.potNet) || 0;
+  const potExpense = Math.abs(Math.min(0, potNet));
+  const totalBudgetSpent = txTotal + potExpense;
 
   return {
     budgetItems,
@@ -291,8 +366,15 @@ export const getAccountBalances = cache(async (userId: string) => {
   }));
 });
 
-export async function getMonthSummary(userId: string, startDay: number = 1) {
+export async function getMonthSummary(
+  userId: string,
+  startDay: number = 1,
+  accountId?: string,
+) {
   const { monthStart, monthEnd } = getDateRanges(startDay);
+  const accountFilterAlias = accountId
+    ? sql` AND t.account_id = ${accountId}`
+    : sql``;
 
   const [accountBalances, monthIncome, monthExpense, monthPotContrib] =
     await Promise.all([
@@ -306,7 +388,8 @@ export async function getMonthSummary(userId: string, startDay: number = 1) {
             eq(transactions.userId, userId),
             eq(transactions.type, "income"),
             gte(transactions.date, monthStart),
-            lte(transactions.date, monthEnd)
+            lte(transactions.date, monthEnd),
+            accountId ? eq(transactions.accountId, accountId) : sql`1=1`,
           )
         ),
 
@@ -322,7 +405,8 @@ export async function getMonthSummary(userId: string, startDay: number = 1) {
             eq(transactions.type, "expense"),
               sql`${transactions.groupId} IS NULL`,
             gte(transactions.date, monthStart),
-            lte(transactions.date, monthEnd)
+            lte(transactions.date, monthEnd),
+            accountId ? eq(transactions.accountId, accountId) : sql`1=1`,
           )
         ),
 
@@ -333,7 +417,7 @@ export async function getMonthSummary(userId: string, startDay: number = 1) {
         .from(sql`transactions t`)
         .innerJoin(sql`transaction_groups g`, sql`t.group_id = g.id`)
         .where(
-          sql`t.group_id IS NOT NULL AND t.type NOT IN ('reserved', 'internal_transfer') AND t.user_id = ${userId} AND t.date >= ${monthStart} AND t.date <= ${monthEnd}`
+          sql`t.group_id IS NOT NULL AND t.type NOT IN ('reserved', 'internal_transfer') AND t.user_id = ${userId} AND t.date >= ${monthStart} AND t.date <= ${monthEnd}${accountFilterAlias}`
         ),
     ]);
 
@@ -452,6 +536,7 @@ function baseSpikeFields(
 export async function getMonthMoneyView(
   userId: string,
   startDay: number = 1,
+  accountId?: string,
 ): Promise<MonthMoneyView> {
   const { monthStart, monthEnd } = getDateRanges(startDay);
   const today = new Date();
@@ -459,7 +544,7 @@ export async function getMonthMoneyView(
   const todayIso = toLocalDateStr(today);
 
   const [math, schedule, rows] = await Promise.all([
-    getMonthMoneyMath(userId, startDay),
+    getMonthMoneyMath(userId, startDay, { accountId }),
     getPaySchedule(userId),
     loadSpikeRowsBetween(userId, todayIso, monthEnd),
   ]);
@@ -628,7 +713,11 @@ export async function getUpcomingSpikes(userId: string): Promise<UpcomingSpike[]
   return rows.map((row) => baseSpikeFields(row, today, schedule));
 }
 
-export async function getTopCategories(userId: string, startDay: number = 1) {
+export async function getTopCategories(
+  userId: string,
+  startDay: number = 1,
+  accountId?: string,
+) {
   const { monthStart, monthEnd } = getDateRanges(startDay);
 
   const topCats = await db
@@ -647,7 +736,8 @@ export async function getTopCategories(userId: string, startDay: number = 1) {
         sql`COALESCE(${categories.name}, '') <> 'Internal Transfer'`,
         sql`${transactions.groupId} IS NULL`,
         gte(transactions.date, monthStart),
-        lte(transactions.date, monthEnd)
+        lte(transactions.date, monthEnd),
+        accountId ? eq(transactions.accountId, accountId) : sql`1=1`,
       )
     )
     .groupBy(transactions.categoryId, categories.id)

@@ -244,6 +244,7 @@ export default function BudgetsPage() {
   const fixedPct = incomeTotal > 0 ? (data.totalFixedCosts / incomeTotal) * 100 : 0;
   const allocatedPct = incomeTotal > 0 ? (data.totalAllocated / incomeTotal) * 100 : 0;
   const unallocatedPct = incomeTotal > 0 ? (Math.max(0, data.unallocated) / incomeTotal) * 100 : 0;
+  const totalPlanned = data.totalFixedCosts + data.totalAllocated;
 
   const hasSuggestions = data.suggestions.length > 0;
   const showRegenBanner =
@@ -481,8 +482,8 @@ export default function BudgetsPage() {
       {/* Budget Overview Bar */}
       <Card>
         <CardHeader className="pb-3">
-          <div className="flex items-center justify-between gap-2">
-            <div>
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
               <CardTitle className="text-base">Overview</CardTitle>
               <CardDescription>
                 {formatCurrency(data.monthlyIncome)} income · {formatCurrency(data.totalFixedCosts)} fixed ·{" "}
@@ -491,6 +492,14 @@ export default function BudgetsPage() {
                   {formatCurrency(Math.max(0, data.unallocated))} {data.unallocated < 0 ? "over" : "free"}
                 </span>
               </CardDescription>
+            </div>
+            <div className="text-right shrink-0">
+              <p className="text-2xl font-bold tabular-nums leading-none">
+                {formatCurrency(totalPlanned)}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                planned to spend
+              </p>
             </div>
           </div>
         </CardHeader>
