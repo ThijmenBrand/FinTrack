@@ -33,9 +33,10 @@ function isPastRange(toDate: string): boolean {
 
 interface BudgetPerformanceProps {
   data: BudgetData | null;
+  accountFiltered?: boolean;
 }
 
-export function BudgetPerformance({ data }: BudgetPerformanceProps) {
+export function BudgetPerformance({ data, accountFiltered }: BudgetPerformanceProps) {
   const router = useRouter();
 
   if (!data) return null;
@@ -100,6 +101,7 @@ export function BudgetPerformance({ data }: BudgetPerformanceProps) {
               {!pastRange && (
                 <> · {daysLeft} day{daysLeft === 1 ? "" : "s"} left</>
               )}
+              {accountFiltered && <> · across all accounts</>}
             </CardDescription>
           </div>
         </div>

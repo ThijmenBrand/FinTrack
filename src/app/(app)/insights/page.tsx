@@ -226,10 +226,17 @@ export default function InsightsPage() {
     dateTo: dateTo || undefined,
     forecastMonths: 3,
   });
+  // Budgets are envelope-style (PR #33): they span all accounts, so the
+  // Budget Performance card ignores the page's account filter to match the
+  // dashboard's Budget Overview. Disable the API's day-based scaling when
+  // the range is a single financial month (matches the Budgets page) so
+  // the budget total isn't pro-rated below its monthly value.
+  const isSingleFinancialMonth =
+    preset === "this_month" || preset === "last_month";
   const { data: budgetData } = useBudgets({
     dateFrom: dateFrom || undefined,
     dateTo: dateTo || undefined,
-    accountId: accountIdParam,
+    noScale: isSingleFinancialMonth,
   });
 
   const handlePresetChange = (value: string) => {
@@ -418,7 +425,10 @@ export default function InsightsPage() {
       </div>
 
       {/* Monthly Budget Performance */}
-      <BudgetPerformance data={budgetData ?? null} />
+      <BudgetPerformance
+        data={budgetData ?? null}
+        accountFiltered={accountIdParam !== undefined}
+      />
 
       {/* Balance Over Time */}
       <BalanceChart
