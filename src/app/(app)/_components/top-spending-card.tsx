@@ -10,15 +10,23 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { TransactionsFilterLink } from "@/components/transactions-filter-link";
 import { getTopCategories, formatCurrency } from "../_lib/dashboard-queries";
+import {
+  formatFinancialMonthLabel,
+  getFinancialMonthRange,
+} from "@/lib/financial-month";
 
-export async function TopSpendingCard({ userId }: { userId: string }) {
-  const topCategories = await getTopCategories(userId);
+export async function TopSpendingCard({
+  userId,
+  startDay = 1,
+}: {
+  userId: string;
+  startDay?: number;
+}) {
+  const topCategories = await getTopCategories(userId, startDay);
 
-  const now = new Date();
-  const monthLabel = now.toLocaleDateString("en-US", {
-    month: "long",
-    year: "numeric",
-  });
+  const monthLabel = formatFinancialMonthLabel(new Date(), startDay);
+  const periodCopy = startDay === 1 ? "this month" : "this period";
+  const fmRange = startDay === 1 ? null : getFinancialMonthRange(new Date(), startDay);
 
   return (
     <Card>
@@ -37,7 +45,7 @@ export async function TopSpendingCard({ userId }: { userId: string }) {
       <CardContent>
         {topCategories.length === 0 ? (
           <p className="text-sm text-muted-foreground py-8 text-center">
-            No expenses this month yet.
+            No expenses {periodCopy} yet.
           </p>
         ) : (
           <div className="space-y-1">
@@ -71,7 +79,9 @@ export async function TopSpendingCard({ userId }: { userId: string }) {
                   <TransactionsFilterLink
                     key={cat.categoryId}
                     category={cat.categoryId}
-                    period="this-month"
+                    period={fmRange ? undefined : "this-month"}
+                    dateFrom={fmRange?.from}
+                    dateTo={fmRange?.to}
                     className={`${rowClass} transition-colors hover:bg-muted/50`}
                   >
                     {rowContent}

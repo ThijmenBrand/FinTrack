@@ -94,6 +94,8 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const dateFromParam = searchParams.get("dateFrom");
     const dateToParam = searchParams.get("dateTo");
+    const noScaleParam = searchParams.get("noScale");
+    const noScale = noScaleParam === "1" || noScaleParam === "true";
 
     // Use the requested range when both dates are present and well-formed;
     // otherwise default to the current calendar month.
@@ -110,11 +112,13 @@ export async function GET(request: NextRequest) {
     // Scale monthly budget figures so they're comparable to spending in the range.
     // E.g. a 3-month range scales the monthly cap ×3 so spent-vs-budget is apples-to-apples.
     // Only applied when the caller passed an explicit range — without it (the Budgets page),
-    // amounts stay at their stored monthly values.
+    // amounts stay at their stored monthly values. `noScale=1` opts out even with a range,
+    // which the Budgets page uses when viewing a single financial month.
     const fromTime = new Date(from + "T00:00:00").getTime();
     const toTime = new Date(to + "T00:00:00").getTime();
     const daysInRange = Math.max(1, (toTime - fromTime) / 86_400_000 + 1);
-    const monthsScale = useRange ? daysInRange / AVG_DAYS_PER_MONTH : 1;
+    const monthsScale =
+      useRange && !noScale ? daysInRange / AVG_DAYS_PER_MONTH : 1;
 
     // 0. Get pot spending by category for current month
     // Each pot's net amount (abs of sum of member transactions) counts toward the pot's category

@@ -4,6 +4,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TransactionsFilterLink } from "@/components/transactions-filter-link";
 import { getBudgetOverview, formatCurrency } from "../_lib/dashboard-queries";
+import {
+  formatFinancialMonthLabel,
+  getFinancialMonthRange,
+} from "@/lib/financial-month";
 
 function RingProgress({
   percentage,
@@ -56,16 +60,20 @@ function RingProgress({
   );
 }
 
-export async function BudgetOverview({ userId }: { userId: string }) {
-  const data = await getBudgetOverview(userId);
+export async function BudgetOverview({
+  userId,
+  startDay = 1,
+}: {
+  userId: string;
+  startDay?: number;
+}) {
+  const data = await getBudgetOverview(userId, startDay);
 
   if (data.budgetItems.length === 0) return null;
 
-  const now = new Date();
-  const monthLabel = now.toLocaleDateString("en-US", {
-    month: "long",
-    year: "numeric",
-  });
+  const monthLabel = formatFinancialMonthLabel(new Date(), startDay);
+  const periodCopy = startDay === 1 ? "this month" : "this period";
+  const fmRange = startDay === 1 ? null : getFinancialMonthRange(new Date(), startDay);
 
   const budgetLeft = Math.max(0, data.totalBudgeted - data.totalBudgetSpent);
   const overallBudgetPct =
@@ -121,7 +129,7 @@ export async function BudgetOverview({ userId }: { userId: string }) {
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
               {formatCurrency(data.totalBudgetSpent)} spent of{" "}
-              {formatCurrency(data.totalBudgeted)} this month
+              {formatCurrency(data.totalBudgeted)} {periodCopy}
             </p>
           </div>
         </div>
@@ -245,7 +253,9 @@ export async function BudgetOverview({ userId }: { userId: string }) {
                 <TransactionsFilterLink
                   key={item.categoryId}
                   category={item.categoryId}
-                  period="this-month"
+                  period={fmRange ? undefined : "this-month"}
+                  dateFrom={fmRange?.from}
+                  dateTo={fmRange?.to}
                   className={`${chipClass} transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
                 >
                   {chipContent}

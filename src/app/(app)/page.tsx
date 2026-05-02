@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { Suspense } from "react";
 import { requireAuth } from "@/lib/auth";
+import { getUserPreferences } from "@/lib/preferences";
 import {
   HeroWeeklySpending,
   HeroWeeklySpendingSkeleton,
@@ -34,6 +35,8 @@ import {
 export default async function DashboardPage() {
   const session = await requireAuth();
   const userId = session.userId;
+  const prefs = await getUserPreferences(userId);
+  const startDay = prefs.financialMonthStartDay;
 
   return (
     <div className="space-y-6">
@@ -42,24 +45,24 @@ export default async function DashboardPage() {
       </Suspense>
 
       <Suspense fallback={<MonthSummaryGridSkeleton />}>
-        <MonthSummaryGrid userId={userId} />
+        <MonthSummaryGrid userId={userId} startDay={startDay} />
       </Suspense>
 
       <Suspense fallback={<ComingUpThisMonthCardSkeleton />}>
-        <ComingUpThisMonthCard userId={userId} />
+        <ComingUpThisMonthCard userId={userId} startDay={startDay} />
       </Suspense>
 
       <Suspense fallback={<BudgetOverviewSkeleton />}>
-        <BudgetOverview userId={userId} />
+        <BudgetOverview userId={userId} startDay={startDay} />
       </Suspense>
 
       <Suspense fallback={<SavingTowardCardSkeleton />}>
-        <SavingTowardCard userId={userId} />
+        <SavingTowardCard userId={userId} startDay={startDay} />
       </Suspense>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Suspense fallback={<TopSpendingCardSkeleton />}>
-          <TopSpendingCard userId={userId} />
+          <TopSpendingCard userId={userId} startDay={startDay} />
         </Suspense>
         <Suspense fallback={<AccountsCardSkeleton />}>
           <AccountsCard userId={userId} />

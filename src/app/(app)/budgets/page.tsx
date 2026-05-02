@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -13,6 +13,11 @@ import {
   useRejectBudgetSuggestions,
 } from "@/hooks/use-budgets";
 import { useCategories } from "@/hooks/use-categories";
+import { usePreferences } from "@/hooks/use-preferences";
+import {
+  formatFinancialMonthLabel,
+  getFinancialMonthRange,
+} from "@/lib/financial-month";
 import type { Allocation, BudgetSuggestion } from "@/types/api";
 import {
   Card,
@@ -66,6 +71,28 @@ function formatCurrency(amount: number) {
   }).format(amount);
 }
 
+const MONTH_OFFSETS = [0, 1, 2, 3] as const;
+type MonthOffset = (typeof MONTH_OFFSETS)[number];
+
+// Resolve the financial-month range for `offset` periods before the one
+// containing `now`. Walks backward in calendar months from the current FM
+// start so each offset lands on a real FM boundary regardless of startDay.
+function getFinancialMonthForOffset(
+  now: Date,
+  startDay: number,
+  offset: number,
+): { from: string; to: string; reference: Date } {
+  const currentRange = getFinancialMonthRange(now, startDay);
+  const currentStart = new Date(currentRange.from + "T00:00:00");
+  const targetStart = new Date(
+    currentStart.getFullYear(),
+    currentStart.getMonth() - offset,
+    currentStart.getDate(),
+  );
+  const range = getFinancialMonthRange(targetStart, startDay);
+  return { ...range, reference: targetStart };
+}
+
 function formatRelative(iso: string | null): string {
   if (!iso) return "never";
   const date = new Date(iso);
@@ -80,7 +107,39 @@ function formatRelative(iso: string | null): string {
 
 export default function BudgetsPage() {
   const router = useRouter();
-  const { data: data = null, isLoading: loading } = useBudgets();
+  const [monthOffset, setMonthOffset] = useState<MonthOffset>(0);
+  const isCurrentMonth = monthOffset === 0;
+
+  const { data: prefs } = usePreferences();
+  const startDay = prefs?.financialMonthStartDay ?? 1;
+
+  const { dateFrom, dateTo, monthOptions } = useMemo(() => {
+    const now = new Date();
+    const options = MONTH_OFFSETS.map((offset) => {
+      const { from, to, reference } = getFinancialMonthForOffset(
+        now,
+        startDay,
+        offset,
+      );
+      let label: string;
+      if (offset === 0) label = "This month";
+      else if (offset === 1) label = "Last month";
+      else label = formatFinancialMonthLabel(reference, startDay);
+      return { offset, label, from, to };
+    });
+    const selected = options[monthOffset];
+    return {
+      dateFrom: selected.from,
+      dateTo: selected.to,
+      monthOptions: options,
+    };
+  }, [monthOffset, startDay]);
+
+  const { data: data = null, isLoading: loading } = useBudgets({
+    dateFrom,
+    dateTo,
+    noScale: true,
+  });
   const { data: categoriesData } = useCategories();
   const categories = categoriesData ?? [];
   const createBudget = useCreateBudget();
@@ -187,7 +246,8 @@ export default function BudgetsPage() {
   const unallocatedPct = incomeTotal > 0 ? (Math.max(0, data.unallocated) / incomeTotal) * 100 : 0;
 
   const hasSuggestions = data.suggestions.length > 0;
-  const showRegenBanner = data.automation.regenerationDue && !hasSuggestions;
+  const showRegenBanner =
+    isCurrentMonth && data.automation.regenerationDue && !hasSuggestions;
   const allocationsCount = data.allocations.length;
 
   return (
@@ -207,19 +267,37 @@ export default function BudgetsPage() {
             </Link>
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="outline"
-            onClick={handleGenerate}
-            disabled={generateBudgets.isPending || !data.automation.enabled}
+        <div className="flex flex-wrap items-center gap-2">
+          <Select
+            value={String(monthOffset)}
+            onValueChange={(v) => setMonthOffset(Number(v) as MonthOffset)}
           >
-            {generateBudgets.isPending ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Sparkles className="mr-2 h-4 w-4" />
-            )}
-            {hasSuggestions ? "Regenerate" : "Generate from history"}
-          </Button>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {monthOptions.map((opt) => (
+                <SelectItem key={opt.offset} value={String(opt.offset)}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {isCurrentMonth && (
+            <Button
+              variant="outline"
+              onClick={handleGenerate}
+              disabled={generateBudgets.isPending || !data.automation.enabled}
+            >
+              {generateBudgets.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="mr-2 h-4 w-4" />
+              )}
+              {hasSuggestions ? "Regenerate" : "Generate from history"}
+            </Button>
+          )}
+          {isCurrentMonth && (
           <Dialog
             open={dialogOpen}
             onOpenChange={(open) => {
@@ -334,11 +412,12 @@ export default function BudgetsPage() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+          )}
         </div>
       </div>
 
       {/* Suggestion banner */}
-      {hasSuggestions && (
+      {isCurrentMonth && hasSuggestions && (
         <Card className="border-blue-200 bg-blue-50/40 dark:border-blue-900/60 dark:bg-blue-950/20">
           <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
             <div className="flex items-start gap-3">
@@ -489,20 +568,22 @@ export default function BudgetsPage() {
           ) : (
             <ul className="divide-y border-y sm:border-x sm:rounded-md">
               {/* Suggestion rows on top with inline accept/reject */}
-              {data.suggestions.map((s) => (
-                <SuggestionRow
-                  key={s.id}
-                  suggestion={s}
-                  busy={acceptSuggestions.isPending || rejectSuggestions.isPending}
-                  onAccept={() => handleAcceptOne(s)}
-                  onReject={() => handleRejectOne(s)}
-                />
-              ))}
+              {isCurrentMonth &&
+                data.suggestions.map((s) => (
+                  <SuggestionRow
+                    key={s.id}
+                    suggestion={s}
+                    busy={acceptSuggestions.isPending || rejectSuggestions.isPending}
+                    onAccept={() => handleAcceptOne(s)}
+                    onReject={() => handleRejectOne(s)}
+                  />
+                ))}
               {data.allocations.map((alloc) => (
                 <AllocationRow
                   key={alloc.id}
                   alloc={alloc}
                   isDeleteConfirming={deleteConfirm === alloc.id}
+                  readOnly={!isCurrentMonth}
                   onClick={() => setHistoryAlloc(alloc)}
                   onEdit={() => openEdit(alloc)}
                   onDelete={() => handleDelete(alloc.id)}
@@ -585,11 +666,8 @@ export default function BudgetsPage() {
               })}
             </ul>
             <p className="px-4 pt-3 text-xs text-muted-foreground">
-              Set or change a monthly target on the{" "}
-              <Link href="/settings/categories" className="underline">
-                Categories
-              </Link>{" "}
-              page.
+              Set or change a monthly target by allocating a budget to the
+              reserved category via <strong>Add manually</strong> above.
             </p>
           </CardContent>
         </Card>
@@ -740,6 +818,7 @@ function statusColor(status: Allocation["status"]): { bar: string; text: string 
 interface AllocationRowProps {
   alloc: Allocation;
   isDeleteConfirming: boolean;
+  readOnly?: boolean;
   onClick: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -750,6 +829,7 @@ interface AllocationRowProps {
 function AllocationRow({
   alloc,
   isDeleteConfirming,
+  readOnly = false,
   onClick,
   onEdit,
   onDelete,
@@ -818,6 +898,7 @@ function AllocationRow({
       </div>
 
       {/* Actions */}
+      {!readOnly && (
       <div
         className="flex items-center gap-0.5 row-start-1 col-start-3 justify-end sm:row-start-auto sm:col-start-auto sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity"
         onClick={(e) => e.stopPropagation()}
@@ -858,6 +939,7 @@ function AllocationRow({
           </Button>
         )}
       </div>
+      )}
     </li>
   );
 }

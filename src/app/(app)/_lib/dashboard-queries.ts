@@ -11,6 +11,7 @@ import { eq, and, gte, lte, sql, sum, inArray, isNotNull } from "drizzle-orm";
 import { getPaySchedule, paydaysBetween, type PaySchedule } from "@/lib/pay-schedule";
 import { getMonthMoneyMath } from "@/lib/month-money";
 import { classifyOnTrack } from "@/lib/on-track";
+import { getFinancialMonthRange } from "@/lib/financial-month";
 import type {
   MonthMoneyView,
   SavingTowardSpike,
@@ -28,7 +29,10 @@ export function toLocalDateStr(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
-export function getPeriodRange(period: string): { from: string; to: string } {
+export function getPeriodRange(
+  period: string,
+  startDay: number = 1,
+): { from: string; to: string } {
   const now = new Date();
   const y = now.getFullYear();
   const m = now.getMonth();
@@ -48,10 +52,7 @@ export function getPeriodRange(period: string): { from: string; to: string } {
       return { from: toLocalDateStr(mon), to: toLocalDateStr(sun) };
     }
     case "monthly": {
-      return {
-        from: toLocalDateStr(new Date(y, m, 1)),
-        to: toLocalDateStr(new Date(y, m + 1, 0)),
-      };
+      return getFinancialMonthRange(now, startDay);
     }
     case "yearly":
       return { from: `${y}-01-01`, to: `${y}-12-31` };
@@ -74,15 +75,14 @@ function reimbursementAdjustment() {
   )`;
 }
 
-function getDateRanges() {
+function getDateRanges(startDay: number = 1) {
   const now = new Date();
   const y = now.getFullYear();
   const m = now.getMonth();
   const d = now.getDate();
   const dow = now.getDay();
 
-  const monthStart = toLocalDateStr(new Date(y, m, 1));
-  const monthEnd = toLocalDateStr(new Date(y, m + 1, 0));
+  const { from: monthStart, to: monthEnd } = getFinancialMonthRange(now, startDay);
 
   const weekOff = dow === 0 ? -6 : 1 - dow;
   const weekStart = toLocalDateStr(new Date(y, m, d + weekOff));
@@ -91,8 +91,16 @@ function getDateRanges() {
   const lastWeekStart = toLocalDateStr(new Date(y, m, d + weekOff - 7));
   const lastWeekEnd = toLocalDateStr(new Date(y, m, d + weekOff - 1));
 
-  const daysInMonth = new Date(y, m + 1, 0).getDate();
-  const monthProgress = d / daysInMonth;
+  // Fraction of the financial-month elapsed, including today.
+  const startMs = new Date(monthStart).getTime();
+  const endMs = new Date(monthEnd).getTime();
+  const totalDays = Math.round((endMs - startMs) / 86400000) + 1;
+  const todayMs = new Date(y, m, d).getTime();
+  const elapsedDays = Math.min(
+    totalDays,
+    Math.max(1, Math.round((todayMs - startMs) / 86400000) + 1),
+  );
+  const monthProgress = totalDays > 0 ? elapsedDays / totalDays : 0;
 
   return {
     monthStart,
@@ -168,8 +176,8 @@ export async function getWeeklySpending(userId: string) {
   };
 }
 
-export async function getBudgetOverview(userId: string) {
-  const { monthStart, monthEnd, monthProgress } = getDateRanges();
+export async function getBudgetOverview(userId: string, startDay: number = 1) {
+  const { monthProgress } = getDateRanges(startDay);
 
   const allBudgets = await db
     .select({
@@ -196,7 +204,7 @@ export async function getBudgetOverview(userId: string) {
   await Promise.all(
     Array.from(budgetsByPeriod.entries()).map(
       async ([period, periodBudgets]) => {
-        const { from, to } = getPeriodRange(period);
+        const { from, to } = getPeriodRange(period, startDay);
         const categoryIds = periodBudgets.map((b) => b.categoryId);
         const results = await db
           .select({
@@ -282,8 +290,8 @@ export const getAccountBalances = cache(async (userId: string) => {
   }));
 });
 
-export async function getMonthSummary(userId: string) {
-  const { monthStart, monthEnd } = getDateRanges();
+export async function getMonthSummary(userId: string, startDay: number = 1) {
+  const { monthStart, monthEnd } = getDateRanges(startDay);
 
   const [accountBalances, monthIncome, monthExpense, monthPotContrib] =
     await Promise.all([
@@ -441,14 +449,17 @@ function baseSpikeFields(
  * an inline category warning when the spike would push its category's
  * allocation over budget.
  */
-export async function getMonthMoneyView(userId: string): Promise<MonthMoneyView> {
-  const { monthStart, monthEnd } = getDateRanges();
+export async function getMonthMoneyView(
+  userId: string,
+  startDay: number = 1,
+): Promise<MonthMoneyView> {
+  const { monthStart, monthEnd } = getDateRanges(startDay);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const todayIso = toLocalDateStr(today);
 
   const [math, schedule, rows] = await Promise.all([
-    getMonthMoneyMath(userId),
+    getMonthMoneyMath(userId, startDay),
     getPaySchedule(userId),
     loadSpikeRowsBetween(userId, todayIso, monthEnd),
   ]);
@@ -545,14 +556,15 @@ export async function getMonthMoneyView(userId: string): Promise<MonthMoneyView>
  * pay-cycle on-track math attached. This drives the "Saving toward" card.
  */
 export async function getSavingTowardSpikes(
-  userId: string
+  userId: string,
+  startDay: number = 1,
 ): Promise<SavingTowardSpike[]> {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const horizon = new Date(today);
   horizon.setDate(horizon.getDate() + 365);
 
-  const { monthEnd } = getDateRanges();
+  const { monthEnd } = getDateRanges(startDay);
   const startIso = toLocalDateStr(
     new Date(new Date(monthEnd).getTime() + 86400000)
   );
@@ -615,8 +627,8 @@ export async function getUpcomingSpikes(userId: string): Promise<UpcomingSpike[]
   return rows.map((row) => baseSpikeFields(row, today, schedule));
 }
 
-export async function getTopCategories(userId: string) {
-  const { monthStart, monthEnd } = getDateRanges();
+export async function getTopCategories(userId: string, startDay: number = 1) {
+  const { monthStart, monthEnd } = getDateRanges(startDay);
 
   const topCats = await db
     .select({

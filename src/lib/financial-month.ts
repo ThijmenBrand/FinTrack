@@ -48,6 +48,25 @@ export function getPreviousFinancialMonth(
   return { from: toIsoDate(prevStart), to: toIsoDate(prevEnd) };
 }
 
+// Human label for the financial month that contains `reference`.
+// `startDay === 1` reduces to a calendar-month label ("May 2026"); otherwise
+// returns the explicit range ("Apr 27 – May 26").
+export function formatFinancialMonthLabel(
+  reference: Date,
+  startDay: number,
+  locale: string = "en-US",
+): string {
+  const day = clampStartDay(startDay);
+  if (day === 1) {
+    return reference.toLocaleDateString(locale, { month: "long", year: "numeric" });
+  }
+  const { from, to } = getFinancialMonthRange(reference, day);
+  const fmt: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
+  const fromStr = new Date(from).toLocaleDateString(locale, fmt);
+  const toStr = new Date(to).toLocaleDateString(locale, fmt);
+  return `${fromStr} – ${toStr}`;
+}
+
 // `n` financial months ending with the one containing `reference` (inclusive).
 export function getLastNFinancialMonths(
   reference: Date,

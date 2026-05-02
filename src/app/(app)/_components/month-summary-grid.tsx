@@ -16,18 +16,21 @@ import {
   getMonthMoneyView,
   formatCurrency,
 } from "../_lib/dashboard-queries";
+import { formatFinancialMonthLabel } from "@/lib/financial-month";
 
-export async function MonthSummaryGrid({ userId }: { userId: string }) {
+export async function MonthSummaryGrid({
+  userId,
+  startDay = 1,
+}: {
+  userId: string;
+  startDay?: number;
+}) {
   const [data, money] = await Promise.all([
-    getMonthSummary(userId),
-    getMonthMoneyView(userId),
+    getMonthSummary(userId, startDay),
+    getMonthMoneyView(userId, startDay),
   ]);
 
-  const now = new Date();
-  const monthLabel = now.toLocaleDateString("en-US", {
-    month: "long",
-    year: "numeric",
-  });
+  const monthLabel = formatFinancialMonthLabel(new Date(), startDay);
 
   const net = data.monthIncome - data.monthExpenses;
 
