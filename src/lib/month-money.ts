@@ -23,7 +23,13 @@ export interface MonthMoneyMath {
 }
 
 export interface MonthMoneyOptions {
-  accountId?: string;
+  /**
+   * Restrict transaction-derived numbers (income, spent, reserved actuals) to
+   * these accounts. Typically `[defaultAccountId, ...accountsFundedByTransfersFromDefault]`
+   * so cross-account spending funded by the default account still counts.
+   * Omit / pass undefined to span all of the user's accounts.
+   */
+  accountIds?: string[];
 }
 
 export function toMonthly(amount: number, frequency: string): number {
@@ -85,6 +91,15 @@ function getCurrentMonthRange(startDay: number = 1): { from: string; to: string 
  * `monthlyIncome` is the sum of actual income transactions in the period —
  * not the recurring-income plan — so the math reflects what actually came in.
  *
+ * For each recurring-expense plan, the contribution to `totalFixedCosts` is
+ * `max(actualThisMonth, plannedMonthly)`:
+ *   - Plans with no actual transactions yet still reserve the planned amount
+ *     up front (early-month case stays correct).
+ *   - When a bill lands higher than planned (variable utility, etc.), the
+ *     overage is reflected — Free to Spend doesn't overstate by the gap.
+ *   - Linked transactions are still excluded from `spentThisMonth` (below) so
+ *     we don't triple-deduct.
+ *
  * For each reserved-kind category, the contribution to `reservedTotal` is
  * `max(actualThisMonth, monthlyTarget)`:
  *   - With no target set, only actual `type='reserved'` transactions count
@@ -101,8 +116,8 @@ function getCurrentMonthRange(startDay: number = 1): { from: string; to: string 
  * planned monthly amount already lives in `totalFixedCosts` — counting both
  * would double-deduct.
  *
- * When `options.accountId` is provided, transaction-derived numbers (income,
- * spent, reserved actuals) are scoped to that account. Recurring fixed costs
+ * When `options.accountIds` is provided, transaction-derived numbers (income,
+ * spent, reserved actuals) are scoped to those accounts. Recurring fixed costs
  * stay account-agnostic since they aren't tied to a specific account.
  *
  * The returned `allocations` map lets callers surface per-category warnings
@@ -115,14 +130,22 @@ export async function getMonthMoneyMath(
   options: MonthMoneyOptions = {},
 ): Promise<MonthMoneyMath> {
   const { from, to } = getCurrentMonthRange(startDay);
-  const { accountId } = options;
-  const accountFilterAlias = accountId
-    ? sql` AND t.account_id = ${accountId}`
+  const { accountIds } = options;
+  const hasAccountFilter = accountIds && accountIds.length > 0;
+  const accountFilter = hasAccountFilter
+    ? inArray(transactions.accountId, accountIds!)
+    : sql`1=1`;
+  const accountFilterAlias = hasAccountFilter
+    ? sql` AND t.account_id IN (${sql.join(
+        accountIds!.map((id) => sql`${id}`),
+        sql`, `,
+      )})`
     : sql``;
 
   const [
     txIncome,
     recurringExpenses,
+    actualRecurring,
     txExpense,
     potExpense,
     txReserved,
@@ -139,12 +162,13 @@ export async function getMonthMoneyMath(
           eq(transactions.type, "income"),
           gte(transactions.date, from),
           lte(transactions.date, to),
-          accountId ? eq(transactions.accountId, accountId) : sql`1=1`,
+          accountFilter,
         )
       ),
 
     db
       .select({
+        id: recurringTransactions.id,
         amount: recurringTransactions.amount,
         frequency: recurringTransactions.frequency,
       })
@@ -156,6 +180,33 @@ export async function getMonthMoneyMath(
           eq(recurringTransactions.userId, userId)
         )
       ),
+
+    // Actual recurring spend per plan in the period. Used to bump
+    // `totalFixedCosts` via max(planned, actual) so an over-plan bill shows up
+    // in Free to Spend. Account-agnostic to match the planned-cost query.
+    db
+      .select({
+        recurringTransactionId: transactions.recurringTransactionId,
+        total: sql<number>`sum(
+          abs(${transactions.amount}) - COALESCE(
+            (SELECT SUM(r.amount) FROM reimbursement_links rl
+              JOIN transactions r ON r.id = rl.reimbursement_id AND r.user_id = "transactions"."user_id"
+              WHERE rl.expense_id = "transactions"."id"),
+            0
+          )
+        )`,
+      })
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.userId, userId),
+          eq(transactions.type, "expense"),
+          sql`${transactions.recurringTransactionId} IS NOT NULL`,
+          gte(transactions.date, from),
+          lte(transactions.date, to),
+        )
+      )
+      .groupBy(transactions.recurringTransactionId),
 
     db
       .select({
@@ -181,7 +232,7 @@ export async function getMonthMoneyMath(
           sql`${transactions.recurringTransactionId} IS NULL`,
           gte(transactions.date, from),
           lte(transactions.date, to),
-          accountId ? eq(transactions.accountId, accountId) : sql`1=1`,
+          accountFilter,
         )
       ),
 
@@ -206,7 +257,7 @@ export async function getMonthMoneyMath(
           sql`${transactions.groupId} IS NULL`,
           gte(transactions.date, from),
           lte(transactions.date, to),
-          accountId ? eq(transactions.accountId, accountId) : sql`1=1`,
+          accountFilter,
         )
       )
       .groupBy(transactions.categoryId),
@@ -226,10 +277,17 @@ export async function getMonthMoneyMath(
   ]);
 
   const monthlyIncome = Number(txIncome[0]?.total) || 0;
-  const totalFixedCosts = recurringExpenses.reduce(
-    (s, r) => s + toMonthly(r.amount, r.frequency),
-    0
-  );
+  const actualByPlan = new Map<string, number>();
+  for (const r of actualRecurring) {
+    if (r.recurringTransactionId) {
+      actualByPlan.set(r.recurringTransactionId, Number(r.total) || 0);
+    }
+  }
+  const totalFixedCosts = recurringExpenses.reduce((s, r) => {
+    const planned = toMonthly(r.amount, r.frequency);
+    const actual = actualByPlan.get(r.id) ?? 0;
+    return s + Math.max(planned, actual);
+  }, 0);
 
   const txTotal = Number(txExpense[0]?.total) || 0;
   const potNet = Number(potExpense[0]?.potNet) || 0;
@@ -297,7 +355,7 @@ export async function getMonthMoneyMath(
             inArray(transactions.categoryId, categoryIds),
             gte(transactions.date, from),
             lte(transactions.date, to),
-            accountId ? eq(transactions.accountId, accountId) : sql`1=1`,
+            accountFilter,
           )
         )
         .groupBy(transactions.categoryId),
@@ -316,7 +374,7 @@ export async function getMonthMoneyMath(
             sql`${transactions.type} NOT IN ('reserved', 'internal_transfer')`,
             gte(transactions.date, from),
             lte(transactions.date, to),
-            accountId ? eq(transactions.accountId, accountId) : sql`1=1`,
+            accountFilter,
           )
         )
         .groupBy(transactionGroups.id, transactionGroups.categoryId),

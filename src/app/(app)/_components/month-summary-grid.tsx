@@ -17,6 +17,7 @@ import {
   formatCurrency,
 } from "../_lib/dashboard-queries";
 import { formatFinancialMonthLabel } from "@/lib/financial-month";
+import { FreeToSpendInfo } from "./free-to-spend-info";
 
 export async function MonthSummaryGrid({
   userId,
@@ -65,7 +66,10 @@ export async function MonthSummaryGrid({
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">Free to spend</CardTitle>
+          <div className="flex items-center gap-1.5">
+            <CardTitle className="text-sm font-medium">Free to spend</CardTitle>
+            <FreeToSpendInfo />
+          </div>
           <Wallet className="h-4 w-4 text-primary" />
         </CardHeader>
         <CardContent>
