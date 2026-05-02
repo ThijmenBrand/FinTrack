@@ -21,13 +21,15 @@ import { formatFinancialMonthLabel } from "@/lib/financial-month";
 export async function MonthSummaryGrid({
   userId,
   startDay = 1,
+  accountId,
 }: {
   userId: string;
   startDay?: number;
+  accountId?: string;
 }) {
   const [data, money] = await Promise.all([
-    getMonthSummary(userId, startDay),
-    getMonthMoneyView(userId, startDay),
+    getMonthSummary(userId, startDay, accountId),
+    getMonthMoneyView(userId, startDay, accountId),
   ]);
 
   const monthLabel = formatFinancialMonthLabel(new Date(), startDay);
@@ -86,10 +88,12 @@ export async function MonthSummaryGrid({
             </p>
           ) : (
             <p className="text-xs text-muted-foreground">
-              Income {formatCurrency(money.monthlyIncome)} − fixed{" "}
-              {formatCurrency(money.totalFixedCosts)}
+              {formatCurrency(money.monthlyIncome)} in − {formatCurrency(money.totalFixedCosts)} fixed
               {money.reservedTotal > 0 && (
-                <> − reserved {formatCurrency(money.reservedTotal)}</>
+                <> − {formatCurrency(money.reservedTotal)} reserved</>
+              )}
+              {money.spentThisMonth > 0 && (
+                <> − {formatCurrency(money.spentThisMonth)} spent</>
               )}
             </p>
           )}

@@ -63,13 +63,15 @@ function RingProgress({
 export async function BudgetOverview({
   userId,
   startDay = 1,
+  accountId,
 }: {
   userId: string;
   startDay?: number;
+  accountId?: string;
 }) {
-  const data = await getBudgetOverview(userId, startDay);
+  const data = await getBudgetOverview(userId, startDay, accountId);
 
-  if (data.budgetItems.length === 0) return null;
+  if (data.budgetItems.length === 0 && data.totalBudgeted === 0) return null;
 
   const monthLabel = formatFinancialMonthLabel(new Date(), startDay);
   const periodCopy = startDay === 1 ? "this month" : "this period";
@@ -186,6 +188,7 @@ export async function BudgetOverview({
         </div>
 
         {/* Category chips */}
+        {data.budgetItems.length > 0 && (
         <div className="relative border-t">
           <div className="px-6 py-4 flex gap-3 overflow-x-auto scrollbar-hide">
             {data.budgetItems.map((item, i) => {
@@ -269,6 +272,7 @@ export async function BudgetOverview({
           </div>
           <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-card to-transparent pointer-events-none" />
         </div>
+        )}
       </CardContent>
     </Card>
   );

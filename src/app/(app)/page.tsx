@@ -37,23 +37,24 @@ export default async function DashboardPage() {
   const userId = session.userId;
   const prefs = await getUserPreferences(userId);
   const startDay = prefs.financialMonthStartDay;
+  const accountId = prefs.defaultAccountId ?? undefined;
 
   return (
     <div className="space-y-6">
       <Suspense fallback={<HeroWeeklySpendingSkeleton />}>
-        <HeroWeeklySpending userId={userId} />
+        <HeroWeeklySpending userId={userId} accountId={accountId} />
       </Suspense>
 
       <Suspense fallback={<MonthSummaryGridSkeleton />}>
-        <MonthSummaryGrid userId={userId} startDay={startDay} />
+        <MonthSummaryGrid userId={userId} startDay={startDay} accountId={accountId} />
       </Suspense>
 
       <Suspense fallback={<ComingUpThisMonthCardSkeleton />}>
-        <ComingUpThisMonthCard userId={userId} startDay={startDay} />
+        <ComingUpThisMonthCard userId={userId} startDay={startDay} accountId={accountId} />
       </Suspense>
 
       <Suspense fallback={<BudgetOverviewSkeleton />}>
-        <BudgetOverview userId={userId} startDay={startDay} />
+        <BudgetOverview userId={userId} startDay={startDay} accountId={accountId} />
       </Suspense>
 
       <Suspense fallback={<SavingTowardCardSkeleton />}>
@@ -62,7 +63,7 @@ export default async function DashboardPage() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Suspense fallback={<TopSpendingCardSkeleton />}>
-          <TopSpendingCard userId={userId} startDay={startDay} />
+          <TopSpendingCard userId={userId} startDay={startDay} accountId={accountId} />
         </Suspense>
         <Suspense fallback={<AccountsCardSkeleton />}>
           <AccountsCard userId={userId} />

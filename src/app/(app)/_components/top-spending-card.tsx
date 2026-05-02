@@ -18,11 +18,13 @@ import {
 export async function TopSpendingCard({
   userId,
   startDay = 1,
+  accountId,
 }: {
   userId: string;
   startDay?: number;
+  accountId?: string;
 }) {
-  const topCategories = await getTopCategories(userId, startDay);
+  const topCategories = await getTopCategories(userId, startDay, accountId);
 
   const monthLabel = formatFinancialMonthLabel(new Date(), startDay);
   const periodCopy = startDay === 1 ? "this month" : "this period";

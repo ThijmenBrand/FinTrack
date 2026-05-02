@@ -2,8 +2,14 @@ import { ArrowUp, ArrowDown } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getWeeklySpending, formatCurrency } from "../_lib/dashboard-queries";
 
-export async function HeroWeeklySpending({ userId }: { userId: string }) {
-  const data = await getWeeklySpending(userId);
+export async function HeroWeeklySpending({
+  userId,
+  accountId,
+}: {
+  userId: string;
+  accountId?: string;
+}) {
+  const data = await getWeeklySpending(userId, accountId);
 
   const weekDiff =
     data.lastWeekExpenses > 0

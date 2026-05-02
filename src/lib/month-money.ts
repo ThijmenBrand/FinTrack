@@ -22,6 +22,10 @@ export interface MonthMoneyMath {
   >;
 }
 
+export interface MonthMoneyOptions {
+  accountId?: string;
+}
+
 export function toMonthly(amount: number, frequency: string): number {
   switch (frequency) {
     case "weekly":
@@ -78,6 +82,9 @@ function getCurrentMonthRange(startDay: number = 1): { from: string; to: string 
  *
  * `freeToSpend = monthlyIncome − totalFixedCosts − reservedTotal − spentThisMonth`
  *
+ * `monthlyIncome` is the sum of actual income transactions in the period —
+ * not the recurring-income plan — so the math reflects what actually came in.
+ *
  * For each reserved-kind category, the contribution to `reservedTotal` is
  * `max(actualThisMonth, monthlyTarget)`:
  *   - With no target set, only actual `type='reserved'` transactions count
@@ -91,6 +98,10 @@ function getCurrentMonthRange(startDay: number = 1): { from: string; to: string 
  * internal transfers and reserved transactions) and the net spending from pots
  * whose member transactions fall in this month.
  *
+ * When `options.accountId` is provided, transaction-derived numbers (income,
+ * spent, reserved actuals) are scoped to that account. Recurring fixed costs
+ * stay account-agnostic since they aren't tied to a specific account.
+ *
  * The returned `allocations` map lets callers surface per-category warnings
  * (e.g. "this would push Entertainment over budget"). Reserved-kind categories
  * are not included in `allocations`.
@@ -98,11 +109,16 @@ function getCurrentMonthRange(startDay: number = 1): { from: string; to: string 
 export async function getMonthMoneyMath(
   userId: string,
   startDay: number = 1,
+  options: MonthMoneyOptions = {},
 ): Promise<MonthMoneyMath> {
   const { from, to } = getCurrentMonthRange(startDay);
+  const { accountId } = options;
+  const accountFilterAlias = accountId
+    ? sql` AND t.account_id = ${accountId}`
+    : sql``;
 
   const [
-    recurringIncome,
+    txIncome,
     recurringExpenses,
     txExpense,
     potExpense,
@@ -111,15 +127,16 @@ export async function getMonthMoneyMath(
   ] = await Promise.all([
     db
       .select({
-        amount: recurringTransactions.amount,
-        frequency: recurringTransactions.frequency,
+        total: sql<number>`sum(${transactions.amount})`,
       })
-      .from(recurringTransactions)
+      .from(transactions)
       .where(
         and(
-          eq(recurringTransactions.type, "income"),
-          eq(recurringTransactions.isActive, true),
-          eq(recurringTransactions.userId, userId)
+          eq(transactions.userId, userId),
+          eq(transactions.type, "income"),
+          gte(transactions.date, from),
+          lte(transactions.date, to),
+          accountId ? eq(transactions.accountId, accountId) : sql`1=1`,
         )
       ),
 
@@ -156,7 +173,8 @@ export async function getMonthMoneyMath(
           eq(transactions.type, "expense"),
           sql`${transactions.groupId} IS NULL`,
           gte(transactions.date, from),
-          lte(transactions.date, to)
+          lte(transactions.date, to),
+          accountId ? eq(transactions.accountId, accountId) : sql`1=1`,
         )
       ),
 
@@ -165,7 +183,7 @@ export async function getMonthMoneyMath(
       .from(sql`transactions t`)
       .innerJoin(sql`transaction_groups g`, sql`t.group_id = g.id`)
       .where(
-        sql`t.group_id IS NOT NULL AND t.type NOT IN ('reserved', 'internal_transfer') AND t.user_id = ${userId} AND t.date >= ${from} AND t.date <= ${to}`
+        sql`t.group_id IS NOT NULL AND t.type NOT IN ('reserved', 'internal_transfer') AND t.user_id = ${userId} AND t.date >= ${from} AND t.date <= ${to}${accountFilterAlias}`
       ),
 
     db
@@ -180,7 +198,8 @@ export async function getMonthMoneyMath(
           eq(transactions.type, "reserved"),
           sql`${transactions.groupId} IS NULL`,
           gte(transactions.date, from),
-          lte(transactions.date, to)
+          lte(transactions.date, to),
+          accountId ? eq(transactions.accountId, accountId) : sql`1=1`,
         )
       )
       .groupBy(transactions.categoryId),
@@ -199,10 +218,7 @@ export async function getMonthMoneyMath(
       .where(and(eq(budgets.userId, userId), eq(budgets.isActive, true), eq(budgets.status, "active"))),
   ]);
 
-  const monthlyIncome = recurringIncome.reduce(
-    (s, r) => s + toMonthly(r.amount, r.frequency),
-    0
-  );
+  const monthlyIncome = Number(txIncome[0]?.total) || 0;
   const totalFixedCosts = recurringExpenses.reduce(
     (s, r) => s + toMonthly(r.amount, r.frequency),
     0
@@ -273,7 +289,8 @@ export async function getMonthMoneyMath(
             sql`${transactions.groupId} IS NULL`,
             inArray(transactions.categoryId, categoryIds),
             gte(transactions.date, from),
-            lte(transactions.date, to)
+            lte(transactions.date, to),
+            accountId ? eq(transactions.accountId, accountId) : sql`1=1`,
           )
         )
         .groupBy(transactions.categoryId),
@@ -291,7 +308,8 @@ export async function getMonthMoneyMath(
             inArray(transactionGroups.categoryId, categoryIds),
             sql`${transactions.type} NOT IN ('reserved', 'internal_transfer')`,
             gte(transactions.date, from),
-            lte(transactions.date, to)
+            lte(transactions.date, to),
+            accountId ? eq(transactions.accountId, accountId) : sql`1=1`,
           )
         )
         .groupBy(transactionGroups.id, transactionGroups.categoryId),
