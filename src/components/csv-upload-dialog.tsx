@@ -242,9 +242,10 @@ export function CsvUploadDialog({
   const canProceedToPreview =
     mapping.date && mapping.description && mapping.amount && selectedAccountId;
 
-  // Widen dialog for the review step
+  // Widen dialog for the review step (and while committing, since the review
+  // step stays mounted underneath)
   const dialogWidth =
-    step === "review" ? "sm:max-w-4xl" : "sm:max-w-2xl";
+    step === "review" || step === "committing" ? "sm:max-w-4xl" : "sm:max-w-2xl";
 
   return (
     <Dialog
@@ -553,16 +554,19 @@ export function CsvUploadDialog({
           </div>
         )}
 
-        {/* Step 4: Review & Categorize */}
-        {step === "review" && (
-          <ImportReviewStep
-            transactions={previewData}
-            categories={categories}
-            skipped={previewSkipped}
-            error={error}
-            onBack={() => setStep("map-columns")}
-            onConfirm={handleCommit}
-          />
+        {/* Step 4: Review & Categorize — stays mounted (hidden) during commit
+            so a failed commit returns to the review step with edits intact */}
+        {(step === "review" || step === "committing") && (
+          <div className={step === "committing" ? "hidden" : undefined}>
+            <ImportReviewStep
+              transactions={previewData}
+              categories={categories}
+              skipped={previewSkipped}
+              error={error}
+              onBack={() => setStep("map-columns")}
+              onConfirm={handleCommit}
+            />
+          </div>
         )}
 
         {/* Step 5: Committing */}

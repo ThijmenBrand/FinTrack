@@ -57,7 +57,10 @@ export function formatFinancialMonthLabel(
   }
   const { from, to } = getFinancialMonthRange(reference, day);
   const fmt: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
-  const fromStr = new Date(from).toLocaleDateString(locale, fmt);
-  const toStr = new Date(to).toLocaleDateString(locale, fmt);
+  // Parse as local midnight — new Date("YYYY-MM-DD") would parse as UTC and
+  // render a day early in UTC-negative timezones.
+  const local = (iso: string) => new Date(`${iso}T00:00:00`);
+  const fromStr = local(from).toLocaleDateString(locale, fmt);
+  const toStr = local(to).toLocaleDateString(locale, fmt);
   return `${fromStr} – ${toStr}`;
 }

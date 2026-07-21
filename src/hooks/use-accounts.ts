@@ -34,6 +34,8 @@ export function useDeleteAccount() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["accounts"] });
       qc.invalidateQueries({ queryKey: ["transactions"] });
+      qc.invalidateQueries({ queryKey: ["budgets"] });
+      qc.invalidateQueries({ queryKey: ["insights"] });
     },
   });
 }

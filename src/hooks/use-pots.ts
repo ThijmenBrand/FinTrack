@@ -31,7 +31,8 @@ export function useCreatePot() {
       apiFetch("/api/pots", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["pots"] });
-      qc.invalidateQueries({ queryKey: ["forecast"] });
+      qc.invalidateQueries({ queryKey: ["recurring-forecast"] });
+      qc.invalidateQueries({ queryKey: ["insights-balance"] });
     },
   });
 }
@@ -44,7 +45,8 @@ export function useUpdatePot() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["pots"] });
       qc.invalidateQueries({ queryKey: ["transactions"] });
-      qc.invalidateQueries({ queryKey: ["forecast"] });
+      qc.invalidateQueries({ queryKey: ["recurring-forecast"] });
+      qc.invalidateQueries({ queryKey: ["insights-balance"] });
     },
   });
 }
@@ -60,6 +62,8 @@ export function useAllocateToPot() {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["pots"] });
+      qc.invalidateQueries({ queryKey: ["recurring-forecast"] });
+      qc.invalidateQueries({ queryKey: ["insights-balance"] });
     },
   });
 }
@@ -83,6 +87,7 @@ export function useAddToPot() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["pots"] });
       qc.invalidateQueries({ queryKey: ["transactions"] });
+      qc.invalidateQueries({ queryKey: ["pot-picker-transactions"] });
     },
   });
 }

@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { transactions, importBatches, categoryRules, categories } from "@/db/schema";
+import { transactions, importBatches, categoryRules, categories, accounts } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import Papa from "papaparse";
+
+// Backstop against unbounded uploads — a real bank CSV is far smaller.
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_ROWS = 5000;
 import {
   parseAmount,
   parseDate,
@@ -30,6 +34,18 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+    if (file.size > MAX_FILE_BYTES) {
+      return NextResponse.json({ error: "File too large (max 10 MB)" }, { status: 400 });
+    }
+
+    const [ownedAccount] = await db
+      .select({ id: accounts.id })
+      .from(accounts)
+      .where(and(eq(accounts.id, accountId), eq(accounts.userId, userId)))
+      .limit(1);
+    if (!ownedAccount) {
+      return NextResponse.json({ error: "Account not found" }, { status: 404 });
+    }
 
     const mapping: ColumnMapping = JSON.parse(mappingJson);
     // Strip UTF-8 BOM that bank exports often include
@@ -42,6 +58,13 @@ export async function POST(request: NextRequest) {
       dynamicTyping: false,
       transformHeader: (header: string) => header.trim(),
     });
+
+    if (parsed.data.length > MAX_ROWS) {
+      return NextResponse.json(
+        { error: `Too many rows (max ${MAX_ROWS} per import)` },
+        { status: 400 }
+      );
+    }
 
     // Only fail if no data was parsed; ignore non-fatal PapaParse warnings
     if (parsed.data.length === 0) {

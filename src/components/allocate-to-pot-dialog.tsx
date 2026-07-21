@@ -65,7 +65,7 @@ export function AllocateToPotDialog({
   );
 
   const handleSubmit = async () => {
-    if (!valid) return;
+    if (!valid || allocate.isPending) return;
     try {
       await allocate.mutateAsync({ potId, amount: signedDelta });
       onAllocated?.();

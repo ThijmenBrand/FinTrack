@@ -14,6 +14,7 @@ import { effectiveExpenseAmount } from "@/lib/reimbursement-sql";
 import { isRegenerationDue } from "@/lib/auto-budget";
 import { getUserPreferences } from "@/lib/preferences";
 import { toMonthly, getCurrentMonthRange } from "@/lib/month-money";
+import { isFiniteNumber } from "@/lib/validation";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const AVG_DAYS_PER_MONTH = 30.4375;
@@ -605,6 +606,21 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
+    if (!isFiniteNumber(amount) || amount < 0) {
+      return NextResponse.json(
+        { error: "amount must be a non-negative finite number" },
+        { status: 400 },
+      );
+    }
+
+    const [ownedCategory] = await db
+      .select({ id: categories.id })
+      .from(categories)
+      .where(and(eq(categories.id, categoryId), eq(categories.userId, userId)))
+      .limit(1);
+    if (!ownedCategory) {
+      return NextResponse.json({ error: "Category not found" }, { status: 404 });
+    }
 
     // Check if an active allocation already exists (suggestions are kept separate)
     const existing = await db
@@ -668,6 +684,12 @@ export async function PUT(request: NextRequest) {
     if (!id) {
       return NextResponse.json(
         { error: "Budget ID is required" },
+        { status: 400 },
+      );
+    }
+    if (!isFiniteNumber(amount) || amount < 0) {
+      return NextResponse.json(
+        { error: "amount must be a non-negative finite number" },
         { status: 400 },
       );
     }

@@ -148,6 +148,12 @@ function TransactionsPage() {
   const distinctTypes = txData?.distinctTypes ?? [];
   const totals = txData?.totals ?? null;
 
+  // Show the live row from the query cache so the open detail dialog reflects
+  // categorize/link mutations; fall back to the snapshot if it left the page.
+  const liveSelectedTransaction = selectedTransaction
+    ? transactions.find((t) => t.id === selectedTransaction.id) ?? selectedTransaction
+    : null;
+
   // Sync pagination from query response
   useEffect(() => {
     if (txData?.pagination) {
@@ -486,7 +492,7 @@ function TransactionsPage() {
 
       {/* Transaction Detail Modal */}
       <TransactionDetailDialog
-        transaction={selectedTransaction}
+        transaction={liveSelectedTransaction}
         onOpenChange={(open) => { if (!open) setSelectedTransaction(null); }}
         categories={categories}
       />

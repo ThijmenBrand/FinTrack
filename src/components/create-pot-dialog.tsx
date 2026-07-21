@@ -46,7 +46,7 @@ export function CreatePotDialog({
   const targetValid = isPotTargetValid(hasTarget, targetAmount, targetDate);
 
   const handleCreate = async () => {
-    if (!name.trim() || !targetValid) return;
+    if (!name.trim() || !targetValid || createPot.isPending) return;
     try {
       await createPot.mutateAsync({
         name: name.trim(),

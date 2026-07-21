@@ -1,11 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { transactions, importBatches, categoryRules, categories } from "@/db/schema";
+import {
+  transactions,
+  importBatches,
+  categoryRules,
+  categories,
+  accounts,
+  recurringTransactions,
+} from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { detectTransfers } from "@/lib/detect-transfers";
 import { logDataEvent } from "@/lib/audit";
-import { validatePattern, sanitizeNote } from "@/lib/validation";
+import {
+  validatePattern,
+  sanitizeNote,
+  isFiniteNumber,
+  isIsoDate,
+  isMatchType,
+} from "@/lib/validation";
+const TX_TYPES = ["income", "expense", "internal_transfer", "reserved"] as const;
+type TxType = (typeof TX_TYPES)[number];
+
+// Backstop against unbounded request bodies — a real bank CSV is far smaller.
+const MAX_IMPORT_ROWS = 5000;
 import { matchesRule } from "@/lib/csv-utils";
 import { applyRuleToTransactions } from "@/lib/apply-rule";
 
@@ -51,11 +69,74 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+    if (txList.length > MAX_IMPORT_ROWS) {
+      return NextResponse.json(
+        { error: `Too many transactions (max ${MAX_IMPORT_ROWS} per import)` },
+        { status: 400 }
+      );
+    }
+
+    // Ownership sets: every id the client references must belong to this user.
+    const userAccounts = await db
+      .select({ id: accounts.id })
+      .from(accounts)
+      .where(eq(accounts.userId, userId));
+    const userAccountIds = new Set(userAccounts.map((a) => a.id));
+    if (!userAccountIds.has(accountId)) {
+      return NextResponse.json({ error: "Account not found" }, { status: 404 });
+    }
+
+    const userPlans = await db
+      .select({ id: recurringTransactions.id })
+      .from(recurringTransactions)
+      .where(eq(recurringTransactions.userId, userId));
+    const userPlanIds = new Set(userPlans.map((p) => p.id));
+
+    const userCategoryRows = await db
+      .select({ id: categories.id, kind: categories.kind })
+      .from(categories)
+      .where(eq(categories.userId, userId));
+    const userCategoryIds = new Set(userCategoryRows.map((c) => c.id));
+
+    // Validate every row before writing anything — no partial imports.
+    for (const [i, tx] of txList.entries()) {
+      const row = `transaction ${i + 1}`;
+      if (!TX_TYPES.includes(tx.type as TxType)) {
+        return NextResponse.json({ error: `Invalid type on ${row}` }, { status: 400 });
+      }
+      if (!isFiniteNumber(tx.amount)) {
+        return NextResponse.json({ error: `Invalid amount on ${row}` }, { status: 400 });
+      }
+      if (tx.balance != null && !isFiniteNumber(tx.balance)) {
+        return NextResponse.json({ error: `Invalid balance on ${row}` }, { status: 400 });
+      }
+      if (!isIsoDate(tx.date)) {
+        return NextResponse.json({ error: `Invalid date on ${row}` }, { status: 400 });
+      }
+      if (typeof tx.description !== "string") {
+        return NextResponse.json({ error: `Invalid description on ${row}` }, { status: 400 });
+      }
+      if (tx.name != null && typeof tx.name !== "string") {
+        return NextResponse.json({ error: `Invalid name on ${row}` }, { status: 400 });
+      }
+      if (tx.categoryId && !userCategoryIds.has(tx.categoryId)) {
+        return NextResponse.json({ error: `Unknown category on ${row}` }, { status: 400 });
+      }
+      if (tx.targetAccountId && !userAccountIds.has(tx.targetAccountId)) {
+        return NextResponse.json({ error: `Unknown target account on ${row}` }, { status: 400 });
+      }
+      if (tx.recurringTransactionId && !userPlanIds.has(tx.recurringTransactionId)) {
+        return NextResponse.json({ error: `Unknown recurring plan on ${row}` }, { status: 400 });
+      }
+    }
 
     // Validate all rule patterns upfront so we don't write a partial import.
     const cleanRules: NewRule[] = [];
     for (const rule of newRules || []) {
       if (!rule.pattern || !rule.categoryId) continue;
+      if (!userCategoryIds.has(rule.categoryId)) {
+        return NextResponse.json({ error: "Unknown category on rule" }, { status: 400 });
+      }
       const validated = validatePattern(rule.pattern);
       if (!validated.ok) {
         return NextResponse.json(
@@ -63,7 +144,11 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
-      cleanRules.push({ ...rule, pattern: validated.value });
+      cleanRules.push({
+        ...rule,
+        pattern: validated.value,
+        matchType: isMatchType(rule.matchType) ? rule.matchType : "contains",
+      });
     }
 
     // Create import batch
@@ -84,12 +169,8 @@ export async function POST(request: NextRequest) {
       .where(and(eq(categories.name, "Internal Transfer"), eq(categories.userId, userId)));
 
     // Reserved category IDs — when a rule maps a transaction here, type='reserved'.
-    const categoryKindRows = await db
-      .select({ id: categories.id, kind: categories.kind })
-      .from(categories)
-      .where(eq(categories.userId, userId));
     const reservedCategoryIds = new Set(
-      categoryKindRows.filter((c) => c.kind === "reserved").map((c) => c.id)
+      userCategoryRows.filter((c) => c.kind === "reserved").map((c) => c.id)
     );
 
     // Pre-fetch active rules so we can detect, per row, whether an incoming

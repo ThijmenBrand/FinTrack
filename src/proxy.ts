@@ -1,6 +1,9 @@
 import { auth } from "@/lib/auth";
 import { getSessionCookie } from "better-auth/cookies";
 import { NextRequest, NextResponse } from "next/server";
+import { validateCsrfOrigin } from "@/lib/csrf";
+
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 // Paths that do not require authentication
 const publicPaths = ["/api/auth/", "/sw.js", "/manifest.json"];
@@ -55,6 +58,18 @@ export async function proxy(request: NextRequest) {
     }
 
     return clearAuthCookies(NextResponse.next());
+  }
+
+  // Validate the Origin on every mutating API request. /api/auth/ is excluded:
+  // better-auth enforces its own trustedOrigins and the PIN routes call
+  // validateCsrfOrigin themselves.
+  if (
+    pathname.startsWith("/api/") &&
+    !pathname.startsWith("/api/auth/") &&
+    !SAFE_METHODS.has(request.method)
+  ) {
+    const csrfError = validateCsrfOrigin(request);
+    if (csrfError) return csrfError;
   }
 
   // Allow public paths through regardless of auth state

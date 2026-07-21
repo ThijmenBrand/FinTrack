@@ -117,7 +117,7 @@ export async function GET(request: NextRequest) {
         linkedTransactionId: transactions.linkedTransactionId,
         linkedAccountName: sql<string | null>`(
           SELECT a.name FROM transactions lt
-          JOIN accounts a ON lt.account_id = a.id
+          JOIN accounts a ON lt.account_id = a.id AND a.user_id = "transactions"."user_id"
           WHERE lt.id = ${transactions.linkedTransactionId}
         )`,
         reimbursesTransactionId: transactions.reimbursesTransactionId,
@@ -149,7 +149,8 @@ export async function GET(request: NextRequest) {
         )`,
         recurringTransactionId: transactions.recurringTransactionId,
         recurringDescription: sql<string | null>`(
-          SELECT r.description FROM recurring_transactions r WHERE r.id = ${transactions.recurringTransactionId}
+          SELECT r.description FROM recurring_transactions r
+          WHERE r.id = ${transactions.recurringTransactionId} AND r.user_id = "transactions"."user_id"
         )`,
         notes: transactions.notes,
         isManual: transactions.isManual,

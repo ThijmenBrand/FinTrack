@@ -71,7 +71,10 @@ export async function POST(request: NextRequest) {
 
       for (const suggestion of suggestions) {
         const override = overrideById.get(suggestion.id);
-        const finalAmount = typeof override === "number" && override > 0 ? override : suggestion.amount;
+        const finalAmount =
+          typeof override === "number" && Number.isFinite(override) && override > 0
+            ? override
+            : suggestion.amount;
 
         const existingActive = await tx
           .select({ id: budgets.id })

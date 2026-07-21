@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { transactions, categories } from "@/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 export type MatchType = "contains" | "exact" | "starts_with";
 
@@ -39,14 +39,17 @@ export async function applyRuleToTransactions({
 }: ApplyRuleOptions): Promise<number> {
   const type = normalizeMatchType(matchType);
 
+  // Escape LIKE metacharacters so the pattern matches literally — the same
+  // semantics as the client-side preview in csv-utils.matchesRule.
+  const escaped = pattern.replace(/([\\%_])/g, "\\$1");
   const sqlPattern =
-    type === "starts_with" ? `${pattern}%` : type === "exact" ? pattern : `%${pattern}%`;
+    type === "starts_with" ? `${escaped}%` : type === "exact" ? pattern : `%${escaped}%`;
 
   if (isReserved === undefined) {
     const [targetCategory] = await db
       .select({ kind: categories.kind })
       .from(categories)
-      .where(eq(categories.id, categoryId))
+      .where(and(eq(categories.id, categoryId), eq(categories.userId, userId)))
       .limit(1);
     isReserved = targetCategory?.kind === "reserved";
   }
@@ -58,7 +61,7 @@ export async function applyRuleToTransactions({
   const condition =
     type === "exact"
       ? sql`${matchTargetSql} = LOWER(${pattern}) AND ${transactions.categoryId} IS NULL AND ${transactions.userId} = ${userId} AND ${transactions.type} IN ('income', 'expense')`
-      : sql`${matchTargetSql} LIKE LOWER(${sqlPattern}) AND ${transactions.categoryId} IS NULL AND ${transactions.userId} = ${userId} AND ${transactions.type} IN ('income', 'expense')`;
+      : sql`${matchTargetSql} LIKE LOWER(${sqlPattern}) ESCAPE '\\' AND ${transactions.categoryId} IS NULL AND ${transactions.userId} = ${userId} AND ${transactions.type} IN ('income', 'expense')`;
 
   const updateSet: Record<string, unknown> = { categoryId, categorySource: "rule" };
   if (isReserved) updateSet.type = "reserved";

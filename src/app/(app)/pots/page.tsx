@@ -9,7 +9,7 @@ import { CreatePotDialog } from "@/components/create-pot-dialog";
 import { AllocateToPotDialog } from "@/components/allocate-to-pot-dialog";
 import { usePots } from "@/hooks/use-pots";
 import { useCategories } from "@/hooks/use-categories";
-import { formatCurrency as fc } from "@/lib/utils";
+import { formatCurrency as fc, toIsoDate } from "@/lib/utils";
 import type { Pot } from "@/types/api";
 
 export default function PotsPage() {
@@ -26,7 +26,7 @@ export default function PotsPage() {
     const cutoff = new Date();
     cutoff.setHours(0, 0, 0, 0);
     cutoff.setMonth(cutoff.getMonth() - 1);
-    const cutoffIso = cutoff.toISOString().slice(0, 10);
+    const cutoffIso = toIsoDate(cutoff);
 
     const activeSpikes: Pot[] = [];
     const pastSpikes: Pot[] = [];

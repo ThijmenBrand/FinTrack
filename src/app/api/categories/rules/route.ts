@@ -3,7 +3,16 @@ import { db } from "@/db";
 import { categoryRules, categories } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
-import { validatePattern } from "@/lib/validation";
+import { validatePattern, isMatchType } from "@/lib/validation";
+
+async function userOwnsCategory(userId: string, categoryId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: categories.id })
+    .from(categories)
+    .where(and(eq(categories.id, categoryId), eq(categories.userId, userId)))
+    .limit(1);
+  return !!row;
+}
 import { applyRuleToTransactions } from "@/lib/apply-rule";
 
 // GET /api/categories/rules — list all rules
@@ -45,13 +54,17 @@ export async function POST(request: NextRequest) {
     if (!validated.ok) {
       return NextResponse.json({ error: validated.error }, { status: 400 });
     }
+    if (!(await userOwnsCategory(userId, categoryId))) {
+      return NextResponse.json({ error: "Category not found" }, { status: 404 });
+    }
+    const cleanMatchType = isMatchType(matchType) ? matchType : "contains";
 
     const id = crypto.randomUUID();
     await db.insert(categoryRules).values({
       id,
       pattern: validated.value,
       categoryId,
-      matchType: matchType || "contains",
+      matchType: cleanMatchType,
       isActive: true,
       userId,
       createdAt: new Date().toISOString(),
@@ -64,7 +77,7 @@ export async function POST(request: NextRequest) {
       applied = await applyRuleToTransactions({
         pattern: validated.value,
         categoryId,
-        matchType: matchType || "contains",
+        matchType: cleanMatchType,
         userId,
       });
     }
@@ -95,31 +108,45 @@ export async function PUT(request: NextRequest) {
       validatedPattern = validated.value;
     }
 
+    if (matchType !== undefined && !isMatchType(matchType)) {
+      return NextResponse.json({ error: "Invalid matchType" }, { status: 400 });
+    }
+    if (categoryId !== undefined && !(await userOwnsCategory(userId, categoryId))) {
+      return NextResponse.json({ error: "Category not found" }, { status: 404 });
+    }
+
     const updates: Record<string, unknown> = {};
     if (validatedPattern !== undefined) updates.pattern = validatedPattern;
     if (categoryId !== undefined) updates.categoryId = categoryId;
     if (matchType !== undefined) updates.matchType = matchType;
-    if (isActive !== undefined) updates.isActive = isActive;
+    if (isActive !== undefined) updates.isActive = Boolean(isActive);
 
     await db
       .update(categoryRules)
       .set(updates)
       .where(and(eq(categoryRules.id, id), eq(categoryRules.userId, userId)));
 
-    let applied = 0;
-    if (applyToExisting && validatedPattern && categoryId) {
-      applied = await applyRuleToTransactions({
-        pattern: validatedPattern,
-        categoryId,
-        matchType: matchType || "contains",
-        userId,
-      });
-    }
-
+    // Re-read the stored rule so applyToExisting uses the rule as saved —
+    // fields the client didn't resend (e.g. matchType) must not fall back
+    // to defaults.
     const [updated] = await db
       .select()
       .from(categoryRules)
       .where(and(eq(categoryRules.id, id), eq(categoryRules.userId, userId)));
+
+    if (!updated) {
+      return NextResponse.json({ error: "Rule not found" }, { status: 404 });
+    }
+
+    let applied = 0;
+    if (applyToExisting) {
+      applied = await applyRuleToTransactions({
+        pattern: updated.pattern,
+        categoryId: updated.categoryId,
+        matchType: updated.matchType,
+        userId,
+      });
+    }
 
     return NextResponse.json({ ...updated, applied });
   }, "Failed to update rule");
