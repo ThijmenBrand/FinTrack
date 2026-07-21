@@ -10,14 +10,8 @@ import {
 import { Repeat, X } from "lucide-react";
 import { useRecurring } from "@/hooks/use-recurring";
 import { useLinkRecurringTransaction } from "@/hooks/use-transactions";
+import { formatCurrency } from "@/lib/utils";
 import type { RecurringTx } from "@/types/api";
-
-function formatCurrency(amount: number) {
-  return new Intl.NumberFormat("nl-NL", {
-    style: "currency",
-    currency: "EUR",
-  }).format(amount);
-}
 
 interface RecurringLinkPopoverProps {
   transactionId: string;

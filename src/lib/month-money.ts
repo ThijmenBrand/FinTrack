@@ -8,6 +8,7 @@ import {
 } from "@/db/schema";
 import { eq, and, gte, lte, sql, inArray } from "drizzle-orm";
 import { getFinancialMonthRange } from "@/lib/financial-month";
+import { effectiveExpenseAmount } from "@/lib/reimbursement-sql";
 
 export interface MonthMoneyMath {
   monthlyIncome: number;
@@ -79,7 +80,7 @@ export function mergeCategorySpend(
   return out;
 }
 
-function getCurrentMonthRange(startDay: number = 1): { from: string; to: string } {
+export function getCurrentMonthRange(startDay: number = 1): { from: string; to: string } {
   return getFinancialMonthRange(new Date(), startDay);
 }
 
@@ -187,14 +188,7 @@ export async function getMonthMoneyMath(
     db
       .select({
         recurringTransactionId: transactions.recurringTransactionId,
-        total: sql<number>`sum(
-          abs(${transactions.amount}) - COALESCE(
-            (SELECT SUM(r.amount) FROM reimbursement_links rl
-              JOIN transactions r ON r.id = rl.reimbursement_id AND r.user_id = "transactions"."user_id"
-              WHERE rl.expense_id = "transactions"."id"),
-            0
-          )
-        )`,
+        total: sql<number>`sum(${effectiveExpenseAmount()})`,
       })
       .from(transactions)
       .where(
@@ -210,14 +204,7 @@ export async function getMonthMoneyMath(
 
     db
       .select({
-        total: sql<number>`sum(
-          abs(${transactions.amount}) - COALESCE(
-            (SELECT SUM(r.amount) FROM reimbursement_links rl
-              JOIN transactions r ON r.id = rl.reimbursement_id AND r.user_id = "transactions"."user_id"
-              WHERE rl.expense_id = "transactions"."id"),
-            0
-          )
-        )`,
+        total: sql<number>`sum(${effectiveExpenseAmount()})`,
       })
       .from(transactions)
       .leftJoin(categories, eq(transactions.categoryId, categories.id))
@@ -337,14 +324,7 @@ export async function getMonthMoneyMath(
       db
         .select({
           categoryId: transactions.categoryId,
-          total: sql<number>`sum(
-            abs(${transactions.amount}) - COALESCE(
-              (SELECT SUM(r.amount) FROM reimbursement_links rl
-                JOIN transactions r ON r.id = rl.reimbursement_id AND r.user_id = "transactions"."user_id"
-                WHERE rl.expense_id = "transactions"."id"),
-              0
-            )
-          )`,
+          total: sql<number>`sum(${effectiveExpenseAmount()})`,
         })
         .from(transactions)
         .where(

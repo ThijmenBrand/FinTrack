@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   useBudgets,
   useCreateBudget,
@@ -27,17 +26,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -46,17 +34,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Plus,
-  Pencil,
-  Trash2,
-  X,
   AlertTriangle,
   Loader2,
   Lock,
   Coins,
   PiggyBank,
   Sparkles,
-  Check,
   ChevronDown,
   ChevronRight,
   ArrowRight,
@@ -69,13 +52,12 @@ import {
 } from "@/components/ui/popover";
 import { BudgetHistoryDialog } from "@/components/budget-history-dialog";
 import { BudgetSuggestionsDialog } from "@/components/budget-suggestions-dialog";
-
-function formatCurrency(amount: number) {
-  return new Intl.NumberFormat("nl-NL", {
-    style: "currency",
-    currency: "EUR",
-  }).format(amount);
-}
+import { formatCurrency } from "@/lib/utils";
+import { AllocationRow } from "./_components/allocation-row";
+import { SuggestionRow } from "./_components/suggestion-row";
+import { AllocationDialog } from "./_components/allocation-dialog";
+import { RegenerateConfirmDialog } from "./_components/regenerate-confirm-dialog";
+import { CategoryProgressRow } from "./_components/category-progress-row";
 
 const MONTH_OFFSETS = [0, 1, 2, 3] as const;
 type MonthOffset = (typeof MONTH_OFFSETS)[number];
@@ -99,6 +81,8 @@ function getFinancialMonthForOffset(
   return { ...range, reference: targetStart };
 }
 
+// ponytail: kept hand-rolled — Intl.RelativeTimeFormat would change the
+// output (its month bucketing differs from this days/30 approximation).
 function formatRelative(iso: string | null): string {
   if (!iso) return "never";
   const date = new Date(iso);
@@ -112,7 +96,6 @@ function formatRelative(iso: string | null): string {
 }
 
 export default function BudgetsPage() {
-  const router = useRouter();
   const [monthOffset, setMonthOffset] = useState<MonthOffset>(0);
   const isCurrentMonth = monthOffset === 0;
 
@@ -157,44 +140,14 @@ export default function BudgetsPage() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingAlloc, setEditingAlloc] = useState<Allocation | null>(null);
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [historyAlloc, setHistoryAlloc] = useState<Allocation | null>(null);
   const [suggestionsDialogOpen, setSuggestionsDialogOpen] = useState(false);
   const [fixedCostsOpen, setFixedCostsOpen] = useState(false);
   const [regenerateConfirmOpen, setRegenerateConfirmOpen] = useState(false);
 
-  // Form
-  const [formCategoryId, setFormCategoryId] = useState("");
-  const [formAmount, setFormAmount] = useState("");
-
-  const resetForm = () => {
-    setFormCategoryId("");
-    setFormAmount("");
-    setEditingAlloc(null);
-  };
-
   const openEdit = (alloc: Allocation) => {
     setEditingAlloc(alloc);
-    setFormCategoryId(alloc.categoryId);
-    setFormAmount(String(alloc.amount));
     setDialogOpen(true);
-  };
-
-  const handleSubmit = async () => {
-    const amount = parseFloat(formAmount);
-    if (!amount || amount <= 0) return;
-
-    await (editingAlloc
-      ? updateBudget.mutateAsync({ id: editingAlloc.id, amount })
-      : createBudget.mutateAsync({ categoryId: formCategoryId, amount }));
-
-    setDialogOpen(false);
-    resetForm();
-  };
-
-  const handleDelete = async (id: string) => {
-    await deleteBudget.mutateAsync(id);
-    setDeleteConfirm(null);
   };
 
   const runGenerate = async () => {
@@ -305,120 +258,24 @@ export default function BudgetsPage() {
             </Button>
           )}
           {isCurrentMonth && (
-          <Dialog
-            open={dialogOpen}
-            onOpenChange={(open) => {
-              setDialogOpen(open);
-              if (!open) resetForm();
-            }}
-          >
-            <DialogTrigger asChild>
-              <Button>
-                <Plus className="mr-2 h-4 w-4" />
-                Add manually
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-md">
-              <DialogHeader>
-                <DialogTitle>
-                  {editingAlloc ? "Edit Allocation" : "Add Budget Allocation"}
-                </DialogTitle>
-                <DialogDescription>
-                  {editingAlloc
-                    ? `Update the monthly budget for ${editingAlloc.categoryName}.`
-                    : `Allocate from your ${formatCurrency(data.unallocated)} unallocated budget.`}
-                </DialogDescription>
-              </DialogHeader>
-              <div className="grid gap-4 py-4">
-                {!editingAlloc && (
-                  <div className="grid gap-2">
-                    <Label>Category</Label>
-                    <Select value={formCategoryId} onValueChange={setFormCategoryId}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a category..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {availableCategories.map((cat) => (
-                          <SelectItem key={cat.id} value={cat.id}>
-                            <span className="flex items-center gap-2">
-                              <span
-                                className="h-2 w-2 rounded-full"
-                                style={{ backgroundColor: cat.color || "#94a3b8" }}
-                              />
-                              {cat.name}
-                            </span>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-                <div className="grid gap-2">
-                  <Label>Monthly Amount</Label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
-                      &euro;
-                    </span>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      placeholder="150.00"
-                      value={formAmount}
-                      onChange={(e) => setFormAmount(e.target.value)}
-                      className="pl-8"
-                    />
-                  </div>
-                  {!editingAlloc && formCategoryId && data.categoryAverages[formCategoryId] ? (
-                    <p className="text-xs text-muted-foreground">
-                      You typically spend{" "}
-                      <button
-                        type="button"
-                        className="font-medium text-primary underline underline-offset-2"
-                        onClick={() => setFormAmount(String(data.categoryAverages[formCategoryId]))}
-                      >
-                        {formatCurrency(data.categoryAverages[formCategoryId])}
-                      </button>
-                      /mo on average in this category.
-                    </p>
-                  ) : editingAlloc && editingAlloc.avgMonthly > 0 ? (
-                    <p className="text-xs text-muted-foreground">
-                      You typically spend{" "}
-                      <button
-                        type="button"
-                        className="font-medium text-primary underline underline-offset-2"
-                        onClick={() => setFormAmount(String(editingAlloc.avgMonthly))}
-                      >
-                        {formatCurrency(editingAlloc.avgMonthly)}
-                      </button>
-                      /mo on average in this category.
-                    </p>
-                  ) : null}
-                </div>
-              </div>
-              <DialogFooter>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setDialogOpen(false);
-                    resetForm();
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleSubmit}
-                  disabled={
-                    !formAmount ||
-                    parseFloat(formAmount) <= 0 ||
-                    (!editingAlloc && !formCategoryId)
-                  }
-                >
-                  {editingAlloc ? "Save" : "Allocate"}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+            <AllocationDialog
+              key={editingAlloc?.id ?? "new"}
+              open={dialogOpen}
+              onOpenChange={(open) => {
+                setDialogOpen(open);
+                if (!open) setEditingAlloc(null);
+              }}
+              editingAlloc={editingAlloc}
+              availableCategories={availableCategories}
+              categoryAverages={data.categoryAverages}
+              unallocated={data.unallocated}
+              onCreate={(categoryId, amount) =>
+                createBudget.mutateAsync({ categoryId, amount }).then(() => {})
+              }
+              onUpdate={(id, amount) =>
+                updateBudget.mutateAsync({ id, amount }).then(() => {})
+              }
+            />
           )}
         </div>
       </div>
@@ -619,13 +476,11 @@ export default function BudgetsPage() {
                 <AllocationRow
                   key={alloc.id}
                   alloc={alloc}
-                  isDeleteConfirming={deleteConfirm === alloc.id}
                   readOnly={!isCurrentMonth}
+                  deletePending={deleteBudget.isPending}
                   onClick={() => setHistoryAlloc(alloc)}
                   onEdit={() => openEdit(alloc)}
-                  onDelete={() => handleDelete(alloc.id)}
-                  onAskDelete={() => setDeleteConfirm(alloc.id)}
-                  onCancelDelete={() => setDeleteConfirm(null)}
+                  onDelete={() => deleteBudget.mutateAsync(alloc.id).then(() => {})}
                 />
               ))}
             </ul>
@@ -656,49 +511,25 @@ export default function BudgetsPage() {
             <ul className="divide-y border-y sm:border-x sm:rounded-md">
               {data.reserved.map((r) => {
                 const hasTarget = r.target !== null && r.target > 0;
-                const pct =
-                  hasTarget && r.target! > 0
-                    ? Math.min(100, (r.funded / r.target!) * 100)
-                    : 0;
+                const pct = hasTarget ? Math.min(100, (r.funded / r.target!) * 100) : 0;
                 return (
-                  <li
+                  <CategoryProgressRow
                     key={r.categoryId}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => router.push(`/transactions?category=${r.categoryId}`)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        router.push(`/transactions?category=${r.categoryId}`);
-                      }
-                    }}
-                    className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/40 transition-colors cursor-pointer"
-                  >
-                    <span
-                      className="h-2.5 w-2.5 rounded-sm shrink-0"
-                      style={{ backgroundColor: r.categoryColor || "#3b82f6" }}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-baseline justify-between gap-2 flex-wrap">
-                        <span className="text-sm font-medium truncate">
-                          {r.categoryName ?? "Unknown"}
-                        </span>
-                        <span className="text-xs tabular-nums text-muted-foreground">
-                          {hasTarget
-                            ? `${formatCurrency(r.funded)} of ${formatCurrency(r.target!)}`
-                            : formatCurrency(r.funded)}
-                        </span>
-                      </div>
-                      {hasTarget && (
-                        <div className="mt-1 h-1.5 rounded-full bg-muted overflow-hidden">
-                          <div
-                            className="h-full bg-blue-500 dark:bg-blue-400 transition-all duration-500"
-                            style={{ width: `${pct}%` }}
-                          />
-                        </div>
-                      )}
-                    </div>
-                  </li>
+                    categoryId={r.categoryId}
+                    color={r.categoryColor || "#3b82f6"}
+                    name={r.categoryName ?? "Unknown"}
+                    dotClassName="rounded-sm"
+                    barClassName="bg-blue-500 dark:bg-blue-400"
+                    hoverClassName="hover:bg-muted/40"
+                    progressPct={hasTarget ? pct : null}
+                    amount={
+                      <span className="text-xs tabular-nums text-muted-foreground">
+                        {hasTarget
+                          ? `${formatCurrency(r.funded)} of ${formatCurrency(r.target!)}`
+                          : formatCurrency(r.funded)}
+                      </span>
+                    }
+                  />
                 );
               })}
             </ul>
@@ -752,47 +583,27 @@ export default function BudgetsPage() {
                 {data.fixedCosts.map((fc) => {
                   const pct = fc.monthlyAmount > 0 ? Math.min(100, (fc.spent / fc.monthlyAmount) * 100) : 0;
                   return (
-                    <li
+                    <CategoryProgressRow
                       key={fc.categoryId}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => router.push(`/transactions?category=${fc.categoryId}`)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          router.push(`/transactions?category=${fc.categoryId}`);
-                        }
-                      }}
-                      className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/50 cursor-pointer"
-                    >
-                      <span
-                        className="h-2.5 w-2.5 shrink-0 rounded-full"
-                        style={{ backgroundColor: fc.categoryColor }}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-medium">{fc.categoryName}</div>
+                      categoryId={fc.categoryId}
+                      color={fc.categoryColor}
+                      name={fc.categoryName}
+                      progressPct={pct}
+                      subtitle={
                         <div className="text-xs text-muted-foreground">
                           {fc.items.length} item{fc.items.length === 1 ? "" : "s"}
                         </div>
-                      </div>
-                      <div className="hidden flex-1 sm:block">
-                        <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                          <div
-                            className="h-full rounded-full bg-slate-400"
-                            style={{ width: `${pct}%` }}
-                          />
-                        </div>
-                      </div>
-                      <div className="text-right tabular-nums text-sm shrink-0">
-                        <div>
+                      }
+                      amount={
+                        <span className="text-sm tabular-nums">
                           <span className="font-medium">{formatCurrency(fc.spent)}</span>
                           <span className="text-muted-foreground">
                             {" / "}
                             {formatCurrency(fc.monthlyAmount)}
                           </span>
-                        </div>
-                      </div>
-                    </li>
+                        </span>
+                      }
+                    />
                   );
                 })}
               </ul>
@@ -815,242 +626,14 @@ export default function BudgetsPage() {
         lookbackMonths={data.automation.lookbackMonths}
       />
 
-      <Dialog open={regenerateConfirmOpen} onOpenChange={setRegenerateConfirmOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Replace current suggestions?</DialogTitle>
-            <DialogDescription>
-              This will replace the {data.suggestions.length} pending suggestion
-              {data.suggestions.length === 1 ? "" : "s"} with a fresh set based on
-              the last {data.automation.lookbackMonths} month
-              {data.automation.lookbackMonths === 1 ? "" : "s"} of spending. Any
-              edits you&apos;ve made to the current suggestions will be lost.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRegenerateConfirmOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleConfirmRegenerate} disabled={generateBudgets.isPending}>
-              {generateBudgets.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Regenerate
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <RegenerateConfirmDialog
+        open={regenerateConfirmOpen}
+        onOpenChange={setRegenerateConfirmOpen}
+        suggestionCount={data.suggestions.length}
+        lookbackMonths={data.automation.lookbackMonths}
+        pending={generateBudgets.isPending}
+        onConfirm={handleConfirmRegenerate}
+      />
     </div>
-  );
-}
-
-function statusColor(status: Allocation["status"]): { bar: string; text: string } {
-  if (status === "exceeded") {
-    return { bar: "#ef4444", text: "text-red-600 dark:text-red-400" };
-  }
-  if (status === "warning") {
-    return { bar: "#f59e0b", text: "text-amber-600 dark:text-amber-400" };
-  }
-  return { bar: "", text: "text-muted-foreground" };
-}
-
-interface AllocationRowProps {
-  alloc: Allocation;
-  isDeleteConfirming: boolean;
-  readOnly?: boolean;
-  onClick: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
-  onAskDelete: () => void;
-  onCancelDelete: () => void;
-}
-
-function AllocationRow({
-  alloc,
-  isDeleteConfirming,
-  readOnly = false,
-  onClick,
-  onEdit,
-  onDelete,
-  onAskDelete,
-  onCancelDelete,
-}: AllocationRowProps) {
-  const colors = statusColor(alloc.status);
-  const barColor = colors.bar || alloc.categoryColor || "#3b82f6";
-  const remainingLabel =
-    alloc.status === "exceeded"
-      ? `${formatCurrency(alloc.spent - alloc.amount)} over`
-      : `${formatCurrency(alloc.remaining)} left`;
-
-  return (
-    <li
-      role="button"
-      tabIndex={0}
-      onClick={onClick}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onClick();
-        }
-      }}
-      className="group grid grid-cols-[auto_1fr_auto] items-center gap-x-3 gap-y-1 px-4 py-2.5 hover:bg-muted/50 cursor-pointer sm:grid-cols-[auto_minmax(0,1.4fr)_minmax(140px,2fr)_auto_auto]"
-    >
-      {/* Color dot */}
-      <span
-        className="h-2.5 w-2.5 rounded-full shrink-0"
-        style={{ backgroundColor: alloc.categoryColor || "#94a3b8" }}
-      />
-
-      {/* Name + avg */}
-      <div className="min-w-0">
-        <div className="truncate text-sm font-medium">{alloc.categoryName}</div>
-        {alloc.avgMonthly > 0 && (
-          <div className="truncate text-xs text-muted-foreground">
-            avg {formatCurrency(alloc.avgMonthly)}/mo · {alloc.avgMonths} mo
-          </div>
-        )}
-      </div>
-
-      {/* Inline progress bar (desktop only) */}
-      <div className="col-span-3 sm:col-span-1 sm:px-2 row-start-2 sm:row-start-auto">
-        <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-          <div
-            className="h-full rounded-full transition-all duration-500"
-            style={{
-              width: `${Math.min(alloc.percentage, 100)}%`,
-              backgroundColor: barColor,
-            }}
-          />
-        </div>
-      </div>
-
-      {/* Spent / Limit + status */}
-      <div className="text-right tabular-nums text-sm row-start-1 col-start-3 sm:row-start-auto sm:col-start-auto shrink-0">
-        <div>
-          <span className="font-medium">{formatCurrency(alloc.spent)}</span>
-          <span className="text-muted-foreground">
-            {" / "}
-            {formatCurrency(alloc.amount)}
-          </span>
-        </div>
-        <div className={`text-xs ${colors.text}`}>{remainingLabel}</div>
-      </div>
-
-      {/* Actions */}
-      {!readOnly && (
-      <div
-        className="flex items-center gap-0.5 row-start-1 col-start-3 justify-end sm:row-start-auto sm:col-start-auto sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onEdit} aria-label="Edit">
-          <Pencil className="h-3.5 w-3.5" />
-        </Button>
-        {isDeleteConfirming ? (
-          <>
-            <Button
-              variant="destructive"
-              size="icon"
-              className="h-7 w-7"
-              onClick={onDelete}
-              aria-label="Confirm delete"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              onClick={onCancelDelete}
-              aria-label="Cancel delete"
-            >
-              <X className="h-3.5 w-3.5" />
-            </Button>
-          </>
-        ) : (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={onAskDelete}
-            aria-label="Delete"
-          >
-            <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
-          </Button>
-        )}
-      </div>
-      )}
-    </li>
-  );
-}
-
-interface SuggestionRowProps {
-  suggestion: BudgetSuggestion;
-  busy: boolean;
-  onAccept: () => void;
-  onReject: () => void;
-}
-
-function SuggestionRow({ suggestion, busy, onAccept, onReject }: SuggestionRowProps) {
-  const isNew = suggestion.currentAmount === null;
-  const delta = suggestion.currentAmount !== null ? suggestion.suggestedAmount - suggestion.currentAmount : null;
-  return (
-    <li className="grid grid-cols-[auto_1fr_auto] items-center gap-x-3 gap-y-1 border-l-2 border-blue-400 bg-blue-50/40 px-4 py-2.5 dark:bg-blue-950/20 sm:grid-cols-[auto_minmax(0,1.4fr)_minmax(140px,2fr)_auto_auto]">
-      <span
-        className="h-2.5 w-2.5 rounded-full shrink-0"
-        style={{ backgroundColor: suggestion.categoryColor || "#3b82f6" }}
-      />
-      <div className="min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="truncate text-sm font-medium">{suggestion.categoryName}</span>
-          <span className="inline-flex items-center gap-0.5 rounded-md bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
-            <Sparkles className="h-2.5 w-2.5" />
-            {isNew ? "New" : "Update"}
-          </span>
-        </div>
-        <div className="truncate text-xs text-muted-foreground">
-          avg {formatCurrency(suggestion.avgMonthly)}/mo · {suggestion.monthsOfData} mo
-        </div>
-      </div>
-      <div className="hidden sm:block sm:px-2 text-xs text-muted-foreground">
-        {suggestion.currentAmount !== null ? (
-          <span>
-            {formatCurrency(suggestion.currentAmount)} →{" "}
-            <span className="font-medium text-foreground">
-              {formatCurrency(suggestion.suggestedAmount)}
-            </span>
-            {delta !== null && Math.abs(delta) >= 1 && (
-              <span className={`ml-1 ${delta > 0 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"}`}>
-                ({delta > 0 ? "+" : ""}
-                {formatCurrency(delta)})
-              </span>
-            )}
-          </span>
-        ) : (
-          <span>
-            Suggest{" "}
-            <span className="font-medium text-foreground">
-              {formatCurrency(suggestion.suggestedAmount)}
-            </span>
-          </span>
-        )}
-      </div>
-      <div className="text-right tabular-nums text-sm row-start-1 col-start-3 sm:row-start-auto sm:col-start-auto shrink-0">
-        <div className="font-medium">{formatCurrency(suggestion.suggestedAmount)}</div>
-        <div className="text-xs text-muted-foreground">/mo</div>
-      </div>
-      <div className="flex items-center gap-1 row-start-1 col-start-3 justify-end sm:row-start-auto sm:col-start-auto">
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 px-2"
-          onClick={onReject}
-          disabled={busy}
-          aria-label="Dismiss suggestion"
-        >
-          <X className="h-3.5 w-3.5" />
-        </Button>
-        <Button size="sm" className="h-7 px-2" onClick={onAccept} disabled={busy} aria-label="Accept suggestion">
-          <Check className="h-3.5 w-3.5" />
-        </Button>
-      </div>
-    </li>
   );
 }

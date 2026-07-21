@@ -32,7 +32,7 @@ interface CategorizePopoverProps {
   currentCategoryColor: string | null;
   currentCategoryIcon?: string | null;
   categories: Category[];
-  onCategorized: (categoryId?: string | null) => void;
+  onCategorized?: (categoryId?: string | null) => void;
 }
 
 export function CategorizePopover({
@@ -63,7 +63,7 @@ export function CategorizePopover({
 
   const handleSave = () => {
     setOpen(false);
-    onCategorized(selectedCategoryId || null);
+    onCategorized?.(selectedCategoryId || null);
     categorize.mutate(
       {
         transactionId,

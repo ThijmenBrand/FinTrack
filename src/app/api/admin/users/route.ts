@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { sql } from "drizzle-orm";
-import { requireAdmin, hashPassword } from "@/lib/auth";
+import { withAdmin, hashPassword } from "@/lib/auth";
 import { seedCategoriesForUser } from "@/db/migrate";
 import { logAudit, getRequestMeta } from "@/lib/audit";
 import { headers } from "next/headers";
@@ -28,9 +28,7 @@ async function logAdminAction(
 
 // GET /api/admin/users — list all users
 export async function GET() {
-  try {
-    await requireAdmin();
-
+  return withAdmin(async () => {
     const result = await db.run(sql`
       SELECT
         u.id, u.username, u.name, u.display_username, u.role, u.created_at,
@@ -57,21 +55,12 @@ export async function GET() {
         passkeyCount: Number(row.passkey_count) || 0,
       }))
     );
-  } catch (error) {
-    if (error instanceof Response) throw error;
-    console.error("Failed to fetch users:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch users" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to fetch users");
 }
 
 // POST /api/admin/users — create a new user
 export async function POST(request: NextRequest) {
-  try {
-    const session = await requireAdmin();
-
+  return withAdmin(async (session) => {
     const { username, password, displayUsername, isAdmin } = await request.json();
 
     if (!username || !password || !displayUsername) {
@@ -125,21 +114,12 @@ export async function POST(request: NextRequest) {
       },
       { status: 201 }
     );
-  } catch (error) {
-    if (error instanceof Response) throw error;
-    console.error("Failed to create user:", error);
-    return NextResponse.json(
-      { error: "Failed to create user" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to create user");
 }
 
 // PUT /api/admin/users — update user (reset password, change display name, toggle admin)
 export async function PUT(request: NextRequest) {
-  try {
-    const session = await requireAdmin();
-
+  return withAdmin(async (session) => {
     const { id, password, displayUsername, isAdmin } = await request.json();
 
     if (!id) {
@@ -174,21 +154,12 @@ export async function PUT(request: NextRequest) {
     }
 
     return NextResponse.json({ success: true });
-  } catch (error) {
-    if (error instanceof Response) throw error;
-    console.error("Failed to update user:", error);
-    return NextResponse.json(
-      { error: "Failed to update user" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to update user");
 }
 
 // DELETE /api/admin/users?id=X — delete a user and all their data
 export async function DELETE(request: NextRequest) {
-  try {
-    const session = await requireAdmin();
-
+  return withAdmin(async (session) => {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
 
@@ -218,12 +189,5 @@ export async function DELETE(request: NextRequest) {
     await db.run(sql`DELETE FROM "user" WHERE id = ${id}`);
 
     return NextResponse.json({ success: true });
-  } catch (error) {
-    if (error instanceof Response) throw error;
-    console.error("Failed to delete user:", error);
-    return NextResponse.json(
-      { error: "Failed to delete user" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to delete user");
 }

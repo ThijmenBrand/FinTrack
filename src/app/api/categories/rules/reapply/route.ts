@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { categoryRules, categories, transactions } from "@/db/schema";
 import { sql, eq, and } from "drizzle-orm";
-import { getUserId } from "@/lib/auth";
+import { withUser } from "@/lib/auth";
+import { applyRuleToTransactions } from "@/lib/apply-rule";
 
 /**
  * POST /api/categories/rules/reapply
@@ -12,9 +13,7 @@ import { getUserId } from "@/lib/auth";
  * categories.
  */
 export async function POST() {
-  try {
-    const userId = await getUserId();
-
+  return withUser(async (userId) => {
     // Step 1: Clear only rule-applied category assignments. Manual ones survive.
     // Rule-applied transactions in reserved categories carried type='reserved';
     // restore type from amount sign before nulling the category.
@@ -54,13 +53,13 @@ export async function POST() {
     const ruleResults: { pattern: string; matchType: string; applied: number }[] = [];
 
     for (const rule of allRules) {
-      const applied = await applyRule(
-        rule.pattern,
-        rule.categoryId,
-        rule.matchType,
+      const applied = await applyRuleToTransactions({
+        pattern: rule.pattern,
+        categoryId: rule.categoryId,
+        matchType: rule.matchType,
         userId,
-        rule.kind === "reserved"
-      );
+        isReserved: rule.kind === "reserved",
+      });
       totalApplied += applied;
       ruleResults.push({
         pattern: rule.pattern,
@@ -91,53 +90,5 @@ export async function POST() {
       totalTransactions: total,
       uncategorized,
     });
-  } catch (error) {
-    console.error("Failed to reapply rules:", error);
-    return NextResponse.json(
-      { error: "Failed to reapply rules" },
-      { status: 500 }
-    );
-  }
-}
-
-async function applyRule(
-  pattern: string,
-  categoryId: string,
-  matchType: string,
-  userId: string,
-  isReservedCategory: boolean
-): Promise<number> {
-  let sqlPattern: string;
-  switch (matchType) {
-    case "exact":
-      sqlPattern = pattern;
-      break;
-    case "starts_with":
-      sqlPattern = `${pattern}%`;
-      break;
-    case "contains":
-    default:
-      sqlPattern = `%${pattern}%`;
-      break;
-  }
-
-  // Match against the combined "name — description" so legacy rows (name IS
-  // NULL) match on description alone, and new rows match on either field.
-  // Only auto-categorize income/expense rows; transfers and reimbursements
-  // are managed through their own flows.
-  const matchTargetSql = sql`LOWER(IIF(${transactions.name} IS NOT NULL, ${transactions.name} || ' — ', '') || ${transactions.description})`;
-  const condition =
-    matchType === "exact"
-      ? sql`${matchTargetSql} = LOWER(${pattern}) AND ${transactions.categoryId} IS NULL AND ${transactions.userId} = ${userId} AND ${transactions.type} IN ('income', 'expense')`
-      : sql`${matchTargetSql} LIKE LOWER(${sqlPattern}) AND ${transactions.categoryId} IS NULL AND ${transactions.userId} = ${userId} AND ${transactions.type} IN ('income', 'expense')`;
-
-  const updateSet: Record<string, unknown> = { categoryId, categorySource: "rule" };
-  if (isReservedCategory) updateSet.type = "reserved";
-
-  const result = await db
-    .update(transactions)
-    .set(updateSet)
-    .where(condition);
-
-  return result.rowsAffected;
+  }, "Failed to reapply rules");
 }

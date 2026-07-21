@@ -7,6 +7,7 @@ import {
 } from "@/db/schema";
 import { and, eq, gte, lte, sql } from "drizzle-orm";
 import type { BudgetSuggestion } from "@/types/api";
+import { effectiveExpenseAmount } from "@/lib/reimbursement-sql";
 
 /**
  * Round a number up to the nearest multiple of 5 (e.g. 142.30 -> 145).
@@ -89,12 +90,7 @@ export async function regenerateBudgetSuggestions(
       categoryId: transactions.categoryId,
       categoryName: categories.name,
       categoryColor: categories.color,
-      total: sql<number>`sum(
-        abs(${transactions.amount}) - COALESCE(
-          (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id AND r.user_id = "transactions"."user_id" WHERE rl.expense_id = "transactions"."id"),
-          0
-        )
-      )`,
+      total: sql<number>`sum(${effectiveExpenseAmount()})`,
       monthsCovered: sql<number>`count(distinct substr(${transactions.date}, 1, 7))`,
     })
     .from(transactions)

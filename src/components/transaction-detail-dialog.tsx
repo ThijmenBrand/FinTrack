@@ -32,6 +32,8 @@ import { RecurringLinkPopover } from "@/components/recurring-link-popover";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useCategories } from "@/hooks/use-categories";
+import { NotesEditor } from "@/components/notes-editor";
+import { formatCurrency, formatDate } from "@/lib/utils";
 import type { Transaction, ReimbursementDetail, Category } from "@/types/api";
 
 const TYPE_BADGES: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
@@ -41,21 +43,6 @@ const TYPE_BADGES: Record<string, { label: string; variant: "default" | "seconda
   reimbursement: { label: "Reimbursement", variant: "outline" },
   reserved: { label: "Reserved", variant: "secondary" },
 };
-
-function formatCurrency(amount: number) {
-  return new Intl.NumberFormat("nl-NL", {
-    style: "currency",
-    currency: "EUR",
-  }).format(amount);
-}
-
-function formatDate(dateStr: string) {
-  return new Intl.DateTimeFormat("nl-NL", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  }).format(new Date(dateStr));
-}
 
 interface TransactionDetailDialogProps {
   transaction: Transaction | null;
@@ -80,7 +67,7 @@ export function TransactionDetailDialog({ transaction, onOpenChange, categories,
     enabled: !!transaction && transaction.type === "reimbursement",
   });
 
-  const handleCategorized = (categoryId?: string | null) => {
+  const handleCategorized = () => {
     onCategorized?.();
   };
 
@@ -202,13 +189,11 @@ export function TransactionDetailDialog({ transaction, onOpenChange, categories,
             </div>
           )}
 
-          {tx.notes && (
-            <div className="flex items-start gap-3">
-              <StickyNote className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
-              <span className="text-muted-foreground w-20 shrink-0">Notes</span>
-              <span className="font-medium">{tx.notes}</span>
-            </div>
-          )}
+          <div className="flex items-start gap-3">
+            <StickyNote className="h-4 w-4 text-muted-foreground shrink-0 mt-1.5" />
+            <span className="text-muted-foreground w-20 shrink-0 mt-1">Notes</span>
+            <NotesEditor key={tx.id} transactionId={tx.id} initialNotes={tx.notes} />
+          </div>
 
           {isTransfer && tx.linkedAccountName && (
             <div className="flex items-center gap-3">

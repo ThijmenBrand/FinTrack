@@ -8,7 +8,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getAccountBalances, formatCurrency } from "../_lib/dashboard-queries";
+import { getAccountBalances } from "../_lib/dashboard-queries";
+import { formatCurrency } from "@/lib/utils";
 
 export async function AccountsCard({ userId }: { userId: string }) {
   const accountBalances = await getAccountBalances(userId);

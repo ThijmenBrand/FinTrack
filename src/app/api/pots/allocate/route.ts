@@ -2,15 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { transactionGroups } from "@/db/schema";
 import { eq, and, sql } from "drizzle-orm";
-import { getUserId } from "@/lib/auth";
+import { withUser } from "@/lib/auth";
 import { logDataEvent, getRequestMeta } from "@/lib/audit";
 
 // POST /api/pots/allocate — increment fundedAmount on a targeted pot.
 // Body: { potId: string; amount: number }
 // `amount` may be negative to undo an over-allocation.
 export async function POST(request: NextRequest) {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const { potId, amount } = await request.json();
 
     if (!potId) {
@@ -83,12 +82,6 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json({ success: true, fundedAmount: nextFunded });
-  } catch (error) {
-    console.error("Failed to allocate to pot:", error);
-    return NextResponse.json(
-      { error: "Failed to allocate to pot" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to allocate to pot");
 }
 

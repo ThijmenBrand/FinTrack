@@ -144,6 +144,50 @@ export function useCategorizeTransaction() {
   });
 }
 
+export function useUpdateTransactionNotes() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { transactionId: string; notes: string | null }) =>
+      apiFetch("/api/transactions/notes", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["transactions"] });
+    },
+  });
+}
+
+export function useBulkCategorizeTransactions() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { transactionIds: string[]; categoryId: string | null }) =>
+      apiFetch("/api/transactions/categorize", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["transactions"] });
+      qc.invalidateQueries({ queryKey: ["categories"] });
+      qc.invalidateQueries({ queryKey: ["budgets"] });
+      qc.invalidateQueries({ queryKey: ["insights"] });
+    },
+  });
+}
+
+export function useBulkDeleteTransactions() {
+  const qc = useQueryClient();
+  return useMutation({
+    // ponytail: sequential single deletes reuse the linked-transfer cascade
+    // logic in DELETE /api/transactions; add a bulk endpoint if this gets slow
+    mutationFn: async (ids: string[]) => {
+      for (const id of ids) {
+        await apiFetch(`/api/transactions?id=${id}`, { method: "DELETE" });
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["transactions"] });
+      qc.invalidateQueries({ queryKey: ["accounts"] });
+      qc.invalidateQueries({ queryKey: ["budgets"] });
+      qc.invalidateQueries({ queryKey: ["insights"] });
+    },
+  });
+}
+
 export function useLinkRecurringTransaction() {
   const qc = useQueryClient();
   return useMutation({

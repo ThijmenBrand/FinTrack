@@ -3,14 +3,12 @@ import { db } from "@/db";
 import { auditLog } from "@/db/schema";
 import { user } from "@/db/auth-schema";
 import { eq, and, gte, lte, desc, sql, type SQL } from "drizzle-orm";
-import { requireAdmin } from "@/lib/auth";
+import { withAdmin } from "@/lib/auth";
 import { cleanupOldAuditLogs } from "@/lib/audit";
 
 // GET /api/admin/audit-logs — list audit logs with filtering and pagination
 export async function GET(request: NextRequest) {
-  try {
-    await requireAdmin();
-
+  return withAdmin(async () => {
     const { searchParams } = new URL(request.url);
     const page = Math.max(1, Number(searchParams.get("page")) || 1);
     const limit = Math.min(200, Math.max(1, Number(searchParams.get("limit")) || 50));
@@ -85,30 +83,14 @@ export async function GET(request: NextRequest) {
         totalPages: Math.ceil(total / limit),
       },
     });
-  } catch (error) {
-    if (error instanceof Response) throw error;
-    console.error("Failed to fetch audit logs:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch audit logs" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to fetch audit logs");
 }
 
 // POST /api/admin/audit-logs — cleanup old audit logs
 export async function POST() {
-  try {
-    await requireAdmin();
-
+  return withAdmin(async () => {
     const deleted = await cleanupOldAuditLogs(90);
 
     return NextResponse.json({ success: true, deleted });
-  } catch (error) {
-    if (error instanceof Response) throw error;
-    console.error("Failed to cleanup audit logs:", error);
-    return NextResponse.json(
-      { error: "Failed to cleanup audit logs" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to cleanup audit logs");
 }

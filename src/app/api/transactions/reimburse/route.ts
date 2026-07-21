@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { transactions, reimbursementLinks } from "@/db/schema";
 import { eq, and, sql, inArray } from "drizzle-orm";
-import { getUserId } from "@/lib/auth";
+import { withUser } from "@/lib/auth";
 
 /**
  * POST /api/transactions/reimburse
@@ -11,8 +11,7 @@ import { getUserId } from "@/lib/auth";
  * Also accepts legacy { transactionId: string, expenseId: string }
  */
 export async function POST(request: NextRequest) {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const body = await request.json();
     const transactionId: string = body.transactionId;
     // Support both single expenseId and array of expenseIds
@@ -87,13 +86,7 @@ export async function POST(request: NextRequest) {
       .where(and(eq(transactions.id, transactionId), eq(transactions.userId, userId)));
 
     return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Failed to link reimbursement:", error);
-    return NextResponse.json(
-      { error: "Failed to link reimbursement" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to link reimbursement");
 }
 
 /**
@@ -102,8 +95,7 @@ export async function POST(request: NextRequest) {
  * If no expenseId, unlinks all. If no links remain, restores type to "income".
  */
 export async function DELETE(request: NextRequest) {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
     const expenseId = searchParams.get("expenseId");
@@ -166,11 +158,5 @@ export async function DELETE(request: NextRequest) {
     }
 
     return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Failed to unlink reimbursement:", error);
-    return NextResponse.json(
-      { error: "Failed to unlink reimbursement" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to unlink reimbursement");
 }

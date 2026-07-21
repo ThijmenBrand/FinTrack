@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { formatCurrency } from "@/lib/utils";
 
 export interface SaldoPoint {
   date: string; // YYYY-MM-DD or ISO
@@ -16,30 +17,21 @@ interface PotSaldoGraphProps {
   target?: number | null;
   /** Optional today marker (YYYY-MM-DD). */
   today?: string | null;
-  /** Currency formatter for the tooltip. */
-  formatValue?: (n: number) => string;
   /** Color of the actual line. Falls back to primary. */
   lineColor?: string;
-  /** Style: 'step' for stepwise (allocations), 'linear' for plain pots. */
-  style?: "step" | "linear";
-  /** Optional minimum height; default 220px. */
-  height?: number;
   /** Accessible label for the chart. */
   ariaLabel?: string;
 }
 
 const PADDING = { top: 16, right: 16, bottom: 28, left: 56 };
+const HEIGHT = 220;
 
 function toDateNum(iso: string): number {
   return new Date(iso).getTime();
 }
 
-function defaultFormat(n: number): string {
-  return new Intl.NumberFormat("nl-NL", {
-    style: "currency",
-    currency: "EUR",
-    maximumFractionDigits: 0,
-  }).format(n);
+function formatValue(n: number): string {
+  return formatCurrency(n, "EUR", 0);
 }
 
 export function PotSaldoGraph({
@@ -47,10 +39,7 @@ export function PotSaldoGraph({
   expectedSeries,
   target,
   today,
-  formatValue = defaultFormat,
   lineColor,
-  style = "step",
-  height = 220,
   ariaLabel = "Saldo over time",
 }: PotSaldoGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -89,7 +78,7 @@ export function PotSaldoGraph({
     const ySpan = Math.max(1, valueMax - valueMin);
 
     const innerW = width - PADDING.left - PADDING.right;
-    const innerH = height - PADDING.top - PADDING.bottom;
+    const innerH = HEIGHT - PADDING.top - PADDING.bottom;
 
     const xFor = (iso: string) =>
       PADDING.left + ((toDateNum(iso) - minX) / xSpan) * innerW;
@@ -114,9 +103,9 @@ export function PotSaldoGraph({
       return segs.join(" ");
     };
 
-    const seriesPath = buildPath(series, style === "step");
+    const seriesPath = buildPath(series, true);
     const expectedPath = expectedSeries
-      ? buildPath(expectedSeries, style === "step")
+      ? buildPath(expectedSeries, true)
       : null;
 
     // Y-axis ticks (3 lines)
@@ -136,13 +125,13 @@ export function PotSaldoGraph({
       maxX,
       xSpan,
     };
-  }, [series, expectedSeries, target, width, height, style]);
+  }, [series, expectedSeries, target, width]);
 
   if (!chart || series.length === 0) {
     return (
       <div
         ref={containerRef}
-        style={{ height }}
+        style={{ height: HEIGHT }}
         className="w-full flex items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground"
       >
         Not enough data yet — start allocating or link a transaction.
@@ -176,7 +165,7 @@ export function PotSaldoGraph({
     <div ref={containerRef} className="w-full relative">
       <svg
         width={width}
-        height={height}
+        height={HEIGHT}
         role="img"
         aria-label={ariaLabel}
         className="select-none"
@@ -222,7 +211,7 @@ export function PotSaldoGraph({
             <text
               key={`x-${i}`}
               x={x}
-              y={height - 8}
+              y={HEIGHT - 8}
               textAnchor={i === 0 ? "start" : "end"}
               fontSize={10}
               fill="currentColor"
@@ -277,7 +266,7 @@ export function PotSaldoGraph({
             x1={todayX}
             x2={todayX}
             y1={PADDING.top}
-            y2={height - PADDING.bottom}
+            y2={HEIGHT - PADDING.bottom}
             stroke="currentColor"
             strokeOpacity={0.25}
             strokeWidth={1}
@@ -312,7 +301,7 @@ export function PotSaldoGraph({
               x1={hoverPoint.sx}
               x2={hoverPoint.sx}
               y1={PADDING.top}
-              y2={height - PADDING.bottom}
+              y2={HEIGHT - PADDING.bottom}
               stroke="currentColor"
               strokeOpacity={0.3}
               strokeWidth={1}

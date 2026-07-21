@@ -1,4 +1,12 @@
 export const MAX_PATTERN_LENGTH = 200;
+export const MAX_NOTE_LENGTH = 500;
+
+/** Trim and cap a user-supplied transaction note. Returns null for empty or non-string input. */
+export function sanitizeNote(input: unknown): string | null {
+  if (typeof input !== "string") return null;
+  const trimmed = input.trim().slice(0, MAX_NOTE_LENGTH);
+  return trimmed || null;
+}
 
 export type PatternValidation =
   | { ok: true; value: string }

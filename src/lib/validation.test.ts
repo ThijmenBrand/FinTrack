@@ -1,5 +1,29 @@
 import { describe, it, expect } from "vitest";
-import { validatePattern, MAX_PATTERN_LENGTH } from "./validation";
+import { validatePattern, MAX_PATTERN_LENGTH, sanitizeNote, MAX_NOTE_LENGTH } from "./validation";
+
+describe("sanitizeNote", () => {
+  it("returns null for non-string input", () => {
+    expect(sanitizeNote(null)).toBeNull();
+    expect(sanitizeNote(undefined)).toBeNull();
+    expect(sanitizeNote(42)).toBeNull();
+    expect(sanitizeNote({})).toBeNull();
+  });
+
+  it("returns null for empty / whitespace-only strings", () => {
+    expect(sanitizeNote("")).toBeNull();
+    expect(sanitizeNote("   \n\t")).toBeNull();
+  });
+
+  it("trims and returns a normal note", () => {
+    expect(sanitizeNote("  lunch with Sam  ")).toBe("lunch with Sam");
+  });
+
+  it("caps at MAX_NOTE_LENGTH characters", () => {
+    expect(sanitizeNote("a".repeat(MAX_NOTE_LENGTH + 50))).toBe(
+      "a".repeat(MAX_NOTE_LENGTH)
+    );
+  });
+});
 
 describe("validatePattern", () => {
   it("rejects non-string input", () => {

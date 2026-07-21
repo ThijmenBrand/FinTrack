@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { transactions, importBatches, categoryRules, categories } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
-import { getUserId } from "@/lib/auth";
+import { withUser } from "@/lib/auth";
 import Papa from "papaparse";
 import {
   parseAmount,
@@ -18,8 +18,7 @@ interface CsvRow {
 
 // POST /api/transactions/upload — parse and import CSV data
 export async function POST(request: NextRequest) {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
     const accountId = formData.get("accountId") as string | null;
@@ -200,11 +199,5 @@ export async function POST(request: NextRequest) {
       skipped,
       batchId,
     });
-  } catch (error) {
-    console.error("CSV upload failed:", error);
-    return NextResponse.json(
-      { error: "Failed to process CSV upload: " + String(error) },
-      { status: 500 }
-    );
-  }
+  }, "Failed to process CSV upload");
 }

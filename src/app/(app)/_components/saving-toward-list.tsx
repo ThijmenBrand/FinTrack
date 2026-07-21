@@ -5,13 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AllocateToPotDialog } from "@/components/allocate-to-pot-dialog";
 import { PotDetailDialog } from "@/components/pot-detail-dialog";
+import { formatCurrency } from "@/lib/utils";
+import { ON_TRACK_LABEL, ON_TRACK_STYLES } from "@/components/spike-progress";
 import type { SavingTowardSpike } from "@/types/api";
-
-const eur = new Intl.NumberFormat("nl-NL", {
-  style: "currency",
-  currency: "EUR",
-});
-const formatCurrency = (n: number) => eur.format(n);
 
 function dateLabel(targetDate: string): string {
   return new Date(targetDate).toLocaleDateString("en-GB", {
@@ -20,21 +16,6 @@ function dateLabel(targetDate: string): string {
     year: "numeric",
   });
 }
-
-const ON_TRACK_LABEL = {
-  ahead: "Ahead",
-  on_pace: "On pace",
-  behind: "Behind",
-} as const;
-
-const ON_TRACK_STYLES = {
-  ahead:
-    "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-400",
-  on_pace:
-    "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900/40 dark:bg-blue-950/40 dark:text-blue-400",
-  behind:
-    "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-400",
-} as const;
 
 interface SavingTowardListProps {
   spikes: SavingTowardSpike[];

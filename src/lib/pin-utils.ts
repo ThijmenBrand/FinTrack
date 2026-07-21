@@ -35,7 +35,6 @@ export function validatePin(pin: string): string | null {
 // ─── Lockout constants ──────────────────────────────────────────────────────
 
 export const MAX_FAILED_ATTEMPTS = 5;
-export const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes (kept for backwards compat)
 
 export const MAX_LOCKOUT_CYCLES = 3;
 export const LOCKOUT_DURATIONS_MS = [

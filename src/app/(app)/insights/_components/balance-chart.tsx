@@ -9,13 +9,7 @@ import {
 } from "@/components/ui/card";
 import type { BalanceTimelineData } from "@/types/api";
 import { Loader2 } from "lucide-react";
-
-function formatCurrency(amount: number) {
-  return new Intl.NumberFormat("nl-NL", {
-    style: "currency",
-    currency: "EUR",
-  }).format(amount);
-}
+import { formatCurrency } from "@/lib/utils";
 
 function formatCurrencyShort(amount: number) {
   const abs = Math.abs(amount);

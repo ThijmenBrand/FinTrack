@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { transactions, accounts, categories } from "@/db/schema";
 import { eq, desc, asc, and, gte, lte, like, or, sql } from "drizzle-orm";
-import { getUserId } from "@/lib/auth";
+import { withUser } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
 
 const VALID_TX_TYPES = ["income", "expense", "internal_transfer", "reimbursement", "reserved"] as const;
@@ -10,8 +10,7 @@ type TxType = (typeof VALID_TX_TYPES)[number];
 
 // GET /api/transactions — list transactions with filtering, sorting, pagination
 export async function GET(request: NextRequest) {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const { searchParams } = new URL(request.url);
     const page = Math.max(1, Number(searchParams.get("page")) || 1);
     const limit = Math.min(100, Math.max(1, Number(searchParams.get("limit")) || 25));
@@ -200,19 +199,12 @@ export async function GET(request: NextRequest) {
         net: sumResult[0]?.netTotal || 0,
       },
     });
-  } catch (error) {
-    console.error("Failed to fetch transactions:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch transactions" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to fetch transactions");
 }
 
 // DELETE /api/transactions — delete a transaction
 export async function DELETE(request: NextRequest) {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
 
@@ -263,11 +255,5 @@ export async function DELETE(request: NextRequest) {
     logDataEvent({ userId, action: "transaction_delete", targetId: id, targetType: "transaction" });
 
     return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Failed to delete transaction:", error);
-    return NextResponse.json(
-      { error: "Failed to delete transaction" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to delete transaction");
 }

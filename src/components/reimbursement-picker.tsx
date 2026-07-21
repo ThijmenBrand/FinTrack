@@ -1,18 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Search, Loader2 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useReimburseTransaction } from "@/hooks/use-transactions";
+import { formatCurrency, formatDate } from "@/lib/utils";
+import { PickerDialog } from "@/components/picker-dialog";
+import { PickerRow } from "@/components/picker-row";
 
 interface ExpenseTransaction {
   id: string;
@@ -24,21 +18,6 @@ interface ExpenseTransaction {
   categoryColor: string | null;
 }
 
-function formatCurrency(amount: number) {
-  return new Intl.NumberFormat("nl-NL", {
-    style: "currency",
-    currency: "EUR",
-  }).format(amount);
-}
-
-function formatDate(dateStr: string) {
-  return new Intl.DateTimeFormat("nl-NL", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  }).format(new Date(dateStr));
-}
-
 interface ReimbursementPickerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -47,7 +26,7 @@ interface ReimbursementPickerProps {
   transactionDescription: string;
   transactionDate: string;
   accountId: string;
-  onLinked: () => void;
+  onLinked?: () => void;
 }
 
 export function ReimbursementPicker({
@@ -94,7 +73,7 @@ export function ReimbursementPicker({
     setLinkingId(expenseId);
     try {
       await reimburse.mutateAsync({ transactionId, expenseIds: [expenseId] });
-      onLinked();
+      onLinked?.();
       onOpenChange(false);
     } catch (err) {
       console.error("Failed to link:", err);
@@ -104,79 +83,55 @@ export function ReimbursementPicker({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Mark as Reimbursement</DialogTitle>
-          <DialogDescription>
-            Select the expense that &quot;{transactionDescription}&quot; ({formatCurrency(transactionAmount)}) reimburses.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search expenses..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-            autoFocus
-          />
-        </div>
-
-        <div className="max-h-[350px] overflow-y-auto -mx-1 px-1">
-          {loading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : expenses.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-8">
-              {debouncedSearch ? "No matching expenses found." : "No recent expenses in this account."}
-            </p>
-          ) : (
-            <div className="space-y-1">
-              {expenses.map((expense) => (
-                <button
-                  key={expense.id}
-                  className="w-full flex items-center rounded-lg border px-3 py-2 text-left transition-colors hover:bg-muted/50"
-                  onClick={() => handleSelect(expense.id)}
-                  disabled={linkingId !== null}
-                >
-                  {linkingId === expense.id ? (
-                    <Loader2 className="h-4 w-4 animate-spin shrink-0 mr-3 text-muted-foreground" />
-                  ) : (
-                    <div className="w-4 mr-3 shrink-0" />
-                  )}
-                  <div className="flex-1 w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium truncate">
-                        {expense.description}
-                      </p>
-                      {expense.categoryName && (
-                        <span className="flex items-center gap-1 shrink-0">
-                          <span
-                            className="h-2 w-2 rounded-full"
-                            style={{ backgroundColor: expense.categoryColor || "#94a3b8" }}
-                          />
-                          <span className="text-xs text-muted-foreground">
-                            {expense.categoryName}
-                          </span>
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {formatDate(expense.date)}
-                    </p>
-                  </div>
-                  <span className="text-sm font-mono font-medium text-red-600 dark:text-red-400 shrink-0 ml-3">
-                    {formatCurrency(expense.amount)}
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
+    <PickerDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Mark as Reimbursement"
+      description={
+        <>
+          Select the expense that &quot;{transactionDescription}&quot; ({formatCurrency(transactionAmount)}) reimburses.
+        </>
+      }
+      search={search}
+      onSearchChange={setSearch}
+      searchPlaceholder="Search expenses..."
+      loading={loading}
+      isEmpty={expenses.length === 0}
+      emptyMessage={debouncedSearch ? "No matching expenses found." : "No recent expenses in this account."}
+    >
+      {expenses.map((expense) => (
+        <PickerRow
+          key={expense.id}
+          className="hover:bg-muted/50"
+          onClick={() => handleSelect(expense.id)}
+          disabled={linkingId !== null}
+          loading={linkingId === expense.id}
+          leading={<div className="w-4 mr-3 shrink-0" />}
+          trailing={
+            <span className="text-sm font-mono font-medium text-red-600 dark:text-red-400 shrink-0 ml-3">
+              {formatCurrency(expense.amount)}
+            </span>
+          }
+        >
+          <div className="flex items-center gap-2">
+            <p className="text-sm font-medium truncate">{expense.description}</p>
+            {expense.categoryName && (
+              <span className="flex items-center gap-1 shrink-0">
+                <span
+                  className="h-2 w-2 rounded-full"
+                  style={{ backgroundColor: expense.categoryColor || "#94a3b8" }}
+                />
+                <span className="text-xs text-muted-foreground">
+                  {expense.categoryName}
+                </span>
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {formatDate(expense.date)}
+          </p>
+        </PickerRow>
+      ))}
+    </PickerDialog>
   );
 }

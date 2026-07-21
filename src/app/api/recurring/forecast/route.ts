@@ -8,8 +8,9 @@ import {
   transactionGroups,
 } from "@/db/schema";
 import { eq, and, sum, isNotNull, gte, lte } from "drizzle-orm";
-import { getUserId } from "@/lib/auth";
+import { withUser } from "@/lib/auth";
 import { generateOccurrences } from "@/lib/recurring";
+import { toMonthly } from "@/lib/month-money";
 
 /**
  * GET /api/recurring/forecast
@@ -22,20 +23,24 @@ import { generateOccurrences } from "@/lib/recurring";
  *  - advice: smart tips based on cash flow analysis
  */
 export async function GET(request: NextRequest) {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const { searchParams } = new URL(request.url);
     const months = Math.min(12, Math.max(1, Number(searchParams.get("months")) || 3));
 
-    // 1. Get current total balance
+    // 1. Get current total balance: initial balances + one grouped sum of
+    // transaction amounts per account (instead of one query per account).
     const allAccounts = await db.select().from(accounts).where(eq(accounts.userId, userId));
+    const balanceRows = await db
+      .select({ accountId: transactions.accountId, total: sum(transactions.amount) })
+      .from(transactions)
+      .where(eq(transactions.userId, userId))
+      .groupBy(transactions.accountId);
+    const balanceByAccount = new Map(
+      balanceRows.map((r) => [r.accountId, Number(r.total) || 0])
+    );
     let totalBalance = 0;
     for (const account of allAccounts) {
-      const result = await db
-        .select({ total: sum(transactions.amount) })
-        .from(transactions)
-        .where(eq(transactions.accountId, account.id));
-      totalBalance += account.initialBalance + (Number(result[0]?.total) || 0);
+      totalBalance += account.initialBalance + (balanceByAccount.get(account.id) || 0);
     }
 
     // 2. Get active recurring transactions
@@ -194,23 +199,11 @@ export async function GET(request: NextRequest) {
     // Monthly recurring totals
     const monthlyRecurringIncome = recurring
       .filter((r) => r.type === "income")
-      .reduce((s, r) => {
-        const mult =
-          r.frequency === "weekly" ? 4.33 :
-          r.frequency === "biweekly" ? 2.17 :
-          r.frequency === "yearly" ? 1 / 12 : 1;
-        return s + Math.abs(r.amount) * mult;
-      }, 0);
+      .reduce((s, r) => s + toMonthly(r.amount, r.frequency), 0);
 
     const monthlyRecurringExpenses = recurring
       .filter((r) => r.type === "expense")
-      .reduce((s, r) => {
-        const mult =
-          r.frequency === "weekly" ? 4.33 :
-          r.frequency === "biweekly" ? 2.17 :
-          r.frequency === "yearly" ? 1 / 12 : 1;
-        return s + Math.abs(r.amount) * mult;
-      }, 0);
+      .reduce((s, r) => s + toMonthly(r.amount, r.frequency), 0);
 
     const monthlyNet = monthlyRecurringIncome - monthlyRecurringExpenses;
 
@@ -287,11 +280,5 @@ export async function GET(request: NextRequest) {
       upcomingPayments,
       advice,
     });
-  } catch (error) {
-    console.error("Failed to generate forecast:", error);
-    return NextResponse.json(
-      { error: "Failed to generate forecast" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to generate forecast");
 }

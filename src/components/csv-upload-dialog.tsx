@@ -43,7 +43,7 @@ interface CsvUploadDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   accounts: Account[];
-  onUploadComplete: () => void;
+  onUploadComplete?: () => void;
 }
 
 type UploadStep =
@@ -211,11 +211,13 @@ export function CsvUploadDialog({
         transactions: transactions.map((tx) => ({
           tempId: tx.tempId,
           date: tx.date,
+          name: tx.name,
           description: tx.description,
           amount: tx.amount,
           balance: tx.balance,
           type: tx.type,
           categoryId: tx.categoryId,
+          notes: tx.notes ?? null,
           targetAccountId: tx.targetAccountId,
           recurringTransactionId: tx.recurringTransactionId ?? null,
         })),
@@ -228,7 +230,7 @@ export function CsvUploadDialog({
         transfersDetected: data.transfersDetected || 0,
       });
       setStep("done");
-      onUploadComplete();
+      onUploadComplete?.();
     } catch (err) {
       console.error("CSV commit failed:", err);
       const message = err instanceof Error ? err.message : String(err);

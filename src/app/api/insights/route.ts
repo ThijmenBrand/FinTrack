@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { transactions, categories, transactionGroups } from "@/db/schema";
 import { eq, and, gte, lte, sql, inArray } from "drizzle-orm";
-import { getUserId } from "@/lib/auth";
+import { withUser } from "@/lib/auth";
+import { effectiveExpenseAmount } from "@/lib/reimbursement-sql";
 
 /**
  * GET /api/insights — aggregated spending data for charts
@@ -14,8 +15,7 @@ import { getUserId } from "@/lib/auth";
  *  - summary: total income, total expenses, net
  */
 export async function GET(request: NextRequest) {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const { searchParams } = new URL(request.url);
     const dateFrom = searchParams.get("dateFrom");
     const dateTo = searchParams.get("dateTo");
@@ -37,10 +37,7 @@ export async function GET(request: NextRequest) {
         categoryName: categories.name,
         categoryColor: categories.color,
         total: sql<number>`sum(
-          abs(${transactions.amount}) - COALESCE(
-            (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id AND r.user_id = "transactions"."user_id" WHERE rl.expense_id = "transactions"."id"),
-            0
-          )
+          ${effectiveExpenseAmount()}
         )`,
         count: sql<number>`count(*)`,
       })
@@ -62,10 +59,7 @@ export async function GET(request: NextRequest) {
         date: transactions.date,
         income: sql<number>`sum(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END)`,
         expenses: sql<number>`sum(CASE WHEN ${transactions.type} = 'expense' THEN (
-          abs(${transactions.amount}) - COALESCE(
-            (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id AND r.user_id = "transactions"."user_id" WHERE rl.expense_id = "transactions"."id"),
-            0
-          )
+          ${effectiveExpenseAmount()}
         ) ELSE 0 END)`,
       })
       .from(transactions)
@@ -79,10 +73,7 @@ export async function GET(request: NextRequest) {
         month: sql<string>`substr(${transactions.date}, 1, 7)`,
         income: sql<number>`sum(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END)`,
         expenses: sql<number>`sum(CASE WHEN ${transactions.type} = 'expense' THEN (
-          abs(${transactions.amount}) - COALESCE(
-            (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id AND r.user_id = "transactions"."user_id" WHERE rl.expense_id = "transactions"."id"),
-            0
-          )
+          ${effectiveExpenseAmount()}
         ) ELSE 0 END)`,
       })
       .from(transactions)
@@ -95,10 +86,7 @@ export async function GET(request: NextRequest) {
       .select({
         totalIncome: sql<number>`sum(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END)`,
         totalExpenses: sql<number>`sum(CASE WHEN ${transactions.type} = 'expense' THEN (
-          abs(${transactions.amount}) - COALESCE(
-            (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id AND r.user_id = "transactions"."user_id" WHERE rl.expense_id = "transactions"."id"),
-            0
-          )
+          ${effectiveExpenseAmount()}
         ) ELSE 0 END)`,
         txCount: sql<number>`count(*)`,
       })
@@ -116,10 +104,7 @@ export async function GET(request: NextRequest) {
       .select({
         description: transactions.description,
         total: sql<number>`sum(
-          abs(${transactions.amount}) - COALESCE(
-            (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id AND r.user_id = "transactions"."user_id" WHERE rl.expense_id = "transactions"."id"),
-            0
-          )
+          ${effectiveExpenseAmount()}
         )`,
         count: sql<number>`count(*)`,
       })
@@ -245,11 +230,5 @@ export async function GET(request: NextRequest) {
         count: m.count,
       })),
     });
-  } catch (error) {
-    console.error("Failed to fetch insights:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch insights" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to fetch insights");
 }

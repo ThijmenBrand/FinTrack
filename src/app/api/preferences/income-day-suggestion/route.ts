@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { transactions } from "@/db/schema";
 import { and, eq, gte, sql } from "drizzle-orm";
-import { getUserId } from "@/lib/auth";
+import { withUser } from "@/lib/auth";
 
 export interface IncomeDaySuggestion {
   day: number;
@@ -11,9 +11,7 @@ export interface IncomeDaySuggestion {
 }
 
 export async function GET() {
-  try {
-    const userId = await getUserId();
-
+  return withUser(async (userId) => {
     const now = new Date();
     const lookback = new Date(now.getFullYear(), now.getMonth() - 12, now.getDate());
     const lookbackIso = lookback.toISOString().slice(0, 10);
@@ -48,9 +46,5 @@ export async function GET() {
         monthsObserved: best.monthsObserved,
       },
     });
-  } catch (error) {
-    if (error instanceof Response) throw error;
-    console.error("Failed to compute income-day suggestion:", error);
-    return NextResponse.json({ error: "Failed to compute suggestion" }, { status: 500 });
-  }
+  }, "Failed to compute suggestion");
 }

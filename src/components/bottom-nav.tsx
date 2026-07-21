@@ -1,15 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
-  LayoutDashboard,
-  Upload,
-  Wallet,
   MoreHorizontal,
-  PieChart,
-  PiggyBank,
   Sun,
   Moon,
   Heart,
@@ -27,46 +22,22 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet";
-import { useSession, signOut } from "@/lib/auth-client";
-
-const mainTabs = [
-  { name: "Dashboard", href: "/", icon: LayoutDashboard },
-  { name: "Transactions", href: "/transactions", icon: Upload },
-  { name: "Insights", href: "/insights", icon: PieChart },
-  { name: "Budgets", href: "/budgets", icon: Wallet },
-];
-
-const moreItems = [
-  { name: "Pots", href: "/pots", icon: PiggyBank },
-];
+import {
+  PRIMARY_NAV as mainTabs,
+  SECONDARY_NAV as moreItems,
+  useSessionUser,
+} from "@/components/nav-shared";
 
 export function BottomNav() {
   const pathname = usePathname();
-  const router = useRouter();
   const [moreOpen, setMoreOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const { theme, setTheme } = useTheme();
-  const { data: session } = useSession();
-
-  const user = session?.user
-    ? {
-        displayUsername: (session.user as Record<string, unknown>).displayUsername as string || session.user.name || "",
-        username: (session.user as Record<string, unknown>).username as string || "",
-        isAdmin: (session.user as Record<string, unknown>).role === "admin",
-      }
-    : null;
+  const { user, logout } = useSessionUser();
 
   useEffect(() => {
     setMounted(true);
   }, []);
-
-  async function handleLogout() {
-    localStorage.removeItem("lockscreen_username");
-    localStorage.removeItem("lockscreen_has_pin");
-    await signOut();
-    router.push("/login");
-    router.refresh();
-  }
 
   const isMoreActive =
     moreItems.some((item) =>
@@ -238,7 +209,7 @@ export function BottomNav() {
               </span>
             </button>
             <button
-              onClick={handleLogout}
+              onClick={logout}
               className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium text-foreground hover:bg-muted transition-colors min-h-[44px]"
             >
               <LogOut className="h-5 w-5" />

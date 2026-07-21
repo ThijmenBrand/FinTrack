@@ -7,7 +7,7 @@ import {
   transactionGroups,
 } from "@/db/schema";
 import { and, eq, gte, isNotNull, lte } from "drizzle-orm";
-import { getUserId } from "@/lib/auth";
+import { withUser } from "@/lib/auth";
 import { generateOccurrences } from "@/lib/recurring";
 
 /**
@@ -27,8 +27,7 @@ import { generateOccurrences } from "@/lib/recurring";
  *  - accountName:  selected account name, or null when aggregating all
  */
 export async function GET(request: NextRequest) {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const { searchParams } = new URL(request.url);
     const accountId = searchParams.get("accountId");
     const dateFromParam = searchParams.get("dateFrom");
@@ -225,11 +224,5 @@ export async function GET(request: NextRequest) {
       currentBalance,
       accountName,
     });
-  } catch (error) {
-    console.error("Failed to fetch balance timeline:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch balance timeline" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to fetch balance timeline");
 }

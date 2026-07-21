@@ -9,22 +9,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import { SelectItem } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Loader2 } from "lucide-react";
 import { useUpdatePot } from "@/hooks/use-pots";
+import { PotForm, isPotTargetValid, NO_CATEGORY } from "@/components/pot-form";
 import type { Category, Pot } from "@/types/api";
-
-const NO_CATEGORY = "__none__";
 
 interface EditPotDialogProps {
   open: boolean;
@@ -59,9 +49,7 @@ export function EditPotDialog({
     }
   }, [pot]);
 
-  const targetValid =
-    !hasTarget ||
-    (Number(targetAmount) > 0 && /^\d{4}-\d{2}-\d{2}$/.test(targetDate));
+  const targetValid = isPotTargetValid(hasTarget, targetAmount, targetDate);
 
   const handleSave = async () => {
     if (!pot || !name.trim() || !targetValid) return;
@@ -100,98 +88,34 @@ export function EditPotDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="edit-pot-name">Name</Label>
-            <Input
-              id="edit-pot-name"
-              placeholder="e.g. Weekend trip Amsterdam"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              autoFocus
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !hasTarget) handleSave();
-              }}
-            />
-          </div>
+        <PotForm
+          idPrefix="edit-pot"
+          categories={categories}
+          name={name}
+          onNameChange={setName}
+          categoryId={categoryId}
+          onCategoryChange={setCategoryId}
+          hasTarget={hasTarget}
+          onHasTargetChange={setHasTarget}
+          targetAmount={targetAmount}
+          onTargetAmountChange={setTargetAmount}
+          targetDate={targetDate}
+          onTargetDateChange={setTargetDate}
+          noCategoryOption={
+            <SelectItem value={NO_CATEGORY}>
+              <span className="text-muted-foreground">No category</span>
+            </SelectItem>
+          }
+          spikeHint="Clearing this resets the funded amount."
+          onEnterSubmit={handleSave}
+        />
 
-          <div className="space-y-2">
-            <Label>Category</Label>
-            <Select value={categoryId} onValueChange={setCategoryId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select category (optional)" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NO_CATEGORY}>
-                  <span className="text-muted-foreground">No category</span>
-                </SelectItem>
-                {categories.map((cat) => (
-                  <SelectItem key={cat.id} value={cat.id}>
-                    <span className="flex items-center gap-2">
-                      {cat.color && (
-                        <span
-                          className="h-2 w-2 rounded-full shrink-0"
-                          style={{ backgroundColor: cat.color }}
-                        />
-                      )}
-                      {cat.name}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="flex items-start gap-3 pt-1">
-            <Checkbox
-              id="edit-pot-has-target"
-              checked={hasTarget}
-              onCheckedChange={(c) => setHasTarget(c === true)}
-              className="mt-0.5"
-            />
-            <div className="space-y-1">
-              <Label htmlFor="edit-pot-has-target" className="cursor-pointer">
-                Plan for a spike
-              </Label>
-              <p className="text-xs text-muted-foreground">
-                Clearing this resets the funded amount.
-              </p>
-            </div>
-          </div>
-
-          {hasTarget && (
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label htmlFor="edit-pot-target-amount">Target amount (€)</Label>
-                <Input
-                  id="edit-pot-target-amount"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  placeholder="450"
-                  value={targetAmount}
-                  onChange={(e) => setTargetAmount(e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-pot-target-date">Target date</Label>
-                <Input
-                  id="edit-pot-target-date"
-                  type="date"
-                  value={targetDate}
-                  onChange={(e) => setTargetDate(e.target.value)}
-                />
-              </div>
-            </div>
-          )}
-
-          {pot && pot.targetAmount != null && hasTarget && (
-            <p className="text-xs text-muted-foreground">
-              Funded so far: €{(pot.fundedAmount ?? 0).toFixed(2)} / €
-              {pot.targetAmount.toFixed(2)}
-            </p>
-          )}
-        </div>
+        {pot && pot.targetAmount != null && hasTarget && (
+          <p className="text-xs text-muted-foreground">
+            Funded so far: €{(pot.fundedAmount ?? 0).toFixed(2)} / €
+            {pot.targetAmount.toFixed(2)}
+          </p>
+        )}
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>

@@ -2,15 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { transactions, reimbursementLinks } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
-import { getUserId } from "@/lib/auth";
+import { withUser } from "@/lib/auth";
 
 /**
  * GET /api/transactions/reimburse/expenses?reimbursementId=<id>
  * Returns the expenses linked to a reimbursement transaction via the junction table.
  */
 export async function GET(request: NextRequest) {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const { searchParams } = new URL(request.url);
     const reimbursementId = searchParams.get("reimbursementId");
 
@@ -33,11 +32,5 @@ export async function GET(request: NextRequest) {
       .where(and(eq(reimbursementLinks.reimbursementId, reimbursementId), eq(transactions.userId, userId)));
 
     return NextResponse.json({ expenses: links });
-  } catch (error) {
-    console.error("Failed to fetch linked expenses:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch linked expenses" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to fetch linked expenses");
 }

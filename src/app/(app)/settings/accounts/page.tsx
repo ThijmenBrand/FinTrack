@@ -58,6 +58,7 @@ import {
   Star,
   StarOff,
 } from "lucide-react";
+import { formatCurrency } from "@/lib/utils";
 
 const ACCOUNT_TYPES = [
   { value: "checking", label: "Checking" },
@@ -67,32 +68,32 @@ const ACCOUNT_TYPES = [
   { value: "other", label: "Other" },
 ];
 
-function formatCurrency(amount: number, currency = "EUR") {
-  return new Intl.NumberFormat("nl-NL", {
-    style: "currency",
-    currency,
-  }).format(amount);
-}
-
-const ACCOUNT_TYPE_COLORS: Record<string, string> = {
-  checking:
-    "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800",
-  savings:
-    "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800",
-  joint:
-    "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-200 dark:border-violet-800",
-  credit:
-    "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800",
-  other:
-    "bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800",
-};
-
-const ACCOUNT_ICON_BG: Record<string, string> = {
-  checking: "bg-blue-600 text-white dark:bg-blue-500",
-  savings: "bg-emerald-600 text-white dark:bg-emerald-500",
-  joint: "bg-violet-600 text-white dark:bg-violet-500",
-  credit: "bg-amber-600 text-white dark:bg-amber-500",
-  other: "bg-slate-600 text-white dark:bg-slate-500",
+const ACCOUNT_TYPE_STYLES: Record<string, { badge: string; iconBg: string }> = {
+  checking: {
+    badge:
+      "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800",
+    iconBg: "bg-blue-600 text-white dark:bg-blue-500",
+  },
+  savings: {
+    badge:
+      "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800",
+    iconBg: "bg-emerald-600 text-white dark:bg-emerald-500",
+  },
+  joint: {
+    badge:
+      "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-200 dark:border-violet-800",
+    iconBg: "bg-violet-600 text-white dark:bg-violet-500",
+  },
+  credit: {
+    badge:
+      "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800",
+    iconBg: "bg-amber-600 text-white dark:bg-amber-500",
+  },
+  other: {
+    badge:
+      "bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800",
+    iconBg: "bg-slate-600 text-white dark:bg-slate-500",
+  },
 };
 
 function SortableAccountCard({
@@ -101,14 +102,12 @@ function SortableAccountCard({
   onEdit,
   onDelete,
   onToggleDefault,
-  formatCurrency: fmt,
 }: {
   account: Account;
   isDefault: boolean;
   onEdit: (account: Account) => void;
   onDelete: (id: string) => void;
   onToggleDefault: (id: string, makeDefault: boolean) => void;
-  formatCurrency: (amount: number, currency?: string) => string;
 }) {
   const {
     attributes,
@@ -125,9 +124,8 @@ function SortableAccountCard({
     zIndex: isDragging ? 10 : undefined,
   };
 
-  const iconBg = ACCOUNT_ICON_BG[account.type] || ACCOUNT_ICON_BG.other;
-  const typeBadge =
-    ACCOUNT_TYPE_COLORS[account.type] || ACCOUNT_TYPE_COLORS.other;
+  const { iconBg, badge: typeBadge } =
+    ACCOUNT_TYPE_STYLES[account.type] || ACCOUNT_TYPE_STYLES.other;
   const netChange = account.transactionTotal;
 
   return (
@@ -230,7 +228,7 @@ function SortableAccountCard({
                 : "text-red-600 dark:text-red-400"
             }`}
           >
-            {fmt(account.currentBalance, account.currency)}
+            {formatCurrency(account.currentBalance, account.currency)}
           </p>
         </div>
 
@@ -250,7 +248,7 @@ function SortableAccountCard({
               }`}
             >
               {netChange >= 0 ? "+" : ""}
-              {fmt(netChange, account.currency)}
+              {formatCurrency(netChange, account.currency)}
             </span>
           )}
         </div>
@@ -546,7 +544,6 @@ export default function AccountsPage() {
                   onEdit={openEditDialog}
                   onDelete={handleDelete}
                   onToggleDefault={handleToggleDefault}
-                  formatCurrency={formatCurrency}
                 />
               ))}
             </div>

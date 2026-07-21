@@ -9,13 +9,8 @@ import { CreatePotDialog } from "@/components/create-pot-dialog";
 import { AllocateToPotDialog } from "@/components/allocate-to-pot-dialog";
 import { usePots } from "@/hooks/use-pots";
 import { useCategories } from "@/hooks/use-categories";
+import { formatCurrency as fc } from "@/lib/utils";
 import type { Pot } from "@/types/api";
-
-const eur = new Intl.NumberFormat("nl-NL", {
-  style: "currency",
-  currency: "EUR",
-});
-const fc = (n: number) => eur.format(n);
 
 export default function PotsPage() {
   const { data: pots = [], isLoading } = usePots();
@@ -167,7 +162,6 @@ export default function PotsPage() {
         open={createOpen}
         onOpenChange={setCreateOpen}
         categories={categories}
-        onCreated={() => {}}
       />
 
       <PotDetailDialog

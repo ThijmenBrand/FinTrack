@@ -7,15 +7,13 @@ import { eq, and, notInArray } from "drizzle-orm";
  * Logic: If money leaves Account A and enters Account B within ±2 days
  * with the same absolute amount, flag both as "Internal Transfer".
  */
-export async function detectTransfers(db: typeof defaultDb = defaultDb, userId?: string) {
+export async function detectTransfers(db: typeof defaultDb, userId: string) {
   // Get the "Internal Transfer" category
   const [transferCategory] = await db
     .select()
     .from(categories)
     .where(
-      userId
-        ? and(eq(categories.name, "Internal Transfer"), eq(categories.userId, userId))
-        : eq(categories.name, "Internal Transfer")
+      and(eq(categories.name, "Internal Transfer"), eq(categories.userId, userId))
     );
 
   if (!transferCategory) {
@@ -33,9 +31,7 @@ export async function detectTransfers(db: typeof defaultDb = defaultDb, userId?:
     .select()
     .from(transactions)
     .where(
-      userId
-        ? and(notInArray(transactions.type, excludedTypes), eq(transactions.userId, userId))
-        : notInArray(transactions.type, excludedTypes)
+      and(notInArray(transactions.type, excludedTypes), eq(transactions.userId, userId))
     );
 
   // Group by absolute amount for efficient matching

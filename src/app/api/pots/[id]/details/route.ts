@@ -7,7 +7,7 @@ import {
   auditLog,
 } from "@/db/schema";
 import { eq, and, asc, desc } from "drizzle-orm";
-import { getUserId } from "@/lib/auth";
+import { withUser } from "@/lib/auth";
 import { getPaySchedule, paydaysBetween } from "@/lib/pay-schedule";
 import { classifyOnTrack } from "@/lib/on-track";
 
@@ -17,9 +17,8 @@ export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  try {
+  return withUser(async (userId) => {
     const { id } = await params;
-    const userId = await getUserId();
 
     const pot = await db
       .select({
@@ -191,11 +190,5 @@ export async function GET(
       allocations,
       transactions: linkedTransactions,
     });
-  } catch (error) {
-    console.error("Failed to fetch pot details:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch pot details" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to fetch pot details");
 }
