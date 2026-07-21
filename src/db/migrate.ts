@@ -82,14 +82,9 @@ export async function initializeDatabase() {
   }
 
   // ── Data migrations ────────────────────────────────────────────────────
-  // These are safe no-ops if the column already exists (catch silences the error)
-  await db.run(sql`ALTER TABLE user_pin ADD COLUMN lockout_count INTEGER NOT NULL DEFAULT 0`).catch(() => {});
-  await db.run(sql`ALTER TABLE accounts ADD COLUMN iban TEXT`).catch(() => {});
-  await db.run(sql`ALTER TABLE accounts ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0`).catch(() => {});
-  await db.run(sql`ALTER TABLE transactions ADD COLUMN reimburses_transaction_id TEXT`).catch(() => {});
-  await db.run(sql`ALTER TABLE transactions ADD COLUMN group_id TEXT`).catch(() => {});
-  await db.run(sql`ALTER TABLE transactions ADD COLUMN name TEXT`).catch(() => {});
-  await db.run(sql`ALTER TABLE transactions ADD COLUMN recurring_transaction_id TEXT REFERENCES recurring_transactions(id) ON DELETE SET NULL`).catch(() => {});
+  // drizzle-kit push (run before this in the build) creates every
+  // schema-declared column/table/index. Only genuine data backfills and
+  // migrations that push can't express belong here.
 
   // category_source: tracks whether categoryId was set by a rule or manually.
   // Backfill existing categorized rows as 'manual' so a subsequent "Recalculate
@@ -103,28 +98,6 @@ export async function initializeDatabase() {
       UPDATE transactions SET category_source = 'manual' WHERE category_id IS NOT NULL
     `);
   }
-  await db.run(sql`ALTER TABLE transaction_groups ADD COLUMN target_amount REAL`).catch(() => {});
-  await db.run(sql`ALTER TABLE transaction_groups ADD COLUMN target_date TEXT`).catch(() => {});
-  await db.run(sql`ALTER TABLE transaction_groups ADD COLUMN funded_amount REAL NOT NULL DEFAULT 0`).catch(() => {});
-  await db.run(sql`ALTER TABLE budgets ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`).catch(() => {});
-  await db.run(sql`ALTER TABLE budgets ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'`).catch(() => {});
-  await db.run(sql`ALTER TABLE budgets ADD COLUMN generated_at TEXT`).catch(() => {});
-  await db.run(sql`ALTER TABLE user_preferences ADD COLUMN default_account_id TEXT REFERENCES accounts(id) ON DELETE SET NULL`).catch(() => {});
-  await db.run(sql`ALTER TABLE categories ADD COLUMN kind TEXT NOT NULL DEFAULT 'spending'`).catch(() => {});
-
-  // user_preferences table — automation settings per user
-  await db.run(sql`
-    CREATE TABLE IF NOT EXISTS user_preferences (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL UNIQUE REFERENCES "user"(id) ON DELETE CASCADE,
-      auto_budget_enabled INTEGER NOT NULL DEFAULT 1,
-      auto_budget_interval_months INTEGER NOT NULL DEFAULT 1,
-      auto_budget_lookback_months INTEGER NOT NULL DEFAULT 3,
-      last_auto_budget_check_at TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    )
-  `);
 
   // Add user_id to data tables and backfill with admin user
   if (!adminUserId) {
@@ -349,30 +322,24 @@ export async function initializeDatabase() {
   }
 
   // ── Indexes ────────────────────────────────────────────────────────────
-  await db.run(sql`CREATE INDEX IF NOT EXISTS idx_transactions_account ON transactions(account_id)`);
+  // Only indexes NOT created by drizzle-kit push live here. Push builds every
+  // index declared in schema.ts (and its userId-prefixed composites cover the
+  // single-column userId lookups), so those are omitted. auth-schema.ts is not
+  // in the push config, so its indexes are still created below.
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date)`);
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_transactions_category ON transactions(category_id)`);
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type)`);
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_category_rules_pattern ON category_rules(pattern)`);
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_transactions_reimburses ON transactions(reimburses_transaction_id)`);
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_transactions_group ON transactions(group_id)`);
-  await db.run(sql`CREATE INDEX IF NOT EXISTS idx_transactions_recurring ON transactions(recurring_transaction_id)`);
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_reimb_links_reimbursement ON reimbursement_links(reimbursement_id)`);
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_reimb_links_expense ON reimbursement_links(expense_id)`);
   await db.run(sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_reimb_links_unique ON reimbursement_links(reimbursement_id, expense_id)`);
-  await db.run(sql`CREATE INDEX IF NOT EXISTS idx_accounts_user ON accounts(user_id)`);
-  await db.run(sql`CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(user_id)`);
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_categories_user ON categories(user_id)`);
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_category_rules_user ON category_rules(user_id)`);
-  await db.run(sql`CREATE INDEX IF NOT EXISTS idx_budgets_user ON budgets(user_id)`);
-  await db.run(sql`CREATE INDEX IF NOT EXISTS idx_budgets_user_status ON budgets(user_id, status)`);
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_recurring_transactions_user ON recurring_transactions(user_id)`);
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_import_batches_user ON import_batches(user_id)`);
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_transaction_groups_user ON transaction_groups(user_id)`);
-  await db.run(sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_name_user ON categories(name, user_id)`);
-  await db.run(sql`CREATE INDEX IF NOT EXISTS idx_audit_log_user_created ON audit_log(user_id, created_at)`);
-  await db.run(sql`CREATE INDEX IF NOT EXISTS idx_audit_log_category_created ON audit_log(category, created_at)`);
-  await db.run(sql`CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at)`);
 
   // Auth-schema indexes (defined in auth-schema.ts). Created here so they
   // exist before drizzle-kit push tries to diff against them on next deploy.

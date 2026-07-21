@@ -6,13 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AllocateToPotDialog } from "@/components/allocate-to-pot-dialog";
 import { PotDetailDialog } from "@/components/pot-detail-dialog";
+import { formatCurrency } from "@/lib/utils";
 import type { ThisMonthSpike } from "@/types/api";
-
-const eur = new Intl.NumberFormat("nl-NL", {
-  style: "currency",
-  currency: "EUR",
-});
-const formatCurrency = (n: number) => eur.format(n);
 
 function dayLabel(daysUntil: number, targetDate: string): string {
   if (daysUntil === 0) return "today";

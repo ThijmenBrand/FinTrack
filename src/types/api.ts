@@ -419,18 +419,3 @@ export interface AuditLogResponse {
   data: AuditLogEntry[];
   pagination: Pagination;
 }
-
-export interface PreviewTransaction {
-  date: string;
-  name: string | null;
-  description: string;
-  amount: number;
-  balance: number | null;
-  counterpartyIban: string | null;
-  suggestedCategory: string | null;
-  suggestedCategoryId: string | null;
-  suggestedCategoryColor: string | null;
-  isTransfer: boolean;
-  isDuplicate: boolean;
-  include: boolean;
-}

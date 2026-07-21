@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo, memo } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,24 +14,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  CheckCircle2,
-  AlertCircle,
-  Tag,
-  ChevronDown,
-  X,
-  Zap,
-} from "lucide-react";
+import { CheckCircle2, AlertCircle, Tag, ChevronDown, X, Zap } from "lucide-react";
 import { matchesRule, extractPattern } from "@/lib/csv-utils";
-import { cn } from "@/lib/utils";
+import {
+  ImportTransactionRow,
+  type ImportCategory as Category,
+} from "@/components/import-transaction-row";
 import type { PreviewTransaction } from "@/lib/csv-utils";
-
-interface Category {
-  id: string;
-  name: string;
-  color: string | null;
-  icon: string | null;
-}
 
 interface PendingRule {
   pattern: string;
@@ -49,20 +38,6 @@ interface ImportReviewStepProps {
     transactions: PreviewTransaction[],
     newRules: PendingRule[]
   ) => void;
-}
-
-function formatCurrency(amount: number) {
-  return new Intl.NumberFormat("nl-NL", {
-    style: "currency",
-    currency: "EUR",
-  }).format(amount);
-}
-
-function formatDate(dateStr: string) {
-  return new Intl.DateTimeFormat("en-US", {
-    day: "numeric",
-    month: "short",
-  }).format(new Date(dateStr + "T12:00:00"));
 }
 
 // Find similar uncategorized transactions based on pattern matching
@@ -89,158 +64,6 @@ interface BatchApplyBanner {
   ruleMatchType: string;
 }
 
-const TransactionRow = memo(function TransactionRow({
-  tx,
-  categories,
-  onCategoryChange,
-  isAutoMatched,
-}: {
-  tx: PreviewTransaction;
-  categories: Category[];
-  onCategoryChange: (tempId: string, categoryId: string) => void;
-  isAutoMatched: boolean;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const category = categories.find((c) => c.id === tx.categoryId);
-
-  const categorySelect = tx.categoryId && isAutoMatched ? (
-    <Select
-      value={tx.categoryId}
-      onValueChange={(v) => onCategoryChange(tx.tempId, v)}
-    >
-      <SelectTrigger className="h-7 text-xs border-dashed">
-        <span className="flex items-center gap-1.5 truncate">
-          <span
-            className="h-2 w-2 rounded-full shrink-0"
-            style={{ backgroundColor: category?.color || "#94a3b8" }}
-          />
-          <span className="truncate">{category?.name}</span>
-          <CheckCircle2 className="h-3 w-3 text-emerald-500 dark:text-emerald-400 shrink-0 ml-auto" />
-        </span>
-      </SelectTrigger>
-      <SelectContent>
-        {categories.map((cat) => (
-          <SelectItem key={cat.id} value={cat.id}>
-            <span className="flex items-center gap-2">
-              <span
-                className="h-2 w-2 rounded-full"
-                style={{ backgroundColor: cat.color || "#94a3b8" }}
-              />
-              {cat.name}
-            </span>
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  ) : tx.categoryId ? (
-    <Select
-      value={tx.categoryId}
-      onValueChange={(v) => onCategoryChange(tx.tempId, v)}
-    >
-      <SelectTrigger className="h-7 text-xs">
-        <span className="flex items-center gap-1.5 truncate">
-          <span
-            className="h-2 w-2 rounded-full shrink-0"
-            style={{ backgroundColor: category?.color || "#94a3b8" }}
-          />
-          <span className="truncate">{category?.name}</span>
-        </span>
-      </SelectTrigger>
-      <SelectContent>
-        {categories.map((cat) => (
-          <SelectItem key={cat.id} value={cat.id}>
-            <span className="flex items-center gap-2">
-              <span
-                className="h-2 w-2 rounded-full"
-                style={{ backgroundColor: cat.color || "#94a3b8" }}
-              />
-              {cat.name}
-            </span>
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  ) : (
-    <Select
-      value=""
-      onValueChange={(v) => onCategoryChange(tx.tempId, v)}
-    >
-      <SelectTrigger className="h-7 text-xs border-amber-300 dark:border-amber-700 bg-amber-50/50 dark:bg-amber-950/20">
-        <span className="flex items-center gap-1.5 text-muted-foreground">
-          <Tag className="h-3 w-3" />
-          <span>Select...</span>
-        </span>
-      </SelectTrigger>
-      <SelectContent>
-        {categories.map((cat) => (
-          <SelectItem key={cat.id} value={cat.id}>
-            <span className="flex items-center gap-2">
-              <span
-                className="h-2 w-2 rounded-full"
-                style={{ backgroundColor: cat.color || "#94a3b8" }}
-              />
-              {cat.name}
-            </span>
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
-
-  return (
-    <div className="px-3 py-2 border-b last:border-b-0 hover:bg-muted/30 transition-colors space-y-1.5 sm:space-y-0">
-      <div className="flex items-center gap-2 sm:gap-3">
-        {/* Date */}
-        <span className="text-xs text-muted-foreground shrink-0 sm:w-16">
-          {formatDate(tx.date)}
-        </span>
-
-        {/* Name (primary) and description (secondary) */}
-        <button
-          type="button"
-          onClick={() => setExpanded((prev) => !prev)}
-          className={cn(
-            "text-sm text-left flex-1 min-w-0 cursor-pointer hover:text-foreground/80 transition-colors",
-            !expanded && "overflow-hidden"
-          )}
-          title={expanded ? undefined : (tx.name ? `${tx.name}\n${tx.description}` : tx.description)}
-        >
-          <span className={cn("block", !expanded && "truncate")}>
-            {tx.name || tx.description}
-          </span>
-          {tx.name && tx.description && tx.description !== tx.name && (
-            <span className={cn("block text-xs text-muted-foreground", !expanded && "truncate")}>
-              {tx.description}
-            </span>
-          )}
-        </button>
-
-        {/* Amount */}
-        <span
-          className={`text-sm font-mono font-medium text-right shrink-0 tabular-nums sm:w-24 ${
-            tx.amount >= 0
-              ? "text-emerald-600 dark:text-emerald-400"
-              : "text-red-600 dark:text-red-400"
-          }`}
-        >
-          {tx.amount >= 0 ? "+" : ""}
-          {formatCurrency(tx.amount)}
-        </span>
-
-        {/* Category selector — desktop only, inline */}
-        <div className="w-44 shrink-0 hidden sm:block">
-          {categorySelect}
-        </div>
-      </div>
-
-      {/* Category selector — mobile only, full width below */}
-      <div className="sm:hidden">
-        {categorySelect}
-      </div>
-    </div>
-  );
-});
-
 export function ImportReviewStep({
   transactions: initialTransactions,
   categories,
@@ -253,6 +76,7 @@ export function ImportReviewStep({
   const [pendingRules, setPendingRules] = useState<PendingRule[]>([]);
   const [batchBanner, setBatchBanner] = useState<BatchApplyBanner | null>(null);
   const [visibleCount, setVisibleCount] = useState(50);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // Track which transactions were auto-matched by rules (had categoryId from the start)
   const [autoMatchedIds] = useState(
@@ -334,6 +158,29 @@ export function ImportReviewStep({
     setBatchBanner(null);
   }, []);
 
+  const handleNotesChange = useCallback((tempId: string, notes: string | null) => {
+    setTransactions((prev) =>
+      prev.map((tx) => (tx.tempId === tempId ? { ...tx, notes } : tx))
+    );
+  }, []);
+
+  const handleToggleSelect = useCallback((tempId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(tempId)) next.delete(tempId);
+      else next.add(tempId);
+      return next;
+    });
+  }, []);
+
+  const handleBulkCategory = (categoryId: string) => {
+    setTransactions((prev) =>
+      prev.map((tx) => (selectedIds.has(tx.tempId) ? { ...tx, categoryId } : tx))
+    );
+    setSelectedIds(new Set());
+    setBatchBanner(null);
+  };
+
   const handleRemoveRule = useCallback((index: number) => {
     setPendingRules((prev) => prev.filter((_, i) => i !== index));
   }, []);
@@ -348,25 +195,45 @@ export function ImportReviewStep({
   ) => {
     const visible = txList.slice(0, limit);
     const hasMore = txList.length > limit;
+    const allSelected =
+      txList.length > 0 && txList.every((tx) => selectedIds.has(tx.tempId));
 
     return (
       <>
         <div className="rounded-md border divide-y">
           {/* Header */}
           <div className="flex items-center gap-2 sm:gap-3 px-3 py-1.5 bg-muted/50 text-xs font-medium text-muted-foreground">
+            <Checkbox
+              checked={allSelected}
+              onCheckedChange={() => {
+                setSelectedIds((prev) => {
+                  const next = new Set(prev);
+                  if (allSelected) txList.forEach((tx) => next.delete(tx.tempId));
+                  else txList.forEach((tx) => next.add(tx.tempId));
+                  return next;
+                });
+              }}
+              aria-label="Select all"
+              className="shrink-0"
+            />
             <span className="shrink-0 sm:w-16">Date</span>
             <span className="flex-1">Description</span>
             <span className="text-right shrink-0 sm:w-24">Amount</span>
+            {/* Spacer matching the per-row note toggle button */}
+            <span className="w-7 shrink-0" />
             <span className="w-44 shrink-0 hidden sm:block">Category</span>
           </div>
 
           {visible.map((tx) => (
             <div key={tx.tempId}>
-              <TransactionRow
+              <ImportTransactionRow
                 tx={tx}
                 categories={categories}
                 onCategoryChange={handleCategoryChange}
+                onNotesChange={handleNotesChange}
                 isAutoMatched={autoMatchedIds.has(tx.tempId)}
+                selected={selectedIds.has(tx.tempId)}
+                onToggleSelect={handleToggleSelect}
               />
               {/* Batch apply banner - shown directly below the triggering transaction */}
               {batchBanner && batchBanner.triggerTxId === tx.tempId && (
@@ -506,6 +373,45 @@ export function ImportReviewStep({
           </div>
         )}
       </div>
+
+      {/* Bulk category bar */}
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-2 flex-wrap rounded-lg border border-primary/20 bg-primary/5 px-3 py-2">
+          <span className="text-sm font-medium">
+            {selectedIds.size} selected
+          </span>
+          <Select value="" onValueChange={handleBulkCategory}>
+            <SelectTrigger className="h-8 w-52 text-xs">
+              <span className="flex items-center gap-1.5 text-muted-foreground">
+                <Tag className="h-3 w-3" />
+                <span>Set category...</span>
+              </span>
+            </SelectTrigger>
+            <SelectContent>
+              {categories.map((cat) => (
+                <SelectItem key={cat.id} value={cat.id}>
+                  <span className="flex items-center gap-2">
+                    <span
+                      className="h-2 w-2 rounded-full"
+                      style={{ backgroundColor: cat.color || "#94a3b8" }}
+                    />
+                    {cat.name}
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 ml-auto"
+            onClick={() => setSelectedIds(new Set())}
+          >
+            <X className="mr-1 h-3 w-3" />
+            Clear
+          </Button>
+        </div>
+      )}
 
       {/* Pending rules indicator */}
       {pendingRules.length > 0 && (

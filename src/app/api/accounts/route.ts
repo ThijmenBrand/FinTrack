@@ -2,45 +2,40 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { accounts, transactions } from "@/db/schema";
 import { eq, sum, asc, count, and } from "drizzle-orm";
-import { getUserId } from "@/lib/auth";
+import { withUser } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
 
 // GET /api/accounts — list all accounts with computed balances
 export async function GET() {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const allAccounts = await db.select().from(accounts).where(eq(accounts.userId, userId)).orderBy(asc(accounts.sortOrder), asc(accounts.createdAt));
 
-    const accountsWithBalances = await Promise.all(
-      allAccounts.map(async (account) => {
-        const result = await db
-          .select({ total: sum(transactions.amount) })
-          .from(transactions)
-          .where(eq(transactions.accountId, account.id));
-
-        const txTotal = Number(result[0]?.total) || 0;
-        return {
-          ...account,
-          currentBalance: account.initialBalance + txTotal,
-          transactionTotal: txTotal,
-        };
-      })
+    // One grouped query for all account balances instead of one per account.
+    const balanceRows = await db
+      .select({ accountId: transactions.accountId, total: sum(transactions.amount) })
+      .from(transactions)
+      .where(eq(transactions.userId, userId))
+      .groupBy(transactions.accountId);
+    const balanceByAccount = new Map(
+      balanceRows.map((r) => [r.accountId, Number(r.total) || 0])
     );
+
+    const accountsWithBalances = allAccounts.map((account) => {
+      const txTotal = balanceByAccount.get(account.id) || 0;
+      return {
+        ...account,
+        currentBalance: account.initialBalance + txTotal,
+        transactionTotal: txTotal,
+      };
+    });
 
     return NextResponse.json(accountsWithBalances);
-  } catch (error) {
-    console.error("Failed to fetch accounts:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch accounts" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to fetch accounts");
 }
 
 // POST /api/accounts — create a new account
 export async function POST(request: NextRequest) {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const body = await request.json();
     const { name, type, bankName, iban, currency, initialBalance } = body;
 
@@ -79,19 +74,12 @@ export async function POST(request: NextRequest) {
     logDataEvent({ userId, action: "account_create", targetId: id, targetType: "account", details: { name, type } });
 
     return NextResponse.json(newAccount, { status: 201 });
-  } catch (error) {
-    console.error("Failed to create account:", error);
-    return NextResponse.json(
-      { error: "Failed to create account" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to create account");
 }
 
 // PUT /api/accounts — update an account
 export async function PUT(request: NextRequest) {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const body = await request.json();
     const { id, name, type, bankName, iban, currency, initialBalance } = body;
 
@@ -123,19 +111,12 @@ export async function PUT(request: NextRequest) {
     logDataEvent({ userId, action: "account_update", targetId: id, targetType: "account", details: { name, type } });
 
     return NextResponse.json(updated);
-  } catch (error) {
-    console.error("Failed to update account:", error);
-    return NextResponse.json(
-      { error: "Failed to update account" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to update account");
 }
 
 // PATCH /api/accounts — reorder accounts
 export async function PATCH(request: NextRequest) {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const body = await request.json();
     const { orderedIds } = body as { orderedIds: string[] };
 
@@ -154,19 +135,12 @@ export async function PATCH(request: NextRequest) {
     }
 
     return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Failed to reorder accounts:", error);
-    return NextResponse.json(
-      { error: "Failed to reorder accounts" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to reorder accounts");
 }
 
 // DELETE /api/accounts — delete an account
 export async function DELETE(request: NextRequest) {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
 
@@ -182,11 +156,5 @@ export async function DELETE(request: NextRequest) {
     logDataEvent({ userId, action: "account_delete", targetId: id, targetType: "account" });
 
     return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Failed to delete account:", error);
-    return NextResponse.json(
-      { error: "Failed to delete account" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to delete account");
 }

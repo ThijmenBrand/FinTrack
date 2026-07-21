@@ -1,6 +1,7 @@
 import { db } from "@/db";
 import { recurringTransactions } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
+import { frequencyDates } from "@/lib/recurring";
 
 export type PayFrequency = "weekly" | "biweekly" | "monthly" | "yearly";
 
@@ -72,75 +73,15 @@ export function paydaysBetween(
 ): string[] {
   if (to <= from) return [];
 
-  const start = new Date(schedule.startDate);
-  const dates: string[] = [];
-
-  switch (schedule.frequency) {
-    case "weekly": {
-      const targetDow = schedule.dayOfWeek ?? start.getDay();
-      const cur = new Date(from);
-      cur.setHours(0, 0, 0, 0);
-      while (cur.getDay() !== targetDow) cur.setDate(cur.getDate() + 1);
-      while (cur < to) {
-        dates.push(toIsoDate(cur));
-        cur.setDate(cur.getDate() + 7);
-      }
-      break;
-    }
-    case "biweekly": {
-      const cur = new Date(Math.max(start.getTime(), from.getTime()));
-      cur.setHours(0, 0, 0, 0);
-      const diffDays = Math.floor(
-        (cur.getTime() - new Date(start).setHours(0, 0, 0, 0)) /
-          (1000 * 60 * 60 * 24)
-      );
-      const remainder = ((diffDays % 14) + 14) % 14;
-      if (remainder !== 0) cur.setDate(cur.getDate() + (14 - remainder));
-      while (cur < to) {
-        dates.push(toIsoDate(cur));
-        cur.setDate(cur.getDate() + 14);
-      }
-      break;
-    }
-    case "monthly": {
-      const dom = schedule.dayOfMonth ?? start.getDate();
-      let year = from.getFullYear();
-      let month = from.getMonth();
-      if (from.getDate() > dom) month += 1;
-      while (true) {
-        if (month > 11) {
-          month -= 12;
-          year += 1;
-        }
-        const lastDay = new Date(year, month + 1, 0).getDate();
-        const d = new Date(year, month, Math.min(dom, lastDay));
-        if (d >= to) break;
-        if (d >= from) dates.push(toIsoDate(d));
-        month += 1;
-      }
-      break;
-    }
-    case "yearly": {
-      const moy = (schedule.monthOfYear ?? start.getMonth() + 1) - 1;
-      const dom = schedule.dayOfMonth ?? start.getDate();
-      let year = from.getFullYear();
-      while (true) {
-        const lastDay = new Date(year, moy + 1, 0).getDate();
-        const d = new Date(year, moy, Math.min(dom, lastDay));
-        if (d >= to) break;
-        if (d >= from) dates.push(toIsoDate(d));
-        year += 1;
-      }
-      break;
-    }
-  }
-
-  return dates;
-}
-
-function toIsoDate(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+  return frequencyDates(
+    schedule.frequency,
+    schedule.startDate,
+    schedule.dayOfWeek,
+    schedule.dayOfMonth,
+    schedule.monthOfYear,
+    from,
+    to,
+    false, // half-open: exclude a payday landing exactly on `to`
+    false // window assumes from >= start; don't clamp weekly/monthly to start
+  );
 }

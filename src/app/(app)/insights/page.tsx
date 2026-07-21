@@ -18,8 +18,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  TrendingUp,
-  TrendingDown,
   BarChart3,
   Calendar,
   Landmark,
@@ -36,14 +34,12 @@ import {
 import { BalanceChart } from "./_components/balance-chart";
 import { SpendingByPeriod } from "./_components/spending-by-period";
 import { BudgetPerformance } from "./_components/budget-performance";
+import { Bar } from "./_components/bar";
+import { SummaryCard } from "./_components/summary-card";
+import { CategoryDistributionCard } from "./_components/category-distribution-card";
+import { MonthlyIncomeExpenseChart } from "./_components/monthly-income-expense-chart";
+import { formatCurrency, toIsoDate } from "@/lib/utils";
 import type { InsightsData } from "@/types/api";
-
-function formatCurrency(amount: number) {
-  return new Intl.NumberFormat("nl-NL", {
-    style: "currency",
-    currency: "EUR",
-  }).format(amount);
-}
 
 type PresetKey = "this_month" | "last_month" | "this_year" | "last_3_months" | "all" | "custom";
 
@@ -53,13 +49,6 @@ const PRESET_TO_TX_PERIOD: Partial<Record<PresetKey, string>> = {
   last_3_months: "last-3-months",
   this_year: "this-year",
 };
-
-function toLocalDateString(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
 
 function getPresetRange(preset: PresetKey, startDay: number): { from: string; to: string } {
   const now = new Date();
@@ -73,8 +62,8 @@ function getPresetRange(preset: PresetKey, startDay: number): { from: string; to
       return getPreviousFinancialMonth(now, startDay);
     case "last_3_months":
       return {
-        from: toLocalDateString(new Date(y, m - 2, 1)),
-        to: toLocalDateString(new Date(y, m + 1, 0)),
+        from: toIsoDate(new Date(y, m - 2, 1)),
+        to: toIsoDate(new Date(y, m + 1, 0)),
       };
     case "this_year":
       return {
@@ -105,55 +94,6 @@ const ordinal = (n: number): string => {
   const v = n % 100;
   return `${n}${s[(v - 20) % 10] ?? s[v] ?? s[0]}`;
 };
-
-// Simple bar component
-function Bar({
-  value,
-  maxValue,
-  color,
-  label,
-  amount,
-  onClick,
-}: {
-  value: number;
-  maxValue: number;
-  color: string;
-  label: string;
-  amount: string;
-  onClick?: () => void;
-}) {
-  const pct = maxValue > 0 ? (value / maxValue) * 100 : 0;
-  const clickable = Boolean(onClick);
-  return (
-    <div
-      className={`flex items-center gap-3 rounded-md -mx-2 px-2 py-1 ${clickable ? "cursor-pointer hover:bg-muted/60 transition-colors" : ""}`}
-      onClick={onClick}
-      role={clickable ? "button" : undefined}
-      tabIndex={clickable ? 0 : undefined}
-      onKeyDown={
-        clickable
-          ? (e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                onClick?.();
-              }
-            }
-          : undefined
-      }
-    >
-      <div className="w-28 text-sm truncate text-right" title={label}>
-        {label}
-      </div>
-      <div className="flex-1 h-6 bg-muted rounded-full overflow-hidden">
-        <div
-          className="h-full rounded-full transition-all duration-500"
-          style={{ width: `${Math.max(pct, 1)}%`, backgroundColor: color }}
-        />
-      </div>
-      <div className="w-24 text-sm text-right font-medium">{amount}</div>
-    </div>
-  );
-}
 
 const ALL_ACCOUNTS = "__all__";
 
@@ -361,53 +301,17 @@ export default function InsightsPage() {
 
       {/* Summary Cards */}
       <div className="grid gap-4 sm:grid-cols-3">
-        <Card
-          role="button"
-          tabIndex={0}
+        <SummaryCard
+          type="income"
+          amount={data.summary.totalIncome}
+          subtitle={`${data.summary.txCount} transactions in period`}
           onClick={() => navigateToTransactions({ type: "income" })}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              navigateToTransactions({ type: "income" });
-            }
-          }}
-          className="cursor-pointer transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Income</CardTitle>
-            <TrendingUp className="h-4 w-4 text-emerald-500 dark:text-emerald-400" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-              {formatCurrency(data.summary.totalIncome)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {data.summary.txCount} transactions in period
-            </p>
-          </CardContent>
-        </Card>
-        <Card
-          role="button"
-          tabIndex={0}
+        />
+        <SummaryCard
+          type="expense"
+          amount={data.summary.totalExpenses}
           onClick={() => navigateToTransactions({ type: "expense" })}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              navigateToTransactions({ type: "expense" });
-            }
-          }}
-          className="cursor-pointer transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Expenses</CardTitle>
-            <TrendingDown className="h-4 w-4 text-red-500 dark:text-red-400" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-red-600 dark:text-red-400">
-              {formatCurrency(data.summary.totalExpenses)}
-            </div>
-          </CardContent>
-        </Card>
+        />
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Net</CardTitle>
@@ -471,65 +375,11 @@ export default function InsightsPage() {
         </Card>
 
         {/* Pie Chart (CSS-based) */}
-        <Card className="lg:col-span-1">
-          <CardHeader>
-            <CardTitle className="text-base">Category Distribution</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {sortedBreakdown.length === 0 ? (
-              <p className="text-muted-foreground text-sm py-8 text-center">
-                No expense data for this period.
-              </p>
-            ) : (
-              <div className="flex flex-col items-center gap-6">
-                {/* CSS Conic Gradient Pie Chart */}
-                <div
-                  className="w-48 h-48 rounded-full mx-auto max-w-full"
-                  style={{
-                    background: (() => {
-                      let cumulative = 0;
-                      const stops = sortedBreakdown.map((cat) => {
-                        const pct = totalExpenses > 0 ? (cat.total / totalExpenses) * 100 : 0;
-                        const start = cumulative;
-                        cumulative += pct;
-                        return `${cat.categoryColor} ${start}% ${cumulative}%`;
-                      });
-                      return `conic-gradient(${stops.join(", ")})`;
-                    })(),
-                  }}
-                />
-                {/* Legend */}
-                <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm w-full">
-                  {sortedBreakdown.map((cat) => {
-                    const pct =
-                      totalExpenses > 0
-                        ? ((cat.total / totalExpenses) * 100).toFixed(1)
-                        : "0";
-                    const clickable = Boolean(cat.categoryId);
-                    return (
-                      <button
-                        key={cat.categoryId || "none"}
-                        type="button"
-                        disabled={!clickable}
-                        onClick={clickable ? () => navigateToCategory(cat.categoryId) : undefined}
-                        className={`flex items-center gap-2 truncate text-left rounded-sm px-1 -mx-1 py-0.5 ${clickable ? "cursor-pointer hover:bg-muted/60 transition-colors" : "cursor-default"}`}
-                      >
-                        <span
-                          className="h-2.5 w-2.5 rounded-sm shrink-0"
-                          style={{ backgroundColor: cat.categoryColor }}
-                        />
-                        <span className="truncate">{cat.categoryName}</span>
-                        <span className="text-muted-foreground ml-auto shrink-0">
-                          {pct}%
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <CategoryDistributionCard
+          sortedBreakdown={sortedBreakdown}
+          totalExpenses={totalExpenses}
+          onCategoryClick={navigateToCategory}
+        />
       </div>
 
       {/* Spending by Period (daily/weekly/monthly toggle) */}
@@ -539,80 +389,7 @@ export default function InsightsPage() {
       />
 
       {/* Monthly Income vs Expenses Bar Chart */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Monthly Income vs Expenses</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {data.monthlyTotals.length === 0 ? (
-            <p className="text-muted-foreground text-sm py-8 text-center">
-              No data for this period.
-            </p>
-          ) : (
-            <div className="space-y-1">
-              {(() => {
-                const maxVal = Math.max(
-                  ...data.monthlyTotals.map((m) =>
-                    Math.max(m.income, m.expenses)
-                  ),
-                  1
-                );
-                return data.monthlyTotals.map((m) => {
-                  const monthLabel = new Date(m.month + "-01").toLocaleDateString(
-                    "en-US",
-                    { month: "short", year: "numeric" }
-                  );
-                  return (
-                    <div key={m.month} className="space-y-0.5">
-                      <div className="flex items-center gap-3">
-                        <div className="w-20 text-xs text-right text-muted-foreground">
-                          {monthLabel}
-                        </div>
-                        <div className="flex-1 flex gap-1">
-                          {/* Income bar */}
-                          <div className="flex-1 h-4 bg-muted rounded overflow-hidden">
-                            <div
-                              className="h-full rounded bg-emerald-500 transition-all duration-500"
-                              style={{
-                                width: `${(m.income / maxVal) * 100}%`,
-                              }}
-                            />
-                          </div>
-                          {/* Expenses bar */}
-                          <div className="flex-1 h-4 bg-muted rounded overflow-hidden">
-                            <div
-                              className="h-full rounded bg-red-400 transition-all duration-500"
-                              style={{
-                                width: `${(m.expenses / maxVal) * 100}%`,
-                              }}
-                            />
-                          </div>
-                        </div>
-                        <div className="w-36 text-xs flex gap-2 justify-end">
-                          <span className="text-emerald-600 dark:text-emerald-400">
-                            +{formatCurrency(m.income)}
-                          </span>
-                          <span className="text-red-500 dark:text-red-400">
-                            -{formatCurrency(m.expenses)}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                });
-              })()}
-              <div className="flex items-center gap-4 pt-3 text-xs text-muted-foreground justify-center">
-                <span className="flex items-center gap-1">
-                  <span className="h-2 w-2 rounded-sm bg-emerald-500" /> Income
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="h-2 w-2 rounded-sm bg-red-400" /> Expenses
-                </span>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <MonthlyIncomeExpenseChart monthlyTotals={data.monthlyTotals} />
 
       {/* Top Merchants */}
       <Card>

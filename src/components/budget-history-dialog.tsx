@@ -21,15 +21,11 @@ import {
 } from "lucide-react";
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog";
 import { useBudgetHistory } from "@/hooks/use-budgets";
+import { formatCurrency } from "@/lib/utils";
 import type { Allocation, Transaction, HistoryData } from "@/types/api";
 
-function formatCurrency(amount: number) {
-  return new Intl.NumberFormat("nl-NL", {
-    style: "currency",
-    currency: "EUR",
-  }).format(amount);
-}
-
+// Deliberately different from the shared formatDate: this list omits the
+// year (it's always within the current budget history's own month labels).
 function formatDate(dateStr: string) {
   return new Intl.DateTimeFormat("nl-NL", {
     day: "2-digit",

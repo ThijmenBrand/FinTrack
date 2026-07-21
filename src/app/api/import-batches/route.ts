@@ -2,16 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { importBatches, transactions, accounts } from "@/db/schema";
 import { eq, and, desc } from "drizzle-orm";
-import { getUserId } from "@/lib/auth";
+import { withUser } from "@/lib/auth";
 
 /**
  * GET /api/import-batches
  * List all import batches for the current user, sorted by importedAt desc.
  */
 export async function GET() {
-  try {
-    const userId = await getUserId();
-
+  return withUser(async (userId) => {
     const rows = await db
       .select({
         id: importBatches.id,
@@ -26,13 +24,7 @@ export async function GET() {
       .orderBy(desc(importBatches.importedAt));
 
     return NextResponse.json(rows);
-  } catch (error) {
-    console.error("Failed to fetch import batches:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch import batches" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to fetch import batches");
 }
 
 /**
@@ -40,8 +32,7 @@ export async function GET() {
  * Roll back an import batch: delete all its transactions and the batch record.
  */
 export async function DELETE(request: NextRequest) {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const { searchParams } = new URL(request.url);
     const batchId = searchParams.get("id");
 
@@ -125,11 +116,5 @@ export async function DELETE(request: NextRequest) {
     });
 
     return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Failed to roll back import batch:", error);
-    return NextResponse.json(
-      { error: "Failed to roll back import batch" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to roll back import batch");
 }

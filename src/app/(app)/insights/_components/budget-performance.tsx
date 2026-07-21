@@ -10,14 +10,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { AlertTriangle, TrendingDown, ArrowRight, PiggyBank } from "lucide-react";
+import { formatCurrency } from "@/lib/utils";
 import type { BudgetData } from "@/types/api";
-
-function formatCurrency(amount: number) {
-  return new Intl.NumberFormat("nl-NL", {
-    style: "currency",
-    currency: "EUR",
-  }).format(amount);
-}
 
 function daysLeftInMonth(toDate: string): number {
   const end = new Date(toDate + "T23:59:59");

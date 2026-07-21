@@ -1,11 +1,6 @@
 // Financial-month math. `startDay` is 1–28; 1 reduces to calendar months.
 
-function toIsoDate(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
+import { toIsoDate } from "@/lib/utils";
 
 function clampStartDay(startDay: number): number {
   if (!Number.isFinite(startDay)) return 1;
@@ -65,18 +60,4 @@ export function formatFinancialMonthLabel(
   const fromStr = new Date(from).toLocaleDateString(locale, fmt);
   const toStr = new Date(to).toLocaleDateString(locale, fmt);
   return `${fromStr} – ${toStr}`;
-}
-
-// `n` financial months ending with the one containing `reference` (inclusive).
-export function getLastNFinancialMonths(
-  reference: Date,
-  startDay: number,
-  n: number,
-): { from: string; to: string } {
-  const day = clampStartDay(startDay);
-  const count = Math.max(1, Math.round(n));
-  const currentStart = financialMonthStart(reference, day);
-  const earliestStart = new Date(currentStart.getFullYear(), currentStart.getMonth() - (count - 1), day);
-  const end = new Date(currentStart.getFullYear(), currentStart.getMonth() + 1, day - 1);
-  return { from: toIsoDate(earliestStart), to: toIsoDate(end) };
 }

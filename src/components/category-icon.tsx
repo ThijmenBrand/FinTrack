@@ -152,10 +152,6 @@ export function isEmoji(icon: string): boolean {
   return icon.codePointAt(0)! > 255;
 }
 
-export function isLucideIcon(icon: string): boolean {
-  return !isEmoji(icon) && icon in LUCIDE_ICON_MAP;
-}
-
 interface CategoryIconProps {
   icon: string | null;
   color: string | null;
@@ -212,9 +208,4 @@ export function CategoryIcon({ icon, color, size = "md" }: CategoryIconProps) {
       )}
     </div>
   );
-}
-
-export function resolveIcon(icon: string | null): string | null {
-  if (!icon) return null;
-  return icon;
 }

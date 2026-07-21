@@ -21,6 +21,7 @@ export interface PreviewTransaction {
   balance: number | null;
   type: "income" | "expense" | "internal_transfer" | "reserved";
   categoryId: string | null;
+  notes?: string | null;
   suggestedPattern: string;
   counterpartyIban?: string;
   targetAccountId?: string;

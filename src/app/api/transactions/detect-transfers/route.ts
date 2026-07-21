@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { getUserId } from "@/lib/auth";
+import { withUser } from "@/lib/auth";
 import { detectTransfers } from "@/lib/detect-transfers";
 
 /**
@@ -13,8 +13,7 @@ import { detectTransfers } from "@/lib/detect-transfers";
  * This prevents internal moves from inflating income/expense totals.
  */
 export async function POST() {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const result = await detectTransfers(db, userId);
 
     return NextResponse.json({
@@ -22,11 +21,5 @@ export async function POST() {
       matchedPairs: result.matchedPairs,
       totalTransactionsUpdated: result.totalTransactionsUpdated,
     });
-  } catch (error) {
-    console.error("Transfer detection failed:", error);
-    return NextResponse.json(
-      { error: "Failed to detect transfers: " + String(error) },
-      { status: 500 }
-    );
-  }
+  }, "Failed to detect transfers");
 }

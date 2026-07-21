@@ -6,7 +6,7 @@ import {
   categories,
 } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
-import { getUserId } from "@/lib/auth";
+import { withUser } from "@/lib/auth";
 
 /**
  * Calculate the next occurrence date for a recurring transaction.
@@ -79,9 +79,7 @@ function getNextOccurrence(
 
 // GET /api/recurring — list all recurring transactions with next occurrence
 export async function GET() {
-  try {
-    const userId = await getUserId();
-
+  return withUser(async (userId) => {
     const rows = await db
       .select({
         id: recurringTransactions.id,
@@ -124,19 +122,12 @@ export async function GET() {
     }));
 
     return NextResponse.json(withNextOccurrence);
-  } catch (error) {
-    console.error("Failed to fetch recurring transactions:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch recurring transactions" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to fetch recurring transactions");
 }
 
 // POST /api/recurring — create a recurring transaction
 export async function POST(request: NextRequest) {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const body = await request.json();
     const {
       accountId,
@@ -179,19 +170,12 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json({ success: true, id }, { status: 201 });
-  } catch (error) {
-    console.error("Failed to create recurring transaction:", error);
-    return NextResponse.json(
-      { error: "Failed to create recurring transaction" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to create recurring transaction");
 }
 
 // PUT /api/recurring — update a recurring transaction
 export async function PUT(request: NextRequest) {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const body = await request.json();
     const { id, ...updates } = body;
 
@@ -216,19 +200,12 @@ export async function PUT(request: NextRequest) {
       .where(and(eq(recurringTransactions.id, id), eq(recurringTransactions.userId, userId)));
 
     return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Failed to update recurring transaction:", error);
-    return NextResponse.json(
-      { error: "Failed to update recurring transaction" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to update recurring transaction");
 }
 
 // DELETE /api/recurring — delete a recurring transaction
 export async function DELETE(request: NextRequest) {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
 
@@ -244,11 +221,5 @@ export async function DELETE(request: NextRequest) {
       .where(and(eq(recurringTransactions.id, id), eq(recurringTransactions.userId, userId)));
 
     return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Failed to delete recurring transaction:", error);
-    return NextResponse.json(
-      { error: "Failed to delete recurring transaction" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to delete recurring transaction");
 }

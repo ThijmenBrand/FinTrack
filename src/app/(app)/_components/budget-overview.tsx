@@ -3,11 +3,12 @@ import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TransactionsFilterLink } from "@/components/transactions-filter-link";
-import { getBudgetOverview, formatCurrency } from "../_lib/dashboard-queries";
+import { getBudgetOverview } from "../_lib/dashboard-queries";
 import {
   formatFinancialMonthLabel,
   getFinancialMonthRange,
 } from "@/lib/financial-month";
+import { formatCurrency } from "@/lib/utils";
 
 function RingProgress({
   percentage,

@@ -2,6 +2,7 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { admin, username } from "better-auth/plugins";
 import { passkey } from "@better-auth/passkey";
+import { NextResponse } from "next/server";
 import { db } from "@/db/index";
 import * as schema from "@/db/schema";
 import { userPin } from "@/db/schema";
@@ -191,4 +192,43 @@ export async function requireAdmin(): Promise<SessionData> {
     });
   }
   return data;
+}
+
+// ─── Route Handler Wrappers ─────────────────────────────────────────────────
+
+/**
+ * Resolve auth, run the handler, and normalize errors. A thrown `Response`
+ * (the 401/403 that `getUserId`/`requireAdmin` throw) is returned as-is so the
+ * real status reaches the client; anything else is logged and mapped to a 500
+ * carrying `errorMessage`.
+ */
+async function runWithAuth<T>(
+  resolve: () => Promise<T>,
+  handler: (auth: T) => Promise<Response> | Response,
+  errorMessage: string,
+): Promise<Response> {
+  try {
+    const auth = await resolve();
+    return await handler(auth);
+  } catch (error) {
+    if (error instanceof Response) return error;
+    console.error(`${errorMessage}:`, error);
+    return NextResponse.json({ error: errorMessage }, { status: 500 });
+  }
+}
+
+/** Wrap an API handler that needs the current user's id. */
+export function withUser(
+  handler: (userId: string) => Promise<Response> | Response,
+  errorMessage: string,
+): Promise<Response> {
+  return runWithAuth(getUserId, handler, errorMessage);
+}
+
+/** Wrap an API handler that requires admin privileges. */
+export function withAdmin(
+  handler: (session: SessionData) => Promise<Response> | Response,
+  errorMessage: string,
+): Promise<Response> {
+  return runWithAuth(requireAdmin, handler, errorMessage);
 }

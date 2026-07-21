@@ -1,15 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
-  LayoutDashboard,
-  Upload,
-  PieChart,
-  Wallet,
   Landmark,
-  PiggyBank,
   ChevronLeft,
   ChevronRight,
   Sun,
@@ -23,7 +18,6 @@ import {
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useTheme } from "next-themes";
-import { useSession, signOut } from "@/lib/auth-client";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -31,45 +25,20 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import { PRIMARY_NAV, SECONDARY_NAV, useSessionUser } from "@/components/nav-shared";
 
-const navigation = [
-  { name: "Dashboard", href: "/", icon: LayoutDashboard },
-  { name: "Transactions", href: "/transactions", icon: Upload },
-  { name: "Insights", href: "/insights", icon: PieChart },
-  { name: "Budgets", href: "/budgets", icon: Wallet },
-  { name: "Pots", href: "/pots", icon: PiggyBank },
-];
+const navigation = [...PRIMARY_NAV, ...SECONDARY_NAV];
 
 export function Sidebar() {
   const pathname = usePathname();
-  const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
   const [mounted, setMounted] = useState(false);
   const { theme, setTheme } = useTheme();
-  const { data: session } = useSession();
-
-  const user = session?.user
-    ? {
-        displayUsername:
-          ((session.user as Record<string, unknown>).displayUsername as string) ||
-          session.user.name ||
-          "",
-        username: ((session.user as Record<string, unknown>).username as string) || "",
-        isAdmin: (session.user as Record<string, unknown>).role === "admin",
-      }
-    : null;
+  const { user, logout } = useSessionUser();
 
   useEffect(() => {
     setMounted(true);
   }, []);
-
-  async function handleLogout() {
-    localStorage.removeItem("lockscreen_username");
-    localStorage.removeItem("lockscreen_has_pin");
-    await signOut();
-    router.push("/login");
-    router.refresh();
-  }
 
   return (
     <aside
@@ -190,7 +159,7 @@ export function Sidebar() {
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                onSelect={handleLogout}
+                onSelect={logout}
                 className="flex items-center gap-2 text-destructive focus:text-destructive"
               >
                 <LogOut className="h-4 w-4" />

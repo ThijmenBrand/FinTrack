@@ -1,15 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { categoryRules, transactions, categories } from "@/db/schema";
-import { eq, and, like, sql } from "drizzle-orm";
-import { getUserId } from "@/lib/auth";
+import { categoryRules, categories } from "@/db/schema";
+import { eq, and } from "drizzle-orm";
+import { withUser } from "@/lib/auth";
 import { validatePattern } from "@/lib/validation";
+import { applyRuleToTransactions } from "@/lib/apply-rule";
 
 // GET /api/categories/rules — list all rules
 export async function GET() {
-  try {
-    const userId = await getUserId();
-
+  return withUser(async (userId) => {
     const rules = await db
       .select({
         id: categoryRules.id,
@@ -26,19 +25,12 @@ export async function GET() {
       .where(eq(categoryRules.userId, userId));
 
     return NextResponse.json(rules);
-  } catch (error) {
-    console.error("Failed to fetch rules:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch rules" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to fetch rules");
 }
 
 // POST /api/categories/rules — create a rule and optionally apply to existing transactions
 export async function POST(request: NextRequest) {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const body = await request.json();
     const { pattern, categoryId, matchType, applyToExisting } = body;
 
@@ -69,23 +61,21 @@ export async function POST(request: NextRequest) {
 
     // Optionally apply rule to all existing uncategorized transactions
     if (applyToExisting) {
-      applied = await applyRuleToTransactions(validated.value, categoryId, matchType || "contains", userId);
+      applied = await applyRuleToTransactions({
+        pattern: validated.value,
+        categoryId,
+        matchType: matchType || "contains",
+        userId,
+      });
     }
 
     return NextResponse.json({ success: true, ruleId: id, applied }, { status: 201 });
-  } catch (error) {
-    console.error("Failed to create rule:", error);
-    return NextResponse.json(
-      { error: "Failed to create rule" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to create rule");
 }
 
 // PUT /api/categories/rules — update an existing rule
 export async function PUT(request: NextRequest) {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const body = await request.json();
     const { id, pattern, categoryId, matchType, isActive, applyToExisting } = body;
 
@@ -118,12 +108,12 @@ export async function PUT(request: NextRequest) {
 
     let applied = 0;
     if (applyToExisting && validatedPattern && categoryId) {
-      applied = await applyRuleToTransactions(
-        validatedPattern,
+      applied = await applyRuleToTransactions({
+        pattern: validatedPattern,
         categoryId,
-        matchType || "contains",
-        userId
-      );
+        matchType: matchType || "contains",
+        userId,
+      });
     }
 
     const [updated] = await db
@@ -132,19 +122,12 @@ export async function PUT(request: NextRequest) {
       .where(and(eq(categoryRules.id, id), eq(categoryRules.userId, userId)));
 
     return NextResponse.json({ ...updated, applied });
-  } catch (error) {
-    console.error("Failed to update rule:", error);
-    return NextResponse.json(
-      { error: "Failed to update rule" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to update rule");
 }
 
 // DELETE /api/categories/rules — delete a rule
 export async function DELETE(request: NextRequest) {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
 
@@ -157,66 +140,5 @@ export async function DELETE(request: NextRequest) {
 
     await db.delete(categoryRules).where(and(eq(categoryRules.id, id), eq(categoryRules.userId, userId)));
     return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Failed to delete rule:", error);
-    return NextResponse.json(
-      { error: "Failed to delete rule" },
-      { status: 500 }
-    );
-  }
-}
-
-/**
- * Apply a categorization rule to existing transactions that match the pattern
- * and don't already have a category.
- */
-async function applyRuleToTransactions(
-  pattern: string,
-  categoryId: string,
-  matchType: string,
-  userId: string
-): Promise<number> {
-  // Build the appropriate SQL pattern
-  let sqlPattern: string;
-  switch (matchType) {
-    case "exact":
-      sqlPattern = pattern;
-      break;
-    case "starts_with":
-      sqlPattern = `${pattern}%`;
-      break;
-    case "contains":
-    default:
-      sqlPattern = `%${pattern}%`;
-      break;
-  }
-
-  // Look up the target category's kind so reserved categories also flip the
-  // matched transactions' type to 'reserved'.
-  const [targetCategory] = await db
-    .select({ kind: categories.kind })
-    .from(categories)
-    .where(eq(categories.id, categoryId))
-    .limit(1);
-  const isReserved = targetCategory?.kind === "reserved";
-
-  // Update transactions that match the pattern and have no category. Match
-  // against the combined "name — description" so legacy rows (name IS NULL)
-  // match on description alone, and new rows match on either field. Restrict
-  // to income/expense rows so transfers/reimbursements aren't reclassified.
-  const matchTargetSql = sql`LOWER(IIF(${transactions.name} IS NOT NULL, ${transactions.name} || ' — ', '') || ${transactions.description})`;
-  const condition =
-    matchType === "exact"
-      ? sql`${matchTargetSql} = LOWER(${pattern}) AND ${transactions.categoryId} IS NULL AND ${transactions.userId} = ${userId} AND ${transactions.type} IN ('income', 'expense')`
-      : sql`${matchTargetSql} LIKE LOWER(${sqlPattern}) AND ${transactions.categoryId} IS NULL AND ${transactions.userId} = ${userId} AND ${transactions.type} IN ('income', 'expense')`;
-
-  const updateSet: Record<string, unknown> = { categoryId, categorySource: "rule" };
-  if (isReserved) updateSet.type = "reserved";
-
-  const result = await db
-    .update(transactions)
-    .set(updateSet)
-    .where(condition);
-
-  return result.rowsAffected;
+  }, "Failed to delete rule");
 }

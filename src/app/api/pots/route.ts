@@ -2,13 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { transactionGroups, transactions, categories } from "@/db/schema";
 import { eq, and, sql } from "drizzle-orm";
-import { getUserId } from "@/lib/auth";
+import { withUser } from "@/lib/auth";
 
 // GET /api/pots — list all pots with net amount, transaction count, category info
 export async function GET() {
-  try {
-    const userId = await getUserId();
-
+  return withUser(async (userId) => {
     const pots = await db
       .select({
         id: transactionGroups.id,
@@ -33,10 +31,7 @@ export async function GET() {
       .orderBy(sql`${transactionGroups.createdAt} DESC`);
 
     return NextResponse.json(pots);
-  } catch (error) {
-    console.error("Failed to fetch pots:", error);
-    return NextResponse.json({ error: "Failed to fetch pots" }, { status: 500 });
-  }
+  }, "Failed to fetch pots");
 }
 
 // Validate that a target, if provided, has both amount > 0 and a date.
@@ -58,8 +53,7 @@ function validateTarget(targetAmount: unknown, targetDate: unknown): string | nu
 
 // POST /api/pots — create a pot
 export async function POST(request: NextRequest) {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const { name, categoryId, targetAmount, targetDate } = await request.json();
     if (!name) {
       return NextResponse.json({ error: "name is required" }, { status: 400 });
@@ -82,16 +76,12 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json({ success: true, id }, { status: 201 });
-  } catch (error) {
-    console.error("Failed to create pot:", error);
-    return NextResponse.json({ error: "Failed to create pot" }, { status: 500 });
-  }
+  }, "Failed to create pot");
 }
 
 // PUT /api/pots — update a pot
 export async function PUT(request: NextRequest) {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const { id, name, categoryId, targetAmount, targetDate } = await request.json();
     if (!id) {
       return NextResponse.json({ error: "id is required" }, { status: 400 });
@@ -142,16 +132,12 @@ export async function PUT(request: NextRequest) {
     }
 
     return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Failed to update pot:", error);
-    return NextResponse.json({ error: "Failed to update pot" }, { status: 500 });
-  }
+  }, "Failed to update pot");
 }
 
 // DELETE /api/pots?id=X — delete pot, sets group_id = NULL on member transactions
 export async function DELETE(request: NextRequest) {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
     if (!id) {
@@ -168,8 +154,5 @@ export async function DELETE(request: NextRequest) {
     await db.delete(transactionGroups).where(and(eq(transactionGroups.id, id), eq(transactionGroups.userId, userId)));
 
     return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Failed to delete pot:", error);
-    return NextResponse.json({ error: "Failed to delete pot" }, { status: 500 });
-  }
+  }, "Failed to delete pot");
 }

@@ -1,0 +1,108 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { User, Save, Loader2 } from "lucide-react";
+import { useUpdateProfile } from "@/hooks/use-profile";
+import { ApiError } from "@/lib/api";
+import type { Profile } from "@/types/api";
+import { FormMessage, type FormMessageState } from "./form-message";
+
+export function ProfileCard({ profile }: { profile: Profile }) {
+  const router = useRouter();
+  const updateProfile = useUpdateProfile();
+
+  const [displayUsername, setDisplayUsername] = useState("");
+  const [username, setUsername] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [profileMsg, setProfileMsg] = useState<FormMessageState>(null);
+
+  useEffect(() => {
+    setDisplayUsername(profile.displayUsername);
+    setUsername(profile.username);
+  }, [profile]);
+
+  async function handleProfileSave(e: React.FormEvent) {
+    e.preventDefault();
+    setProfileMsg(null);
+    setSaving(true);
+    try {
+      await updateProfile.mutateAsync({ displayUsername, username });
+      setProfileMsg({ type: "success", text: "Profile updated successfully" });
+      router.refresh();
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setProfileMsg({ type: "error", text: err.message });
+      } else {
+        setProfileMsg({ type: "error", text: "Failed to update profile" });
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
+            <User className="h-5 w-5 text-primary" />
+          </div>
+          <div>
+            <CardTitle>Personal Information</CardTitle>
+            <CardDescription>Update your display name and username</CardDescription>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleProfileSave} className="space-y-4">
+          <div className="space-y-2">
+            <label htmlFor="displayUsername" className="text-sm font-medium">
+              Display Name
+            </label>
+            <Input
+              id="displayUsername"
+              type="text"
+              value={displayUsername}
+              onChange={(e) => setDisplayUsername(e.target.value)}
+              required
+            />
+          </div>
+          <div className="space-y-2">
+            <label htmlFor="username" className="text-sm font-medium">
+              Username
+            </label>
+            <Input
+              id="username"
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              required
+            />
+          </div>
+          <FormMessage message={profileMsg} />
+          <button
+            type="submit"
+            disabled={saving}
+            className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+          >
+            {saving ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4" />
+            )}
+            Save Changes
+          </button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}

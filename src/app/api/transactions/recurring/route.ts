@@ -2,14 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { transactions, recurringTransactions } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
-import { getUserId } from "@/lib/auth";
+import { withUser } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
 
 // PUT /api/transactions/recurring — link or unlink a transaction to a recurring plan.
 // Pass `recurringTransactionId: null` to clear the link.
 export async function PUT(request: NextRequest) {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const body = await request.json();
     const { transactionId, recurringTransactionId } = body as {
       transactionId?: string;
@@ -66,11 +65,5 @@ export async function PUT(request: NextRequest) {
     });
 
     return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Failed to update recurring link:", error);
-    return NextResponse.json(
-      { error: "Failed to update recurring link" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to update recurring link");
 }

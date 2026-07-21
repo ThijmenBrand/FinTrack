@@ -9,7 +9,8 @@ import {
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TransactionsFilterLink } from "@/components/transactions-filter-link";
-import { getTopCategories, formatCurrency } from "../_lib/dashboard-queries";
+import { getTopCategories } from "../_lib/dashboard-queries";
+import { formatCurrency } from "@/lib/utils";
 import {
   formatFinancialMonthLabel,
   getFinancialMonthRange,

@@ -1,6 +1,7 @@
 import { ArrowUp, ArrowDown } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getWeeklySpending, formatCurrency } from "../_lib/dashboard-queries";
+import { getWeeklySpending } from "../_lib/dashboard-queries";
+import { formatCurrency } from "@/lib/utils";
 
 export async function HeroWeeklySpending({
   userId,

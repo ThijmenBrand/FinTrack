@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { budgets, categories, transactions, transactionGroups } from "@/db/schema";
 import { eq, and, sql } from "drizzle-orm";
-import { getUserId } from "@/lib/auth";
+import { withUser } from "@/lib/auth";
+import { effectiveExpenseAmount } from "@/lib/reimbursement-sql";
 
 export async function GET(request: NextRequest) {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const { searchParams } = new URL(request.url);
     const categoryId = searchParams.get("categoryId");
 
@@ -42,12 +42,7 @@ export async function GET(request: NextRequest) {
     const monthlySpending = await db
       .select({
         month: sql<string>`substr(${transactions.date}, 1, 7)`,
-        spent: sql<number>`sum(
-          abs(${transactions.amount}) - COALESCE(
-            (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id AND r.user_id = "transactions"."user_id" WHERE rl.expense_id = "transactions"."id"),
-            0
-          )
-        )`,
+        spent: sql<number>`sum(${effectiveExpenseAmount()})`,
         transactionCount: sql<number>`count(*)`,
       })
       .from(transactions)
@@ -140,11 +135,5 @@ export async function GET(request: NextRequest) {
       currentBudgetAmount,
       months,
     });
-  } catch (error) {
-    console.error("Failed to fetch budget history:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch budget history" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to fetch budget history");
 }

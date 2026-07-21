@@ -8,23 +8,12 @@ import {
   transactionGroups,
 } from "@/db/schema";
 import { eq, and, gte, lte, sql, inArray } from "drizzle-orm";
-import { getUserId } from "@/lib/auth";
+import { withUser } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
+import { effectiveExpenseAmount } from "@/lib/reimbursement-sql";
 import { isRegenerationDue } from "@/lib/auto-budget";
 import { getUserPreferences } from "@/lib/preferences";
-
-/**
- * Get current month date range
- */
-function getCurrentMonthRange(): { from: string; to: string } {
-  const now = new Date();
-  const from = new Date(now.getFullYear(), now.getMonth(), 1);
-  const to = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-  return {
-    from: from.toISOString().slice(0, 10),
-    to: to.toISOString().slice(0, 10),
-  };
-}
+import { toMonthly, getCurrentMonthRange } from "@/lib/month-money";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const AVG_DAYS_PER_MONTH = 30.4375;
@@ -61,24 +50,6 @@ function rangeLabel(from: string, to: string): string {
 }
 
 /**
- * Calculate monthly equivalent for a recurring transaction
- */
-function toMonthly(amount: number, frequency: string): number {
-  switch (frequency) {
-    case "weekly":
-      return Math.abs(amount) * 4.33;
-    case "biweekly":
-      return Math.abs(amount) * 2.17;
-    case "monthly":
-      return Math.abs(amount);
-    case "yearly":
-      return Math.abs(amount) / 12;
-    default:
-      return Math.abs(amount);
-  }
-}
-
-/**
  * GET /api/budgets — unified budget view
  *
  * Returns:
@@ -89,8 +60,7 @@ function toMonthly(amount: number, frequency: string): number {
  *  - each allocation includes actual spending this month
  */
 export async function GET(request: NextRequest) {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const { searchParams } = new URL(request.url);
     const dateFromParam = searchParams.get("dateFrom");
     const dateToParam = searchParams.get("dateTo");
@@ -98,8 +68,11 @@ export async function GET(request: NextRequest) {
     const noScaleParam = searchParams.get("noScale");
     const noScale = noScaleParam === "1" || noScaleParam === "true";
 
+    const prefs = await getUserPreferences(userId);
+
     // Use the requested range when both dates are present and well-formed;
-    // otherwise default to the current calendar month.
+    // otherwise default to the current financial month (honors the user's
+    // financialMonthStartDay so the default matches the dashboard's window).
     const useRange =
       !!dateFromParam &&
       !!dateToParam &&
@@ -108,7 +81,7 @@ export async function GET(request: NextRequest) {
       dateFromParam <= dateToParam;
     const { from, to } = useRange
       ? { from: dateFromParam!, to: dateToParam! }
-      : getCurrentMonthRange();
+      : getCurrentMonthRange(prefs.financialMonthStartDay);
 
     // Scale monthly budget figures so they're comparable to spending in the range.
     // E.g. a 3-month range scales the monthly cap ×3 so spent-vs-budget is apples-to-apples.
@@ -298,12 +271,7 @@ export async function GET(request: NextRequest) {
     const monthSpendRows = await db
       .select({
         categoryId: transactions.categoryId,
-        total: sql<number>`sum(
-          abs(${transactions.amount}) - COALESCE(
-            (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id AND r.user_id = "transactions"."user_id" WHERE rl.expense_id = "transactions"."id"),
-            0
-          )
-        )`,
+        total: sql<number>`sum(${effectiveExpenseAmount()})`,
       })
       .from(transactions)
       .where(
@@ -395,12 +363,7 @@ export async function GET(request: NextRequest) {
       .select({
         categoryId: transactions.categoryId,
         month: sql<string>`substr(${transactions.date}, 1, 7)`,
-        total: sql<number>`sum(
-          abs(${transactions.amount}) - COALESCE(
-            (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id AND r.user_id = "transactions"."user_id" WHERE rl.expense_id = "transactions"."id"),
-            0
-          )
-        )`,
+        total: sql<number>`sum(${effectiveExpenseAmount()})`,
       })
       .from(transactions)
       .where(
@@ -592,7 +555,6 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    const prefs = await getUserPreferences(userId);
     const regenerationDue =
       prefs.autoBudgetEnabled &&
       isRegenerationDue(
@@ -628,19 +590,12 @@ export async function GET(request: NextRequest) {
         label: rangeLabel(from, to),
       },
     });
-  } catch (error) {
-    console.error("Failed to fetch budget:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch budget" },
-      { status: 500 },
-    );
-  }
+  }, "Failed to fetch budget");
 }
 
 // POST /api/budgets — create a budget allocation for a category
 export async function POST(request: NextRequest) {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const body = await request.json();
     const { categoryId, amount } = body;
 
@@ -701,19 +656,12 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json({ success: true, id }, { status: 201 });
-  } catch (error) {
-    console.error("Failed to create/update allocation:", error);
-    return NextResponse.json(
-      { error: "Failed to create/update allocation" },
-      { status: 500 },
-    );
-  }
+  }, "Failed to create/update allocation");
 }
 
 // PUT /api/budgets — update a budget allocation
 export async function PUT(request: NextRequest) {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const body = await request.json();
     const { id, amount } = body;
 
@@ -738,19 +686,12 @@ export async function PUT(request: NextRequest) {
     });
 
     return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Failed to update allocation:", error);
-    return NextResponse.json(
-      { error: "Failed to update allocation" },
-      { status: 500 },
-    );
-  }
+  }, "Failed to update allocation");
 }
 
 // DELETE /api/budgets — delete a budget allocation.
 export async function DELETE(request: NextRequest) {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
 
@@ -773,11 +714,5 @@ export async function DELETE(request: NextRequest) {
     });
 
     return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Failed to delete allocation:", error);
-    return NextResponse.json(
-      { error: "Failed to delete allocation" },
-      { status: 500 },
-    );
-  }
+  }, "Failed to delete allocation");
 }

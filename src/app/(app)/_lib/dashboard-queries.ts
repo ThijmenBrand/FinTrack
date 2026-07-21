@@ -13,6 +13,8 @@ import { getPaySchedule, paydaysBetween, type PaySchedule } from "@/lib/pay-sche
 import { getMonthMoneyMath, toMonthly } from "@/lib/month-money";
 import { classifyOnTrack } from "@/lib/on-track";
 import { getFinancialMonthRange } from "@/lib/financial-month";
+import { formatCurrency, toIsoDate } from "@/lib/utils";
+import { effectiveExpenseAmount } from "@/lib/reimbursement-sql";
 import type {
   MonthMoneyView,
   SavingTowardSpike,
@@ -22,13 +24,6 @@ import type {
 } from "@/types/api";
 
 // ─── Helpers ────────────────────────────────────────────────────────
-
-export function toLocalDateStr(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
 
 export function getPeriodRange(
   period: string,
@@ -42,7 +37,7 @@ export function getPeriodRange(
 
   switch (period) {
     case "daily": {
-      const iso = toLocalDateStr(new Date(y, m, d));
+      const iso = toIsoDate(new Date(y, m, d));
       return { from: iso, to: iso };
     }
     case "weekly": {
@@ -50,7 +45,7 @@ export function getPeriodRange(
       const mon = new Date(y, m, d + off);
       const sun = new Date(mon);
       sun.setDate(sun.getDate() + 6);
-      return { from: toLocalDateStr(mon), to: toLocalDateStr(sun) };
+      return { from: toIsoDate(mon), to: toIsoDate(sun) };
     }
     case "monthly": {
       return getFinancialMonthRange(now, startDay);
@@ -60,13 +55,6 @@ export function getPeriodRange(
     default:
       return { from: "2000-01-01", to: "2099-12-31" };
   }
-}
-
-export function formatCurrency(amount: number) {
-  return new Intl.NumberFormat("nl-NL", {
-    style: "currency",
-    currency: "EUR",
-  }).format(amount);
 }
 
 function reimbursementAdjustment() {
@@ -86,11 +74,11 @@ function getDateRanges(startDay: number = 1) {
   const { from: monthStart, to: monthEnd } = getFinancialMonthRange(now, startDay);
 
   const weekOff = dow === 0 ? -6 : 1 - dow;
-  const weekStart = toLocalDateStr(new Date(y, m, d + weekOff));
-  const weekEnd = toLocalDateStr(new Date(y, m, d + weekOff + 6));
+  const weekStart = toIsoDate(new Date(y, m, d + weekOff));
+  const weekEnd = toIsoDate(new Date(y, m, d + weekOff + 6));
 
-  const lastWeekStart = toLocalDateStr(new Date(y, m, d + weekOff - 7));
-  const lastWeekEnd = toLocalDateStr(new Date(y, m, d + weekOff - 1));
+  const lastWeekStart = toIsoDate(new Date(y, m, d + weekOff - 7));
+  const lastWeekEnd = toIsoDate(new Date(y, m, d + weekOff - 1));
 
   // Fraction of the financial-month elapsed, including today.
   const startMs = new Date(monthStart).getTime();
@@ -183,7 +171,7 @@ export async function getWeeklySpending(userId: string, accountId?: string) {
   const [weekExpense, lastWeekExpense, weekPotContrib] = await Promise.all([
     db
       .select({
-        total: sql<number>`sum(abs(${transactions.amount}) - ${reimbursementAdjustment()})`,
+        total: sql<number>`sum(${effectiveExpenseAmount()})`,
       })
       .from(transactions)
       .leftJoin(categories, eq(transactions.categoryId, categories.id))
@@ -200,7 +188,7 @@ export async function getWeeklySpending(userId: string, accountId?: string) {
 
     db
       .select({
-        total: sql<number>`sum(abs(${transactions.amount}) - ${reimbursementAdjustment()})`,
+        total: sql<number>`sum(${effectiveExpenseAmount()})`,
       })
       .from(transactions)
       .leftJoin(categories, eq(transactions.categoryId, categories.id))
@@ -284,7 +272,7 @@ export async function getBudgetOverview(
 
       db
         .select({
-          total: sql<number>`sum(abs(${transactions.amount}) - ${reimbursementAdjustment()})`,
+          total: sql<number>`sum(${effectiveExpenseAmount()})`,
         })
         .from(transactions)
         .where(
@@ -325,7 +313,7 @@ export async function getBudgetOverview(
         const results = await db
           .select({
             categoryId: transactions.categoryId,
-            total: sql<number>`sum(abs(${transactions.amount}) - ${reimbursementAdjustment()})`,
+            total: sql<number>`sum(${effectiveExpenseAmount()})`,
           })
           .from(transactions)
           .where(
@@ -602,7 +590,7 @@ export async function getMonthMoneyView(
   const { monthStart, monthEnd } = getDateRanges(startDay);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const todayIso = toLocalDateStr(today);
+  const todayIso = toIsoDate(today);
 
   const accountIds = await getFundedAccountIds(userId, accountId, monthStart, monthEnd);
 
@@ -714,10 +702,10 @@ export async function getSavingTowardSpikes(
   horizon.setDate(horizon.getDate() + 365);
 
   const { monthEnd } = getDateRanges(startDay);
-  const startIso = toLocalDateStr(
+  const startIso = toIsoDate(
     new Date(new Date(monthEnd).getTime() + 86400000)
   );
-  const endIso = toLocalDateStr(horizon);
+  const endIso = toIsoDate(horizon);
 
   const [rows, schedule] = await Promise.all([
     loadSpikeRowsBetween(userId, startIso, endIso),
@@ -755,27 +743,6 @@ export async function getSavingTowardSpikes(
   });
 }
 
-/**
- * Backwards-compatible export: returns all upcoming-targeted pots within 90
- * days. Phase-2 callers should prefer `getMonthMoneyView` /
- * `getSavingTowardSpikes`.
- */
-export async function getUpcomingSpikes(userId: string): Promise<UpcomingSpike[]> {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const todayIso = toLocalDateStr(today);
-  const horizon = new Date(today);
-  horizon.setDate(horizon.getDate() + 90);
-  const horizonIso = toLocalDateStr(horizon);
-
-  const [rows, schedule] = await Promise.all([
-    loadSpikeRowsBetween(userId, todayIso, horizonIso),
-    getPaySchedule(userId),
-  ]);
-
-  return rows.map((row) => baseSpikeFields(row, today, schedule));
-}
-
 export async function getTopCategories(
   userId: string,
   startDay: number = 1,
@@ -792,7 +759,7 @@ export async function getTopCategories(
       categoryId: categories.id,
       categoryName: categories.name,
       categoryColor: categories.color,
-      total: sql<number>`sum(abs(${transactions.amount}) - ${reimbursementAdjustment()})`,
+      total: sql<number>`sum(${effectiveExpenseAmount()})`,
     })
     .from(transactions)
     .leftJoin(categories, eq(transactions.categoryId, categories.id))

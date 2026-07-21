@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { budgets } from "@/db/schema";
 import { and, eq, inArray } from "drizzle-orm";
-import { getUserId } from "@/lib/auth";
+import { withUser } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
 
 interface AcceptItem {
@@ -23,8 +23,7 @@ interface AcceptItem {
  * Reject: the suggestion rows are deleted.
  */
 export async function POST(request: NextRequest) {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const body = await request.json();
     const action = body?.action as "accept" | "reject" | undefined;
 
@@ -107,9 +106,5 @@ export async function POST(request: NextRequest) {
 
     logDataEvent({ userId, action: "budget_suggestion_accept", targetType: "budget", details: { count: accepted } });
     return NextResponse.json({ success: true, count: accepted });
-  } catch (error) {
-    if (error instanceof Response) throw error;
-    console.error("Failed to process budget suggestion:", error);
-    return NextResponse.json({ error: "Failed to process budget suggestion" }, { status: 500 });
-  }
+  }, "Failed to process budget suggestion");
 }

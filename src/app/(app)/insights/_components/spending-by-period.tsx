@@ -8,6 +8,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { formatCurrency } from "@/lib/utils";
 
 type Granularity = "daily" | "weekly" | "monthly";
 
@@ -20,15 +21,6 @@ interface PeriodEntry {
 interface SpendingByPeriodProps {
   dailyTotals: { date: string; income: number; expenses: number }[];
   monthlyTotals: { month: string; income: number; expenses: number }[];
-}
-
-function formatCurrency(amount: number, fractionDigits = 2) {
-  return new Intl.NumberFormat("nl-NL", {
-    style: "currency",
-    currency: "EUR",
-    maximumFractionDigits: fractionDigits,
-    minimumFractionDigits: fractionDigits,
-  }).format(amount);
 }
 
 function formatTick(amount: number) {

@@ -8,7 +8,7 @@ import {
   recurringTransactions,
 } from "@/db/schema";
 import { eq, sql, and } from "drizzle-orm";
-import { getUserId } from "@/lib/auth";
+import { withUser } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
 
 type CategoryKind = "spending" | "reserved";
@@ -119,8 +119,7 @@ async function syncTransactionTypeForCategory(
 
 // GET /api/categories — list all categories with transaction counts
 export async function GET() {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const allCategories = await db.select().from(categories).where(eq(categories.userId, userId));
 
     const categoriesWithCounts = await Promise.all(
@@ -144,13 +143,7 @@ export async function GET() {
     );
 
     return NextResponse.json(categoriesWithCounts);
-  } catch (error) {
-    console.error("Failed to fetch categories:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch categories" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to fetch categories");
 }
 
 // POST /api/categories — create a new category. The `kind` field marks it
@@ -161,8 +154,7 @@ export async function GET() {
 // counts against Free to Spend and available-to-allocate even before
 // transactions land.
 export async function POST(request: NextRequest) {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const body = await request.json();
     const { name, icon, color } = body;
     const kind: CategoryKind = body.kind === "reserved" ? "reserved" : "spending";
@@ -201,13 +193,7 @@ export async function POST(request: NextRequest) {
     logDataEvent({ userId, action: "category_create", targetId: id, targetType: "category", details: { name, kind } });
 
     return NextResponse.json(newCategory, { status: 201 });
-  } catch (error) {
-    console.error("Failed to create category:", error);
-    return NextResponse.json(
-      { error: "Failed to create category" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to create category");
 }
 
 // PUT /api/categories — update a category. Allows flipping `kind`. Flipping
@@ -216,8 +202,7 @@ export async function POST(request: NextRequest) {
 // `budgetAmount` is provided on a reserved category, it sets/updates the
 // optional monthly target. Pass 0 to clear the target.
 export async function PUT(request: NextRequest) {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const body = await request.json();
     const { id, name, icon, color } = body;
     const kindUpdate: CategoryKind | undefined =
@@ -285,19 +270,12 @@ export async function PUT(request: NextRequest) {
     });
 
     return NextResponse.json(updated);
-  } catch (error) {
-    console.error("Failed to update category:", error);
-    return NextResponse.json(
-      { error: "Failed to update category" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to update category");
 }
 
 // DELETE /api/categories — delete a category
 export async function DELETE(request: NextRequest) {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
 
@@ -338,11 +316,5 @@ export async function DELETE(request: NextRequest) {
     logDataEvent({ userId, action: "category_delete", targetId: id, targetType: "category" });
 
     return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Failed to delete category:", error);
-    return NextResponse.json(
-      { error: "Failed to delete category" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to delete category");
 }

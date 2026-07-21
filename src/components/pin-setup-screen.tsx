@@ -6,6 +6,7 @@ import { useHasPin, useInitialSetupPin } from "@/hooks/use-pin";
 import { useSession } from "@/lib/auth-client";
 import { useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "@/lib/api";
+import { PinInput } from "@/components/pin-input";
 
 export function PinSetupScreen() {
   const { data: session, isPending: sessionLoading } = useSession();
@@ -119,38 +120,14 @@ export function PinSetupScreen() {
           {/* Enter PIN */}
           {step === "enter" && (
             <form onSubmit={handleEnterPin} className="space-y-4">
-              <div className="space-y-2">
-                <label
-                  htmlFor="setupPin"
-                  className="text-sm font-medium leading-none text-foreground"
-                >
-                  New PIN
-                </label>
-                <input
-                  id="setupPin"
-                  ref={pinInputRef}
-                  type="tel"
-                  pattern="[0-9]*"
-                  maxLength={6}
-                  required
-                  minLength={4}
-                  value={pin}
-                  onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
-                  autoComplete="off"
-                  className="flex h-12 w-full rounded-md border border-input bg-background px-3 py-2 text-lg tracking-[0.5em] text-center text-transparent caret-transparent selection:bg-transparent ring-offset-background placeholder:text-muted-foreground placeholder:tracking-normal placeholder:text-sm placeholder:text-opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  placeholder="Enter PIN"
-                />
-                <div className="flex justify-center gap-2 pt-1">
-                  {Array.from({ length: 6 }).map((_, i) => (
-                    <div
-                      key={i}
-                      className={`h-2.5 w-2.5 rounded-full transition-colors ${
-                        i < pin.length ? "bg-primary" : "bg-muted"
-                      }`}
-                    />
-                  ))}
-                </div>
-              </div>
+              <PinInput
+                id="setupPin"
+                label="New PIN"
+                value={pin}
+                onChange={setPin}
+                placeholder="Enter PIN"
+                inputRef={pinInputRef}
+              />
 
               {error && <p className="text-sm text-red-500 text-center">{error}</p>}
 
@@ -167,38 +144,14 @@ export function PinSetupScreen() {
           {/* Confirm PIN */}
           {step === "confirm" && (
             <form onSubmit={handleConfirmPin} className="space-y-4">
-              <div className="space-y-2">
-                <label
-                  htmlFor="confirmPin"
-                  className="text-sm font-medium leading-none text-foreground"
-                >
-                  Confirm PIN
-                </label>
-                <input
-                  id="confirmPin"
-                  ref={confirmInputRef}
-                  type="tel"
-                  pattern="[0-9]*"
-                  maxLength={6}
-                  required
-                  minLength={4}
-                  value={confirmPin}
-                  onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, ""))}
-                  autoComplete="off"
-                  className="flex h-12 w-full rounded-md border border-input bg-background px-3 py-2 text-lg tracking-[0.5em] text-center text-transparent caret-transparent selection:bg-transparent ring-offset-background placeholder:text-muted-foreground placeholder:tracking-normal placeholder:text-sm placeholder:text-opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  placeholder="Confirm PIN"
-                />
-                <div className="flex justify-center gap-2 pt-1">
-                  {Array.from({ length: 6 }).map((_, i) => (
-                    <div
-                      key={i}
-                      className={`h-2.5 w-2.5 rounded-full transition-colors ${
-                        i < confirmPin.length ? "bg-primary" : "bg-muted"
-                      }`}
-                    />
-                  ))}
-                </div>
-              </div>
+              <PinInput
+                id="confirmPin"
+                label="Confirm PIN"
+                value={confirmPin}
+                onChange={setConfirmPin}
+                placeholder="Confirm PIN"
+                inputRef={confirmInputRef}
+              />
 
               {error && <p className="text-sm text-red-500 text-center">{error}</p>}
 

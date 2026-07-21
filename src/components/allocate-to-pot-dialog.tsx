@@ -13,14 +13,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Loader2 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, formatCurrency as fc } from "@/lib/utils";
 import { useAllocateToPot } from "@/hooks/use-pots";
-
-const eur = new Intl.NumberFormat("nl-NL", {
-  style: "currency",
-  currency: "EUR",
-});
-const fc = (n: number) => eur.format(n);
 
 type Mode = "add" | "remove";
 

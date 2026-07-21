@@ -2,12 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { transactions, transactionGroups } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
-import { getUserId } from "@/lib/auth";
+import { withUser } from "@/lib/auth";
 
 // POST /api/pots/transactions — add transaction to pot
 export async function POST(request: NextRequest) {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const { potId, transactionId } = await request.json();
     if (!potId || !transactionId) {
       return NextResponse.json(
@@ -33,19 +32,12 @@ export async function POST(request: NextRequest) {
       .where(and(eq(transactions.id, transactionId), eq(transactions.userId, userId)));
 
     return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Failed to add transaction to pot:", error);
-    return NextResponse.json(
-      { error: "Failed to add transaction to pot" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to add transaction to pot");
 }
 
 // DELETE /api/pots/transactions?potId=X&transactionId=Y — remove transaction from pot
 export async function DELETE(request: NextRequest) {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const { searchParams } = new URL(request.url);
     const potId = searchParams.get("potId");
     const transactionId = searchParams.get("transactionId");
@@ -69,11 +61,5 @@ export async function DELETE(request: NextRequest) {
       );
 
     return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Failed to remove transaction from pot:", error);
-    return NextResponse.json(
-      { error: "Failed to remove transaction from pot" },
-      { status: 500 }
-    );
-  }
+  }, "Failed to remove transaction from pot");
 }

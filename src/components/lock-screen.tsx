@@ -7,6 +7,7 @@ import { signOut } from "@/lib/auth-client";
 import { useUnlockPin } from "@/hooks/use-pin";
 import { useLockScreen } from "@/components/lock-screen-provider";
 import { ApiError } from "@/lib/api";
+import { PinInput } from "@/components/pin-input";
 
 export function LockScreen() {
   const { isLocked, username, unlock, clearLockState } = useLockScreen();
@@ -81,39 +82,14 @@ export function LockScreen() {
 
           {/* PIN Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <label
-                htmlFor="lockPin"
-                className="text-sm font-medium leading-none text-foreground"
-              >
-                PIN Code
-              </label>
-              <input
-                id="lockPin"
-                ref={pinInputRef}
-                type="tel"
-                pattern="[0-9]*"
-                maxLength={6}
-                required
-                minLength={4}
-                value={pin}
-                onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
-                autoComplete="off"
-                className="flex h-12 w-full rounded-md border border-input bg-background px-3 py-2 text-lg tracking-[0.5em] text-center text-transparent caret-transparent selection:bg-transparent ring-offset-background placeholder:text-muted-foreground placeholder:tracking-normal placeholder:text-sm placeholder:text-opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                placeholder="Enter PIN"
-              />
-              {/* PIN dots indicator */}
-              <div className="flex justify-center gap-2 pt-1">
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className={`h-2.5 w-2.5 rounded-full transition-colors ${
-                      i < pin.length ? "bg-primary" : "bg-muted"
-                    }`}
-                  />
-                ))}
-              </div>
-            </div>
+            <PinInput
+              id="lockPin"
+              label="PIN Code"
+              value={pin}
+              onChange={setPin}
+              placeholder="Enter PIN"
+              inputRef={pinInputRef}
+            />
 
             {error && <p className="text-sm text-red-500 text-center">{error}</p>}
 

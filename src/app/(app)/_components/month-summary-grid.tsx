@@ -10,11 +10,9 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  getMonthSummary,
-  formatCurrency,
-} from "../_lib/dashboard-queries";
+import { getMonthSummary } from "../_lib/dashboard-queries";
 import { formatFinancialMonthLabel } from "@/lib/financial-month";
+import { formatCurrency } from "@/lib/utils";
 
 export async function MonthSummaryGrid({
   userId,

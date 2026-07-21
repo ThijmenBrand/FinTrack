@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { transactions, importBatches, categoryRules, categories } from "@/db/schema";
-import { eq, and, isNull, sql } from "drizzle-orm";
-import { getUserId } from "@/lib/auth";
+import { eq, and } from "drizzle-orm";
+import { withUser } from "@/lib/auth";
 import { detectTransfers } from "@/lib/detect-transfers";
 import { logDataEvent } from "@/lib/audit";
-import { validatePattern } from "@/lib/validation";
+import { validatePattern, sanitizeNote } from "@/lib/validation";
 import { matchesRule } from "@/lib/csv-utils";
+import { applyRuleToTransactions } from "@/lib/apply-rule";
 
 interface CommitTransaction {
   tempId: string;
@@ -17,6 +18,7 @@ interface CommitTransaction {
   balance: number | null;
   type: string;
   categoryId: string | null;
+  notes?: string | null;
   targetAccountId?: string;
   recurringTransactionId?: string | null;
 }
@@ -39,8 +41,7 @@ interface CommitRequest {
  * Insert reviewed transactions into the database and create any new rules.
  */
 export async function POST(request: NextRequest) {
-  try {
-    const userId = await getUserId();
+  return withUser(async (userId) => {
     const body: CommitRequest = await request.json();
     const { accountId, fileName, transactions: txList, newRules } = body;
 
@@ -139,6 +140,7 @@ export async function POST(request: NextRequest) {
 
     for (const tx of txList) {
       const sourceId = crypto.randomUUID();
+      const note = sanitizeNote(tx.notes);
       const isTransfer = tx.type === "internal_transfer" && tx.targetAccountId;
 
       if (isTransfer) {
@@ -159,7 +161,7 @@ export async function POST(request: NextRequest) {
           type: "internal_transfer",
           linkedTransactionId: mirrorId,
           recurringTransactionId: null,
-          notes: null,
+          notes: note,
           isManual: false,
           importBatchId: batchId,
           createdAt: new Date().toISOString(),
@@ -179,7 +181,7 @@ export async function POST(request: NextRequest) {
           type: "internal_transfer",
           linkedTransactionId: sourceId,
           recurringTransactionId: null,
-          notes: null,
+          notes: note,
           isManual: true,
           importBatchId: null,
           createdAt: new Date().toISOString(),
@@ -205,7 +207,7 @@ export async function POST(request: NextRequest) {
             (txType === "income" || txType === "expense") && tx.recurringTransactionId
               ? tx.recurringTransactionId
               : null,
-          notes: null,
+          notes: note,
           isManual: false,
           importBatchId: batchId,
           createdAt: new Date().toISOString(),
@@ -240,53 +242,13 @@ export async function POST(request: NextRequest) {
 
       // Apply rule to existing uncategorized transactions in the DB
       // (not the ones we just imported — those already have categories from the review)
-      let sqlPattern: string;
-      switch (rule.matchType) {
-        case "exact":
-          sqlPattern = rule.pattern;
-          break;
-        case "starts_with":
-          sqlPattern = `${rule.pattern}%`;
-          break;
-        case "contains":
-        default:
-          sqlPattern = `%${rule.pattern}%`;
-          break;
-      }
-
-      // Match against the combined "name — description" so legacy rows (where
-      // name IS NULL) still match on description alone, and new rows match on
-      // either field via the concatenation. Restrict to income/expense rows so
-      // we don't overwrite intentional transfers/reimbursements.
-      const matchTargetSql = sql`LOWER(IIF(${transactions.name} IS NOT NULL, ${transactions.name} || ' — ', '') || ${transactions.description})`;
-      const typeFilter = sql`${transactions.type} IN ('income', 'expense')`;
-      const condition =
-        rule.matchType === "exact"
-          ? and(
-              sql`${matchTargetSql} = ${rule.pattern.toLowerCase()}`,
-              isNull(transactions.categoryId),
-              eq(transactions.userId, userId),
-              typeFilter
-            )
-          : and(
-              sql`${matchTargetSql} LIKE LOWER(${sqlPattern})`,
-              isNull(transactions.categoryId),
-              eq(transactions.userId, userId),
-              typeFilter
-            );
-
-      const updateSet: Record<string, unknown> = {
+      existingUpdated += await applyRuleToTransactions({
+        pattern: rule.pattern,
         categoryId: rule.categoryId,
-        categorySource: "rule",
-      };
-      if (reservedCategoryIds.has(rule.categoryId)) updateSet.type = "reserved";
-
-      const result = await db
-        .update(transactions)
-        .set(updateSet)
-        .where(condition!);
-
-      existingUpdated += (result as unknown as { rowsAffected?: number }).rowsAffected || 0;
+        matchType: rule.matchType || "contains",
+        userId,
+        isReserved: reservedCategoryIds.has(rule.categoryId),
+      });
     }
 
     // Auto-detect internal transfers among all transactions
@@ -309,11 +271,5 @@ export async function POST(request: NextRequest) {
       existingUpdated,
       transfersDetected: transferResult.matchedPairs,
     });
-  } catch (error) {
-    console.error("CSV commit failed:", error);
-    return NextResponse.json(
-      { error: "Failed to commit import: " + String(error) },
-      { status: 500 }
-    );
-  }
+  }, "Failed to commit import");
 }

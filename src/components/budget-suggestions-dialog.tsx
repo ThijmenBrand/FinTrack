@@ -17,14 +17,8 @@ import {
   useAcceptBudgetSuggestions,
   useRejectBudgetSuggestions,
 } from "@/hooks/use-budgets";
+import { formatCurrency } from "@/lib/utils";
 import type { BudgetSuggestion } from "@/types/api";
-
-function formatCurrency(amount: number) {
-  return new Intl.NumberFormat("nl-NL", {
-    style: "currency",
-    currency: "EUR",
-  }).format(amount);
-}
 
 interface Props {
   open: boolean;
