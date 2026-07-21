@@ -258,12 +258,12 @@ export function TransactionRow({
               <Minus className="h-3 w-3" />
             </Button>
           )}
-          {tx.type === "income" && (
+          {(tx.type === "income" || isReimbursement) && (
             <Button
               variant="ghost"
               size="icon"
               className="h-7 w-7 text-muted-foreground hover:text-foreground transition-colors"
-              title="Mark as reimbursement"
+              title={isReimbursement ? "Link to expenses" : "Mark as reimbursement"}
               onClick={onReimburse}
             >
               <Receipt className="h-3 w-3" />

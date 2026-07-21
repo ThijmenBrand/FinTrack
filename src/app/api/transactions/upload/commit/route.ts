@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { transactions, importBatches, categoryRules, categories } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
+import { transactions, importBatches, categoryRules, categories, transactionGroups, reimbursementLinks } from "@/db/schema";
+import { eq, and, lt, inArray } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { detectTransfers } from "@/lib/detect-transfers";
 import { logDataEvent } from "@/lib/audit";
@@ -18,6 +18,8 @@ interface CommitTransaction {
   balance: number | null;
   type: string;
   categoryId: string | null;
+  groupId?: string | null;
+  reimbursesExpenseId?: string | null;
   notes?: string | null;
   targetAccountId?: string;
   recurringTransactionId?: string | null;
@@ -92,6 +94,13 @@ export async function POST(request: NextRequest) {
       categoryKindRows.filter((c) => c.kind === "reserved").map((c) => c.id)
     );
 
+    // Only allow pot assignments to pots the user actually owns
+    const userPots = await db
+      .select({ id: transactionGroups.id })
+      .from(transactionGroups)
+      .where(eq(transactionGroups.userId, userId));
+    const userPotIds = new Set(userPots.map((p) => p.id));
+
     // Pre-fetch active rules so we can detect, per row, whether an incoming
     // categoryId is the result of a rule match (auto) or a user override during
     // review. Overrides must be marked 'manual' so Recalculate All preserves them.
@@ -127,7 +136,8 @@ export async function POST(request: NextRequest) {
       balance: number | null;
       categoryId: string | null;
       categorySource: "manual" | "rule" | null;
-      type: "income" | "expense" | "internal_transfer" | "reserved";
+      type: "income" | "expense" | "internal_transfer" | "reserved" | "reimbursement";
+      groupId: string | null;
       linkedTransactionId: string | null;
       recurringTransactionId: string | null;
       notes: string | null;
@@ -137,6 +147,8 @@ export async function POST(request: NextRequest) {
     }> = [];
 
     const mirrorRecords: typeof records = [];
+    // Reimbursement rows link to an existing expense chosen during review
+    const pendingReimbursements: Array<{ reimbursementId: string; expenseId: string }> = [];
 
     for (const tx of txList) {
       const sourceId = crypto.randomUUID();
@@ -159,6 +171,7 @@ export async function POST(request: NextRequest) {
           categoryId: transferCatId,
           categorySource: transferCatId ? "rule" : null,
           type: "internal_transfer",
+          groupId: null,
           linkedTransactionId: mirrorId,
           recurringTransactionId: null,
           notes: note,
@@ -179,6 +192,7 @@ export async function POST(request: NextRequest) {
           categoryId: transferCatId,
           categorySource: transferCatId ? "rule" : null,
           type: "internal_transfer",
+          groupId: null,
           linkedTransactionId: sourceId,
           recurringTransactionId: null,
           notes: note,
@@ -187,7 +201,9 @@ export async function POST(request: NextRequest) {
           createdAt: new Date().toISOString(),
         });
       } else {
-        const txType = tx.type as "income" | "expense" | "internal_transfer" | "reserved";
+        const txType = (
+          ["income", "expense", "internal_transfer", "reserved", "reimbursement"] as const
+        ).find((t) => t === tx.type) ?? "expense";
         records.push({
           id: sourceId,
           userId,
@@ -200,6 +216,7 @@ export async function POST(request: NextRequest) {
           categoryId: tx.categoryId,
           categorySource: sourceForReviewedTx(tx.name, tx.description, tx.categoryId),
           type: txType,
+          groupId: tx.groupId && userPotIds.has(tx.groupId) ? tx.groupId : null,
           linkedTransactionId: null,
           // Only carry the recurring link for income/expense rows; transfers
           // and reserved transactions don't represent fixed-cost spending.
@@ -212,6 +229,12 @@ export async function POST(request: NextRequest) {
           importBatchId: batchId,
           createdAt: new Date().toISOString(),
         });
+        if (txType === "reimbursement" && tx.amount > 0 && tx.reimbursesExpenseId) {
+          pendingReimbursements.push({
+            reimbursementId: sourceId,
+            expenseId: tx.reimbursesExpenseId,
+          });
+        }
       }
     }
 
@@ -221,6 +244,33 @@ export async function POST(request: NextRequest) {
     for (let i = 0; i < allRecords.length; i += chunkSize) {
       const chunk = allRecords.slice(i, i + chunkSize);
       await db.insert(transactions).values(chunk);
+    }
+
+    // Link reimbursements to their expenses; only user-owned negative-amount
+    // transactions qualify (same rules as /api/transactions/reimburse)
+    if (pendingReimbursements.length > 0) {
+      const validExpenses = await db
+        .select({ id: transactions.id })
+        .from(transactions)
+        .where(
+          and(
+            inArray(transactions.id, pendingReimbursements.map((p) => p.expenseId)),
+            eq(transactions.userId, userId),
+            lt(transactions.amount, 0)
+          )
+        );
+      const validExpenseIds = new Set(validExpenses.map((e) => e.id));
+      const linkRows = pendingReimbursements
+        .filter((p) => validExpenseIds.has(p.expenseId))
+        .map((p) => ({
+          id: crypto.randomUUID(),
+          reimbursementId: p.reimbursementId,
+          expenseId: p.expenseId,
+          createdAt: new Date().toISOString(),
+        }));
+      if (linkRows.length > 0) {
+        await db.insert(reimbursementLinks).values(linkRows).onConflictDoNothing();
+      }
     }
 
     // Create new rules and apply them to existing uncategorized transactions

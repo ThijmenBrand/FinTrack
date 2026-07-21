@@ -19,8 +19,12 @@ export interface PreviewTransaction {
   description: string;
   amount: number;
   balance: number | null;
-  type: "income" | "expense" | "internal_transfer" | "reserved";
+  type: "income" | "expense" | "internal_transfer" | "reserved" | "reimbursement";
   categoryId: string | null;
+  groupId?: string | null;
+  /** Expense the row reimburses (chosen during import review); linked at commit. */
+  reimbursesExpenseId?: string | null;
+  reimbursesDescription?: string | null;
   notes?: string | null;
   suggestedPattern: string;
   counterpartyIban?: string;
