@@ -21,12 +21,15 @@ interface ExpenseTransaction {
 interface ReimbursementPickerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  transactionId: string;
+  /** Omit when the reimbursement doesn't exist yet (e.g. CSV import review); provide onSelect instead. */
+  transactionId?: string;
   transactionAmount: number;
   transactionDescription: string;
   transactionDate: string;
   accountId: string;
   onLinked?: () => void;
+  /** When set, selection is reported to the caller instead of linked via the API. */
+  onSelect?: (expense: ExpenseTransaction) => void;
 }
 
 export function ReimbursementPicker({
@@ -38,6 +41,7 @@ export function ReimbursementPicker({
   transactionDate,
   accountId,
   onLinked,
+  onSelect,
 }: ReimbursementPickerProps) {
   const [linkingId, setLinkingId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -69,10 +73,16 @@ export function ReimbursementPicker({
 
   const reimburse = useReimburseTransaction();
 
-  const handleSelect = async (expenseId: string) => {
-    setLinkingId(expenseId);
+  const handleSelect = async (expense: ExpenseTransaction) => {
+    if (onSelect) {
+      onSelect(expense);
+      onOpenChange(false);
+      return;
+    }
+    if (!transactionId) return;
+    setLinkingId(expense.id);
     try {
-      await reimburse.mutateAsync({ transactionId, expenseIds: [expenseId] });
+      await reimburse.mutateAsync({ transactionId, expenseIds: [expense.id] });
       onLinked?.();
       onOpenChange(false);
     } catch (err) {
@@ -103,7 +113,7 @@ export function ReimbursementPicker({
         <PickerRow
           key={expense.id}
           className="hover:bg-muted/50"
-          onClick={() => handleSelect(expense.id)}
+          onClick={() => handleSelect(expense)}
           disabled={linkingId !== null}
           loading={linkingId === expense.id}
           leading={<div className="w-4 mr-3 shrink-0" />}
