@@ -45,7 +45,9 @@ export function HeaderFilterDropdown({
 }: {
   label: string;
   options: { value: string; label: string; color?: string | null }[];
-  value: string;
+  // string = single-select; string[] = multi-select (empty array means "all").
+  // In multi mode onChange("all") clears; onChange(optValue) toggles that value.
+  value: string | string[];
   onChange: (value: string) => void;
   sortable?: boolean;
   sortBy?: string;
@@ -55,11 +57,19 @@ export function HeaderFilterDropdown({
 }) {
   const [open, setOpen] = useState(false);
   const [filterText, setFilterText] = useState("");
-  const isFiltered = value !== "all";
+  const multiple = Array.isArray(value);
+  const isFiltered = multiple ? value.length > 0 : value !== "all";
+  const isSelected = (v: string) => (multiple ? value.includes(v) : value === v);
 
   const filtered = filterText
     ? options.filter((o) => o.label.toLowerCase().includes(filterText.toLowerCase()))
     : options;
+
+  // Single-select closes on pick; multi-select stays open so you can toggle several.
+  const pick = (v: string) => {
+    onChange(v);
+    if (!multiple || v === "all") { setOpen(false); setFilterText(""); }
+  };
 
   return (
     <div className="flex items-center gap-0.5">
@@ -96,12 +106,12 @@ export function HeaderFilterDropdown({
           <div className="max-h-64 overflow-y-auto p-1">
             <button
               className={`w-full flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent transition-colors ${
-                value === "all" ? "font-medium" : ""
+                !isFiltered ? "font-medium" : ""
               }`}
-              onClick={() => { onChange("all"); setOpen(false); setFilterText(""); }}
+              onClick={() => pick("all")}
             >
               <span className="w-4 h-4 flex items-center justify-center">
-                {value === "all" && <Check className="h-3 w-3" />}
+                {!isFiltered && <Check className="h-3 w-3" />}
               </span>
               All {label}s
             </button>
@@ -109,12 +119,12 @@ export function HeaderFilterDropdown({
               <button
                 key={opt.value}
                 className={`w-full flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent transition-colors ${
-                  value === opt.value ? "font-medium" : ""
+                  isSelected(opt.value) ? "font-medium" : ""
                 }`}
-                onClick={() => { onChange(opt.value); setOpen(false); setFilterText(""); }}
+                onClick={() => pick(opt.value)}
               >
                 <span className="w-4 h-4 flex items-center justify-center">
-                  {value === opt.value && <Check className="h-3 w-3" />}
+                  {isSelected(opt.value) && <Check className="h-3 w-3" />}
                 </span>
                 {opt.color && (
                   <span

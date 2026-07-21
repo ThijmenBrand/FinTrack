@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
-import type { Account, Category } from "@/types/api";
+import type { Account, Category, Pot } from "@/types/api";
 
 export const TYPE_OPTIONS = [
   { value: "income", label: "Income" },
@@ -23,7 +23,7 @@ const PERIOD_OPTIONS = [
   { value: "last-year", label: "Last Year" },
 ];
 
-const FILTER_KEYS = ["account", "category", "type", "period"] as const;
+const FILTER_KEYS = ["account", "category", "type", "period", "pot"] as const;
 
 // Only category and type support exclusion (GitHub-style `-key:value` tokens).
 const EXCLUDE_KEYS = ["category", "type"] as const;
@@ -73,8 +73,9 @@ export function computeDateRange(period: string): { from: string; to: string } {
 interface TransactionSearchBarProps {
   search: string;
   accountFilter: string;
-  categoryFilter: string;
-  typeFilter: string;
+  categoryFilters: string[];
+  typeFilters: string[];
+  potFilter: string;
   periodFilter: string;
   dateFromOverride: string;
   dateToOverride: string;
@@ -82,9 +83,10 @@ interface TransactionSearchBarProps {
   excludeTypes: string[];
   accounts: Account[];
   categories: Category[];
+  pots: Pot[];
   distinctTypes: string[];
   onApply: (key: string, value: string) => void;
-  onRemove: (key: string) => void;
+  onRemove: (key: string, value?: string) => void;
   onApplyExclude: (key: ExcludeKey, value: string) => void;
   onRemoveExclude: (key: ExcludeKey, value: string) => void;
   onClearAll: () => void;
@@ -93,8 +95,9 @@ interface TransactionSearchBarProps {
 export function TransactionSearchBar({
   search,
   accountFilter,
-  categoryFilter,
-  typeFilter,
+  categoryFilters,
+  typeFilters,
+  potFilter,
   periodFilter,
   dateFromOverride,
   dateToOverride,
@@ -102,6 +105,7 @@ export function TransactionSearchBar({
   excludeTypes,
   accounts,
   categories,
+  pots,
   distinctTypes,
   onApply,
   onRemove,
@@ -121,13 +125,17 @@ export function TransactionSearchBar({
       const acc = accounts.find((a) => a.id === accountFilter);
       tokens.push({ key: "account", value: accountFilter, prefix: "account:", text: acc?.name || accountFilter });
     }
-    if (categoryFilter !== "all") {
-      const cat = categories.find((c) => c.id === categoryFilter);
-      tokens.push({ key: "category", value: categoryFilter, prefix: "category:", text: cat?.name || categoryFilter });
+    for (const id of categoryFilters) {
+      const cat = categories.find((c) => c.id === id);
+      tokens.push({ key: "category", value: id, prefix: "category:", text: cat?.name || id });
     }
-    if (typeFilter !== "all") {
-      const t = TYPE_OPTIONS.find((o) => o.value === typeFilter);
-      tokens.push({ key: "type", value: typeFilter, prefix: "type:", text: t?.label || typeFilter });
+    for (const t of typeFilters) {
+      const opt = TYPE_OPTIONS.find((o) => o.value === t);
+      tokens.push({ key: "type", value: t, prefix: "type:", text: opt?.label || t });
+    }
+    if (potFilter !== "all") {
+      const pot = pots.find((p) => p.id === potFilter);
+      tokens.push({ key: "pot", value: potFilter, prefix: "pot:", text: pot?.name || potFilter });
     }
     for (const id of excludeCategories) {
       const cat = categories.find((c) => c.id === id);
@@ -148,7 +156,7 @@ export function TransactionSearchBar({
       tokens.push({ key: "search", value: search, prefix: "", text: search });
     }
     return tokens;
-  }, [accountFilter, categoryFilter, typeFilter, periodFilter, dateFromOverride, dateToOverride, excludeCategories, excludeTypes, search, accounts, categories]);
+  }, [accountFilter, categoryFilters, typeFilters, potFilter, periodFilter, dateFromOverride, dateToOverride, excludeCategories, excludeTypes, search, accounts, categories, pots]);
 
   const suggestions = useMemo(() => {
     const raw = inputValue.trim();
@@ -182,6 +190,8 @@ export function TransactionSearchBar({
           options = TYPE_OPTIONS.filter((o) => distinctTypes.includes(o.value));
         } else if (key === "period") {
           options = PERIOD_OPTIONS;
+        } else if (key === "pot") {
+          options = pots.map((p) => ({ value: p.id, label: p.name }));
         }
         return options
           .filter((o) => !query || o.label.toLowerCase().includes(query))
@@ -213,7 +223,7 @@ export function TransactionSearchBar({
           ...keyMatches,
           { type: "search" as const, key: "search", exclude, label: body, description: "Search descriptions", value: body },
         ];
-  }, [inputValue, accounts, categories, distinctTypes]);
+  }, [inputValue, accounts, categories, pots, distinctTypes]);
 
   const handleSuggestionSelect = (suggestion: (typeof suggestions)[number]) => {
     if (suggestion.type === "key") {
@@ -235,7 +245,7 @@ export function TransactionSearchBar({
     if (e.key === "Backspace" && inputValue === "" && activeTokens.length > 0) {
       const lastToken = activeTokens[activeTokens.length - 1];
       if (lastToken.exclude) onRemoveExclude(lastToken.key as ExcludeKey, lastToken.value);
-      else onRemove(lastToken.key);
+      else onRemove(lastToken.key, lastToken.value);
       return;
     }
     if (e.key === "Enter") {
@@ -296,7 +306,7 @@ export function TransactionSearchBar({
               onClick={(e) => {
                 e.stopPropagation();
                 if (token.exclude) onRemoveExclude(token.key as ExcludeKey, token.value);
-                else onRemove(token.key);
+                else onRemove(token.key, token.value);
               }}
             >
               <X className="h-3 w-3" />
