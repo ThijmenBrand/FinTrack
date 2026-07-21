@@ -27,10 +27,11 @@ function isPastRange(toDate: string): boolean {
 
 interface BudgetPerformanceProps {
   data: BudgetData | null;
-  accountFiltered?: boolean;
+  /** Set when the page filters spending to specific accounts; budget caps still span all accounts. */
+  accountLabel?: string;
 }
 
-export function BudgetPerformance({ data, accountFiltered }: BudgetPerformanceProps) {
+export function BudgetPerformance({ data, accountLabel }: BudgetPerformanceProps) {
   const router = useRouter();
 
   if (!data) return null;
@@ -95,7 +96,7 @@ export function BudgetPerformance({ data, accountFiltered }: BudgetPerformancePr
               {!pastRange && (
                 <> · {daysLeft} day{daysLeft === 1 ? "" : "s"} left</>
               )}
-              {accountFiltered && <> · across all accounts</>}
+              {accountLabel && <> · spending from {accountLabel}</>}
             </CardDescription>
           </div>
         </div>

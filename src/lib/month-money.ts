@@ -8,7 +8,7 @@ import {
 } from "@/db/schema";
 import { eq, and, gte, lte, sql, inArray } from "drizzle-orm";
 import { getFinancialMonthRange } from "@/lib/financial-month";
-import { effectiveExpenseAmount } from "@/lib/reimbursement-sql";
+import { effectiveExpenseAmount, potSpentAmount } from "@/lib/reimbursement-sql";
 
 export interface MonthMoneyMath {
   monthlyIncome: number;
@@ -343,7 +343,7 @@ export async function getMonthMoneyMath(
       db
         .select({
           categoryId: transactionGroups.categoryId,
-          total: sql<number>`abs(sum(${transactions.amount}))`,
+          total: sql<number>`${potSpentAmount()}`,
         })
         .from(transactionGroups)
         .innerJoin(transactions, eq(transactions.groupId, transactionGroups.id))

@@ -16,6 +16,7 @@ interface PeriodEntry {
   key: string;
   label: string;
   expenses: number;
+  income?: number;
 }
 
 interface SpendingByPeriodProps {
@@ -90,7 +91,14 @@ export function SpendingByPeriod({
   dailyTotals,
   monthlyTotals,
 }: SpendingByPeriodProps) {
-  const [granularity, setGranularity] = useState<Granularity>("weekly");
+  // Long ranges: daily bars get too dense, so hide that tab.
+  const hideDaily = monthlyTotals.length > 3;
+  const [rawGranularity, setGranularity] = useState<Granularity>(
+    hideDaily ? "monthly" : "weekly"
+  );
+  // Render-time guard: if new data hid the daily tab while it was selected.
+  const granularity =
+    hideDaily && rawGranularity === "daily" ? "monthly" : rawGranularity;
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
 
   const entries: PeriodEntry[] = useMemo(() => {
@@ -112,7 +120,7 @@ export function SpendingByPeriod({
       ).filter((e) => e.expenses > 0);
     }
     return monthlyTotals
-      .filter((m) => m.expenses > 0)
+      .filter((m) => m.income > 0 || m.expenses > 0)
       .map((m) => ({
         key: m.month,
         label: new Date(m.month + "-01").toLocaleDateString("en-US", {
@@ -120,10 +128,15 @@ export function SpendingByPeriod({
           year: "2-digit",
         }),
         expenses: m.expenses,
+        income: m.income,
       }));
   }, [granularity, dailyTotals, monthlyTotals]);
 
-  const rawMax = entries.length > 0 ? Math.max(...entries.map((e) => e.expenses)) : 0;
+  const showIncome = granularity === "monthly";
+  const rawMax =
+    entries.length > 0
+      ? Math.max(...entries.map((e) => Math.max(e.expenses, e.income ?? 0)))
+      : 0;
   const yMax = niceMax(rawMax);
   const yTicks = useMemo(() => {
     const ticks: number[] = [];
@@ -162,7 +175,7 @@ export function SpendingByPeriod({
           onValueChange={(v) => setGranularity(v as Granularity)}
         >
           <TabsList>
-            <TabsTrigger value="daily">Daily</TabsTrigger>
+            {!hideDaily && <TabsTrigger value="daily">Daily</TabsTrigger>}
             <TabsTrigger value="weekly">Weekly</TabsTrigger>
             <TabsTrigger value="monthly">Monthly</TabsTrigger>
           </TabsList>
@@ -231,6 +244,7 @@ export function SpendingByPeriod({
                   <div className="absolute inset-0 flex items-end gap-2 px-1">
                     {entries.map((entry) => {
                       const heightPct = (entry.expenses / yMax) * 100;
+                      const incomePct = ((entry.income ?? 0) / yMax) * 100;
                       const isHovered = hoveredKey === entry.key;
                       const dimmed = hoveredKey !== null && !isHovered;
                       return (
@@ -247,30 +261,79 @@ export function SpendingByPeriod({
                             <div
                               className="pointer-events-none absolute left-1/2 -translate-x-1/2 z-20"
                               style={{
-                                bottom: `calc(${Math.max(heightPct, 0)}% + 8px)`,
+                                bottom: `calc(${Math.max(
+                                  showIncome
+                                    ? Math.max(heightPct, incomePct)
+                                    : heightPct,
+                                  0
+                                )}% + 8px)`,
                               }}
                             >
                               <div className="relative px-2.5 py-1 rounded-md bg-foreground text-background text-xs font-semibold tabular-nums whitespace-nowrap shadow-lg">
-                                {formatCurrency(entry.expenses)}
+                                {showIncome ? (
+                                  <span className="flex items-center gap-2">
+                                    <span className="text-emerald-400">
+                                      +{formatCurrency(entry.income ?? 0)}
+                                    </span>
+                                    <span className="text-red-400">
+                                      −{formatCurrency(entry.expenses)}
+                                    </span>
+                                  </span>
+                                ) : (
+                                  formatCurrency(entry.expenses)
+                                )}
                                 <div className="absolute left-1/2 top-full -translate-x-1/2 -translate-y-1/2 rotate-45 w-2 h-2 bg-foreground" />
                               </div>
                             </div>
                           )}
-                          {/* Bar */}
-                          <div
-                            className={
-                              "w-full rounded-md transition-[background-color,opacity] duration-150 " +
-                              (isHovered
-                                ? "bg-primary"
-                                : dimmed
-                                ? "bg-muted-foreground/15"
-                                : "bg-primary/30 dark:bg-primary/40")
-                            }
-                            style={{
-                              height: `${Math.max(heightPct, 0.8)}%`,
-                              minHeight: "3px",
-                            }}
-                          />
+                          {/* Bar(s) */}
+                          {showIncome ? (
+                            <div className="flex items-end gap-0.5 w-full h-full">
+                              <div
+                                className={
+                                  "flex-1 rounded-md transition-[background-color,opacity] duration-150 " +
+                                  (isHovered
+                                    ? "bg-emerald-500"
+                                    : dimmed
+                                    ? "bg-muted-foreground/15"
+                                    : "bg-emerald-500/30 dark:bg-emerald-500/40")
+                                }
+                                style={{
+                                  height: `${Math.max(incomePct, 0.8)}%`,
+                                  minHeight: "3px",
+                                }}
+                              />
+                              <div
+                                className={
+                                  "flex-1 rounded-md transition-[background-color,opacity] duration-150 " +
+                                  (isHovered
+                                    ? "bg-primary"
+                                    : dimmed
+                                    ? "bg-muted-foreground/15"
+                                    : "bg-primary/30 dark:bg-primary/40")
+                                }
+                                style={{
+                                  height: `${Math.max(heightPct, 0.8)}%`,
+                                  minHeight: "3px",
+                                }}
+                              />
+                            </div>
+                          ) : (
+                            <div
+                              className={
+                                "w-full rounded-md transition-[background-color,opacity] duration-150 " +
+                                (isHovered
+                                  ? "bg-primary"
+                                  : dimmed
+                                  ? "bg-muted-foreground/15"
+                                  : "bg-primary/30 dark:bg-primary/40")
+                              }
+                              style={{
+                                height: `${Math.max(heightPct, 0.8)}%`,
+                                minHeight: "3px",
+                              }}
+                            />
+                          )}
                         </div>
                       );
                     })}
@@ -299,6 +362,19 @@ export function SpendingByPeriod({
                 </div>
               </div>
             </div>
+          </div>
+        )}
+        {/* Legend (monthly only) */}
+        {showIncome && entries.length > 0 && (
+          <div className="flex justify-center gap-4 pt-3 text-xs text-muted-foreground">
+            <span className="flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-sm bg-emerald-500" />
+              Income
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-sm bg-primary" />
+              Expenses
+            </span>
           </div>
         )}
       </CardContent>

@@ -18,8 +18,17 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   BarChart3,
   Calendar,
+  ChevronDown,
   Landmark,
   Loader2,
 } from "lucide-react";
@@ -34,12 +43,9 @@ import {
 import { BalanceChart } from "./_components/balance-chart";
 import { SpendingByPeriod } from "./_components/spending-by-period";
 import { BudgetPerformance } from "./_components/budget-performance";
-import { Bar } from "./_components/bar";
-import { SummaryCard } from "./_components/summary-card";
-import { CategoryDistributionCard } from "./_components/category-distribution-card";
-import { MonthlyIncomeExpenseChart } from "./_components/monthly-income-expense-chart";
+import { DeltaLine, SummaryCard } from "./_components/summary-card";
+import { CategoryBreakdownCard } from "./_components/category-breakdown-card";
 import { formatCurrency, toIsoDate } from "@/lib/utils";
-import type { InsightsData } from "@/types/api";
 
 type PresetKey = "this_month" | "last_month" | "this_year" | "last_3_months" | "all" | "custom";
 
@@ -53,18 +59,21 @@ const PRESET_TO_TX_PERIOD: Partial<Record<PresetKey, string>> = {
 function getPresetRange(preset: PresetKey, startDay: number): { from: string; to: string } {
   const now = new Date();
   const y = now.getFullYear();
-  const m = now.getMonth();
 
   switch (preset) {
     case "this_month":
       return getFinancialMonthRange(now, startDay);
     case "last_month":
       return getPreviousFinancialMonth(now, startDay);
-    case "last_3_months":
-      return {
-        from: toIsoDate(new Date(y, m - 2, 1)),
-        to: toIsoDate(new Date(y, m + 1, 0)),
-      };
+    case "last_3_months": {
+      // Current financial month plus the two before it (calendar months when startDay is 1).
+      const current = getFinancialMonthRange(now, startDay);
+      const currentStart = new Date(current.from + "T00:00:00");
+      const from = toIsoDate(
+        new Date(currentStart.getFullYear(), currentStart.getMonth() - 2, currentStart.getDate()),
+      );
+      return { from, to: current.to };
+    }
     case "this_year":
       return {
         from: `${y}-01-01`,
@@ -75,6 +84,70 @@ function getPresetRange(preset: PresetKey, startDay: number): { from: string; to
       return { from: "", to: "" };
   }
 }
+
+// The preceding range of equal length, for vs-previous deltas. Null when there
+// is no meaningful previous period (All Time, incomplete custom range).
+function getPreviousRange(
+  preset: PresetKey,
+  startDay: number,
+  from: string,
+  to: string,
+): { from: string; to: string } | null {
+  const now = new Date();
+  switch (preset) {
+    case "this_month":
+      return getPreviousFinancialMonth(now, startDay);
+    case "last_month": {
+      // The financial month before last: reference a day just before last month's start.
+      const lastMonthStart = new Date(
+        getPreviousFinancialMonth(now, startDay).from + "T00:00:00",
+      );
+      lastMonthStart.setDate(lastMonthStart.getDate() - 1);
+      return getFinancialMonthRange(lastMonthStart, startDay);
+    }
+    case "last_3_months": {
+      // The 3 financial months immediately before the current 3. `from` is a
+      // financial-month start (day <= 28), so shifting 3 calendar months keeps the day.
+      const curStart = new Date(from + "T00:00:00");
+      const prevEnd = new Date(curStart);
+      prevEnd.setDate(prevEnd.getDate() - 1);
+      const prevStart = new Date(
+        curStart.getFullYear(),
+        curStart.getMonth() - 3,
+        curStart.getDate(),
+      );
+      return { from: toIsoDate(prevStart), to: toIsoDate(prevEnd) };
+    }
+    case "this_year": {
+      const y = now.getFullYear() - 1;
+      return { from: `${y}-01-01`, to: `${y}-12-31` };
+    }
+    case "custom": {
+      if (!from || !to) return null;
+      const f = new Date(from + "T00:00:00");
+      const t = new Date(to + "T00:00:00");
+      const days = Math.round((t.getTime() - f.getTime()) / 86400000) + 1;
+      if (days <= 0) return null;
+      const prevTo = new Date(f);
+      prevTo.setDate(prevTo.getDate() - 1);
+      const prevFrom = new Date(prevTo);
+      prevFrom.setDate(prevFrom.getDate() - days + 1);
+      return { from: toIsoDate(prevFrom), to: toIsoDate(prevTo) };
+    }
+    case "all":
+    default:
+      return null;
+  }
+}
+
+const DELTA_LABELS: Record<PresetKey, string | null> = {
+  this_month: "vs last month",
+  last_month: "vs previous month",
+  last_3_months: "vs previous 3 months",
+  this_year: "vs last year",
+  custom: "vs previous period",
+  all: null,
+};
 
 const VALID_PRESETS = new Set<PresetKey>([
   "this_month",
@@ -95,7 +168,20 @@ const ordinal = (n: number): string => {
   return `${n}${s[(v - 20) % 10] ?? s[v] ?? s[0]}`;
 };
 
-const ALL_ACCOUNTS = "__all__";
+// Saved account selection (per device). Empty array = all accounts.
+const ACCOUNTS_STORAGE_KEY = "insights-account-selection";
+
+function loadSavedAccountIds(): string[] | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(ACCOUNTS_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((v) => typeof v === "string") : null;
+  } catch {
+    return null;
+  }
+}
 
 export default function InsightsPage() {
   const router = useRouter();
@@ -111,23 +197,28 @@ export default function InsightsPage() {
   const [customDateTo, setCustomDateTo] = useState<string>(
     () => searchParams.get("dateTo") || "",
   );
-  const [selectedAccountId, setSelectedAccountId] = useState<string>(
-    () => searchParams.get("account") || ALL_ACCOUNTS,
-  );
+  // Empty array = all accounts. Init precedence: URL > saved selection > prefs default.
+  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>(() => {
+    const param = searchParams.get("account");
+    if (param !== null) return param.split(",").filter(Boolean);
+    return loadSavedAccountIds() ?? [];
+  });
 
-  // Apply the user's default account on first load when the URL didn't pin
-  // one. After this runs once, the user is in control of the selection — even
-  // switching to "All accounts" must not get overridden by the default.
-  const hadInitialAccountParam = useRef(searchParams.get("account") !== null);
+  // Apply the user's default account on first load when neither the URL nor a
+  // saved selection pinned one. After this runs once, the user is in control —
+  // even switching to "All accounts" must not get overridden by the default.
+  const hadInitialSelection = useRef(
+    searchParams.get("account") !== null || loadSavedAccountIds() !== null,
+  );
   const defaultApplied = useRef(false);
   useEffect(() => {
     if (defaultApplied.current) return;
     if (!prefs) return;
     defaultApplied.current = true;
-    if (hadInitialAccountParam.current) return;
+    if (hadInitialSelection.current) return;
     if (prefs.defaultAccountId) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- One-shot sync from async-loaded prefs; can't derive during render because user must still be able to override.
-      setSelectedAccountId(prefs.defaultAccountId);
+      setSelectedAccountIds([prefs.defaultAccountId]);
     }
   }, [prefs]);
 
@@ -136,29 +227,51 @@ export default function InsightsPage() {
   const dateFrom = computedRange ? computedRange.from : customDateFrom;
   const dateTo = computedRange ? computedRange.to : customDateTo;
 
-  // Sync filter state back into the URL so a back-nav restores the same view.
+  // Sync filter state back into the URL so a back-nav restores the same view,
+  // and save the account selection so the next visit starts from it.
   useEffect(() => {
     const params = new URLSearchParams();
     if (preset !== "this_month") params.set("preset", preset);
-    if (selectedAccountId !== ALL_ACCOUNTS) params.set("account", selectedAccountId);
+    if (selectedAccountIds.length > 0)
+      params.set("account", selectedAccountIds.join(","));
     if (preset === "custom") {
       if (customDateFrom) params.set("dateFrom", customDateFrom);
       if (customDateTo) params.set("dateTo", customDateTo);
     }
     const qs = params.toString();
     router.replace(qs ? `/insights?${qs}` : "/insights", { scroll: false });
-  }, [preset, selectedAccountId, customDateFrom, customDateTo, router]);
+    window.localStorage.setItem(
+      ACCOUNTS_STORAGE_KEY,
+      JSON.stringify(selectedAccountIds),
+    );
+  }, [preset, selectedAccountIds, customDateFrom, customDateTo, router]);
 
   const { data: accountsData } = useAccounts();
   const accountIdParam =
-    selectedAccountId === ALL_ACCOUNTS ? undefined : selectedAccountId;
-  const selectedAccount = accountsData?.find((a) => a.id === accountIdParam);
-  const accountLabel = selectedAccount ? selectedAccount.name : "All accounts";
+    selectedAccountIds.length > 0 ? selectedAccountIds.join(",") : undefined;
+  const accountLabel =
+    selectedAccountIds.length === 0
+      ? "All accounts"
+      : selectedAccountIds.length === 1
+        ? accountsData?.find((a) => a.id === selectedAccountIds[0])?.name ??
+          "1 account"
+        : `${selectedAccountIds.length} accounts`;
+
+  const toggleAccount = (id: string, checked: boolean) => {
+    setSelectedAccountIds((prev) =>
+      checked ? [...prev, id] : prev.filter((v) => v !== id),
+    );
+  };
+
+  const prevRange = getPreviousRange(preset, startDay, dateFrom, dateTo);
+  const deltaLabel = DELTA_LABELS[preset];
 
   const { data, isLoading } = useInsights({
     dateFrom,
     dateTo,
     accountId: accountIdParam,
+    prevDateFrom: prevRange?.from,
+    prevDateTo: prevRange?.to,
   });
   const { data: balanceData, isLoading: balanceLoading } = useBalanceTimeline({
     accountId: accountIdParam,
@@ -166,16 +279,17 @@ export default function InsightsPage() {
     dateTo: dateTo || undefined,
     forecastMonths: 3,
   });
-  // Budgets are envelope-style (PR #33): they span all accounts, so the
-  // Budget Performance card ignores the page's account filter to match the
-  // dashboard's Budget Overview. Disable the API's day-based scaling when
-  // the range is a single financial month (matches the Budgets page) so
-  // the budget total isn't pro-rated below its monthly value.
+  // Budget caps are envelope-style (PR #33) and span all accounts, but the
+  // spend side respects the page's account filter so every card reflects the
+  // same selection. Disable the API's day-based scaling when the range is a
+  // single financial month (matches the Budgets page) so the budget total
+  // isn't pro-rated below its monthly value.
   const isSingleFinancialMonth =
     preset === "this_month" || preset === "last_month";
   const { data: budgetData } = useBudgets({
     dateFrom: dateFrom || undefined,
     dateTo: dateTo || undefined,
+    accountId: accountIdParam,
     noScale: isSingleFinancialMonth,
   });
 
@@ -197,7 +311,9 @@ export default function InsightsPage() {
     for (const [k, v] of Object.entries(extra)) {
       if (v) params.set(k, v);
     }
-    if (accountIdParam) params.set("account", accountIdParam);
+    // The transactions page only filters on a single account.
+    if (selectedAccountIds.length === 1)
+      params.set("account", selectedAccountIds[0]);
     const mappedPeriod = PRESET_TO_TX_PERIOD[preset];
     // When a financial month is active, the transactions page's "this-month"/"last-month"
     // shortcut still means calendar months, so pass explicit dates instead.
@@ -228,9 +344,8 @@ export default function InsightsPage() {
   const sortedBreakdown = [...data.categoryBreakdown].sort(
     (a, b) => b.total - a.total
   );
-  const maxCatTotal =
-    sortedBreakdown.length > 0 ? sortedBreakdown[0].total : 1;
   const totalExpenses = sortedBreakdown.reduce((s, c) => s + c.total, 0);
+  const showDeltas = data.previous !== null && deltaLabel !== null;
 
   return (
     <div className="space-y-8">
@@ -248,23 +363,36 @@ export default function InsightsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <Select
-            value={selectedAccountId}
-            onValueChange={setSelectedAccountId}
-          >
-            <SelectTrigger className="w-[200px]">
-              <Landmark className="mr-2 h-4 w-4" />
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL_ACCOUNTS}>All accounts</SelectItem>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="w-[200px] justify-start font-normal">
+                <Landmark className="mr-2 h-4 w-4" />
+                <span className="flex-1 truncate text-left">{accountLabel}</span>
+                <ChevronDown className="h-4 w-4 opacity-50" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-[200px]">
+              <DropdownMenuItem
+                onSelect={(e) => {
+                  e.preventDefault();
+                  setSelectedAccountIds([]);
+                }}
+              >
+                All accounts
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               {accountsData?.map((acc) => (
-                <SelectItem key={acc.id} value={acc.id}>
+                <DropdownMenuCheckboxItem
+                  key={acc.id}
+                  checked={selectedAccountIds.includes(acc.id)}
+                  onCheckedChange={(checked) => toggleAccount(acc.id, checked)}
+                  onSelect={(e) => e.preventDefault()}
+                >
                   {acc.name}
-                </SelectItem>
+                </DropdownMenuCheckboxItem>
               ))}
-            </SelectContent>
-          </Select>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Select value={preset} onValueChange={handlePresetChange}>
             <SelectTrigger className="w-[160px]">
               <Calendar className="mr-2 h-4 w-4" />
@@ -305,11 +433,15 @@ export default function InsightsPage() {
           type="income"
           amount={data.summary.totalIncome}
           subtitle={`${data.summary.txCount} transactions in period`}
+          delta={showDeltas ? data.summary.totalIncome - data.previous!.totalIncome : null}
+          deltaLabel={deltaLabel ?? undefined}
           onClick={() => navigateToTransactions({ type: "income" })}
         />
         <SummaryCard
           type="expense"
           amount={data.summary.totalExpenses}
+          delta={showDeltas ? data.summary.totalExpenses - data.previous!.totalExpenses : null}
+          deltaLabel={deltaLabel ?? undefined}
           onClick={() => navigateToTransactions({ type: "expense" })}
         />
         <Card>
@@ -324,63 +456,25 @@ export default function InsightsPage() {
               {data.summary.net >= 0 ? "+" : ""}
               {formatCurrency(data.summary.net)}
             </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Monthly Budget Performance */}
-      <BudgetPerformance
-        data={budgetData ?? null}
-        accountFiltered={accountIdParam !== undefined}
-      />
-
-      {/* Balance Over Time */}
-      <BalanceChart
-        data={balanceData}
-        isLoading={balanceLoading}
-        accountLabel={accountLabel}
-      />
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Spending by Category - Pie-style horizontal bar */}
-        <Card className="lg:col-span-1">
-          <CardHeader>
-            <CardTitle className="text-base">Spending by Category</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {sortedBreakdown.length === 0 ? (
-              <p className="text-muted-foreground text-sm py-8 text-center">
-                No expense data for this period.
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {sortedBreakdown.map((cat) => (
-                  <Bar
-                    key={cat.categoryId || "none"}
-                    value={cat.total}
-                    maxValue={maxCatTotal}
-                    color={cat.categoryColor}
-                    label={cat.categoryName}
-                    amount={formatCurrency(cat.total)}
-                    onClick={cat.categoryId ? () => navigateToCategory(cat.categoryId) : undefined}
-                  />
-                ))}
-                <div className="border-t pt-2 mt-3 flex justify-between text-sm font-semibold">
-                  <span>Total</span>
-                  <span>{formatCurrency(totalExpenses)}</span>
-                </div>
-              </div>
+            {showDeltas && (
+              <DeltaLine
+                delta={data.summary.net - data.previous!.net}
+                label={deltaLabel!}
+                upIsGood
+              />
             )}
           </CardContent>
         </Card>
-
-        {/* Pie Chart (CSS-based) */}
-        <CategoryDistributionCard
-          sortedBreakdown={sortedBreakdown}
-          totalExpenses={totalExpenses}
-          onCategoryClick={navigateToCategory}
-        />
       </div>
+
+      {/* Category breakdown (stacked monthly chart + per-category rows) */}
+      <CategoryBreakdownCard
+        sortedBreakdown={sortedBreakdown}
+        totalExpenses={totalExpenses}
+        monthlyCategoryTotals={data.monthlyCategoryTotals}
+        previousCategoryTotals={data.previous?.categoryTotals ?? null}
+        onCategoryClick={navigateToCategory}
+      />
 
       {/* Spending by Period (daily/weekly/monthly toggle) */}
       <SpendingByPeriod
@@ -388,8 +482,14 @@ export default function InsightsPage() {
         monthlyTotals={data.monthlyTotals}
       />
 
-      {/* Monthly Income vs Expenses Bar Chart */}
-      <MonthlyIncomeExpenseChart monthlyTotals={data.monthlyTotals} />
+      {/* Monthly Budget Performance — only for single financial months; the
+          API pro-rates caps for other ranges, which misleads here. */}
+      {isSingleFinancialMonth && (
+        <BudgetPerformance
+          data={budgetData ?? null}
+          accountLabel={accountIdParam !== undefined ? accountLabel : undefined}
+        />
+      )}
 
       {/* Top Merchants */}
       <Card>
@@ -428,6 +528,13 @@ export default function InsightsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Balance Over Time */}
+      <BalanceChart
+        data={balanceData}
+        isLoading={balanceLoading}
+        accountLabel={accountLabel}
+      />
     </div>
   );
 }

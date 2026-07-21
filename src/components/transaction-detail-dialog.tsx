@@ -16,7 +16,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
-  Calendar,
   Wallet,
   Tag,
   StickyNote,
@@ -109,7 +108,7 @@ export function TransactionDetailDialog({ transaction, onOpenChange, categories,
             </Tooltip>
           </TooltipProvider>
           {tx.name && tx.description && tx.description !== tx.name && (
-            <p className="text-xs text-muted-foreground pr-6 break-words pt-0.5">
+            <p className="text-xs text-muted-foreground pr-6 break-words pt-0.5 line-clamp-2">
               {tx.description}
             </p>
           )}
@@ -128,38 +127,33 @@ export function TransactionDetailDialog({ transaction, onOpenChange, categories,
         </DialogHeader>
 
         <div className="flex flex-col items-center justify-center py-4 gap-1">
-          {hasReimbursements ? (
-            <>
-              <span className="text-3xl font-bold font-mono tracking-tight text-red-600 dark:text-red-400">
-                {formatCurrency(tx.effectiveAmount)}
-              </span>
-              <span className="text-sm text-muted-foreground line-through">
-                {formatCurrency(tx.amount)}
-              </span>
-            </>
-          ) : (
-            <span
-              className={`text-3xl font-bold font-mono tracking-tight ${
-                isTransfer || isReimbursement
-                  ? "text-muted-foreground"
-                  : tx.amount >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
-              }`}
-            >
-              {tx.amount >= 0 ? "+" : ""}
-              {formatCurrency(tx.amount)}
-            </span>
-          )}
+          {(() => {
+            const shown = hasReimbursements ? tx.effectiveAmount : tx.amount;
+            const neutral = isTransfer || isReimbursement || shown === 0;
+            const amountColor = neutral
+              ? "text-muted-foreground"
+              : shown > 0
+                ? "text-emerald-600 dark:text-emerald-400"
+                : "text-red-600 dark:text-red-400";
+            return (
+              <>
+                <span className={`text-3xl font-bold font-mono tracking-tight ${amountColor}`}>
+                  {!neutral && shown > 0 ? "+" : ""}
+                  {formatCurrency(shown)}
+                </span>
+                {hasReimbursements && (
+                  <span className="text-sm text-muted-foreground line-through">
+                    {formatCurrency(tx.amount)}
+                  </span>
+                )}
+              </>
+            );
+          })()}
         </div>
 
         <Separator />
 
         <div className="grid gap-3 text-sm">
-          <div className="flex items-center gap-3">
-            <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
-            <span className="text-muted-foreground w-20 shrink-0">Date</span>
-            <span className="font-medium">{formatDate(tx.date)}</span>
-          </div>
-
           <div className="flex items-center gap-3">
             <Wallet className="h-4 w-4 text-muted-foreground shrink-0" />
             <span className="text-muted-foreground w-20 shrink-0">Account</span>

@@ -8,6 +8,10 @@ interface SummaryCardProps {
   type: "income" | "expense";
   amount: number;
   subtitle?: string;
+  /** Current minus previous period. Null/undefined hides the delta line. */
+  delta?: number | null;
+  /** e.g. "vs last month" — rendered after the delta amount. */
+  deltaLabel?: string;
   onClick: () => void;
 }
 
@@ -26,8 +30,52 @@ const CONFIG = {
   },
 } as const;
 
+// Small "▲ €123 vs last month" line under a summary amount. `upIsGood`:
+// income/net up = emerald; expenses up = red. Near-zero deltas render as
+// "≈ same as …" in plain muted.
+export function DeltaLine({
+  delta,
+  label,
+  upIsGood,
+}: {
+  delta: number;
+  label: string;
+  upIsGood: boolean;
+}) {
+  if (Math.abs(delta) < 0.5) {
+    return (
+      <p className="text-xs text-muted-foreground mt-1">
+        ≈ same as {label.replace(/^vs /, "")}
+      </p>
+    );
+  }
+  const up = delta > 0;
+  const good = up === upIsGood;
+  return (
+    <p className="text-xs text-muted-foreground mt-1 tabular-nums">
+      <span
+        className={
+          good
+            ? "text-emerald-600 dark:text-emerald-400"
+            : "text-red-600 dark:text-red-400"
+        }
+      >
+        {up ? "▲" : "▼"} {formatCurrency(Math.abs(delta))}
+      </span>{" "}
+      {label}
+    </p>
+  );
+}
+
 // Shared Income/Expenses summary card — the two only ever differed by type/color.
-export function SummaryCard({ type, amount, subtitle, onClick }: SummaryCardProps) {
+export function SummaryCard({
+  type,
+  amount,
+  subtitle,
+  delta,
+  deltaLabel,
+  onClick,
+}: SummaryCardProps) {
   const { label, Icon, iconClass, amountClass } = CONFIG[type];
   return (
     <Card
@@ -50,6 +98,9 @@ export function SummaryCard({ type, amount, subtitle, onClick }: SummaryCardProp
         <div className={`text-2xl font-bold ${amountClass}`}>
           {formatCurrency(amount)}
         </div>
+        {delta != null && deltaLabel && (
+          <DeltaLine delta={delta} label={deltaLabel} upIsGood={type === "income"} />
+        )}
         {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
       </CardContent>
     </Card>

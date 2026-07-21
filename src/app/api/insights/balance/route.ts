@@ -6,14 +6,14 @@ import {
   recurringTransactions,
   transactionGroups,
 } from "@/db/schema";
-import { and, eq, gte, isNotNull, lte } from "drizzle-orm";
+import { and, eq, gte, inArray, isNotNull, lte } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { generateOccurrences } from "@/lib/recurring";
 
 /**
  * GET /api/insights/balance — daily balance time series for an account (or all accounts).
  * Query params:
- *  - accountId (optional): filter to a single account; if absent, aggregates all of the user's accounts
+ *  - accountId (optional): comma-separated account ids to include; if absent, aggregates all of the user's accounts
  *  - dateFrom (optional): start of historical window (ISO date). Defaults to ~6 months ago.
  *  - dateTo (optional): end of historical window (ISO date). Capped at today.
  *    When dateTo is strictly before today, the projection is omitted — the chart
@@ -29,7 +29,8 @@ import { generateOccurrences } from "@/lib/recurring";
 export async function GET(request: NextRequest) {
   return withUser(async (userId) => {
     const { searchParams } = new URL(request.url);
-    const accountId = searchParams.get("accountId");
+    const accountIds =
+      searchParams.get("accountId")?.split(",").filter(Boolean) ?? [];
     const dateFromParam = searchParams.get("dateFrom");
     const dateToParam = searchParams.get("dateTo");
     const forecastMonths = Math.min(
@@ -39,7 +40,8 @@ export async function GET(request: NextRequest) {
 
     // 1. Accounts in scope
     const acctConditions = [eq(accounts.userId, userId)];
-    if (accountId) acctConditions.push(eq(accounts.id, accountId));
+    if (accountIds.length > 0)
+      acctConditions.push(inArray(accounts.id, accountIds));
     const acctList = await db
       .select()
       .from(accounts)
@@ -58,11 +60,12 @@ export async function GET(request: NextRequest) {
       (s, a) => s + a.initialBalance,
       0
     );
-    const accountName = accountId ? acctList[0].name : null;
+    const accountName = accountIds.length === 1 ? acctList[0].name : null;
 
     // 2. Fetch all transactions for in-scope accounts
     const txConditions = [eq(transactions.userId, userId)];
-    if (accountId) txConditions.push(eq(transactions.accountId, accountId));
+    if (accountIds.length > 0)
+      txConditions.push(inArray(transactions.accountId, accountIds));
     const allTx = await db
       .select({ date: transactions.date, amount: transactions.amount })
       .from(transactions)
@@ -140,9 +143,9 @@ export async function GET(request: NextRequest) {
         eq(recurringTransactions.userId, userId),
         eq(recurringTransactions.isActive, true),
       ];
-      if (accountId) {
+      if (accountIds.length > 0) {
         recurringConditions.push(
-          eq(recurringTransactions.accountId, accountId)
+          inArray(recurringTransactions.accountId, accountIds)
         );
       }
       const recurring = await db
@@ -180,7 +183,7 @@ export async function GET(request: NextRequest) {
 
       // Spikes (transaction groups with target dates) — only when no account filter,
       // since spikes aren't bound to a specific account.
-      if (!accountId) {
+      if (accountIds.length === 0) {
         const forecastFromIso = forecastFrom.toISOString().slice(0, 10);
         const forecastToIso = forecastTo.toISOString().slice(0, 10);
         const spikes = await db

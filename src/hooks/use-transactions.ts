@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import type { Transaction, Pagination, Category } from "@/types/api";
 
@@ -10,6 +10,8 @@ interface TransactionFilters {
   search?: string;
   accountId?: string;
   categoryId?: string;
+  excludeCategoryIds?: string[];
+  excludeTypes?: string[];
   type?: string;
   dateFrom?: string;
   dateTo?: string;
@@ -32,6 +34,8 @@ export function useTransactions(filters: TransactionFilters) {
   if (filters.search) params.set("search", filters.search);
   if (filters.accountId) params.set("accountId", filters.accountId);
   if (filters.categoryId) params.set("categoryId", filters.categoryId);
+  filters.excludeCategoryIds?.forEach((id) => params.append("excludeCategory", id));
+  filters.excludeTypes?.forEach((t) => params.append("excludeType", t));
   if (filters.type) params.set("type", filters.type);
   if (filters.dateFrom) params.set("dateFrom", filters.dateFrom);
   if (filters.dateTo) params.set("dateTo", filters.dateTo);
@@ -41,6 +45,9 @@ export function useTransactions(filters: TransactionFilters) {
     queryKey: ["transactions", filters],
     queryFn: () => apiFetch<TransactionsResponse>(`/api/transactions?${params}`),
     staleTime: 15 * 1000,
+    // Keep the current page's rows on screen while the next page loads instead
+    // of collapsing to a skeleton on every page/filter change.
+    placeholderData: keepPreviousData,
   });
 }
 

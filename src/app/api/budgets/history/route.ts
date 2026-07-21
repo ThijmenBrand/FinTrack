@@ -3,7 +3,7 @@ import { db } from "@/db";
 import { budgets, categories, transactions, transactionGroups } from "@/db/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
-import { effectiveExpenseAmount } from "@/lib/reimbursement-sql";
+import { effectiveExpenseAmount, potSpentAmount } from "@/lib/reimbursement-sql";
 
 export async function GET(request: NextRequest) {
   return withUser(async (userId) => {
@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
     const potMonthlySpending = await db
       .select({
         month: sql<string>`substr(${transactions.date}, 1, 7)`,
-        potTotal: sql<number>`abs(sum(${transactions.amount}))`,
+        potTotal: sql<number>`${potSpentAmount()}`,
         potId: transactionGroups.id,
       })
       .from(transactionGroups)
