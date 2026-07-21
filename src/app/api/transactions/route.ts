@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { transactions, accounts, categories } from "@/db/schema";
-import { eq, desc, asc, and, gte, lte, like, or, sql } from "drizzle-orm";
+import { eq, desc, asc, and, gte, lte, like, or, sql, notInArray, isNull } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
 
@@ -22,6 +22,8 @@ export async function GET(request: NextRequest) {
     const dateFrom = searchParams.get("dateFrom");
     const dateTo = searchParams.get("dateTo");
     const categoryId = searchParams.get("categoryId");
+    const excludeCategoryIds = searchParams.getAll("excludeCategory").filter(Boolean);
+    const excludeTypes = searchParams.getAll("excludeType").filter(Boolean);
     const uncategorized = searchParams.get("uncategorized");
     const reimbursesExpenseId = searchParams.get("reimbursesExpenseId");
     const nearDate = searchParams.get("nearDate");
@@ -57,6 +59,18 @@ export async function GET(request: NextRequest) {
       conditions.push(sql`${transactions.categoryId} IS NULL`);
     } else if (categoryId) {
       conditions.push(eq(transactions.categoryId, categoryId));
+    }
+    // Exclusions: keep uncategorized rows visible when excluding categories.
+    if (excludeCategoryIds.length) {
+      conditions.push(
+        or(isNull(transactions.categoryId), notInArray(transactions.categoryId, excludeCategoryIds))!
+      );
+    }
+    if (excludeTypes.length) {
+      if (excludeTypes.some((t) => !VALID_TX_TYPES.includes(t as TxType))) {
+        return NextResponse.json({ error: "Invalid type" }, { status: 400 });
+      }
+      conditions.push(notInArray(transactions.type, excludeTypes as TxType[]));
     }
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;

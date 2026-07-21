@@ -24,12 +24,17 @@ const PERIOD_OPTIONS = [
 ];
 
 const FILTER_KEYS = ["account", "category", "type", "period"] as const;
-type FilterKey = (typeof FILTER_KEYS)[number];
+
+// Only category and type support exclusion (GitHub-style `-key:value` tokens).
+const EXCLUDE_KEYS = ["category", "type"] as const;
+type ExcludeKey = (typeof EXCLUDE_KEYS)[number];
 
 interface FilterToken {
   key: string;
   value: string;
-  label: string;
+  prefix: string; // "" for free-text search, else "account:", "-type:", etc.
+  text: string; // displayed value / search text
+  exclude?: boolean;
 }
 
 export function computeDateRange(period: string): { from: string; to: string } {
@@ -73,11 +78,15 @@ interface TransactionSearchBarProps {
   periodFilter: string;
   dateFromOverride: string;
   dateToOverride: string;
+  excludeCategories: string[];
+  excludeTypes: string[];
   accounts: Account[];
   categories: Category[];
   distinctTypes: string[];
   onApply: (key: string, value: string) => void;
   onRemove: (key: string) => void;
+  onApplyExclude: (key: ExcludeKey, value: string) => void;
+  onRemoveExclude: (key: ExcludeKey, value: string) => void;
   onClearAll: () => void;
 }
 
@@ -89,11 +98,15 @@ export function TransactionSearchBar({
   periodFilter,
   dateFromOverride,
   dateToOverride,
+  excludeCategories,
+  excludeTypes,
   accounts,
   categories,
   distinctTypes,
   onApply,
   onRemove,
+  onApplyExclude,
+  onRemoveExclude,
   onClearAll,
 }: TransactionSearchBarProps) {
   const [inputValue, setInputValue] = useState("");
@@ -106,45 +119,60 @@ export function TransactionSearchBar({
     const tokens: FilterToken[] = [];
     if (accountFilter !== "all") {
       const acc = accounts.find((a) => a.id === accountFilter);
-      tokens.push({ key: "account", value: accountFilter, label: `account:${acc?.name || accountFilter}` });
+      tokens.push({ key: "account", value: accountFilter, prefix: "account:", text: acc?.name || accountFilter });
     }
     if (categoryFilter !== "all") {
       const cat = categories.find((c) => c.id === categoryFilter);
-      tokens.push({ key: "category", value: categoryFilter, label: `category:${cat?.name || categoryFilter}` });
+      tokens.push({ key: "category", value: categoryFilter, prefix: "category:", text: cat?.name || categoryFilter });
     }
     if (typeFilter !== "all") {
       const t = TYPE_OPTIONS.find((o) => o.value === typeFilter);
-      tokens.push({ key: "type", value: typeFilter, label: `type:${t?.label || typeFilter}` });
+      tokens.push({ key: "type", value: typeFilter, prefix: "type:", text: t?.label || typeFilter });
+    }
+    for (const id of excludeCategories) {
+      const cat = categories.find((c) => c.id === id);
+      tokens.push({ key: "category", value: id, prefix: "-category:", text: cat?.name || id, exclude: true });
+    }
+    for (const t of excludeTypes) {
+      const opt = TYPE_OPTIONS.find((o) => o.value === t);
+      tokens.push({ key: "type", value: t, prefix: "-type:", text: opt?.label || t, exclude: true });
     }
     if (dateFromOverride || dateToOverride) {
       const parts = [dateFromOverride && formatDate(dateFromOverride), dateToOverride && formatDate(dateToOverride)].filter(Boolean);
-      tokens.push({ key: "period", value: "custom", label: `period:${parts.join(" — ")}` });
+      tokens.push({ key: "period", value: "custom", prefix: "period:", text: parts.join(" — ") });
     } else if (periodFilter !== "all") {
       const p = PERIOD_OPTIONS.find((o) => o.value === periodFilter);
-      tokens.push({ key: "period", value: periodFilter, label: `period:${p?.label || periodFilter}` });
+      tokens.push({ key: "period", value: periodFilter, prefix: "period:", text: p?.label || periodFilter });
     }
     if (search) {
-      tokens.push({ key: "search", value: search, label: search });
+      tokens.push({ key: "search", value: search, prefix: "", text: search });
     }
     return tokens;
-  }, [accountFilter, categoryFilter, typeFilter, periodFilter, dateFromOverride, dateToOverride, search, accounts, categories]);
+  }, [accountFilter, categoryFilter, typeFilter, periodFilter, dateFromOverride, dateToOverride, excludeCategories, excludeTypes, search, accounts, categories]);
 
   const suggestions = useMemo(() => {
-    const val = inputValue.trim().toLowerCase();
-    if (!val) {
-      return FILTER_KEYS.map((k) => ({
+    const raw = inputValue.trim();
+    const exclude = raw.startsWith("-");
+    const body = (exclude ? raw.slice(1) : raw).toLowerCase();
+    const keys: readonly string[] = exclude ? EXCLUDE_KEYS : FILTER_KEYS;
+    const prefix = exclude ? "-" : "";
+    const verb = exclude ? "Exclude" : "Filter";
+
+    if (!body) {
+      return keys.map((k) => ({
         type: "key" as const,
         key: k,
-        label: `${k}:`,
-        description: k === "account" ? "Filter by account" : k === "category" ? "Filter by category" : k === "type" ? "Filter by type" : "Filter by time period",
+        exclude,
+        label: `${prefix}${k}:`,
+        description: `${verb} by ${k === "period" ? "time period" : k}`,
       }));
     }
 
-    const colonIdx = val.indexOf(":");
+    const colonIdx = body.indexOf(":");
     if (colonIdx !== -1) {
-      const key = val.slice(0, colonIdx) as FilterKey;
-      const query = val.slice(colonIdx + 1);
-      if (FILTER_KEYS.includes(key)) {
+      const key = body.slice(0, colonIdx);
+      const query = body.slice(colonIdx + 1);
+      if (keys.includes(key)) {
         let options: { value: string; label: string }[] = [];
         if (key === "account") {
           options = accounts.map((a) => ({ value: a.id, label: a.name }));
@@ -161,35 +189,41 @@ export function TransactionSearchBar({
             type: "value" as const,
             key,
             value: o.value,
-            label: `${key}:${o.label}`,
+            exclude,
+            label: `${prefix}${key}:${o.label}`,
             description: "",
           }));
       }
     }
 
-    const keyMatches = FILTER_KEYS
-      .filter((k) => k.startsWith(val))
+    const keyMatches = keys
+      .filter((k) => k.startsWith(body))
       .map((k) => ({
         type: "key" as const,
         key: k,
-        label: `${k}:`,
-        description: `Filter by ${k}`,
+        exclude,
+        label: `${prefix}${k}:`,
+        description: `${verb} by ${k}`,
       }));
 
-    return [
-      ...keyMatches,
-      { type: "search" as const, key: "search", label: val, description: "Search descriptions", value: val },
-    ];
+    // Free-text search only applies to inclusive input.
+    return exclude
+      ? keyMatches
+      : [
+          ...keyMatches,
+          { type: "search" as const, key: "search", exclude, label: body, description: "Search descriptions", value: body },
+        ];
   }, [inputValue, accounts, categories, distinctTypes]);
 
   const handleSuggestionSelect = (suggestion: (typeof suggestions)[number]) => {
     if (suggestion.type === "key") {
-      setInputValue(`${suggestion.key}:`);
+      setInputValue(`${suggestion.exclude ? "-" : ""}${suggestion.key}:`);
       inputRef.current?.focus();
       return;
     }
     if (suggestion.type === "value" && "value" in suggestion) {
-      onApply(suggestion.key, suggestion.value!);
+      if (suggestion.exclude) onApplyExclude(suggestion.key as ExcludeKey, suggestion.value!);
+      else onApply(suggestion.key, suggestion.value!);
     } else if (suggestion.type === "search") {
       onApply("search", inputValue.trim());
     }
@@ -200,7 +234,8 @@ export function TransactionSearchBar({
   const handleInputKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Backspace" && inputValue === "" && activeTokens.length > 0) {
       const lastToken = activeTokens[activeTokens.length - 1];
-      onRemove(lastToken.key);
+      if (lastToken.exclude) onRemoveExclude(lastToken.key as ExcludeKey, lastToken.value);
+      else onRemove(lastToken.key);
       return;
     }
     if (e.key === "Enter") {
@@ -250,17 +285,18 @@ export function TransactionSearchBar({
         <Search className="h-4 w-4 text-muted-foreground shrink-0" />
         {activeTokens.map((token) => (
           <Badge
-            key={token.key}
+            key={`${token.prefix}${token.value}`}
             variant="secondary"
             className="gap-1 pl-2 pr-1 py-0.5 text-xs font-mono shrink-0"
           >
-            <span className="text-muted-foreground">{token.key === "search" ? "" : `${token.key}:`}</span>
-            <span>{token.key === "search" ? token.label : token.label.split(":")[1]}</span>
+            <span className={token.exclude ? "text-destructive" : "text-muted-foreground"}>{token.prefix}</span>
+            <span>{token.text}</span>
             <button
               className="ml-0.5 rounded-sm hover:bg-muted-foreground/20 p-0.5"
               onClick={(e) => {
                 e.stopPropagation();
-                onRemove(token.key);
+                if (token.exclude) onRemoveExclude(token.key as ExcludeKey, token.value);
+                else onRemove(token.key);
               }}
             >
               <X className="h-3 w-3" />

@@ -90,6 +90,8 @@ function TransactionsPage() {
   const [search, setSearch] = useState(searchParams.get("search") || "");
   const [accountFilter, setAccountFilter] = useState(searchParams.get("account") || "all");
   const [categoryFilter, setCategoryFilter] = useState(searchParams.get("category") || "all");
+  const [excludeCategories, setExcludeCategories] = useState<string[]>(() => searchParams.getAll("excludeCategory"));
+  const [excludeTypes, setExcludeTypes] = useState<string[]>(() => searchParams.getAll("excludeType"));
   const [typeFilter, setTypeFilter] = useState(searchParams.get("type") || "all");
   const [periodFilter, setPeriodFilter] = useState(searchParams.get("period") || "all");
   const [dateFromOverride, setDateFromOverride] = useState(searchParams.get("dateFrom") || "");
@@ -104,6 +106,8 @@ function TransactionsPage() {
     periodFilter !== "all" ||
     !!dateFromOverride ||
     !!dateToOverride ||
+    excludeCategories.length > 0 ||
+    excludeTypes.length > 0 ||
     !!search;
 
   // Sync filters to URL
@@ -116,12 +120,14 @@ function TransactionsPage() {
     if (periodFilter !== "all") params.set("period", periodFilter);
     if (dateFromOverride) params.set("dateFrom", dateFromOverride);
     if (dateToOverride) params.set("dateTo", dateToOverride);
+    excludeCategories.forEach((id) => params.append("excludeCategory", id));
+    excludeTypes.forEach((t) => params.append("excludeType", t));
     if (sortBy !== "date") params.set("sortBy", sortBy);
     if (sortOrder !== "desc") params.set("sortOrder", sortOrder);
     const qs = params.toString();
     const newUrl = qs ? `/transactions?${qs}` : "/transactions";
     router.replace(newUrl, { scroll: false });
-  }, [search, accountFilter, categoryFilter, typeFilter, periodFilter, dateFromOverride, dateToOverride, sortBy, sortOrder, router]);
+  }, [search, accountFilter, categoryFilter, typeFilter, periodFilter, dateFromOverride, dateToOverride, excludeCategories, excludeTypes, sortBy, sortOrder, router]);
 
   // Compute dateFrom/dateTo — URL overrides win over period preset
   const { from: dateFrom, to: dateTo } = useMemo(() => {
@@ -132,7 +138,7 @@ function TransactionsPage() {
   }, [periodFilter, dateFromOverride, dateToOverride]);
 
   // Transaction data via React Query
-  const { data: txData, isLoading: loading } = useTransactions({
+  const { data: txData, isLoading: loading, isPlaceholderData: fetching } = useTransactions({
     page: pagination.page,
     limit: pagination.limit,
     sortBy,
@@ -140,6 +146,8 @@ function TransactionsPage() {
     search: search || undefined,
     accountId: accountFilter !== "all" ? accountFilter : undefined,
     categoryId: categoryFilter !== "all" ? categoryFilter : undefined,
+    excludeCategoryIds: excludeCategories.length ? excludeCategories : undefined,
+    excludeTypes: excludeTypes.length ? excludeTypes : undefined,
     type: typeFilter !== "all" ? typeFilter : undefined,
     dateFrom: dateFrom || undefined,
     dateTo: dateTo || undefined,
@@ -187,6 +195,18 @@ function TransactionsPage() {
     setPagination((p) => ({ ...p, page: 1 }));
   };
 
+  const applyExclude = (key: "category" | "type", value: string) => {
+    const setter = key === "category" ? setExcludeCategories : setExcludeTypes;
+    setter((prev) => (prev.includes(value) ? prev : [...prev, value]));
+    setPagination((p) => ({ ...p, page: 1 }));
+  };
+
+  const removeExclude = (key: "category" | "type", value: string) => {
+    const setter = key === "category" ? setExcludeCategories : setExcludeTypes;
+    setter((prev) => prev.filter((v) => v !== value));
+    setPagination((p) => ({ ...p, page: 1 }));
+  };
+
   const clearAllFilters = () => {
     setAccountFilter("all");
     setCategoryFilter("all");
@@ -194,6 +214,8 @@ function TransactionsPage() {
     setPeriodFilter("all");
     setDateFromOverride("");
     setDateToOverride("");
+    setExcludeCategories([]);
+    setExcludeTypes([]);
     setSearch("");
     setPagination((p) => ({ ...p, page: 1 }));
   };
@@ -404,11 +426,15 @@ function TransactionsPage() {
         periodFilter={periodFilter}
         dateFromOverride={dateFromOverride}
         dateToOverride={dateToOverride}
+        excludeCategories={excludeCategories}
+        excludeTypes={excludeTypes}
         accounts={accounts}
         categories={categories}
         distinctTypes={distinctTypes}
         onApply={applyFilter}
         onRemove={removeFilter}
+        onApplyExclude={applyExclude}
+        onRemoveExclude={removeExclude}
         onClearAll={clearAllFilters}
       />
 
@@ -462,6 +488,7 @@ function TransactionsPage() {
         pagination={pagination}
         setPagination={setPagination}
         loading={loading}
+        fetching={fetching}
         rowCount={transactions.length}
         hasActiveFilters={hasActiveFilters}
         onClearFilters={clearAllFilters}

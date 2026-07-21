@@ -346,12 +346,29 @@ export interface InsightsData {
     income: number;
     expenses: number;
   }[];
+  /** Month × category expense matrix (pot spending included, cells clamped at 0). */
+  monthlyCategoryTotals: {
+    month: string;
+    categoryId: string | null;
+    total: number;
+  }[];
   summary: {
     totalIncome: number;
     totalExpenses: number;
     net: number;
     txCount: number;
   };
+  /**
+   * Totals for the preceding period of equal length (for vs-previous deltas).
+   * Null when the request doesn't include a previous range (e.g. All Time).
+   * categoryTotals keys are categoryId, or "none" for uncategorized.
+   */
+  previous: {
+    totalIncome: number;
+    totalExpenses: number;
+    net: number;
+    categoryTotals: Record<string, number>;
+  } | null;
   topMerchants: {
     description: string;
     total: number;

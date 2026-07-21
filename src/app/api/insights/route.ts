@@ -1,160 +1,253 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { transactions, categories, transactionGroups } from "@/db/schema";
-import { eq, and, gte, lte, sql, inArray } from "drizzle-orm";
+import { eq, and, gte, lte, sql, inArray, type SQL } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
-import { effectiveExpenseAmount } from "@/lib/reimbursement-sql";
+import { effectiveExpenseAmount, potSpentAmount } from "@/lib/reimbursement-sql";
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
  * GET /api/insights — aggregated spending data for charts
- * Query params: dateFrom, dateTo
+ * Query params: dateFrom, dateTo, accountId, prevDateFrom, prevDateTo
  * Returns:
- *  - categoryBreakdown: spending per category (for pie chart)
- *  - dailyTotals: income/expense per day (for bar chart)
- *  - monthlyTotals: income/expense per month (for trend chart)
- *  - summary: total income, total expenses, net
+ *  - categoryBreakdown: spending per category incl. pot spend (for pie chart)
+ *  - dailyTotals / monthlyTotals: income/expense per day/month, pot spend included
+ *  - monthlyCategoryTotals: month × category expense matrix (for stacked chart)
+ *  - summary: total income, total expenses, net, txCount
+ *  - previous: same totals for the preceding range (null unless prevDateFrom+prevDateTo given)
+ *  - topMerchants: top 10 by reimbursement-adjusted spend
  */
 export async function GET(request: NextRequest) {
   return withUser(async (userId) => {
     const { searchParams } = new URL(request.url);
     const dateFrom = searchParams.get("dateFrom");
     const dateTo = searchParams.get("dateTo");
-    const accountId = searchParams.get("accountId");
+    const prevDateFrom = searchParams.get("prevDateFrom");
+    const prevDateTo = searchParams.get("prevDateTo");
+    // accountId may be a comma-separated list of account ids
+    const accountIds =
+      searchParams.get("accountId")?.split(",").filter(Boolean) ?? [];
 
-    // Build date conditions
-    const conditions = [eq(transactions.userId, userId)];
-    if (dateFrom) conditions.push(gte(transactions.date, dateFrom));
-    if (dateTo) conditions.push(lte(transactions.date, dateTo));
-    if (accountId) conditions.push(eq(transactions.accountId, accountId));
-
-    const dateWhere =
-      conditions.length > 0 ? and(...conditions) : undefined;
-
-    // 1. Category breakdown (expenses only, excluding internal transfers, effective amounts)
-    const catBreakdown = await db
-      .select({
-        categoryId: transactions.categoryId,
-        categoryName: categories.name,
-        categoryColor: categories.color,
-        total: sql<number>`sum(
-          ${effectiveExpenseAmount()}
-        )`,
-        count: sql<number>`count(*)`,
-      })
-      .from(transactions)
-      .leftJoin(categories, eq(transactions.categoryId, categories.id))
-      .where(
-        and(
-          eq(transactions.userId, userId),
-          eq(transactions.type, "expense"),
-          sql`${transactions.groupId} IS NULL`,
-          ...conditions
-        )
-      )
-      .groupBy(transactions.categoryId);
-
-    // 2. Daily totals (exclude reimbursements from income, grouped, use effective expense amounts)
-    const dailyTotals = await db
-      .select({
-        date: transactions.date,
-        income: sql<number>`sum(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END)`,
-        expenses: sql<number>`sum(CASE WHEN ${transactions.type} = 'expense' THEN (
-          ${effectiveExpenseAmount()}
-        ) ELSE 0 END)`,
-      })
-      .from(transactions)
-      .where(and(eq(transactions.userId, userId), sql`${transactions.groupId} IS NULL`, dateWhere))
-      .groupBy(transactions.date)
-      .orderBy(transactions.date);
-
-    // 3. Monthly totals (exclude reimbursements from income, grouped, use effective expense amounts)
-    const monthlyTotals = await db
-      .select({
-        month: sql<string>`substr(${transactions.date}, 1, 7)`,
-        income: sql<number>`sum(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END)`,
-        expenses: sql<number>`sum(CASE WHEN ${transactions.type} = 'expense' THEN (
-          ${effectiveExpenseAmount()}
-        ) ELSE 0 END)`,
-      })
-      .from(transactions)
-      .where(and(eq(transactions.userId, userId), sql`${transactions.groupId} IS NULL`, dateWhere))
-      .groupBy(sql`substr(${transactions.date}, 1, 7)`)
-      .orderBy(sql`substr(${transactions.date}, 1, 7)`);
-
-    // 4. Summary (exclude reimbursements from income, grouped, use effective expense amounts)
-    const summaryResult = await db
-      .select({
-        totalIncome: sql<number>`sum(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END)`,
-        totalExpenses: sql<number>`sum(CASE WHEN ${transactions.type} = 'expense' THEN (
-          ${effectiveExpenseAmount()}
-        ) ELSE 0 END)`,
-        txCount: sql<number>`count(*)`,
-      })
-      .from(transactions)
-      .where(and(eq(transactions.userId, userId), sql`${transactions.groupId} IS NULL`, dateWhere));
-
-    const summary = summaryResult[0] || {
-      totalIncome: 0,
-      totalExpenses: 0,
-      txCount: 0,
+    const buildConditions = (from: string | null, to: string | null) => {
+      const conds: SQL[] = [eq(transactions.userId, userId)];
+      if (from) conds.push(gte(transactions.date, from));
+      if (to) conds.push(lte(transactions.date, to));
+      if (accountIds.length > 0)
+        conds.push(inArray(transactions.accountId, accountIds));
+      return conds;
     };
 
-    // 5. Top merchants (by spending, excluding internal transfers, effective amounts)
+    // Direct (ungrouped) income/expense totals for a range. txCount only
+    // counts real money movement (income/expense), not reimbursements etc.
+    const directSummary = async (conds: SQL[]) => {
+      const [row] = await db
+        .select({
+          totalIncome: sql<number>`sum(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END)`,
+          totalExpenses: sql<number>`sum(CASE WHEN ${transactions.type} = 'expense' THEN (
+            ${effectiveExpenseAmount()}
+          ) ELSE 0 END)`,
+          txCount: sql<number>`count(CASE WHEN ${transactions.type} IN ('income', 'expense') THEN 1 END)`,
+        })
+        .from(transactions)
+        .where(and(sql`${transactions.groupId} IS NULL`, ...conds));
+      return {
+        totalIncome: row?.totalIncome ?? 0,
+        totalExpenses: row?.totalExpenses ?? 0,
+        txCount: row?.txCount ?? 0,
+      };
+    };
+
+    // Direct (ungrouped) expenses per category, reimbursement-adjusted.
+    const directCategoryExpenses = (conds: SQL[]) =>
+      db
+        .select({
+          categoryId: transactions.categoryId,
+          total: sql<number>`sum(${effectiveExpenseAmount()})`,
+          count: sql<number>`count(*)`,
+        })
+        .from(transactions)
+        .where(
+          and(
+            eq(transactions.type, "expense"),
+            sql`${transactions.groupId} IS NULL`,
+            ...conds,
+          ),
+        )
+        .groupBy(transactions.categoryId);
+
+    // Pot (transaction-group) spending per pot over a range: net spend floored
+    // at 0 per pot (mirrors /api/budgets). Reserved deposits and internal
+    // transfers don't count as spending. categoryId may be null — uncategorized
+    // pot spend still counts.
+    const potSpendingPerPot = (conds: SQL[]) =>
+      db
+        .select({
+          categoryId: transactionGroups.categoryId,
+          potTotal: sql<number>`${potSpentAmount()}`,
+        })
+        .from(transactionGroups)
+        .innerJoin(transactions, eq(transactions.groupId, transactionGroups.id))
+        .where(
+          and(
+            sql`${transactions.type} NOT IN ('reserved', 'internal_transfer')`,
+            ...conds,
+          ),
+        )
+        .groupBy(transactionGroups.id, transactionGroups.categoryId);
+
+    const conditions = buildConditions(dateFrom, dateTo);
+
+    const [summary, catBreakdown, potSpendingRows] = await Promise.all([
+      directSummary(conditions),
+      directCategoryExpenses(conditions),
+      potSpendingPerPot(conditions),
+    ]);
+
+    // Daily totals: direct rows plus pot activity per date. Pot deltas are
+    // SIGNED (not floored): refunds/reimbursements inside pots reduce that
+    // day's spend so month sums reconcile with the range-level summary (which
+    // floors per pot over the whole range). Deliberate edge: a pot that nets
+    // positive over the range floors to 0 in the summary but nets negative in
+    // the time series — rare and accepted.
+    const [directDaily, potDaily] = await Promise.all([
+      db
+        .select({
+          date: transactions.date,
+          income: sql<number>`sum(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END)`,
+          expenses: sql<number>`sum(CASE WHEN ${transactions.type} = 'expense' THEN (
+            ${effectiveExpenseAmount()}
+          ) ELSE 0 END)`,
+        })
+        .from(transactions)
+        .where(and(sql`${transactions.groupId} IS NULL`, ...conditions))
+        .groupBy(transactions.date),
+      db
+        .select({
+          date: transactions.date,
+          delta: sql<number>`-sum(${transactions.amount})`,
+        })
+        .from(transactionGroups)
+        .innerJoin(transactions, eq(transactions.groupId, transactionGroups.id))
+        .where(
+          and(
+            sql`${transactions.type} NOT IN ('reserved', 'internal_transfer')`,
+            ...conditions,
+          ),
+        )
+        .groupBy(transactions.date),
+    ]);
+
+    const dailyByDate = new Map(directDaily.map((d) => [d.date, { ...d }]));
+    for (const p of potDaily) {
+      const entry = dailyByDate.get(p.date) ?? {
+        date: p.date,
+        income: 0,
+        expenses: 0,
+      };
+      entry.expenses += p.delta ?? 0;
+      dailyByDate.set(p.date, entry);
+    }
+    const dailyTotals = [...dailyByDate.values()].sort((a, b) =>
+      a.date.localeCompare(b.date),
+    );
+
+    // Monthly totals derived from the merged dailies so they reconcile.
+    const monthlyMap = new Map<
+      string,
+      { month: string; income: number; expenses: number }
+    >();
+    for (const d of dailyTotals) {
+      const month = d.date.slice(0, 7);
+      const m = monthlyMap.get(month) ?? { month, income: 0, expenses: 0 };
+      m.income += d.income;
+      m.expenses += d.expenses;
+      monthlyMap.set(month, m);
+    }
+    const monthlyTotals = [...monthlyMap.values()];
+
+    // Month × category expense matrix: direct effective expenses plus signed
+    // pot spend, merged in JS, each (month, category) cell clamped at 0.
+    const [directMonthlyCat, potMonthlyCat] = await Promise.all([
+      db
+        .select({
+          month: sql<string>`substr(${transactions.date}, 1, 7)`,
+          categoryId: transactions.categoryId,
+          total: sql<number>`sum(${effectiveExpenseAmount()})`,
+        })
+        .from(transactions)
+        .where(
+          and(
+            eq(transactions.type, "expense"),
+            sql`${transactions.groupId} IS NULL`,
+            ...conditions,
+          ),
+        )
+        .groupBy(
+          sql`substr(${transactions.date}, 1, 7)`,
+          transactions.categoryId,
+        ),
+      db
+        .select({
+          month: sql<string>`substr(${transactions.date}, 1, 7)`,
+          categoryId: transactionGroups.categoryId,
+          total: sql<number>`-sum(${transactions.amount})`,
+        })
+        .from(transactionGroups)
+        .innerJoin(transactions, eq(transactions.groupId, transactionGroups.id))
+        .where(
+          and(
+            sql`${transactions.type} NOT IN ('reserved', 'internal_transfer')`,
+            ...conditions,
+          ),
+        )
+        .groupBy(
+          sql`substr(${transactions.date}, 1, 7)`,
+          transactionGroups.categoryId,
+        ),
+    ]);
+
+    const monthCatMap = new Map<
+      string,
+      { month: string; categoryId: string | null; total: number }
+    >();
+    for (const row of [...directMonthlyCat, ...potMonthlyCat]) {
+      const key = `${row.month}|${row.categoryId ?? ""}`;
+      const cell = monthCatMap.get(key) ?? {
+        month: row.month,
+        categoryId: row.categoryId,
+        total: 0,
+      };
+      cell.total += row.total ?? 0;
+      monthCatMap.set(key, cell);
+    }
+    const monthlyCategoryTotals = [...monthCatMap.values()]
+      .map((c) => ({ ...c, total: Math.max(c.total, 0) }))
+      .filter((c) => c.total > 0)
+      .sort((a, b) => a.month.localeCompare(b.month));
+
+    // Top merchants by reimbursement-adjusted spend, grouped
+    // case/whitespace-insensitively on description.
     const topMerchants = await db
       .select({
-        description: transactions.description,
-        total: sql<number>`sum(
-          ${effectiveExpenseAmount()}
-        )`,
+        description: sql<string>`MIN(${transactions.description})`,
+        total: sql<number>`sum(${effectiveExpenseAmount()})`,
         count: sql<number>`count(*)`,
       })
       .from(transactions)
-      .leftJoin(categories, eq(transactions.categoryId, categories.id))
       .where(
         and(
-          eq(transactions.userId, userId),
           eq(transactions.type, "expense"),
           sql`${transactions.groupId} IS NULL`,
-          ...conditions
-        )
-      )
-      .groupBy(transactions.description)
-      .orderBy(sql`sum(abs(${transactions.amount})) DESC`)
-      .limit(10);
-
-    // Pot (transaction-group) spending per category. Mirrors /api/budgets so
-    // the Expenses card and Budget Performance reflect the same period spend.
-    // Reserved deposits and internal transfers don't count as spending.
-    const potSpendingRows = await db
-      .select({
-        categoryId: transactionGroups.categoryId,
-        potTotal: sql<number>`abs(sum(${transactions.amount}))`,
-      })
-      .from(transactionGroups)
-      .innerJoin(transactions, eq(transactions.groupId, transactionGroups.id))
-      .where(
-        and(
-          sql`${transactionGroups.categoryId} IS NOT NULL`,
-          sql`${transactions.type} NOT IN ('reserved', 'internal_transfer')`,
-          dateWhere,
+          ...conditions,
         ),
       )
-      .groupBy(transactionGroups.id, transactionGroups.categoryId);
+      .groupBy(sql`lower(trim(${transactions.description}))`)
+      .orderBy(sql`sum(${effectiveExpenseAmount()}) DESC`)
+      .limit(10);
 
-    const potSpendingByCategory = new Map<string, number>();
-    let totalPotSpending = 0;
-    for (const row of potSpendingRows) {
-      if (!row.categoryId) continue;
-      const amount = row.potTotal ?? 0;
-      potSpendingByCategory.set(
-        row.categoryId,
-        (potSpendingByCategory.get(row.categoryId) || 0) + amount,
-      );
-      totalPotSpending += amount;
-    }
-
-    // Merge pot totals into the category breakdown. Categories that only have
-    // pot activity (no direct expense rows) need their meta loaded.
+    // Merge pot totals into the category breakdown. Pot spend with a null
+    // categoryId flows into the Uncategorized entry.
     type BreakdownEntry = {
       categoryId: string | null;
       categoryName: string | null;
@@ -163,67 +256,117 @@ export async function GET(request: NextRequest) {
       count: number;
     };
     const breakdownByCat = new Map<string, BreakdownEntry>();
-    for (const c of catBreakdown) {
-      if (c.categoryId) breakdownByCat.set(c.categoryId, { ...c });
+    const addBreakdown = (
+      categoryId: string | null,
+      total: number,
+      count: number,
+    ) => {
+      const key = categoryId ?? "none";
+      const entry = breakdownByCat.get(key);
+      if (entry) {
+        entry.total += total;
+        entry.count += count;
+      } else {
+        breakdownByCat.set(key, {
+          categoryId,
+          categoryName: null,
+          categoryColor: null,
+          total,
+          count,
+        });
+      }
+    };
+    for (const c of catBreakdown)
+      addBreakdown(c.categoryId, c.total ?? 0, c.count ?? 0);
+    let totalPotSpending = 0;
+    for (const row of potSpendingRows) {
+      const amount = row.potTotal ?? 0;
+      totalPotSpending += amount;
+      addBreakdown(row.categoryId, amount, 0);
     }
-    const missingCatIds = Array.from(potSpendingByCategory.keys()).filter(
-      (id) => !breakdownByCat.has(id),
+    // Load meta for every category in the breakdown (some have only pot activity).
+    const breakdownCatIds = [...breakdownByCat.keys()].filter(
+      (k) => k !== "none",
     );
-    if (missingCatIds.length > 0) {
-      const missingCats = await db
+    if (breakdownCatIds.length > 0) {
+      const metas = await db
         .select({
           id: categories.id,
           name: categories.name,
           color: categories.color,
         })
         .from(categories)
-        .where(inArray(categories.id, missingCatIds));
-      for (const m of missingCats) {
-        breakdownByCat.set(m.id, {
-          categoryId: m.id,
-          categoryName: m.name,
-          categoryColor: m.color,
-          total: 0,
-          count: 0,
-        });
+        .where(inArray(categories.id, breakdownCatIds));
+      for (const m of metas) {
+        const entry = breakdownByCat.get(m.id);
+        if (entry) {
+          entry.categoryName = m.name;
+          entry.categoryColor = m.color;
+        }
       }
     }
-    for (const [catId, potTotal] of potSpendingByCategory) {
-      const entry = breakdownByCat.get(catId);
-      if (entry) entry.total += potTotal;
-    }
-
-    const mergedBreakdown: BreakdownEntry[] = [
-      ...breakdownByCat.values(),
-      ...catBreakdown.filter((c) => !c.categoryId),
-    ];
 
     const totalExpensesWithPots = summary.totalExpenses + totalPotSpending;
 
+    // Previous-period totals (same account filter, same range semantics as the
+    // main summary/breakdown) for vs-previous deltas.
+    let previous: {
+      totalIncome: number;
+      totalExpenses: number;
+      net: number;
+      categoryTotals: Record<string, number>;
+    } | null = null;
+    if (
+      prevDateFrom &&
+      prevDateTo &&
+      ISO_DATE.test(prevDateFrom) &&
+      ISO_DATE.test(prevDateTo)
+    ) {
+      const prevConditions = buildConditions(prevDateFrom, prevDateTo);
+      const [prevSummary, prevCats, prevPots] = await Promise.all([
+        directSummary(prevConditions),
+        directCategoryExpenses(prevConditions),
+        potSpendingPerPot(prevConditions),
+      ]);
+      const categoryTotals: Record<string, number> = {};
+      for (const c of prevCats) {
+        const key = c.categoryId ?? "none";
+        categoryTotals[key] = (categoryTotals[key] ?? 0) + (c.total ?? 0);
+      }
+      let prevPotSpending = 0;
+      for (const p of prevPots) {
+        const key = p.categoryId ?? "none";
+        const amount = p.potTotal ?? 0;
+        categoryTotals[key] = (categoryTotals[key] ?? 0) + amount;
+        prevPotSpending += amount;
+      }
+      const prevTotalExpenses = prevSummary.totalExpenses + prevPotSpending;
+      previous = {
+        totalIncome: prevSummary.totalIncome,
+        totalExpenses: prevTotalExpenses,
+        net: prevSummary.totalIncome - prevTotalExpenses,
+        categoryTotals,
+      };
+    }
+
     return NextResponse.json({
-      categoryBreakdown: mergedBreakdown.map((c) => ({
+      categoryBreakdown: [...breakdownByCat.values()].map((c) => ({
         categoryId: c.categoryId,
         categoryName: c.categoryName || "Uncategorized",
         categoryColor: c.categoryColor || "#94a3b8",
         total: c.total,
         count: c.count,
       })),
-      dailyTotals: dailyTotals.map((d) => ({
-        date: d.date,
-        income: d.income,
-        expenses: d.expenses,
-      })),
-      monthlyTotals: monthlyTotals.map((m) => ({
-        month: m.month,
-        income: m.income,
-        expenses: m.expenses,
-      })),
+      dailyTotals,
+      monthlyTotals,
+      monthlyCategoryTotals,
       summary: {
         totalIncome: summary.totalIncome,
         totalExpenses: totalExpensesWithPots,
         net: summary.totalIncome - totalExpensesWithPots,
         txCount: summary.txCount,
       },
+      previous,
       topMerchants: topMerchants.map((m) => ({
         description: m.description,
         total: m.total,

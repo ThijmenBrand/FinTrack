@@ -10,7 +10,7 @@ import {
 import { eq, and, gte, lte, sql, inArray } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
-import { effectiveExpenseAmount } from "@/lib/reimbursement-sql";
+import { effectiveExpenseAmount, potSpentAmount } from "@/lib/reimbursement-sql";
 import { isRegenerationDue } from "@/lib/auto-budget";
 import { getUserPreferences } from "@/lib/preferences";
 import { toMonthly, getCurrentMonthRange } from "@/lib/month-money";
@@ -65,7 +65,9 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const dateFromParam = searchParams.get("dateFrom");
     const dateToParam = searchParams.get("dateTo");
-    const accountIdParam = searchParams.get("accountId");
+    // accountId may be a comma-separated list of account ids
+    const accountIds =
+      searchParams.get("accountId")?.split(",").filter(Boolean) ?? [];
     const noScaleParam = searchParams.get("noScale");
     const noScale = noScaleParam === "1" || noScaleParam === "true";
 
@@ -96,13 +98,13 @@ export async function GET(request: NextRequest) {
       useRange && !noScale ? daysInRange / AVG_DAYS_PER_MONTH : 1;
 
     // 0. Get pot spending by category for current month.
-    // Each pot's net is the abs(sum) of its expense/income member transactions
-    // — reserved deposits and internal transfers don't count as spending,
-    // matching getMonthSummary's `t.type <> 'reserved'` rule.
+    // Each pot's net spend is `-sum` of its expense/income member transactions,
+    // floored at 0 — reserved deposits and internal transfers don't count as
+    // spending, matching getMonthSummary's `t.type <> 'reserved'` rule.
     const potSpendingRows = await db
       .select({
         categoryId: transactionGroups.categoryId,
-        potTotal: sql<number>`abs(sum(${transactions.amount}))`,
+        potTotal: sql<number>`${potSpentAmount()}`,
       })
       .from(transactionGroups)
       .innerJoin(transactions, eq(transactions.groupId, transactionGroups.id))
@@ -113,7 +115,9 @@ export async function GET(request: NextRequest) {
           gte(transactions.date, from),
           lte(transactions.date, to),
           eq(transactions.userId, userId),
-          ...(accountIdParam ? [eq(transactions.accountId, accountIdParam)] : []),
+          ...(accountIds.length > 0
+            ? [inArray(transactions.accountId, accountIds)]
+            : []),
         ),
       )
       .groupBy(transactionGroups.id, transactionGroups.categoryId);
@@ -282,7 +286,9 @@ export async function GET(request: NextRequest) {
           sql`${transactions.groupId} IS NULL`,
           gte(transactions.date, from),
           lte(transactions.date, to),
-          ...(accountIdParam ? [eq(transactions.accountId, accountIdParam)] : []),
+          ...(accountIds.length > 0
+            ? [inArray(transactions.accountId, accountIds)]
+            : []),
         ),
       )
       .groupBy(transactions.categoryId);

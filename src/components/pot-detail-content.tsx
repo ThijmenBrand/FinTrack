@@ -257,9 +257,25 @@ export function PotDetailContent({
 
         {/* Linked transactions */}
         <section className="space-y-2">
-          <h3 className="text-sm font-medium text-muted-foreground">
-            Linked transactions
-          </h3>
+          <div className="flex items-baseline justify-between gap-3">
+            <h3 className="text-sm font-medium text-muted-foreground">
+              Linked transactions
+            </h3>
+            {isSpike && transactions.length > 0 && (
+              <span
+                className={`text-sm font-medium tabular-nums ${
+                  pot.netAmount === 0
+                    ? "text-muted-foreground"
+                    : pot.netAmount > 0
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-red-600 dark:text-red-400"
+                }`}
+              >
+                {pot.netAmount >= 0 ? "+" : ""}
+                {fc(pot.netAmount)} net
+              </span>
+            )}
+          </div>
           {transactions.length === 0 ? (
             <p className="text-sm text-muted-foreground italic">
               No transactions linked yet.

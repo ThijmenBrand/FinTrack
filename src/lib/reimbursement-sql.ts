@@ -23,3 +23,16 @@ export function effectiveExpenseAmount() {
     0
   ), 0)`;
 }
+
+/**
+ * Net spending of a pot (transaction group) over the rows in the current
+ * GROUP BY bucket: `-SUM(amount)` floored at 0. Amounts are signed (negative =
+ * expense), so a pot that nets negative in the window spent money; a pot that
+ * nets positive (reimbursements/income exceeded expenses) spent nothing —
+ * previously `abs(SUM(...))` reported that positive net as spending.
+ *
+ * Full aggregate expression — do not wrap in `sum(...)`.
+ */
+export function potSpentAmount() {
+  return sql`MAX(-SUM(${transactions.amount}), 0)`;
+}

@@ -32,6 +32,7 @@ interface TransactionsTableProps {
   pagination: Pagination;
   setPagination: Dispatch<SetStateAction<Pagination>>;
   loading: boolean;
+  fetching: boolean;
   rowCount: number;
   hasActiveFilters: boolean;
   onClearFilters: () => void;
@@ -57,6 +58,7 @@ export function TransactionsTable({
   pagination,
   setPagination,
   loading,
+  fetching,
   rowCount,
   hasActiveFilters,
   onClearFilters,
@@ -131,7 +133,12 @@ export function TransactionsTable({
           )}
         </div>
       ) : (
-        <>
+        <div
+          aria-busy={fetching}
+          className={
+            fetching ? "opacity-50 transition-opacity pointer-events-none" : "transition-opacity"
+          }
+        >
           {/* Desktop Table View */}
           <div className="hidden md:block">
             <Table>
@@ -238,7 +245,7 @@ export function TransactionsTable({
                 </Button>
               </div>
             </div>
-        </>
+        </div>
       )}
     </div>
   );
