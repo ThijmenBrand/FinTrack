@@ -95,9 +95,14 @@ export function ImportReviewStep({
   );
   const uncategorizedCount = transactions.length - categorizedCount;
 
+  // Keep the just-categorized trigger row in the attention list while its
+  // batch-apply banner is active, so the banner stays visible in that tab.
   const uncategorizedTxs = useMemo(
-    () => transactions.filter((tx) => !tx.categoryId),
-    [transactions]
+    () =>
+      transactions.filter(
+        (tx) => !tx.categoryId || tx.tempId === batchBanner?.triggerTxId
+      ),
+    [transactions, batchBanner?.triggerTxId]
   );
 
   const handleCategoryChange = useCallback(

@@ -117,12 +117,17 @@ export function parseDate(raw: string): string | null {
     return raw.substring(0, 10);
   }
 
-  // DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY
+  // DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY (EU order first; swap to MM/DD
+  // when the middle part can't be a month, e.g. "04/25/2026")
   const euMatch = raw.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
   if (euMatch) {
-    const [, day, month, year] = euMatch;
-    const d = day.padStart(2, "0");
-    const m = month.padStart(2, "0");
+    let day = Number(euMatch[1]);
+    let month = Number(euMatch[2]);
+    const year = euMatch[3];
+    if (month > 12 && day <= 12) [day, month] = [month, day];
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+    const d = String(day).padStart(2, "0");
+    const m = String(month).padStart(2, "0");
     return `${year}-${m}-${d}`;
   }
 

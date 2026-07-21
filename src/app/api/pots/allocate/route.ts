@@ -45,21 +45,26 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    if (delta < 0 && Math.abs(delta) > (pot.fundedAmount ?? 0)) {
+    // The "cannot remove more than funded" guard lives in the UPDATE's WHERE
+    // so concurrent negative allocations can't both pass a stale read check.
+    const result = await db
+      .update(transactionGroups)
+      .set({
+        fundedAmount: sql`COALESCE(${transactionGroups.fundedAmount}, 0) + ${delta}`,
+      })
+      .where(
+        and(
+          eq(transactionGroups.id, potId),
+          eq(transactionGroups.userId, userId),
+          sql`COALESCE(${transactionGroups.fundedAmount}, 0) + ${delta} >= 0`
+        )
+      );
+    if (result.rowsAffected === 0) {
       return NextResponse.json(
         { error: "Cannot remove more than is funded" },
         { status: 400 }
       );
     }
-
-    await db
-      .update(transactionGroups)
-      .set({
-        fundedAmount: sql`MAX(0, COALESCE(${transactionGroups.fundedAmount}, 0) + ${delta})`,
-      })
-      .where(
-        and(eq(transactionGroups.id, potId), eq(transactionGroups.userId, userId))
-      );
 
     const updated = await db
       .select({ fundedAmount: transactionGroups.fundedAmount })

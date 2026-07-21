@@ -4,6 +4,14 @@ import { accounts, transactions } from "@/db/schema";
 import { eq, sum, asc, count, and } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
+import { isFiniteNumber } from "@/lib/validation";
+
+const ACCOUNT_TYPES = ["checking", "savings", "joint", "credit", "other"] as const;
+type AccountType = (typeof ACCOUNT_TYPES)[number];
+
+function isAccountType(v: unknown): v is AccountType {
+  return typeof v === "string" && (ACCOUNT_TYPES as readonly string[]).includes(v);
+}
 
 // GET /api/accounts — list all accounts with computed balances
 export async function GET() {
@@ -39,9 +47,15 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { name, type, bankName, iban, currency, initialBalance } = body;
 
-    if (!name || !type) {
+    if (!name || typeof name !== "string" || !isAccountType(type)) {
       return NextResponse.json(
-        { error: "Name and type are required" },
+        { error: "Name and a valid type are required" },
+        { status: 400 }
+      );
+    }
+    if (initialBalance !== undefined && !isFiniteNumber(initialBalance)) {
+      return NextResponse.json(
+        { error: "initialBalance must be a finite number" },
         { status: 400 }
       );
     }
@@ -60,7 +74,7 @@ export async function POST(request: NextRequest) {
       bankName: bankName || null,
       iban: iban || null,
       currency: currency || "EUR",
-      initialBalance: Number(initialBalance) || 0,
+      initialBalance: initialBalance ?? 0,
       sortOrder: total,
       createdAt: now,
       updatedAt: now,
@@ -89,18 +103,31 @@ export async function PUT(request: NextRequest) {
         { status: 400 }
       );
     }
+    if (type !== undefined && !isAccountType(type)) {
+      return NextResponse.json({ error: "Invalid account type" }, { status: 400 });
+    }
+    if (initialBalance !== undefined && !isFiniteNumber(initialBalance)) {
+      return NextResponse.json(
+        { error: "initialBalance must be a finite number" },
+        { status: 400 }
+      );
+    }
+
+    // Only set fields the client actually sent — a partial update must not
+    // clobber iban/initialBalance/etc. with defaults.
+    const updates: Partial<typeof accounts.$inferInsert> = {
+      updatedAt: new Date().toISOString(),
+    };
+    if (name !== undefined) updates.name = name;
+    if (type !== undefined) updates.type = type;
+    if (bankName !== undefined) updates.bankName = bankName || null;
+    if (iban !== undefined) updates.iban = iban || null;
+    if (currency !== undefined) updates.currency = currency;
+    if (initialBalance !== undefined) updates.initialBalance = initialBalance;
 
     await db
       .update(accounts)
-      .set({
-        name,
-        type,
-        bankName,
-        iban: iban || null,
-        currency,
-        initialBalance: Number(initialBalance) || 0,
-        updatedAt: new Date().toISOString(),
-      })
+      .set(updates)
       .where(and(eq(accounts.id, id), eq(accounts.userId, userId)));
 
     const [updated] = await db

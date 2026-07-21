@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -13,7 +14,8 @@ function dayLabel(daysUntil: number, targetDate: string): string {
   if (daysUntil === 0) return "today";
   if (daysUntil === 1) return "tomorrow";
   if (daysUntil < 14) return `in ${daysUntil} days`;
-  const d = new Date(targetDate);
+  // Parse as local midnight so the rendered day matches the stored date.
+  const d = new Date(`${targetDate}T00:00:00`);
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }
 
@@ -30,6 +32,7 @@ export function ComingUpThisMonthList({
   freeToSpendAfterSpikes,
   hasIncome,
 }: ComingUpThisMonthListProps) {
+  const router = useRouter();
   const [activeSpike, setActiveSpike] = useState<ThisMonthSpike | null>(null);
   const [detailPotId, setDetailPotId] = useState<string | null>(null);
 
@@ -148,6 +151,7 @@ export function ComingUpThisMonthList({
           targetAmount={activeSpike.targetAmount}
           fundedAmount={activeSpike.fundedAmount}
           suggestedAmount={activeSpike.suggestedAllocation}
+          onAllocated={() => router.refresh()}
         />
       )}
 

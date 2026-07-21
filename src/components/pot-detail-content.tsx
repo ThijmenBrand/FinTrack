@@ -13,7 +13,7 @@ import { PotSaldoGraph, type SaldoPoint } from "@/components/pot-saldo-graph";
 import { SpikeProgress } from "@/components/spike-progress";
 import { PlainAmount } from "@/components/plain-amount";
 import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
-import { formatCurrency as fc } from "@/lib/utils";
+import { formatCurrency as fc, toIsoDate } from "@/lib/utils";
 import type { PotDetails } from "@/types/api";
 
 function formatLongDate(iso: string): string {
@@ -54,7 +54,7 @@ export function PotDetailContent({
       for (const a of allocations) {
         points.push({ date: a.date.slice(0, 10), value: a.fundedAfter });
       }
-      const todayIso = new Date().toISOString().slice(0, 10);
+      const todayIso = toIsoDate(new Date());
       const lastPoint = points[points.length - 1];
       if (lastPoint.date < todayIso) {
         points.push({ date: todayIso, value: pot.fundedAmount });
@@ -86,7 +86,7 @@ export function PotDetailContent({
         ]
       : undefined;
 
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = toIsoDate(new Date());
 
   const description = isSpike
     ? `${fc(pot.fundedAmount)} of ${fc(pot.targetAmount!)} by ${formatLongDate(pot.targetDate!)}`

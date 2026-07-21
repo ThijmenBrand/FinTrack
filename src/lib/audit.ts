@@ -64,16 +64,19 @@ export async function logDataEvent(params: {
 }
 
 /**
- * Extract IP address and User-Agent from request headers.
+ * Extract IP address and User-Agent from request headers. Uses the LAST
+ * X-Forwarded-For entry — appended by the trusted edge proxy — matching
+ * `getClientIp` in pin-utils, so audit logs can't be spoofed by a
+ * client-supplied XFF prefix.
  */
 export function getRequestMeta(headers: Headers): {
   ipAddress: string | null;
   userAgent: string | null;
 } {
   const xff = headers.get("x-forwarded-for");
-  const ipAddress = xff
-    ? xff.split(",")[0]?.trim() || null
-    : headers.get("x-real-ip") || null;
+  const parts = xff ? xff.split(",").map((s) => s.trim()).filter(Boolean) : [];
+  const ipAddress =
+    parts.length > 0 ? parts[parts.length - 1] : headers.get("x-real-ip") || null;
   const userAgent = headers.get("user-agent") || null;
   return { ipAddress, userAgent };
 }

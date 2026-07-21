@@ -3,7 +3,7 @@ import { db } from "@/db";
 import { transactions, categoryRules, categories } from "@/db/schema";
 import { eq, and, sql, inArray } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
-import { validatePattern } from "@/lib/validation";
+import { validatePattern, isMatchType } from "@/lib/validation";
 import { applyRuleToTransactions } from "@/lib/apply-rule";
 
 // PUT /api/transactions/categorize — categorize one or more transactions
@@ -36,8 +36,12 @@ export async function PUT(request: NextRequest) {
       ? await db
           .select({ kind: categories.kind })
           .from(categories)
-          .where(eq(categories.id, categoryId))
+          .where(and(eq(categories.id, categoryId), eq(categories.userId, userId)))
       : [null];
+
+    if (categoryId && !targetCategory) {
+      return NextResponse.json({ error: "Category not found" }, { status: 404 });
+    }
 
     const isAssigningReserved = targetCategory?.kind === "reserved";
 
@@ -67,7 +71,7 @@ export async function PUT(request: NextRequest) {
       const cleanPattern = validated.value;
 
       ruleId = crypto.randomUUID();
-      const matchType = ruleMatchType || "contains";
+      const matchType = isMatchType(ruleMatchType) ? ruleMatchType : "contains";
 
       await db.insert(categoryRules).values({
         id: ruleId,

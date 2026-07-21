@@ -57,7 +57,10 @@ function CategoryForm({
   );
   const [error, setError] = useState<string | null>(null);
 
+  const isPending = createCategory.isPending || updateCategory.isPending;
+
   const handleSubmit = async () => {
+    if (isPending) return;
     setError(null);
     const payload: Record<string, unknown> = {
       ...(category ? { id: category.id } : {}),
@@ -144,7 +147,7 @@ function CategoryForm({
         <Button variant="outline" onClick={onDone}>
           Cancel
         </Button>
-        <Button onClick={handleSubmit} disabled={!name}>
+        <Button onClick={handleSubmit} disabled={!name || isPending}>
           {category ? "Save Changes" : "Create Category"}
         </Button>
       </DialogFooter>

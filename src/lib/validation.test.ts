@@ -1,5 +1,91 @@
 import { describe, it, expect } from "vitest";
-import { validatePattern, MAX_PATTERN_LENGTH, sanitizeNote, MAX_NOTE_LENGTH } from "./validation";
+import {
+  validatePattern,
+  MAX_PATTERN_LENGTH,
+  sanitizeNote,
+  MAX_NOTE_LENGTH,
+  isFiniteNumber,
+  isIsoDate,
+  isMatchType,
+  validatePassword,
+  validateName,
+  MAX_USERNAME_LENGTH,
+} from "./validation";
+
+describe("isFiniteNumber", () => {
+  it("accepts finite numbers", () => {
+    expect(isFiniteNumber(0)).toBe(true);
+    expect(isFiniteNumber(-12.5)).toBe(true);
+  });
+
+  it("rejects NaN, Infinity, and non-numbers", () => {
+    expect(isFiniteNumber(NaN)).toBe(false);
+    expect(isFiniteNumber(Infinity)).toBe(false);
+    expect(isFiniteNumber(-Infinity)).toBe(false);
+    expect(isFiniteNumber("12")).toBe(false);
+    expect(isFiniteNumber(null)).toBe(false);
+    expect(isFiniteNumber(undefined)).toBe(false);
+  });
+});
+
+describe("isIsoDate", () => {
+  it("accepts real YYYY-MM-DD dates", () => {
+    expect(isIsoDate("2026-05-01")).toBe(true);
+    expect(isIsoDate("2028-02-29")).toBe(true); // leap day
+  });
+
+  it("rejects malformed or impossible dates", () => {
+    expect(isIsoDate("2026-5-1")).toBe(false);
+    expect(isIsoDate("2026-13-01")).toBe(false);
+    expect(isIsoDate("2026-02-30")).toBe(false);
+    expect(isIsoDate("2026-05-01T00:00:00Z")).toBe(false);
+    expect(isIsoDate(20260501)).toBe(false);
+    expect(isIsoDate(null)).toBe(false);
+  });
+});
+
+describe("isMatchType", () => {
+  it("accepts only the three allowlisted values", () => {
+    expect(isMatchType("contains")).toBe(true);
+    expect(isMatchType("exact")).toBe(true);
+    expect(isMatchType("starts_with")).toBe(true);
+    expect(isMatchType("regex")).toBe(false);
+    expect(isMatchType("")).toBe(false);
+    expect(isMatchType(null)).toBe(false);
+  });
+});
+
+describe("validatePassword", () => {
+  it("accepts a long unique password", () => {
+    expect(validatePassword("correct horse battery staple")).toBeNull();
+  });
+
+  it("rejects short passwords", () => {
+    expect(validatePassword("short1")).toMatch(/at least 10/);
+    expect(validatePassword(123456)).toMatch(/at least 10/);
+  });
+
+  it("rejects common passwords case-insensitively", () => {
+    expect(validatePassword("Password123")).toMatch(/too common/);
+    expect(validatePassword("1234567890")).toMatch(/too common/);
+  });
+});
+
+describe("validateName", () => {
+  it("trims and accepts a normal name", () => {
+    expect(validateName("  thijmen  ")).toEqual({ ok: true, value: "thijmen" });
+  });
+
+  it("rejects empty and non-string input", () => {
+    expect(validateName("   ")).toMatchObject({ ok: false });
+    expect(validateName(42)).toMatchObject({ ok: false });
+  });
+
+  it("caps length at MAX_USERNAME_LENGTH", () => {
+    expect(validateName("a".repeat(MAX_USERNAME_LENGTH))).toMatchObject({ ok: true });
+    expect(validateName("a".repeat(MAX_USERNAME_LENGTH + 1))).toMatchObject({ ok: false });
+  });
+});
 
 describe("sanitizeNote", () => {
   it("returns null for non-string input", () => {

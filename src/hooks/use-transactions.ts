@@ -179,7 +179,8 @@ export function useBulkDeleteTransactions() {
         await apiFetch(`/api/transactions?id=${id}`, { method: "DELETE" });
       }
     },
-    onSuccess: () => {
+    // onSettled so already-deleted rows leave the cache even when a later delete fails
+    onSettled: () => {
       qc.invalidateQueries({ queryKey: ["transactions"] });
       qc.invalidateQueries({ queryKey: ["accounts"] });
       qc.invalidateQueries({ queryKey: ["budgets"] });
@@ -214,7 +215,11 @@ export function useReimburseTransaction() {
   return useMutation({
     mutationFn: (payload: { transactionId: string; expenseIds: string[] }) =>
       apiFetch("/api/transactions/reimburse", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["transactions"] }); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["transactions"] });
+      qc.invalidateQueries({ queryKey: ["budgets"] });
+      qc.invalidateQueries({ queryKey: ["insights"] });
+    },
   });
 }
 
@@ -222,6 +227,10 @@ export function useDeleteReimbursement() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => apiFetch(`/api/transactions/reimburse?id=${id}`, { method: "DELETE" }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["transactions"] }); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["transactions"] });
+      qc.invalidateQueries({ queryKey: ["budgets"] });
+      qc.invalidateQueries({ queryKey: ["insights"] });
+    },
   });
 }

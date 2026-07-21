@@ -81,8 +81,9 @@ function getDateRanges(startDay: number = 1) {
   const lastWeekEnd = toIsoDate(new Date(y, m, d + weekOff - 1));
 
   // Fraction of the financial-month elapsed, including today.
-  const startMs = new Date(monthStart).getTime();
-  const endMs = new Date(monthEnd).getTime();
+  // Parse as local midnight so the math matches the local `todayMs` below.
+  const startMs = new Date(`${monthStart}T00:00:00`).getTime();
+  const endMs = new Date(`${monthEnd}T00:00:00`).getTime();
   const totalDays = Math.round((endMs - startMs) / 86400000) + 1;
   const todayMs = new Date(y, m, d).getTime();
   const elapsedDays = Math.min(
@@ -167,8 +168,14 @@ export async function getWeeklySpending(userId: string, accountId?: string) {
         sql`, `,
       )})`
     : sql``;
+  const lastWeekFilterAlias = lastWeekAccountIds && lastWeekAccountIds.length > 0
+    ? sql` AND t.account_id IN (${sql.join(
+        lastWeekAccountIds.map((id) => sql`${id}`),
+        sql`, `,
+      )})`
+    : sql``;
 
-  const [weekExpense, lastWeekExpense, weekPotContrib] = await Promise.all([
+  const [weekExpense, lastWeekExpense, weekPotContrib, lastWeekPotContrib] = await Promise.all([
     db
       .select({
         total: sql<number>`sum(${effectiveExpenseAmount()})`,
@@ -212,15 +219,28 @@ export async function getWeeklySpending(userId: string, accountId?: string) {
       .where(
         sql`t.group_id IS NOT NULL AND t.type NOT IN ('reserved', 'internal_transfer') AND t.user_id = ${userId} AND t.date >= ${weekStart} AND t.date <= ${weekEnd}${accountFilterAlias}`
       ),
+
+    db
+      .select({
+        potNet: sql<number>`SUM(t.amount)`,
+      })
+      .from(sql`transactions t`)
+      .innerJoin(sql`transaction_groups g`, sql`t.group_id = g.id`)
+      .where(
+        sql`t.group_id IS NOT NULL AND t.type NOT IN ('reserved', 'internal_transfer') AND t.user_id = ${userId} AND t.date >= ${lastWeekStart} AND t.date <= ${lastWeekEnd}${lastWeekFilterAlias}`
+      ),
   ]);
 
   const weekPotExpense = Math.abs(
     Math.min(0, weekPotContrib[0]?.potNet || 0)
   );
+  const lastWeekPotExpense = Math.abs(
+    Math.min(0, lastWeekPotContrib[0]?.potNet || 0)
+  );
 
   return {
     weekExpenses: (weekExpense[0]?.total || 0) + weekPotExpense,
-    lastWeekExpenses: lastWeekExpense[0]?.total || 0,
+    lastWeekExpenses: (lastWeekExpense[0]?.total || 0) + lastWeekPotExpense,
     weekStart,
     weekEnd,
   };

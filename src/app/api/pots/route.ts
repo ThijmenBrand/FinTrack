@@ -51,6 +51,15 @@ function validateTarget(targetAmount: unknown, targetDate: unknown): string | nu
   return null;
 }
 
+async function userOwnsCategory(userId: string, categoryId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: categories.id })
+    .from(categories)
+    .where(and(eq(categories.id, categoryId), eq(categories.userId, userId)))
+    .limit(1);
+  return !!row;
+}
+
 // POST /api/pots — create a pot
 export async function POST(request: NextRequest) {
   return withUser(async (userId) => {
@@ -61,6 +70,9 @@ export async function POST(request: NextRequest) {
     const targetError = validateTarget(targetAmount, targetDate);
     if (targetError) {
       return NextResponse.json({ error: targetError }, { status: 400 });
+    }
+    if (categoryId && !(await userOwnsCategory(userId, categoryId))) {
+      return NextResponse.json({ error: "Category not found" }, { status: 404 });
     }
 
     const id = crypto.randomUUID();
@@ -85,6 +97,9 @@ export async function PUT(request: NextRequest) {
     const { id, name, categoryId, targetAmount, targetDate } = await request.json();
     if (!id) {
       return NextResponse.json({ error: "id is required" }, { status: 400 });
+    }
+    if (categoryId && !(await userOwnsCategory(userId, categoryId))) {
+      return NextResponse.json({ error: "Category not found" }, { status: 404 });
     }
 
     // If either target field is being touched, validate the pair.

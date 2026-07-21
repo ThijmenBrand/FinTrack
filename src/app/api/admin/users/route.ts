@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { sql } from "drizzle-orm";
 import { withAdmin, hashPassword } from "@/lib/auth";
+import { validatePassword, validateName } from "@/lib/validation";
 import { seedCategoriesForUser } from "@/db/migrate";
 import { logAudit, getRequestMeta } from "@/lib/audit";
 import { headers } from "next/headers";
@@ -70,25 +71,38 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check for duplicate username
-    const existing = await db.run(
-      sql`SELECT id FROM "user" WHERE username = ${username}`
-    );
-    if (existing.rows.length > 0) {
-      return NextResponse.json(
-        { error: "Username already exists" },
-        { status: 409 }
-      );
+    const usernameCheck = validateName(username);
+    if (!usernameCheck.ok) {
+      return NextResponse.json({ error: `Invalid username: ${usernameCheck.error}` }, { status: 400 });
     }
+    const displayCheck = validateName(displayUsername);
+    if (!displayCheck.ok) {
+      return NextResponse.json({ error: `Invalid display name: ${displayCheck.error}` }, { status: 400 });
+    }
+    const passwordError = validatePassword(password);
+    if (passwordError) {
+      return NextResponse.json({ error: passwordError }, { status: 400 });
+    }
+    const cleanUsername = usernameCheck.value;
+    const cleanDisplay = displayCheck.value;
 
     const id = crypto.randomUUID();
     const hashedPassword = await hashPassword(password);
     const now = Date.now();
 
-    await db.run(sql`
+    // INSERT ... WHERE NOT EXISTS makes the uniqueness check atomic — a plain
+    // check-then-insert races with concurrent creates.
+    const inserted = await db.run(sql`
       INSERT INTO "user" (id, name, email, email_verified, username, display_username, role, created_at, updated_at)
-      VALUES (${id}, ${displayUsername}, ${username + '@local'}, 0, ${username}, ${displayUsername}, ${isAdmin ? 'admin' : 'user'}, ${now}, ${now})
+      SELECT ${id}, ${cleanDisplay}, ${cleanUsername + '@local'}, 0, ${cleanUsername}, ${cleanDisplay}, ${isAdmin ? 'admin' : 'user'}, ${now}, ${now}
+      WHERE NOT EXISTS (SELECT 1 FROM "user" WHERE username = ${cleanUsername})
     `);
+    if (Number(inserted.rowsAffected) === 0) {
+      return NextResponse.json(
+        { error: "Username already exists" },
+        { status: 409 }
+      );
+    }
 
     // Create credential account
     await db.run(sql`
@@ -100,16 +114,16 @@ export async function POST(request: NextRequest) {
     await seedCategoriesForUser(id);
 
     await logAdminAction(session.userId, "user_create", id, {
-      username,
-      displayUsername,
+      username: cleanUsername,
+      displayUsername: cleanDisplay,
       isAdmin: !!isAdmin,
     });
 
     return NextResponse.json(
       {
         id,
-        username,
-        displayUsername,
+        username: cleanUsername,
+        displayUsername: cleanDisplay,
         isAdmin: !!isAdmin,
       },
       { status: 201 }
@@ -132,6 +146,10 @@ export async function PUT(request: NextRequest) {
     const now = Date.now();
 
     if (password) {
+      const passwordError = validatePassword(password);
+      if (passwordError) {
+        return NextResponse.json({ error: passwordError }, { status: 400 });
+      }
       const hashedPassword = await hashPassword(password);
       await db.run(
         sql`UPDATE account SET password = ${hashedPassword}, updated_at = ${now} WHERE user_id = ${id} AND provider_id = 'credential'`
@@ -140,10 +158,14 @@ export async function PUT(request: NextRequest) {
     }
 
     if (displayUsername !== undefined) {
+      const displayCheck = validateName(displayUsername);
+      if (!displayCheck.ok) {
+        return NextResponse.json({ error: `Invalid display name: ${displayCheck.error}` }, { status: 400 });
+      }
       await db.run(
-        sql`UPDATE "user" SET name = ${displayUsername}, display_username = ${displayUsername}, updated_at = ${now} WHERE id = ${id}`
+        sql`UPDATE "user" SET name = ${displayCheck.value}, display_username = ${displayCheck.value}, updated_at = ${now} WHERE id = ${id}`
       );
-      await logAdminAction(session.userId, "display_name_change", id, { displayUsername });
+      await logAdminAction(session.userId, "display_name_change", id, { displayUsername: displayCheck.value });
     }
 
     if (isAdmin !== undefined) {

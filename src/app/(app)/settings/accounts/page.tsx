@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useAccounts, useCreateAccount, useUpdateAccount, useDeleteAccount, useReorderAccounts } from "@/hooks/use-accounts";
 import { usePreferences, useUpdatePreferences } from "@/hooks/use-preferences";
 import type { Account } from "@/types/api";
@@ -267,6 +268,7 @@ export default function AccountsPage() {
   const updateAccount = useUpdateAccount();
   const deleteAccount = useDeleteAccount();
   const reorderAccounts = useReorderAccounts();
+  const queryClient = useQueryClient();
 
   const [localAccounts, setLocalAccounts] = useState<Account[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -347,7 +349,13 @@ export default function AccountsPage() {
     const newAccounts = arrayMove(localAccounts, oldIndex, newIndex);
     setLocalAccounts(newAccounts);
 
-    await reorderAccounts.mutateAsync(newAccounts.map((a) => a.id));
+    try {
+      await reorderAccounts.mutateAsync(newAccounts.map((a) => a.id));
+    } catch (err) {
+      console.error("Failed to reorder accounts:", err);
+      // Refetch so the optimistic local order reverts to the server's order.
+      queryClient.invalidateQueries({ queryKey: ["accounts"] });
+    }
   };
 
   const accounts = localAccounts;

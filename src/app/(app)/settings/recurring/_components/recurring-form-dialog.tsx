@@ -95,25 +95,31 @@ function RecurringFormBody({
   const [fStartDate, setFStartDate] = useState(
     editing?.startDate ?? new Date().toISOString().slice(0, 10)
   );
+  const [submitting, setSubmitting] = useState(false);
 
   const handleSubmit = async () => {
     const amount = parseFloat(fAmount);
-    if (!amount || !fAccountId || !fDescription) return;
+    if (!amount || !fAccountId || !fDescription || submitting) return;
 
-    await onSubmit({
-      accountId: fAccountId,
-      description: fDescription,
-      amount,
-      type: fType,
-      categoryId: fCategoryId || null,
-      frequency: fFrequency,
-      dayOfWeek: fFrequency === "weekly" ? parseInt(fDayOfWeek) : null,
-      dayOfMonth:
-        fFrequency === "monthly" || fFrequency === "yearly"
-          ? parseInt(fDayOfMonth)
-          : null,
-      startDate: fStartDate,
-    });
+    setSubmitting(true);
+    try {
+      await onSubmit({
+        accountId: fAccountId,
+        description: fDescription,
+        amount,
+        type: fType,
+        categoryId: fCategoryId || null,
+        frequency: fFrequency,
+        dayOfWeek: fFrequency === "weekly" ? parseInt(fDayOfWeek) : null,
+        dayOfMonth:
+          fFrequency === "monthly" || fFrequency === "yearly"
+            ? parseInt(fDayOfMonth)
+            : null,
+        startDate: fStartDate,
+      });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -270,7 +276,7 @@ function RecurringFormBody({
         </Button>
         <Button
           onClick={handleSubmit}
-          disabled={!fAccountId || !fDescription || !fAmount}
+          disabled={!fAccountId || !fDescription || !fAmount || submitting}
         >
           {editing ? "Save Changes" : "Create"}
         </Button>

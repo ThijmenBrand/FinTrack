@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AllocateToPotDialog } from "@/components/allocate-to-pot-dialog";
@@ -22,6 +23,7 @@ interface SavingTowardListProps {
 }
 
 export function SavingTowardList({ spikes }: SavingTowardListProps) {
+  const router = useRouter();
   const [activeSpike, setActiveSpike] = useState<SavingTowardSpike | null>(null);
   const [detailPotId, setDetailPotId] = useState<string | null>(null);
 
@@ -158,6 +160,7 @@ export function SavingTowardList({ spikes }: SavingTowardListProps) {
           targetAmount={activeSpike.targetAmount}
           fundedAmount={activeSpike.fundedAmount}
           suggestedAmount={activeSpike.suggestedAllocation}
+          onAllocated={() => router.refresh()}
         />
       )}
 

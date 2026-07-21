@@ -37,6 +37,18 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+    if (file.size > 10 * 1024 * 1024) {
+      return NextResponse.json({ error: "File too large (max 10 MB)" }, { status: 400 });
+    }
+
+    const [ownedAccount] = await db
+      .select({ id: accounts.id })
+      .from(accounts)
+      .where(and(eq(accounts.id, accountId), eq(accounts.userId, userId)))
+      .limit(1);
+    if (!ownedAccount) {
+      return NextResponse.json({ error: "Account not found" }, { status: 404 });
+    }
 
     const mapping: ColumnMapping = JSON.parse(mappingJson);
 

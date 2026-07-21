@@ -4,21 +4,7 @@ import { db } from "@/db";
 import { sql } from "drizzle-orm";
 import { headers } from "next/headers";
 import { logAuthEvent, logDataEvent, getRequestMeta } from "@/lib/audit";
-
-// Common passwords list (top entries from breached password databases)
-const COMMON_PASSWORDS = new Set([
-  "password", "123456", "12345678", "1234567890", "qwerty",
-  "abc123", "monkey", "1234567", "letmein", "trustno1",
-  "dragon", "baseball", "iloveyou", "master", "sunshine",
-  "ashley", "michael", "shadow", "123123", "654321",
-  "superman", "qazwsx", "football", "password1", "password123",
-  "welcome", "welcome1", "p@ssw0rd", "passw0rd", "admin",
-  "administrator", "login", "hello", "charlie", "donald",
-  "starwars", "access", "master1", "qwerty123", "mustang",
-  "121212", "bailey", "freedom", "shadow1", "passpass",
-  "whatever", "qwer1234", "zaq1zaq1", "000000", "111111",
-  "1q2w3e4r", "zaq12wsx", "1qaz2wsx", "abcdefgh", "changeme",
-]);
+import { validatePassword, validateName } from "@/lib/validation";
 
 // In-memory rate limiter for password attempts per user
 const PASSWORD_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
@@ -79,27 +65,31 @@ export async function PATCH(req: NextRequest) {
 
     // Update display name and/or username
     if (displayUsername !== undefined) {
-      if (!displayUsername.trim()) {
-        return NextResponse.json({ error: "Display name cannot be empty" }, { status: 400 });
+      const displayCheck = validateName(displayUsername);
+      if (!displayCheck.ok) {
+        return NextResponse.json({ error: `Invalid display name: ${displayCheck.error}` }, { status: 400 });
       }
       await db.run(
-        sql`UPDATE "user" SET name = ${displayUsername.trim()}, display_username = ${displayUsername.trim()}, updated_at = ${new Date().toISOString()} WHERE id = ${userId}`
+        sql`UPDATE "user" SET name = ${displayCheck.value}, display_username = ${displayCheck.value}, updated_at = ${new Date().toISOString()} WHERE id = ${userId}`
       );
     }
 
     if (username !== undefined) {
-      if (!username.trim()) {
-        return NextResponse.json({ error: "Username cannot be empty" }, { status: 400 });
+      const usernameCheck = validateName(username);
+      if (!usernameCheck.ok) {
+        return NextResponse.json({ error: `Invalid username: ${usernameCheck.error}` }, { status: 400 });
       }
-      const existing = await db.run(
-        sql`SELECT id FROM "user" WHERE username = ${username.trim()}`
+      const clean = usernameCheck.value;
+      // Uniqueness enforced inside the UPDATE so a concurrent claim of the
+      // same username can't slip between a check and the write.
+      const updated = await db.run(
+        sql`UPDATE "user" SET username = ${clean}, email = ${clean + '@local'}, updated_at = ${new Date().toISOString()}
+            WHERE id = ${userId}
+            AND NOT EXISTS (SELECT 1 FROM "user" WHERE username = ${clean} AND id != ${userId})`
       );
-      if (existing.rows.length > 0 && (existing.rows[0] as Record<string, unknown>).id !== userId) {
+      if (Number(updated.rowsAffected) === 0) {
         return NextResponse.json({ error: "Username already taken" }, { status: 409 });
       }
-      await db.run(
-        sql`UPDATE "user" SET username = ${username.trim()}, email = ${username.trim() + '@local'}, updated_at = ${new Date().toISOString()} WHERE id = ${userId}`
-      );
     }
 
     // Password change
@@ -131,17 +121,9 @@ export async function PATCH(req: NextRequest) {
       if (!valid) {
         return NextResponse.json({ error: "Current password is incorrect" }, { status: 403 });
       }
-      if (newPassword.length < 10) {
-        return NextResponse.json(
-          { error: "New password must be at least 10 characters" },
-          { status: 400 }
-        );
-      }
-      if (COMMON_PASSWORDS.has(newPassword.toLowerCase())) {
-        return NextResponse.json(
-          { error: "This password is too common. Please choose a more unique password." },
-          { status: 400 }
-        );
+      const passwordError = validatePassword(newPassword);
+      if (passwordError) {
+        return NextResponse.json({ error: passwordError }, { status: 400 });
       }
       const hashed = await hashPassword(newPassword);
       await db.run(
