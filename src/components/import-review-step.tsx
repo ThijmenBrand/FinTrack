@@ -19,7 +19,9 @@ import { matchesRule, extractPattern } from "@/lib/csv-utils";
 import {
   ImportTransactionRow,
   type ImportCategory as Category,
+  type ImportPot,
 } from "@/components/import-transaction-row";
+import { ReimbursementPicker } from "@/components/reimbursement-picker";
 import type { PreviewTransaction } from "@/lib/csv-utils";
 
 interface PendingRule {
@@ -31,6 +33,8 @@ interface PendingRule {
 interface ImportReviewStepProps {
   transactions: PreviewTransaction[];
   categories: Category[];
+  pots: ImportPot[];
+  accountId: string;
   skipped: number;
   error?: string | null;
   onBack: () => void;
@@ -67,6 +71,8 @@ interface BatchApplyBanner {
 export function ImportReviewStep({
   transactions: initialTransactions,
   categories,
+  pots,
+  accountId,
   skipped,
   error,
   onBack,
@@ -169,6 +175,59 @@ export function ImportReviewStep({
     );
   }, []);
 
+  const handlePotChange = useCallback((tempId: string, groupId: string | null) => {
+    setTransactions((prev) =>
+      prev.map((tx) => (tx.tempId === tempId ? { ...tx, groupId } : tx))
+    );
+  }, []);
+
+  // Row whose reimbursement picker is currently open
+  const [reimburseTargetId, setReimburseTargetId] = useState<string | null>(null);
+  const reimburseTarget = reimburseTargetId
+    ? transactions.find((tx) => tx.tempId === reimburseTargetId) ?? null
+    : null;
+
+  const handleToggleReimbursement = useCallback(
+    (tempId: string) => {
+      const tx = transactions.find((t) => t.tempId === tempId);
+      if (!tx) return;
+      if (tx.type === "reimbursement") {
+        // Unmark: back to plain income
+        setTransactions((prev) =>
+          prev.map((t) =>
+            t.tempId === tempId
+              ? { ...t, type: "income", reimbursesExpenseId: null, reimbursesDescription: null }
+              : t
+          )
+        );
+      } else {
+        setReimburseTargetId(tempId);
+      }
+    },
+    [transactions]
+  );
+
+  const handleReimburseSelect = useCallback(
+    (expense: { id: string; description: string }) => {
+      const tempId = reimburseTargetId;
+      if (!tempId) return;
+      setTransactions((prev) =>
+        prev.map((t) =>
+          t.tempId === tempId
+            ? {
+                ...t,
+                type: "reimbursement",
+                reimbursesExpenseId: expense.id,
+                reimbursesDescription: expense.description,
+              }
+            : t
+        )
+      );
+      setReimburseTargetId(null);
+    },
+    [reimburseTargetId]
+  );
+
   const handleToggleSelect = useCallback((tempId: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -224,7 +283,9 @@ export function ImportReviewStep({
             <span className="shrink-0 sm:w-16">Date</span>
             <span className="flex-1">Description</span>
             <span className="text-right shrink-0 sm:w-24">Amount</span>
-            {/* Spacer matching the per-row note toggle button */}
+            {/* Spacers matching the per-row note / pot / reimbursement buttons */}
+            <span className="w-7 shrink-0" />
+            {pots.length > 0 && <span className="w-7 shrink-0" />}
             <span className="w-7 shrink-0" />
             <span className="w-44 shrink-0 hidden sm:block">Category</span>
           </div>
@@ -234,8 +295,11 @@ export function ImportReviewStep({
               <ImportTransactionRow
                 tx={tx}
                 categories={categories}
+                pots={pots}
                 onCategoryChange={handleCategoryChange}
                 onNotesChange={handleNotesChange}
+                onPotChange={handlePotChange}
+                onToggleReimbursement={handleToggleReimbursement}
                 isAutoMatched={autoMatchedIds.has(tx.tempId)}
                 selected={selectedIds.has(tx.tempId)}
                 onToggleSelect={handleToggleSelect}
@@ -491,6 +555,21 @@ export function ImportReviewStep({
             <p className="opacity-90">{error}</p>
           </div>
         </div>
+      )}
+
+      {/* Reimbursement expense picker — selection is stored on the row and linked at commit */}
+      {reimburseTarget && (
+        <ReimbursementPicker
+          open
+          onOpenChange={(o) => {
+            if (!o) setReimburseTargetId(null);
+          }}
+          transactionAmount={reimburseTarget.amount}
+          transactionDescription={reimburseTarget.name || reimburseTarget.description}
+          transactionDate={reimburseTarget.date}
+          accountId={accountId}
+          onSelect={handleReimburseSelect}
+        />
       )}
 
       {/* Footer */}

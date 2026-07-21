@@ -31,6 +31,7 @@ import { Upload, FileText, CheckCircle2, AlertCircle } from "lucide-react";
 import { ImportReviewStep } from "@/components/import-review-step";
 import type { PreviewTransaction } from "@/lib/csv-utils";
 import { useCategories } from "@/hooks/use-categories";
+import { usePots } from "@/hooks/use-pots";
 import { usePreviewUpload, useCommitUpload } from "@/hooks/use-csv-upload";
 import type { Category } from "@/types/api";
 
@@ -85,6 +86,7 @@ export function CsvUploadDialog({
   const [previewData, setPreviewData] = useState<PreviewTransaction[]>([]);
   const [previewSkipped, setPreviewSkipped] = useState(0);
   const { data: categories = [] } = useCategories();
+  const { data: pots = [] } = usePots();
   const preview = usePreviewUpload();
   const commit = useCommitUpload();
 
@@ -217,6 +219,8 @@ export function CsvUploadDialog({
           balance: tx.balance,
           type: tx.type,
           categoryId: tx.categoryId,
+          groupId: tx.groupId ?? null,
+          reimbursesExpenseId: tx.reimbursesExpenseId ?? null,
           notes: tx.notes ?? null,
           targetAccountId: tx.targetAccountId,
           recurringTransactionId: tx.recurringTransactionId ?? null,
@@ -561,6 +565,8 @@ export function CsvUploadDialog({
             <ImportReviewStep
               transactions={previewData}
               categories={categories}
+              pots={pots}
+              accountId={selectedAccountId}
               skipped={previewSkipped}
               error={error}
               onBack={() => setStep("map-columns")}

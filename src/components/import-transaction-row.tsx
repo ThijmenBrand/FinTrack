@@ -10,7 +10,13 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select";
-import { CheckCircle2, Tag, StickyNote } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { CheckCircle2, Tag, StickyNote, Package, Receipt, Check } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
 import type { PreviewTransaction } from "@/lib/csv-utils";
 
@@ -19,6 +25,11 @@ export interface ImportCategory {
   name: string;
   color: string | null;
   icon: string | null;
+}
+
+export interface ImportPot {
+  id: string;
+  name: string;
 }
 
 // Deliberately different from the shared formatDate: en-US, no year, and
@@ -33,16 +44,22 @@ function formatDate(dateStr: string) {
 export const ImportTransactionRow = memo(function ImportTransactionRow({
   tx,
   categories,
+  pots,
   onCategoryChange,
   onNotesChange,
+  onPotChange,
+  onToggleReimbursement,
   isAutoMatched,
   selected,
   onToggleSelect,
 }: {
   tx: PreviewTransaction;
   categories: ImportCategory[];
+  pots: ImportPot[];
   onCategoryChange: (tempId: string, categoryId: string) => void;
   onNotesChange: (tempId: string, notes: string | null) => void;
+  onPotChange: (tempId: string, groupId: string | null) => void;
+  onToggleReimbursement: (tempId: string) => void;
   isAutoMatched: boolean;
   selected: boolean;
   onToggleSelect: (tempId: string) => void;
@@ -50,6 +67,10 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
   const [expanded, setExpanded] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
   const category = categories.find((c) => c.id === tx.categoryId);
+  const pot = pots.find((p) => p.id === tx.groupId);
+  const isReimbursement = tx.type === "reimbursement";
+  // Reimbursement only makes sense for money coming in
+  const canReimburse = tx.type === "income" || isReimbursement;
   // Keep the note input visible whenever a note exists so it's never hidden data
   const showNoteInput = noteOpen || !!tx.notes;
 
@@ -139,9 +160,11 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
         {/* Amount */}
         <span
           className={`text-sm font-mono font-medium text-right shrink-0 tabular-nums sm:w-24 ${
-            tx.amount >= 0
-              ? "text-emerald-600 dark:text-emerald-400"
-              : "text-red-600 dark:text-red-400"
+            isReimbursement || pot
+              ? "text-muted-foreground"
+              : tx.amount >= 0
+                ? "text-emerald-600 dark:text-emerald-400"
+                : "text-red-600 dark:text-red-400"
           }`}
         >
           {tx.amount >= 0 ? "+" : ""}
@@ -164,6 +187,81 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
             )}
           />
         </Button>
+
+        {/* Pot picker */}
+        {pots.length > 0 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 shrink-0"
+                aria-label={pot ? `In pot: ${pot.name}` : "Add to pot"}
+                title={pot ? `In pot: ${pot.name}` : "Add to pot"}
+              >
+                <Package
+                  className={cn(
+                    "h-3.5 w-3.5",
+                    pot ? "text-primary" : "text-muted-foreground"
+                  )}
+                />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {pots.map((p) => (
+                <DropdownMenuItem
+                  key={p.id}
+                  onClick={() => onPotChange(tx.tempId, p.id)}
+                >
+                  <Check
+                    className={cn(
+                      "mr-2 h-3.5 w-3.5",
+                      p.id === tx.groupId ? "opacity-100" : "opacity-0"
+                    )}
+                  />
+                  {p.name}
+                </DropdownMenuItem>
+              ))}
+              {pot && (
+                <DropdownMenuItem
+                  onClick={() => onPotChange(tx.tempId, null)}
+                  className="text-muted-foreground"
+                >
+                  <span className="ml-[22px]">Remove from pot</span>
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+
+        {/* Reimbursement toggle — income rows only; spacer keeps columns aligned */}
+        {canReimburse ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 shrink-0"
+            aria-label={
+              isReimbursement ? "Unmark reimbursement" : "Mark as reimbursement"
+            }
+            title={
+              isReimbursement
+                ? tx.reimbursesDescription
+                  ? `Reimburses: ${tx.reimbursesDescription} — click to unmark`
+                  : "Unmark reimbursement"
+                : "Mark as reimbursement"
+            }
+            onClick={() => onToggleReimbursement(tx.tempId)}
+          >
+            <Receipt
+              className={cn(
+                "h-3.5 w-3.5",
+                isReimbursement ? "text-primary" : "text-muted-foreground"
+              )}
+            />
+          </Button>
+        ) : (
+          <span className="w-7 shrink-0" />
+        )}
 
         {/* Category selector — desktop only, inline */}
         <div className="w-44 shrink-0 hidden sm:block">

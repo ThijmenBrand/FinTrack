@@ -3,7 +3,6 @@
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -79,40 +78,39 @@ export function TransactionsTable({
   renderRows,
 }: TransactionsTableProps) {
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-base">
-            {pagination.total} transaction{pagination.total !== 1 ? "s" : ""}
-          </CardTitle>
-          <Select
-            value={String(pagination.limit)}
-            onValueChange={(v) =>
-              setPagination((p) => ({ ...p, limit: Number(v), page: 1 }))
-            }
-          >
-            <SelectTrigger className="w-[100px] hidden sm:flex">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="10">10 rows</SelectItem>
-              <SelectItem value="25">25 rows</SelectItem>
-              <SelectItem value="50">50 rows</SelectItem>
-              <SelectItem value="100">100 rows</SelectItem>
-            </SelectContent>
-          </Select>
+    <div className="overflow-hidden rounded-xl border bg-card text-card-foreground shadow-sm">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
+        <h2 className="text-sm font-medium">
+          {pagination.total} transaction{pagination.total !== 1 ? "s" : ""}
+        </h2>
+        <Select
+          value={String(pagination.limit)}
+          onValueChange={(v) =>
+            setPagination((p) => ({ ...p, limit: Number(v), page: 1 }))
+          }
+        >
+          <SelectTrigger className="w-[100px] hidden sm:flex">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="10">10 rows</SelectItem>
+            <SelectItem value="25">25 rows</SelectItem>
+            <SelectItem value="50">50 rows</SelectItem>
+            <SelectItem value="100">100 rows</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {loading && rowCount === 0 ? (
+        <div className="space-y-px">
+          {[1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className="h-14 bg-muted/40 animate-pulse" />
+          ))}
         </div>
-      </CardHeader>
-      <CardContent>
-        {loading && rowCount === 0 ? (
-          <div className="space-y-3">
-            {[1, 2, 3, 4, 5].map((i) => (
-              <div key={i} className="h-12 rounded bg-muted animate-pulse" />
-            ))}
-          </div>
-        ) : rowCount === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16">
-            <FileSpreadsheet className="h-16 w-16 text-muted-foreground/30 mb-4" />
+      ) : rowCount === 0 ? (
+        <div className="flex flex-col items-center justify-center px-4 py-16">
+          <FileSpreadsheet className="h-16 w-16 text-muted-foreground/30 mb-4" />
             <h3 className="text-lg font-medium text-muted-foreground mb-1">
               No transactions found
             </h3>
@@ -122,21 +120,21 @@ export function TransactionsTable({
                 : "Import a CSV bank statement to get started."}
             </p>
             {hasActiveFilters ? (
-              <Button variant="outline" onClick={onClearFilters}>
-                Clear Filters
-              </Button>
-            ) : (
-              <Button onClick={onUpload}>
-                <Upload className="mr-2 h-4 w-4" />
-                Import CSV
-              </Button>
-            )}
-          </div>
-        ) : (
-          <>
-            {/* Desktop Table View */}
-            <div className="hidden md:block rounded-md border overflow-x-auto">
-              <Table>
+            <Button variant="outline" onClick={onClearFilters}>
+              Clear Filters
+            </Button>
+          ) : (
+            <Button onClick={onUpload}>
+              <Upload className="mr-2 h-4 w-4" />
+              Import CSV
+            </Button>
+          )}
+        </div>
+      ) : (
+        <>
+          {/* Desktop Table View */}
+          <div className="hidden md:block">
+            <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-[36px]">
@@ -205,12 +203,12 @@ export function TransactionsTable({
             </div>
 
             {/* Mobile List View */}
-            <div className="md:hidden rounded-md border divide-y">
+            <div className="md:hidden divide-y">
               {renderRows("card")}
             </div>
 
             {/* Pagination */}
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-2 pt-4">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-2 border-t px-4 py-3">
               <p className="text-xs sm:text-sm text-muted-foreground">
                 Showing {(pagination.page - 1) * pagination.limit + 1}–
                 {Math.min(pagination.page * pagination.limit, pagination.total)}{" "}
@@ -240,9 +238,8 @@ export function TransactionsTable({
                 </Button>
               </div>
             </div>
-          </>
-        )}
-      </CardContent>
-    </Card>
+        </>
+      )}
+    </div>
   );
 }
