@@ -9,10 +9,11 @@ interface TransactionFilters {
   sortOrder?: string;
   search?: string;
   accountId?: string;
-  categoryId?: string;
+  groupId?: string;
+  categoryIds?: string[];
   excludeCategoryIds?: string[];
   excludeTypes?: string[];
-  type?: string;
+  types?: string[];
   dateFrom?: string;
   dateTo?: string;
   uncategorized?: boolean;
@@ -33,10 +34,11 @@ export function useTransactions(filters: TransactionFilters) {
   if (filters.sortOrder) params.set("sortOrder", filters.sortOrder);
   if (filters.search) params.set("search", filters.search);
   if (filters.accountId) params.set("accountId", filters.accountId);
-  if (filters.categoryId) params.set("categoryId", filters.categoryId);
+  if (filters.groupId) params.set("groupId", filters.groupId);
+  filters.categoryIds?.forEach((id) => params.append("categoryId", id));
   filters.excludeCategoryIds?.forEach((id) => params.append("excludeCategory", id));
   filters.excludeTypes?.forEach((t) => params.append("excludeType", t));
-  if (filters.type) params.set("type", filters.type);
+  filters.types?.forEach((t) => params.append("type", t));
   if (filters.dateFrom) params.set("dateFrom", filters.dateFrom);
   if (filters.dateTo) params.set("dateTo", filters.dateTo);
   if (filters.uncategorized) params.set("uncategorized", "true");

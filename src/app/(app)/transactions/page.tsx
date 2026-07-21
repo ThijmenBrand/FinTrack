@@ -89,10 +89,11 @@ function TransactionsPage() {
   // Filters — initialized from URL params
   const [search, setSearch] = useState(searchParams.get("search") || "");
   const [accountFilter, setAccountFilter] = useState(searchParams.get("account") || "all");
-  const [categoryFilter, setCategoryFilter] = useState(searchParams.get("category") || "all");
+  const [potFilter, setPotFilter] = useState(searchParams.get("pot") || "all");
+  const [categoryFilters, setCategoryFilters] = useState<string[]>(() => searchParams.getAll("category"));
   const [excludeCategories, setExcludeCategories] = useState<string[]>(() => searchParams.getAll("excludeCategory"));
   const [excludeTypes, setExcludeTypes] = useState<string[]>(() => searchParams.getAll("excludeType"));
-  const [typeFilter, setTypeFilter] = useState(searchParams.get("type") || "all");
+  const [typeFilters, setTypeFilters] = useState<string[]>(() => searchParams.getAll("type"));
   const [periodFilter, setPeriodFilter] = useState(searchParams.get("period") || "all");
   const [dateFromOverride, setDateFromOverride] = useState(searchParams.get("dateFrom") || "");
   const [dateToOverride, setDateToOverride] = useState(searchParams.get("dateTo") || "");
@@ -101,8 +102,9 @@ function TransactionsPage() {
 
   const hasActiveFilters =
     accountFilter !== "all" ||
-    categoryFilter !== "all" ||
-    typeFilter !== "all" ||
+    potFilter !== "all" ||
+    categoryFilters.length > 0 ||
+    typeFilters.length > 0 ||
     periodFilter !== "all" ||
     !!dateFromOverride ||
     !!dateToOverride ||
@@ -115,8 +117,9 @@ function TransactionsPage() {
     const params = new URLSearchParams();
     if (search) params.set("search", search);
     if (accountFilter !== "all") params.set("account", accountFilter);
-    if (categoryFilter !== "all") params.set("category", categoryFilter);
-    if (typeFilter !== "all") params.set("type", typeFilter);
+    if (potFilter !== "all") params.set("pot", potFilter);
+    categoryFilters.forEach((id) => params.append("category", id));
+    typeFilters.forEach((t) => params.append("type", t));
     if (periodFilter !== "all") params.set("period", periodFilter);
     if (dateFromOverride) params.set("dateFrom", dateFromOverride);
     if (dateToOverride) params.set("dateTo", dateToOverride);
@@ -127,7 +130,7 @@ function TransactionsPage() {
     const qs = params.toString();
     const newUrl = qs ? `/transactions?${qs}` : "/transactions";
     router.replace(newUrl, { scroll: false });
-  }, [search, accountFilter, categoryFilter, typeFilter, periodFilter, dateFromOverride, dateToOverride, excludeCategories, excludeTypes, sortBy, sortOrder, router]);
+  }, [search, accountFilter, potFilter, categoryFilters, typeFilters, periodFilter, dateFromOverride, dateToOverride, excludeCategories, excludeTypes, sortBy, sortOrder, router]);
 
   // Compute dateFrom/dateTo — URL overrides win over period preset
   const { from: dateFrom, to: dateTo } = useMemo(() => {
@@ -145,10 +148,11 @@ function TransactionsPage() {
     sortOrder,
     search: search || undefined,
     accountId: accountFilter !== "all" ? accountFilter : undefined,
-    categoryId: categoryFilter !== "all" ? categoryFilter : undefined,
+    groupId: potFilter !== "all" ? potFilter : undefined,
+    categoryIds: categoryFilters.length ? categoryFilters : undefined,
     excludeCategoryIds: excludeCategories.length ? excludeCategories : undefined,
     excludeTypes: excludeTypes.length ? excludeTypes : undefined,
-    type: typeFilter !== "all" ? typeFilter : undefined,
+    types: typeFilters.length ? typeFilters : undefined,
     dateFrom: dateFrom || undefined,
     dateTo: dateTo || undefined,
   });
@@ -169,10 +173,18 @@ function TransactionsPage() {
     }
   }, [txData?.pagination]);
 
+  // Toggle a value in a multi-select include filter; "all" clears it entirely.
+  const toggleInclude = (setter: typeof setCategoryFilters, value: string) => {
+    if (value === "all") setter([]);
+    else setter((prev) => (prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]));
+    setPagination((p) => ({ ...p, page: 1 }));
+  };
+
   const applyFilter = (key: string, value: string) => {
     if (key === "account") setAccountFilter(value);
-    else if (key === "category") setCategoryFilter(value);
-    else if (key === "type") setTypeFilter(value);
+    else if (key === "pot") setPotFilter(value);
+    else if (key === "category") setCategoryFilters((prev) => (prev.includes(value) ? prev : [...prev, value]));
+    else if (key === "type") setTypeFilters((prev) => (prev.includes(value) ? prev : [...prev, value]));
     else if (key === "period") {
       setPeriodFilter(value);
       setDateFromOverride("");
@@ -182,10 +194,11 @@ function TransactionsPage() {
     setPagination((p) => ({ ...p, page: 1 }));
   };
 
-  const removeFilter = (key: string) => {
+  const removeFilter = (key: string, value?: string) => {
     if (key === "account") setAccountFilter("all");
-    else if (key === "category") setCategoryFilter("all");
-    else if (key === "type") setTypeFilter("all");
+    else if (key === "pot") setPotFilter("all");
+    else if (key === "category") setCategoryFilters((prev) => prev.filter((v) => v !== value));
+    else if (key === "type") setTypeFilters((prev) => prev.filter((v) => v !== value));
     else if (key === "period") {
       setPeriodFilter("all");
       setDateFromOverride("");
@@ -207,10 +220,19 @@ function TransactionsPage() {
     setPagination((p) => ({ ...p, page: 1 }));
   };
 
+  // Internal transfers are the `internal_transfer` type; hiding them just toggles
+  // that value in the existing exclude-types filter.
+  const hideInternal = excludeTypes.includes("internal_transfer");
+  const toggleHideInternal = (hide: boolean) => {
+    if (hide) applyExclude("type", "internal_transfer");
+    else removeExclude("type", "internal_transfer");
+  };
+
   const clearAllFilters = () => {
     setAccountFilter("all");
-    setCategoryFilter("all");
-    setTypeFilter("all");
+    setPotFilter("all");
+    setCategoryFilters([]);
+    setTypeFilters([]);
     setPeriodFilter("all");
     setDateFromOverride("");
     setDateToOverride("");
@@ -421,8 +443,9 @@ function TransactionsPage() {
       <TransactionSearchBar
         search={search}
         accountFilter={accountFilter}
-        categoryFilter={categoryFilter}
-        typeFilter={typeFilter}
+        categoryFilters={categoryFilters}
+        typeFilters={typeFilters}
+        potFilter={potFilter}
         periodFilter={periodFilter}
         dateFromOverride={dateFromOverride}
         dateToOverride={dateToOverride}
@@ -430,6 +453,7 @@ function TransactionsPage() {
         excludeTypes={excludeTypes}
         accounts={accounts}
         categories={categories}
+        pots={pots}
         distinctTypes={distinctTypes}
         onApply={applyFilter}
         onRemove={removeFilter}
@@ -502,11 +526,13 @@ function TransactionsPage() {
         categoryOptions={categoryOptions}
         typeOptions={availableTypeOptions}
         accountFilter={accountFilter}
-        categoryFilter={categoryFilter}
-        typeFilter={typeFilter}
+        categoryFilter={categoryFilters}
+        typeFilter={typeFilters}
         onAccountChange={(v) => { setAccountFilter(v); setPagination((p) => ({ ...p, page: 1 })); }}
-        onCategoryChange={(v) => { setCategoryFilter(v); setPagination((p) => ({ ...p, page: 1 })); }}
-        onTypeChange={(v) => { setTypeFilter(v); setPagination((p) => ({ ...p, page: 1 })); }}
+        onCategoryChange={(v) => toggleInclude(setCategoryFilters, v)}
+        onTypeChange={(v) => toggleInclude(setTypeFilters, v)}
+        hideInternal={hideInternal}
+        onToggleHideInternal={toggleHideInternal}
         renderRows={renderItems}
       />
 

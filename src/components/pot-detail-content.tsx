@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import Link from "next/link";
 import {
   DialogDescription,
   DialogHeader,
@@ -308,11 +309,16 @@ export function PotDetailContent({
                   </span>
                 </div>
               ))}
-              {transactions.length > 20 && (
-                <p className="text-xs text-muted-foreground px-3 py-2">
-                  Showing 20 of {transactions.length}. View the full list on the transactions page.
-                </p>
-              )}
+              <p className="text-xs text-muted-foreground px-3 py-2">
+                {transactions.length > 20 && `Showing 20 of ${transactions.length}. `}
+                <Link
+                  href={`/transactions?pot=${pot.id}`}
+                  className="text-primary hover:underline"
+                >
+                  View the full list on the transactions page
+                </Link>
+                .
+              </p>
             </div>
           )}
         </section>
