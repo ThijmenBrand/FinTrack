@@ -86,6 +86,7 @@ export function CsvUploadDialog({
   // Preview + review state
   const [previewData, setPreviewData] = useState<PreviewTransaction[]>([]);
   const [previewSkipped, setPreviewSkipped] = useState(0);
+  const [previewDuplicates, setPreviewDuplicates] = useState(0);
   const { data: categories = [] } = useCategories();
   const { data: pots = [] } = usePots();
   const preview = usePreviewUpload();
@@ -102,6 +103,7 @@ export function CsvUploadDialog({
     setError(null);
     setPreviewData([]);
     setPreviewSkipped(0);
+    setPreviewDuplicates(0);
   };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -192,6 +194,7 @@ export function CsvUploadDialog({
 
       setPreviewData(data.transactions);
       setPreviewSkipped(data.skipped);
+      setPreviewDuplicates(data.duplicates);
       setStep("review");
     } catch (err) {
       setError(String(err));
@@ -570,6 +573,7 @@ export function CsvUploadDialog({
               pots={pots}
               accountId={selectedAccountId}
               skipped={previewSkipped}
+              duplicates={previewDuplicates}
               error={error}
               onBack={() => setStep("map-columns")}
               onConfirm={handleCommit}

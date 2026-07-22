@@ -36,6 +36,7 @@ interface ImportReviewStepProps {
   pots: ImportPot[];
   accountId: string;
   skipped: number;
+  duplicates: number;
   error?: string | null;
   onBack: () => void;
   onConfirm: (
@@ -74,6 +75,7 @@ export function ImportReviewStep({
   pots,
   accountId,
   skipped,
+  duplicates,
   error,
   onBack,
   onConfirm,
@@ -436,9 +438,16 @@ export function ImportReviewStep({
             </span>
           </div>
         )}
-        {skipped > 0 && (
+        {(skipped > 0 || duplicates > 0) && (
           <div className="text-xs text-muted-foreground ml-auto">
-            {skipped} row{skipped !== 1 ? "s" : ""} skipped (invalid data)
+            {[
+              duplicates > 0 &&
+                `${duplicates} duplicate${duplicates !== 1 ? "s" : ""} already imported`,
+              skipped > 0 &&
+                `${skipped} row${skipped !== 1 ? "s" : ""} skipped (invalid data)`,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
           </div>
         )}
       </div>

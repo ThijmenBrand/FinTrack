@@ -13,14 +13,23 @@ import { formatCurrency } from "@/lib/utils";
 
 export async function AccountsCard({ userId }: { userId: string }) {
   const accountBalances = await getAccountBalances(userId);
+  const totalBalance = accountBalances.reduce(
+    (acc, a) => acc + a.currentBalance,
+    0
+  );
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Accounts</CardTitle>
+        <div className="flex items-baseline justify-between gap-2">
+          <CardTitle>Accounts</CardTitle>
+          <span className="text-sm font-semibold tabular-nums">
+            {formatCurrency(totalBalance)}
+          </span>
+        </div>
         <CardDescription>
-          {accountBalances.length} account
-          {accountBalances.length !== 1 ? "s" : ""} connected
+          Total across {accountBalances.length} account
+          {accountBalances.length !== 1 ? "s" : ""}
         </CardDescription>
       </CardHeader>
       <CardContent>

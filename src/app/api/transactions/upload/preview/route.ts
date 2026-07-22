@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { categoryRules, accounts, categories, recurringTransactions } from "@/db/schema";
+import { categoryRules, accounts, categories, recurringTransactions, transactions as transactionsTable } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import Papa from "papaparse";
@@ -11,6 +11,7 @@ import {
   extractPattern,
   splitNameAndDescription,
   findMatchingRecurring,
+  splitDuplicates,
   type ColumnMapping,
   type PreviewTransaction,
 } from "@/lib/csv-utils";
@@ -257,9 +258,24 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // Drop rows already in this account so the user doesn't waste time
+    // categorizing transactions that the commit would skip anyway. Same match
+    // logic (date, amount, balance/description) used at commit time.
+    const existingRows = await db
+      .select({
+        date: transactionsTable.date,
+        amount: transactionsTable.amount,
+        balance: transactionsTable.balance,
+        description: transactionsTable.description,
+      })
+      .from(transactionsTable)
+      .where(and(eq(transactionsTable.accountId, accountId), eq(transactionsTable.userId, userId)));
+    const { unique, duplicates } = splitDuplicates(existingRows, transactions);
+
     return NextResponse.json({
-      transactions,
+      transactions: unique,
       skipped,
+      duplicates: duplicates.length,
     });
   }, "Failed to preview CSV");
 }
