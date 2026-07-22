@@ -1,0 +1,95 @@
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { createClient, type Client } from "@libsql/client";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+// Point the lazy `@/db` proxy (used by initializeDatabase) and the migration
+// runner at one temp file BEFORE anything touches the DB. The proxy caches its
+// first connection, so every case in this file must share this one file.
+const dbPath = path.join(os.tmpdir(), `fintrack-migrate-${process.pid}-${Date.now()}.db`);
+process.env.TURSO_DATABASE_URL = `file:${dbPath}`;
+
+const { runMigrations } = await import("./run-migrations");
+
+// The migrator resolves the folder from cwd (repo root under vitest).
+const journal = JSON.parse(
+  fs.readFileSync(path.join(process.cwd(), "drizzle/meta/_journal.json"), "utf8"),
+) as { entries: { when: number }[] };
+const baselineWhen = journal.entries[0].when;
+
+let client: Client;
+const tableNames = async () =>
+  (await client.execute("SELECT name FROM sqlite_master WHERE type='table'")).rows.map(
+    (r) => r.name as string,
+  );
+const columnNames = async (table: string) =>
+  (await client.execute(`PRAGMA table_info(${table})`)).rows.map((r) => r.name as string);
+
+beforeAll(() => {
+  client = createClient({ url: `file:${dbPath}` });
+});
+afterAll(() => {
+  client.close();
+  fs.rmSync(dbPath, { force: true });
+});
+
+describe("run-migrations pipeline", () => {
+  it("applies migrations to a fresh database", async () => {
+    await runMigrations();
+
+    const tables = await tableNames();
+    // A representative slice of the 17 schema tables + the drizzle ledger.
+    for (const t of ["user", "transactions", "user_preferences", "accounts", "categories"]) {
+      expect(tables).toContain(t);
+    }
+    expect(tables).toContain("__drizzle_migrations");
+
+    // The column whose absence took prod down must exist after migrating.
+    expect(await columnNames("user_preferences")).toContain("hide_internal_transfers");
+
+    // Baseline recorded exactly once, stamped at the journal timestamp so the
+    // migrator will skip 0000 but still run any future migration (when > this).
+    const ledger = await client.execute(
+      "SELECT count(*) n, min(created_at) w FROM __drizzle_migrations",
+    );
+    expect(ledger.rows[0].n).toBe(1);
+    expect(Number(ledger.rows[0].w)).toBe(baselineWhen);
+
+    // initializeDatabase seeds the admin user.
+    const users = await client.execute('SELECT count(*) n FROM "user"');
+    expect(Number(users.rows[0].n)).toBeGreaterThan(0);
+
+    // Regression: the recurring backfill (correlated `transactions.amount` in a
+    // subquery ORDER BY) used to throw and never write its one-time marker.
+    // If it completes, the marker is present.
+    const marker = await client.execute(
+      "SELECT 1 FROM one_time_migrations WHERE name = 'recurring_link_backfill_v1'",
+    );
+    expect(marker.rows.length).toBe(1);
+  });
+
+  it("is idempotent on re-run", async () => {
+    await expect(runMigrations()).resolves.not.toThrow();
+    const ledger = await client.execute("SELECT count(*) n FROM __drizzle_migrations");
+    expect(ledger.rows[0].n).toBe(1);
+  });
+
+  it("baselines a pre-migration database and repairs column drift", async () => {
+    // Simulate old prod: app tables exist, but no drizzle ledger and the newer
+    // column is missing.
+    await client.execute("DROP TABLE __drizzle_migrations");
+    await client.execute("ALTER TABLE user_preferences DROP COLUMN hide_internal_transfers");
+    expect(await columnNames("user_preferences")).not.toContain("hide_internal_transfers");
+
+    // Must not error on the existing tables (no "table already exists").
+    await expect(runMigrations()).resolves.not.toThrow();
+
+    const ledger = await client.execute(
+      "SELECT count(*) n, min(created_at) w FROM __drizzle_migrations",
+    );
+    expect(ledger.rows[0].n).toBe(1);
+    expect(Number(ledger.rows[0].w)).toBe(baselineWhen);
+    expect(await columnNames("user_preferences")).toContain("hide_internal_transfers");
+  });
+});
