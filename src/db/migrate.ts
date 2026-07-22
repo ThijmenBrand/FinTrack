@@ -81,10 +81,19 @@ export async function initializeDatabase() {
     console.log(`Admin user "${adminUsername}" created. Change the password after first login.`);
   }
 
-  // ── Data migrations ────────────────────────────────────────────────────
-  // drizzle-kit push (run before this in the build) creates every
-  // schema-declared column/table/index. Only genuine data backfills and
-  // migrations that push can't express belong here.
+  // ── Data migrations & column-level drift repair ─────────────────────────
+  // Versioned migrations (drizzle/*.sql, applied by scripts/migrate.ts) create
+  // every schema-declared table. Existing databases baselined onto 0000 may
+  // still be missing columns that predate the baseline — repair those here
+  // idempotently. Genuine data backfills also live here.
+
+  // hide_internal_transfers: added with the "drop Reserved feature" change.
+  // Missing on any DB baselined before it (or where the old drizzle-kit push
+  // skipped it as a data-loss statement); reads of user_preferences 500
+  // without it. Idempotent — no-ops once the column exists.
+  await db
+    .run(sql`ALTER TABLE user_preferences ADD COLUMN hide_internal_transfers INTEGER NOT NULL DEFAULT 0`)
+    .catch(() => {});
 
   // category_source: tracks whether categoryId was set by a rule or manually.
   // Backfill existing categorized rows as 'manual' so a subsequent "Recalculate
@@ -158,9 +167,10 @@ export async function initializeDatabase() {
           id TEXT PRIMARY KEY,
           user_id TEXT REFERENCES "user"(id) ON DELETE CASCADE,
           account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-          date TEXT NOT NULL, description TEXT NOT NULL,
+          date TEXT NOT NULL, name TEXT, description TEXT NOT NULL,
           amount REAL NOT NULL, balance REAL,
           category_id TEXT REFERENCES categories(id),
+          category_source TEXT,
           type TEXT NOT NULL CHECK(type IN ('income', 'expense', 'internal_transfer', 'reimbursement', 'reserved')),
           linked_transaction_id TEXT, reimburses_transaction_id TEXT,
           notes TEXT, is_manual INTEGER NOT NULL DEFAULT 0,
@@ -171,7 +181,7 @@ export async function initializeDatabase() {
       `);
       await db.run(sql`
         INSERT INTO transactions_new
-        SELECT id, user_id, account_id, date, description, amount, balance, category_id, type,
+        SELECT id, user_id, account_id, date, name, description, amount, balance, category_id, category_source, type,
                linked_transaction_id, reimburses_transaction_id, notes, is_manual,
                import_batch_id, group_id, recurring_transaction_id, created_at
         FROM transactions
@@ -261,7 +271,12 @@ export async function initializeDatabase() {
   // Backfill recurring_transaction_id on existing transactions using the same
   // matching heuristic as `findMatchingRecurring` (csv-utils.ts): same account
   // and direction, description substring match either way, amount within ±10%
-  // (or ±€2). When multiple plans match, the closest amount wins.
+  // (or ±€2).
+  // ponytail: no ORDER BY closest-amount tiebreak — SQLite can't resolve the
+  // correlated `transactions.amount` inside a subquery's ORDER BY, and the
+  // WHERE already bounds matches tightly enough that ties are near-duplicates.
+  // If precise tiebreaking is ever needed, do the backfill in app code with
+  // findMatchingRecurring instead.
   const backfillName = "recurring_link_backfill_v1";
   const markerCheck = await db.run(
     sql`SELECT 1 AS found FROM one_time_migrations WHERE name = ${backfillName}`
@@ -293,7 +308,6 @@ export async function initializeDatabase() {
               ) > 0
             )
             AND ABS(ABS(p.amount) - ABS(transactions.amount)) <= MAX(2.0, ABS(transactions.amount) * 0.1)
-          ORDER BY ABS(ABS(p.amount) - ABS(transactions.amount)) ASC
           LIMIT 1
         )
         WHERE recurring_transaction_id IS NULL

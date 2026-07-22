@@ -17,11 +17,8 @@ fi
 # Create data directory for SQLite
 mkdir -p data
 
-echo "==> Pushing database schema..."
-npx drizzle-kit push
-
-echo "==> Initializing database (seeding admin user & default categories)..."
-npx tsx scripts/db-init.ts
+echo "==> Applying migrations & initializing database (seeding admin user & default categories)..."
+npx tsx scripts/migrate.ts
 
 echo ""
 echo "Setup complete! Run 'npm run dev' to start the development server."

@@ -4,15 +4,15 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build && npx drizzle-kit push && tsx scripts/db-init.ts",
+    "build": "next build && tsx scripts/migrate.ts",
     "auth:generate": "npx @better-auth/cli generate --output ./src/db/auth-schema.ts",
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
     "db:init": "tsx scripts/db-init.ts",
+    "db:migrate": "tsx scripts/migrate.ts",
     "db:generate": "drizzle-kit generate",
-    "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "setup": "bash scripts/setup.sh"
   },
