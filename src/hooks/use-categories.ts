@@ -17,8 +17,6 @@ export function useCreateCategory() {
       name: string;
       color: string;
       icon: string | null;
-      kind?: "spending" | "reserved";
-      budgetAmount?: number;
     }) =>
       apiFetch("/api/categories", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
     onSuccess: () => {
@@ -36,8 +34,6 @@ export function useUpdateCategory() {
       name: string;
       color: string;
       icon: string | null;
-      kind?: "spending" | "reserved";
-      budgetAmount?: number;
     }) =>
       apiFetch("/api/categories", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
     onSuccess: () => {

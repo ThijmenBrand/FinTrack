@@ -32,7 +32,6 @@ const TYPE_BADGES: Record<string, { label: string; variant: "default" | "seconda
   expense: { label: "Expense", variant: "destructive" },
   internal_transfer: { label: "Transfer", variant: "secondary" },
   reimbursement: { label: "Reimbursement", variant: "outline" },
-  reserved: { label: "Reserved", variant: "secondary" },
 };
 
 type Layout = "table" | "card";
@@ -50,6 +49,7 @@ interface TransactionRowProps {
   onReimburse: () => void;
   onUnlinkReimbursement: () => void;
   onDelete: () => void | Promise<void>;
+  onContextMenu?: (e: React.MouseEvent) => void;
 }
 
 /** Amount cell — shared between layouts; handles reimbursement strike-through and in-pot/transfer muting. */
@@ -98,6 +98,7 @@ export function TransactionRow({
   onReimburse,
   onUnlinkReimbursement,
   onDelete,
+  onContextMenu,
 }: TransactionRowProps) {
   const isTransfer = tx.type === "internal_transfer";
   const isReimbursement = tx.type === "reimbursement";
@@ -114,6 +115,7 @@ export function TransactionRow({
           isReimbursement || isInPot ? "opacity-60" : ""
         }`}
         onClick={onOpen}
+        onContextMenu={onContextMenu}
       >
         <span onClick={(e) => e.stopPropagation()} className="shrink-0">
           <Checkbox
@@ -158,6 +160,7 @@ export function TransactionRow({
     <TableRow
       className={`cursor-pointer ${isReimbursement || isInPot ? "opacity-60" : ""}`}
       onClick={onOpen}
+      onContextMenu={onContextMenu}
     >
       <TableCell onClick={(e) => e.stopPropagation()}>
         <Checkbox

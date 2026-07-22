@@ -217,7 +217,7 @@ export async function getWeeklySpending(userId: string, accountId?: string) {
       .from(sql`transactions t`)
       .innerJoin(sql`transaction_groups g`, sql`t.group_id = g.id`)
       .where(
-        sql`t.group_id IS NOT NULL AND t.type NOT IN ('reserved', 'internal_transfer') AND t.user_id = ${userId} AND t.date >= ${weekStart} AND t.date <= ${weekEnd}${accountFilterAlias}`
+        sql`t.group_id IS NOT NULL AND t.type != 'internal_transfer' AND t.user_id = ${userId} AND t.date >= ${weekStart} AND t.date <= ${weekEnd}${accountFilterAlias}`
       ),
 
     db
@@ -227,7 +227,7 @@ export async function getWeeklySpending(userId: string, accountId?: string) {
       .from(sql`transactions t`)
       .innerJoin(sql`transaction_groups g`, sql`t.group_id = g.id`)
       .where(
-        sql`t.group_id IS NOT NULL AND t.type NOT IN ('reserved', 'internal_transfer') AND t.user_id = ${userId} AND t.date >= ${lastWeekStart} AND t.date <= ${lastWeekEnd}${lastWeekFilterAlias}`
+        sql`t.group_id IS NOT NULL AND t.type != 'internal_transfer' AND t.user_id = ${userId} AND t.date >= ${lastWeekStart} AND t.date <= ${lastWeekEnd}${lastWeekFilterAlias}`
       ),
   ]);
 
@@ -254,7 +254,7 @@ export async function getBudgetOverview(
   // intentionally ignore the dashboard's defaultAccountId scoping.
   const { monthStart, monthEnd, monthProgress } = getDateRanges(startDay);
 
-  const [allBudgetsRaw, recurringExpenses, monthExpense, monthPotContrib] =
+  const [allBudgets, recurringExpenses, monthExpense, monthPotContrib] =
     await Promise.all([
       db
         .select({
@@ -262,7 +262,6 @@ export async function getBudgetOverview(
           categoryId: budgets.categoryId,
           categoryName: categories.name,
           categoryColor: categories.color,
-          categoryKind: categories.kind,
           amount: budgets.amount,
           period: budgets.period,
         })
@@ -310,11 +309,9 @@ export async function getBudgetOverview(
         .from(sql`transactions t`)
         .innerJoin(sql`transaction_groups g`, sql`t.group_id = g.id`)
         .where(
-          sql`t.group_id IS NOT NULL AND t.type NOT IN ('reserved', 'internal_transfer') AND t.user_id = ${userId} AND t.date >= ${monthStart} AND t.date <= ${monthEnd}`,
+          sql`t.group_id IS NOT NULL AND t.type != 'internal_transfer' AND t.user_id = ${userId} AND t.date >= ${monthStart} AND t.date <= ${monthEnd}`,
         ),
     ]);
-
-  const allBudgets = allBudgetsRaw.filter((b) => b.categoryKind !== "reserved");
 
   // Per-budgeted-category spending — drives the per-category chips.
   const budgetsByPeriod = new Map<string, typeof allBudgets>();
@@ -486,7 +483,7 @@ export async function getMonthSummary(
         .from(sql`transactions t`)
         .innerJoin(sql`transaction_groups g`, sql`t.group_id = g.id`)
         .where(
-          sql`t.group_id IS NOT NULL AND t.type NOT IN ('reserved', 'internal_transfer') AND t.user_id = ${userId} AND t.date >= ${monthStart} AND t.date <= ${monthEnd}${accountFilterAlias}`
+          sql`t.group_id IS NOT NULL AND t.type != 'internal_transfer' AND t.user_id = ${userId} AND t.date >= ${monthStart} AND t.date <= ${monthEnd}${accountFilterAlias}`
         ),
     ]);
 
@@ -641,7 +638,7 @@ export async function getMonthMoneyView(
         and(
           eq(transactions.userId, userId),
           inArray(transactions.groupId, potIds),
-          sql`${transactions.type} NOT IN ('reserved', 'internal_transfer')`,
+          sql`${transactions.type} != 'internal_transfer'`,
           gte(transactions.date, monthStart),
           lte(transactions.date, monthEnd)
         )
@@ -698,7 +695,6 @@ export async function getMonthMoneyView(
   return {
     monthlyIncome: math.monthlyIncome,
     totalFixedCosts: math.totalFixedCosts,
-    reservedTotal: math.reservedTotal,
     spentThisMonth: math.spentThisMonth,
     freeToSpend: math.freeToSpend,
     freeToSpendAfterSpikes,

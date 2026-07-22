@@ -56,6 +56,18 @@ function getWeekStart(dateStr: string): Date {
   return dt;
 }
 
+// "Jul 6–12" for a same-month week, "Jun 30 – Jul 6" across a month boundary.
+function formatWeekRange(weekStart: Date): string {
+  const end = new Date(weekStart);
+  end.setDate(end.getDate() + 6);
+  const startMonth = weekStart.toLocaleDateString("en-US", { month: "short" });
+  const endMonth = end.toLocaleDateString("en-US", { month: "short" });
+  if (startMonth === endMonth) {
+    return `${startMonth} ${weekStart.getDate()}–${end.getDate()}`;
+  }
+  return `${startMonth} ${weekStart.getDate()} – ${endMonth} ${end.getDate()}`;
+}
+
 function aggregateWeekly(
   daily: { date: string; expenses: number }[]
 ): PeriodEntry[] {
@@ -76,10 +88,7 @@ function aggregateWeekly(
     .sort((a, b) => a[1].weekStart.getTime() - b[1].weekStart.getTime())
     .map(([key, value]) => ({
       key,
-      label: value.weekStart.toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-      }),
+      label: formatWeekRange(value.weekStart),
       expenses: value.expenses,
     }));
 }

@@ -6,6 +6,7 @@ import {
   splitNameAndDescription,
   extractPattern,
   findMatchingRecurring,
+  splitDuplicates,
 } from "./csv-utils";
 
 describe("parseAmount", () => {
@@ -278,5 +279,43 @@ describe("findMatchingRecurring", () => {
 
   it("returns null when there are no plans", () => {
     expect(findMatchingRecurring("acct-1", -12.99, "Netflix", null, [])).toBeNull();
+  });
+});
+
+describe("splitDuplicates", () => {
+  const row = (date: string, amount: number, balance: number | null, description: string) => ({
+    date,
+    amount,
+    balance,
+    description,
+  });
+
+  it("flags rows with matching date/amount/balance even when the description language differs", () => {
+    // Real case: overlapping Revolut exports, one Dutch and one English
+    const existing = [row("2026-06-09", 276, 826.56, "Overschrijving van LOWIJS CLARIS FITZPAT")];
+    const { unique, duplicates } = splitDuplicates(existing, [
+      row("2026-06-09", 276, 826.56, "Transfer from LOWIJS CLARIS FITZPATRICK"),
+    ]);
+    expect(duplicates).toHaveLength(1);
+    expect(unique).toHaveLength(0);
+  });
+
+  it("keeps same-looking rows when the running balance differs", () => {
+    const existing = [row("2026-06-09", -2.99, 17.09, "OVpay")];
+    const { unique, duplicates } = splitDuplicates(existing, [
+      row("2026-06-09", -2.99, 14.1, "OVpay"),
+    ]);
+    expect(unique).toHaveLength(1);
+    expect(duplicates).toHaveLength(0);
+  });
+
+  it("falls back to description matching when the CSV has no balance column", () => {
+    const existing = [row("2026-06-09", -2.99, null, "OVpay")];
+    const { unique, duplicates } = splitDuplicates(existing, [
+      row("2026-06-09", -2.99, null, "ovpay "),
+      row("2026-06-09", -5, null, "Albert Heijn"),
+    ]);
+    expect(duplicates).toHaveLength(1);
+    expect(unique).toHaveLength(1);
   });
 });

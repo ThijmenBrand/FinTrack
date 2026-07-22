@@ -18,7 +18,7 @@ interface CategoryProgressRowProps {
 
 /**
  * Clickable list row that navigates to the category's transactions.
- * Shared by the Reserved and Fixed Costs lists.
+ * Used by the Fixed Costs list.
  */
 export function CategoryProgressRow({
   categoryId,

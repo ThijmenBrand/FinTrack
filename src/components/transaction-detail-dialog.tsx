@@ -40,7 +40,6 @@ const TYPE_BADGES: Record<string, { label: string; variant: "default" | "seconda
   expense: { label: "Expense", variant: "destructive" },
   internal_transfer: { label: "Transfer", variant: "secondary" },
   reimbursement: { label: "Reimbursement", variant: "outline" },
-  reserved: { label: "Reserved", variant: "secondary" },
 };
 
 interface TransactionDetailDialogProps {

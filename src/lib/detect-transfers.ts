@@ -20,13 +20,8 @@ export async function detectTransfers(db: typeof defaultDb, userId: string) {
     return { matchedPairs: 0, totalTransactionsUpdated: 0 };
   }
 
-  // Find all transactions not yet flagged as transfers and not already
-  // intentionally categorized as reserved (e.g. savings) — those aren't
-  // candidates for transfer-pair detection.
-  const excludedTypes: ("internal_transfer" | "reserved")[] = [
-    "internal_transfer",
-    "reserved",
-  ];
+  // Find all transactions not yet flagged as transfers.
+  const excludedTypes: "internal_transfer"[] = ["internal_transfer"];
   const allTx = await db
     .select()
     .from(transactions)

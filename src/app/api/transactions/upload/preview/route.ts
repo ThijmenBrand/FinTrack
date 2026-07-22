@@ -108,16 +108,6 @@ export async function POST(request: NextRequest) {
       .from(categories)
       .where(and(eq(categories.name, "Internal Transfer"), eq(categories.userId, userId)));
 
-    // Reserved category IDs — when a rule maps a transaction into one of these,
-    // the resulting type is 'reserved' rather than 'expense' / 'income'.
-    const categoryKindRows = await db
-      .select({ id: categories.id, kind: categories.kind })
-      .from(categories)
-      .where(eq(categories.userId, userId));
-    const reservedCategoryIds = new Set(
-      categoryKindRows.filter((c) => c.kind === "reserved").map((c) => c.id)
-    );
-
     // Active recurring plans — used to auto-link rows that look like a
     // recurring bill so they don't double-count in Free to Spend.
     const recurringPlans = await db
@@ -194,7 +184,7 @@ export async function POST(request: NextRequest) {
       }
 
       const balance = balanceRaw ? parseAmount(balanceRaw) : null;
-      let type: "income" | "expense" | "internal_transfer" | "reserved" =
+      let type: "income" | "expense" | "internal_transfer" =
         amount >= 0 ? "income" : "expense";
 
       // Check for internal transfer via counterparty IBAN
@@ -231,13 +221,8 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // If the matched rule points at a reserved category, type follows.
-      if (categoryId && reservedCategoryIds.has(categoryId)) {
-        type = "reserved";
-      }
-
-      // Try to match this row to an active recurring plan (skip transfers and
-      // reserved-typed rows — those flows aren't tracked as fixed costs).
+      // Try to match this row to an active recurring plan (skip transfers —
+      // those flows aren't tracked as fixed costs).
       let recurringTransactionId: string | null = null;
       let recurringDescription: string | null = null;
       if (type === "income" || type === "expense") {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, Suspense } from "react";
+import { useEffect, useState, useMemo, useRef, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -20,8 +20,9 @@ import {
 } from "lucide-react";
 import { useAccounts } from "@/hooks/use-accounts";
 import { useCategories } from "@/hooks/use-categories";
-import { usePots, useDeletePot, useAddToPot, useRemoveFromPot } from "@/hooks/use-pots";
+import { usePots, useDeletePot, useAddToPot, useRemoveFromPot, useCreatePot } from "@/hooks/use-pots";
 import { useTransactions, useDeleteTransaction, useDetectTransfers, useDeleteReimbursement, useBulkCategorizeTransactions, useBulkDeleteTransactions } from "@/hooks/use-transactions";
+import { usePreferences } from "@/hooks/use-preferences";
 import { formatDate } from "@/lib/utils";
 import type { Transaction, Pot, Pagination } from "@/types/api";
 import {
@@ -30,6 +31,11 @@ import {
   TYPE_OPTIONS,
 } from "./_components/transaction-search-bar";
 import { TransactionRow, PotRow } from "./_components/transaction-row";
+import {
+  TransactionContextMenu,
+  TransactionNoteDialog,
+  type ContextMenuState,
+} from "./_components/transaction-context-menu";
 import { TransactionTotals } from "./_components/transaction-totals";
 import { TransactionBulkBar } from "./_components/transaction-bulk-bar";
 import { TransactionsTable } from "./_components/transactions-table";
@@ -51,6 +57,7 @@ function TransactionsPage() {
   const { data: accounts = [] } = useAccounts();
   const { data: categories = [] } = useCategories();
   const { data: pots = [] } = usePots();
+  const { data: preferences } = usePreferences();
 
   // Mutations
   const deleteTx = useDeleteTransaction();
@@ -59,6 +66,7 @@ function TransactionsPage() {
   const deletePot = useDeletePot();
   const addToPot = useAddToPot();
   const removeFromPot = useRemoveFromPot();
+  const createPot = useCreatePot();
   const bulkCategorize = useBulkCategorizeTransactions();
   const bulkDelete = useBulkDeleteTransactions();
 
@@ -81,10 +89,16 @@ function TransactionsPage() {
   const [addToPotPicker, setAddToPotPicker] = useState<Pot | null>(null);
   const [editPot, setEditPot] = useState<Pot | null>(null);
   const [addToPotTx, setAddToPotTx] = useState<Transaction | null>(null);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [noteTx, setNoteTx] = useState<Transaction | null>(null);
 
   // Bulk selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkPotOpen, setBulkPotOpen] = useState(false);
+  // Sequential "mark as reimbursement" — walk each selected income tx through the
+  // picker one at a time; head of the queue is the active one.
+  const [reimburseQueue, setReimburseQueue] = useState<Transaction[]>([]);
+  const bulkLinkedRef = useRef(false);
 
   // Filters — initialized from URL params
   const [search, setSearch] = useState(searchParams.get("search") || "");
@@ -132,6 +146,15 @@ function TransactionsPage() {
     router.replace(newUrl, { scroll: false });
   }, [search, accountFilter, potFilter, categoryFilters, typeFilters, periodFilter, dateFromOverride, dateToOverride, excludeCategories, excludeTypes, sortBy, sortOrder, router]);
 
+  // The "hide internal transfers" preference excludes that type from the query
+  // without showing up as a removable filter chip.
+  const queryExcludeTypes = useMemo(() => {
+    if (!preferences?.hideInternalTransfers) return excludeTypes;
+    return excludeTypes.includes("internal_transfer")
+      ? excludeTypes
+      : [...excludeTypes, "internal_transfer"];
+  }, [excludeTypes, preferences?.hideInternalTransfers]);
+
   // Compute dateFrom/dateTo — URL overrides win over period preset
   const { from: dateFrom, to: dateTo } = useMemo(() => {
     if (dateFromOverride || dateToOverride) {
@@ -151,7 +174,7 @@ function TransactionsPage() {
     groupId: potFilter !== "all" ? potFilter : undefined,
     categoryIds: categoryFilters.length ? categoryFilters : undefined,
     excludeCategoryIds: excludeCategories.length ? excludeCategories : undefined,
-    excludeTypes: excludeTypes.length ? excludeTypes : undefined,
+    excludeTypes: queryExcludeTypes.length ? queryExcludeTypes : undefined,
     types: typeFilters.length ? typeFilters : undefined,
     dateFrom: dateFrom || undefined,
     dateTo: dateTo || undefined,
@@ -220,14 +243,6 @@ function TransactionsPage() {
     setPagination((p) => ({ ...p, page: 1 }));
   };
 
-  // Internal transfers are the `internal_transfer` type; hiding them just toggles
-  // that value in the existing exclude-types filter.
-  const hideInternal = excludeTypes.includes("internal_transfer");
-  const toggleHideInternal = (hide: boolean) => {
-    if (hide) applyExclude("type", "internal_transfer");
-    else removeExclude("type", "internal_transfer");
-  };
-
   const clearAllFilters = () => {
     setAccountFilter("all");
     setPotFilter("all");
@@ -264,6 +279,11 @@ function TransactionsPage() {
     } catch (err) {
       console.error("Failed to add to pot:", err);
     }
+  };
+
+  const handleCreatePot = async (name: string) => {
+    const { id } = await createPot.mutateAsync({ name, categoryId: null }) as { id: string };
+    return id;
   };
 
   const handleDetectTransfers = async () => {
@@ -394,6 +414,10 @@ function TransactionsPage() {
           onReimburse={() => setReimbursePicker(item.data)}
           onUnlinkReimbursement={() => handleUnlinkReimbursement(item.data.id)}
           onDelete={() => handleDelete(item.data.id)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setContextMenu({ x: e.clientX, y: e.clientY, tx: item.data });
+          }}
         />
       )
     );
@@ -498,10 +522,12 @@ function TransactionsPage() {
           count={selectedOnPage.length}
           categories={categories}
           canAddToPot={pots.length > 0 && selectedOnPage.some((t) => !t.groupId)}
+          canReimburse={selectedOnPage.some((t) => t.type === "income")}
           categorizePending={bulkCategorize.isPending}
           deletePending={bulkDelete.isPending}
           onCategorize={handleBulkCategorize}
           onAddToPot={() => setBulkPotOpen(true)}
+          onReimburse={() => setReimburseQueue(selectedOnPage.filter((t) => t.type === "income"))}
           onDelete={handleBulkDelete}
           onClear={() => setSelectedIds(new Set())}
         />
@@ -531,10 +557,27 @@ function TransactionsPage() {
         onAccountChange={(v) => { setAccountFilter(v); setPagination((p) => ({ ...p, page: 1 })); }}
         onCategoryChange={(v) => toggleInclude(setCategoryFilters, v)}
         onTypeChange={(v) => toggleInclude(setTypeFilters, v)}
-        hideInternal={hideInternal}
-        onToggleHideInternal={toggleHideInternal}
         renderRows={renderItems}
       />
+
+      {/* Right-click Context Menu */}
+      <TransactionContextMenu
+        menu={contextMenu}
+        categories={categories}
+        onClose={() => setContextMenu(null)}
+        onAddNote={setNoteTx}
+        onAddToPot={setAddToPotTx}
+        onRemoveFromPot={(tx) => handleRemoveFromPot(tx.groupId!, tx.id)}
+        onReimburse={setReimbursePicker}
+        onDelete={(tx) => {
+          if (window.confirm("Delete this transaction?")) handleDelete(tx.id);
+        }}
+      />
+
+      {/* Note Editor Dialog */}
+      {noteTx && (
+        <TransactionNoteDialog tx={noteTx} onClose={() => setNoteTx(null)} />
+      )}
 
       {/* CSV Upload Dialog */}
       <CsvUploadDialog
@@ -563,6 +606,31 @@ function TransactionsPage() {
         />
       )}
 
+      {/* Bulk Reimbursement Picker — one transaction at a time */}
+      {reimburseQueue.length > 0 && (
+        <ReimbursementPicker
+          key={reimburseQueue[0].id}
+          open={true}
+          transactionId={reimburseQueue[0].id}
+          transactionAmount={reimburseQueue[0].amount}
+          transactionDescription={reimburseQueue[0].description}
+          transactionDate={reimburseQueue[0].date}
+          accountId={reimburseQueue[0].accountId}
+          onLinked={() => { bulkLinkedRef.current = true; }}
+          onOpenChange={(open) => {
+            if (open) return;
+            // Linked → advance to the next queued tx; cancelled → abort the whole run.
+            if (bulkLinkedRef.current) {
+              bulkLinkedRef.current = false;
+              if (reimburseQueue.length <= 1) setSelectedIds(new Set());
+              setReimburseQueue((q) => q.slice(1));
+            } else {
+              setReimburseQueue([]);
+            }
+          }}
+        />
+      )}
+
       {/* Create Pot Dialog */}
       <CreatePotDialog
         open={createPotOpen}
@@ -585,6 +653,7 @@ function TransactionsPage() {
           onOpenChange={(open) => { if (!open) setAddToPotTx(null); }}
           pots={pots}
           transactionDescription={addToPotTx.description}
+          onCreate={handleCreatePot}
           onSelect={async (potId) => {
             await handleAddToPot(potId, addToPotTx.id);
           }}
@@ -598,6 +667,7 @@ function TransactionsPage() {
           onOpenChange={(open) => { if (!open) setBulkPotOpen(false); }}
           pots={pots}
           transactionDescription={`${selectedOnPage.length} selected transactions`}
+          onCreate={handleCreatePot}
           onSelect={async (potId) => {
             for (const tx of selectedOnPage) {
               if (!tx.groupId) await addToPot.mutateAsync({ potId, transactionId: tx.id });

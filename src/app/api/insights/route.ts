@@ -77,20 +77,20 @@ export async function GET(request: NextRequest) {
         .groupBy(transactions.categoryId);
 
     // Pot (transaction-group) spending per pot over a range: net spend floored
-    // at 0 per pot (mirrors /api/budgets). Reserved deposits and internal
-    // transfers don't count as spending. categoryId may be null — uncategorized
-    // pot spend still counts.
+    // at 0 per pot (mirrors /api/budgets). Internal transfers don't count as
+    // spending. categoryId may be null — uncategorized pot spend still counts.
     const potSpendingPerPot = (conds: SQL[]) =>
       db
         .select({
           categoryId: transactionGroups.categoryId,
           potTotal: sql<number>`${potSpentAmount()}`,
+          count: sql<number>`count(*)`,
         })
         .from(transactionGroups)
         .innerJoin(transactions, eq(transactions.groupId, transactionGroups.id))
         .where(
           and(
-            sql`${transactions.type} NOT IN ('reserved', 'internal_transfer')`,
+            sql`${transactions.type} != 'internal_transfer'`,
             ...conds,
           ),
         )
@@ -131,7 +131,7 @@ export async function GET(request: NextRequest) {
         .innerJoin(transactions, eq(transactions.groupId, transactionGroups.id))
         .where(
           and(
-            sql`${transactions.type} NOT IN ('reserved', 'internal_transfer')`,
+            sql`${transactions.type} != 'internal_transfer'`,
             ...conditions,
           ),
         )
@@ -197,7 +197,7 @@ export async function GET(request: NextRequest) {
         .innerJoin(transactions, eq(transactions.groupId, transactionGroups.id))
         .where(
           and(
-            sql`${transactions.type} NOT IN ('reserved', 'internal_transfer')`,
+            sql`${transactions.type} != 'internal_transfer'`,
             ...conditions,
           ),
         )
@@ -281,8 +281,11 @@ export async function GET(request: NextRequest) {
     let totalPotSpending = 0;
     for (const row of potSpendingRows) {
       const amount = row.potTotal ?? 0;
+      // Skip pots that netted zero/positive over the range: they contributed no
+      // spend, so they shouldn't seed a phantom €0 category row.
+      if (amount <= 0) continue;
       totalPotSpending += amount;
-      addBreakdown(row.categoryId, amount, 0);
+      addBreakdown(row.categoryId, amount, row.count ?? 0);
     }
     // Load meta for every category in the breakdown (some have only pot activity).
     const breakdownCatIds = [...breakdownByCat.keys()].filter(

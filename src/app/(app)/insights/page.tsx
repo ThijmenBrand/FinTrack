@@ -162,6 +162,41 @@ function parsePreset(value: string | null): PresetKey {
   return value && VALID_PRESETS.has(value as PresetKey) ? (value as PresetKey) : "this_month";
 }
 
+const LOADING_MESSAGES = [
+  "Counting your coffees…",
+  "Interrogating your bank statements…",
+  "Blaming the weekend…",
+  "Following the money…",
+  "Doing maths you'd rather not…",
+  "Reticulating splines…",
+  "Checking if you can afford it…",
+  "Rounding up the usual suspects…",
+  "Adding up the damage…",
+  "Consulting the piggy bank…",
+];
+
+function LoadingMessages() {
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    const id = setInterval(
+      () => setI((n) => (n + 1) % LOADING_MESSAGES.length),
+      1800,
+    );
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <div className="flex flex-col items-center gap-4 py-24">
+      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <p
+        key={i}
+        className="text-sm text-muted-foreground animate-in fade-in duration-500"
+      >
+        {LOADING_MESSAGES[i]}
+      </p>
+    </div>
+  );
+}
+
 const ordinal = (n: number): string => {
   const s = ["th", "st", "nd", "rd"];
   const v = n % 100;
@@ -332,11 +367,7 @@ export default function InsightsPage() {
   };
 
   if (isLoading && !data) {
-    return (
-      <div className="flex items-center justify-center py-24">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <LoadingMessages />;
   }
 
   if (!data) return null;

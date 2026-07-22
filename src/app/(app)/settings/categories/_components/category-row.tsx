@@ -99,11 +99,6 @@ export function CategoryRow({ category, rules, categories, onEdit }: CategoryRow
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <p className="font-medium">{category.name}</p>
-            {category.kind === "reserved" && (
-              <Badge variant="secondary" className="h-5 text-[10px] uppercase tracking-wide">
-                Reserved
-              </Badge>
-            )}
           </div>
           <p className="text-xs text-muted-foreground">
             {category.transactionCount} transaction

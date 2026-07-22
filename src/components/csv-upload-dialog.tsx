@@ -76,6 +76,7 @@ export function CsvUploadDialog({
   });
   const [result, setResult] = useState<{
     imported: number;
+    duplicatesSkipped: number;
     rulesCreated: number;
     transfersDetected: number;
   } | null>(null);
@@ -230,6 +231,7 @@ export function CsvUploadDialog({
 
       setResult({
         imported: data.imported,
+        duplicatesSkipped: data.duplicatesSkipped || 0,
         rulesCreated: data.rulesCreated || 0,
         transfersDetected: data.transfersDetected || 0,
       });
@@ -596,6 +598,13 @@ export function CsvUploadDialog({
               {result.rulesCreated > 0 &&
                 `, ${result.rulesCreated} new rule${result.rulesCreated !== 1 ? "s" : ""} created`}
             </p>
+            {result.duplicatesSkipped > 0 && (
+              <p className="text-sm text-muted-foreground mt-1">
+                {result.duplicatesSkipped} duplicate
+                {result.duplicatesSkipped !== 1 ? "s" : ""} of existing
+                transactions skipped
+              </p>
+            )}
             {result.transfersDetected > 0 && (
               <p className="text-sm text-muted-foreground mt-1">
                 {result.transfersDetected} internal transfer pair{result.transfersDetected !== 1 ? "s" : ""}{" "}

@@ -8,17 +8,19 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select";
-import { Package, Trash2, Loader2, X } from "lucide-react";
+import { Package, Receipt, Trash2, Loader2, X } from "lucide-react";
 import type { Category } from "@/types/api";
 
 interface TransactionBulkBarProps {
   count: number;
   categories: Category[];
   canAddToPot: boolean;
+  canReimburse: boolean;
   categorizePending: boolean;
   deletePending: boolean;
   onCategorize: (value: string) => void;
   onAddToPot: () => void;
+  onReimburse: () => void;
   onDelete: () => void | Promise<void>;
   onClear: () => void;
 }
@@ -27,10 +29,12 @@ export function TransactionBulkBar({
   count,
   categories,
   canAddToPot,
+  canReimburse,
   categorizePending,
   deletePending,
   onCategorize,
   onAddToPot,
+  onReimburse,
   onDelete,
   onClear,
 }: TransactionBulkBarProps) {
@@ -64,6 +68,12 @@ export function TransactionBulkBar({
         <Button variant="outline" size="sm" className="h-8" onClick={onAddToPot}>
           <Package className="mr-1.5 h-3.5 w-3.5" />
           Add to Pot
+        </Button>
+      )}
+      {canReimburse && (
+        <Button variant="outline" size="sm" className="h-8" onClick={onReimburse}>
+          <Receipt className="mr-1.5 h-3.5 w-3.5" />
+          Mark as reimbursement
         </Button>
       )}
       {confirmingDelete ? (
