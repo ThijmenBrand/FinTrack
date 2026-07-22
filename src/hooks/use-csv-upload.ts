@@ -5,6 +5,7 @@ import type { PreviewTransaction } from "@/lib/csv-utils";
 interface PreviewResult {
   transactions: PreviewTransaction[];
   skipped: number;
+  duplicates: number;
 }
 
 export function usePreviewUpload() {
