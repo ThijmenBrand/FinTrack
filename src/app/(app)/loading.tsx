@@ -1,15 +1,13 @@
-import { HeroWeeklySpendingSkeleton } from "./_components/hero-weekly-spending";
-import { BudgetOverviewSkeleton } from "./_components/budget-overview";
-import { MonthSummaryGridSkeleton } from "./_components/month-summary-grid";
+import { PeriodSummarySkeleton } from "./_components/period-summary";
+import { BudgetCategoriesSkeleton } from "./_components/budget-categories";
 import { TopSpendingCardSkeleton } from "./_components/top-spending-card";
 import { AccountsCardSkeleton } from "./_components/accounts-card";
 
 export default function DashboardLoading() {
   return (
     <div className="space-y-6">
-      <HeroWeeklySpendingSkeleton />
-      <BudgetOverviewSkeleton />
-      <MonthSummaryGridSkeleton />
+      <PeriodSummarySkeleton />
+      <BudgetCategoriesSkeleton />
       <div className="grid gap-6 lg:grid-cols-2">
         <TopSpendingCardSkeleton />
         <AccountsCardSkeleton />

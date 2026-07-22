@@ -4,17 +4,13 @@ import { Suspense } from "react";
 import { requireAuth } from "@/lib/auth";
 import { getUserPreferences } from "@/lib/preferences";
 import {
-  HeroWeeklySpending,
-  HeroWeeklySpendingSkeleton,
-} from "./_components/hero-weekly-spending";
+  PeriodSummary,
+  PeriodSummarySkeleton,
+} from "./_components/period-summary";
 import {
-  BudgetOverview,
-  BudgetOverviewSkeleton,
-} from "./_components/budget-overview";
-import {
-  MonthSummaryGrid,
-  MonthSummaryGridSkeleton,
-} from "./_components/month-summary-grid";
+  BudgetCategories,
+  BudgetCategoriesSkeleton,
+} from "./_components/budget-categories";
 import {
   TopSpendingCard,
   TopSpendingCardSkeleton,
@@ -41,20 +37,16 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <Suspense fallback={<HeroWeeklySpendingSkeleton />}>
-        <HeroWeeklySpending userId={userId} accountId={accountId} />
+      <Suspense fallback={<PeriodSummarySkeleton />}>
+        <PeriodSummary userId={userId} startDay={startDay} accountId={accountId} />
       </Suspense>
 
-      <Suspense fallback={<MonthSummaryGridSkeleton />}>
-        <MonthSummaryGrid userId={userId} startDay={startDay} accountId={accountId} />
+      <Suspense fallback={<BudgetCategoriesSkeleton />}>
+        <BudgetCategories userId={userId} startDay={startDay} />
       </Suspense>
 
       <Suspense fallback={<ComingUpThisMonthCardSkeleton />}>
         <ComingUpThisMonthCard userId={userId} startDay={startDay} accountId={accountId} />
-      </Suspense>
-
-      <Suspense fallback={<BudgetOverviewSkeleton />}>
-        <BudgetOverview userId={userId} startDay={startDay} />
       </Suspense>
 
       <Suspense fallback={<SavingTowardCardSkeleton />}>

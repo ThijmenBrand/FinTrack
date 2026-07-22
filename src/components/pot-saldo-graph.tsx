@@ -21,6 +21,8 @@ interface PotSaldoGraphProps {
   lineColor?: string;
   /** Accessible label for the chart. */
   ariaLabel?: string;
+  /** Draw a dot on every series point. Turn off for dense daily series. */
+  showPoints?: boolean;
 }
 
 const PADDING = { top: 16, right: 16, bottom: 28, left: 56 };
@@ -41,6 +43,7 @@ export function PotSaldoGraph({
   today,
   lineColor,
   ariaLabel = "Saldo over time",
+  showPoints = true,
 }: PotSaldoGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [hoverX, setHoverX] = useState<number | null>(null);
@@ -50,7 +53,7 @@ export function PotSaldoGraph({
   useEffect(() => {
     const update = () => {
       const w = containerRef.current?.clientWidth ?? 640;
-      setWidth(Math.max(320, w));
+      setWidth(Math.max(240, w));
     };
     update();
     window.addEventListener("resize", update);
@@ -284,7 +287,7 @@ export function PotSaldoGraph({
         />
 
         {/* Series points */}
-        {series.map((p) => (
+        {showPoints && series.map((p) => (
           <circle
             key={`pt-${p.date}-${p.value}`}
             cx={chart.xFor(p.date)}

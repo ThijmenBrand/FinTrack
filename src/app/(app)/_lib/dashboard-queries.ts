@@ -148,108 +148,75 @@ async function getFundedAccountIds(
 
 // ─── Per-widget queries ─────────────────────────────────────────────
 
-export async function getWeeklySpending(userId: string, accountId?: string) {
-  const { weekStart, weekEnd, lastWeekStart, lastWeekEnd } = getDateRanges();
-  // Expand to include accounts that received transfers from the default this
-  // week (and last week, for the comparison) so cross-account spending counts.
-  const [accountIds, lastWeekAccountIds] = await Promise.all([
-    getFundedAccountIds(userId, accountId, weekStart, weekEnd),
-    getFundedAccountIds(userId, accountId, lastWeekStart, lastWeekEnd),
-  ]);
-  const accountFilter = accountIds && accountIds.length > 0
-    ? inArray(transactions.accountId, accountIds)
-    : sql`1=1`;
-  const lastWeekFilter = lastWeekAccountIds && lastWeekAccountIds.length > 0
-    ? inArray(transactions.accountId, lastWeekAccountIds)
-    : sql`1=1`;
-  const accountFilterAlias = accountIds && accountIds.length > 0
-    ? sql` AND t.account_id IN (${sql.join(
-        accountIds.map((id) => sql`${id}`),
-        sql`, `,
-      )})`
-    : sql``;
-  const lastWeekFilterAlias = lastWeekAccountIds && lastWeekAccountIds.length > 0
-    ? sql` AND t.account_id IN (${sql.join(
-        lastWeekAccountIds.map((id) => sql`${id}`),
-        sql`, `,
-      )})`
-    : sql``;
+/**
+ * Cumulative spending per day for the current financial month, plus the
+ * period bounds. The final point reconciles exactly with
+ * `getBudgetOverview().totalBudgetSpent`: plain expenses use
+ * `effectiveExpenseAmount` and pot activity is the cumulative net floored at
+ * zero, mirroring the month-total formula.
+ */
+export async function getSpendingSeries(userId: string, startDay: number = 1) {
+  const { monthStart, monthEnd } = getDateRanges(startDay);
 
-  const [weekExpense, lastWeekExpense, weekPotContrib, lastWeekPotContrib] = await Promise.all([
+  const [daily, potDaily] = await Promise.all([
     db
       .select({
+        date: transactions.date,
         total: sql<number>`sum(${effectiveExpenseAmount()})`,
       })
       .from(transactions)
-      .leftJoin(categories, eq(transactions.categoryId, categories.id))
       .where(
         and(
           eq(transactions.userId, userId),
           eq(transactions.type, "expense"),
           sql`${transactions.groupId} IS NULL`,
-          gte(transactions.date, weekStart),
-          lte(transactions.date, weekEnd),
-          accountFilter,
-        )
-      ),
+          gte(transactions.date, monthStart),
+          lte(transactions.date, monthEnd),
+        ),
+      )
+      .groupBy(transactions.date),
 
     db
       .select({
-        total: sql<number>`sum(${effectiveExpenseAmount()})`,
-      })
-      .from(transactions)
-      .leftJoin(categories, eq(transactions.categoryId, categories.id))
-      .where(
-        and(
-          eq(transactions.userId, userId),
-          eq(transactions.type, "expense"),
-          sql`${transactions.groupId} IS NULL`,
-          gte(transactions.date, lastWeekStart),
-          lte(transactions.date, lastWeekEnd),
-          lastWeekFilter,
-        )
-      ),
-
-    db
-      .select({
-        potNet: sql<number>`SUM(t.amount)`,
+        date: sql<string>`t.date`,
+        net: sql<number>`SUM(t.amount)`,
       })
       .from(sql`transactions t`)
       .innerJoin(sql`transaction_groups g`, sql`t.group_id = g.id`)
       .where(
-        sql`t.group_id IS NOT NULL AND t.type != 'internal_transfer' AND t.user_id = ${userId} AND t.date >= ${weekStart} AND t.date <= ${weekEnd}${accountFilterAlias}`
-      ),
-
-    db
-      .select({
-        potNet: sql<number>`SUM(t.amount)`,
-      })
-      .from(sql`transactions t`)
-      .innerJoin(sql`transaction_groups g`, sql`t.group_id = g.id`)
-      .where(
-        sql`t.group_id IS NOT NULL AND t.type != 'internal_transfer' AND t.user_id = ${userId} AND t.date >= ${lastWeekStart} AND t.date <= ${lastWeekEnd}${lastWeekFilterAlias}`
-      ),
+        sql`t.group_id IS NOT NULL AND t.type != 'internal_transfer' AND t.user_id = ${userId} AND t.date >= ${monthStart} AND t.date <= ${monthEnd}`,
+      )
+      .groupBy(sql`t.date`),
   ]);
 
-  const weekPotExpense = Math.abs(
-    Math.min(0, weekPotContrib[0]?.potNet || 0)
-  );
-  const lastWeekPotExpense = Math.abs(
-    Math.min(0, lastWeekPotContrib[0]?.potNet || 0)
-  );
+  const expenseByDate = new Map(daily.map((r) => [r.date, Number(r.total) || 0]));
+  const potNetByDate = new Map(potDaily.map((r) => [r.date, Number(r.net) || 0]));
 
-  return {
-    weekExpenses: (weekExpense[0]?.total || 0) + weekPotExpense,
-    lastWeekExpenses: (lastWeekExpense[0]?.total || 0) + lastWeekPotExpense,
-    weekStart,
-    weekEnd,
-  };
+  const todayIso = toIsoDate(new Date());
+  const lastIso = todayIso < monthEnd ? todayIso : monthEnd;
+
+  const series: { date: string; value: number }[] = [];
+  let cumExpense = 0;
+  let cumPotNet = 0;
+  const cursor = new Date(`${monthStart}T00:00:00`);
+  while (toIsoDate(cursor) <= lastIso) {
+    const iso = toIsoDate(cursor);
+    cumExpense += expenseByDate.get(iso) ?? 0;
+    cumPotNet += potNetByDate.get(iso) ?? 0;
+    series.push({
+      date: iso,
+      value: cumExpense + Math.abs(Math.min(0, cumPotNet)),
+    });
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return { series, monthStart, monthEnd, today: lastIso };
 }
 
-export async function getBudgetOverview(
+export const getBudgetOverview = cache(async (
   userId: string,
   startDay: number = 1,
-) {
+) => {
   // Budgets are envelope-style and span all of a user's spending, so they
   // intentionally ignore the dashboard's defaultAccountId scoping.
   const { monthStart, monthEnd, monthProgress } = getDateRanges(startDay);
@@ -361,6 +328,7 @@ export async function getBudgetOverview(
         categoryId: b.categoryId,
         categoryName: b.categoryName,
         categoryColor: b.categoryColor,
+        period: b.period,
         spent,
         limit: b.amount,
         percentage: Math.round(pct),
@@ -396,7 +364,7 @@ export async function getBudgetOverview(
     totalBudgetSpent,
     monthProgress,
   };
-}
+});
 
 export const getAccountBalances = cache(async (userId: string) => {
   const accountBalanceRows = await db
