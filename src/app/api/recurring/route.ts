@@ -9,7 +9,7 @@ import { eq, and } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { isFiniteNumber, isIsoDate } from "@/lib/validation";
 
-const RECURRING_TYPES = ["income", "expense", "reserved"] as const;
+const RECURRING_TYPES = ["income", "expense"] as const;
 const FREQUENCIES = ["weekly", "biweekly", "monthly", "yearly"] as const;
 type RecurringType = (typeof RECURRING_TYPES)[number];
 type Frequency = (typeof FREQUENCIES)[number];

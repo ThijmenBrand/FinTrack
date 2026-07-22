@@ -11,7 +11,6 @@ export const TYPE_OPTIONS = [
   { value: "expense", label: "Expense" },
   { value: "internal_transfer", label: "Transfer" },
   { value: "reimbursement", label: "Reimbursement" },
-  { value: "reserved", label: "Reserved" },
 ];
 
 const PERIOD_OPTIONS = [

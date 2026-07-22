@@ -14,16 +14,16 @@ const OTHER_USER = "user-2";
 
 let seq = 0;
 
-async function insertCategory(kind: "spending" | "reserved" = "spending"): Promise<string> {
+async function insertCategory(): Promise<string> {
   const id = `cat-${++seq}`;
-  await db.insert(categories).values({ id, userId: USER, name: `Cat ${seq}`, kind });
+  await db.insert(categories).values({ id, userId: USER, name: `Cat ${seq}` });
   return id;
 }
 
 async function insertTx(opts: {
   description: string;
   name?: string | null;
-  type?: "income" | "expense" | "internal_transfer" | "reimbursement" | "reserved";
+  type?: "income" | "expense" | "internal_transfer" | "reimbursement";
   categoryId?: string | null;
   userId?: string;
 }): Promise<string> {
@@ -151,10 +151,9 @@ describe("applyRuleToTransactions", () => {
     expect((await getTx(done)).categoryId).toBe(otherCat);
   });
 
-  it("only touches income/expense rows, never transfers or reserved", async () => {
+  it("only touches income/expense rows, never transfers", async () => {
     const catId = await insertCategory();
     const transfer = await insertTx({ description: "netflix", type: "internal_transfer" });
-    const reserved = await insertTx({ description: "netflix", type: "reserved" });
     const income = await insertTx({ description: "netflix refund", type: "income" });
 
     expect(
@@ -166,7 +165,6 @@ describe("applyRuleToTransactions", () => {
       }),
     ).toBe(1);
     expect((await getTx(transfer)).categoryId).toBeNull();
-    expect((await getTx(reserved)).categoryId).toBeNull();
     expect((await getTx(income)).categoryId).toBe(catId);
   });
 
@@ -182,33 +180,6 @@ describe("applyRuleToTransactions", () => {
       }),
     ).toBe(0);
     expect((await getTx(foreign)).categoryId).toBeNull();
-  });
-
-  it("flips matched rows to type='reserved' when the category is reserved-kind (looked up)", async () => {
-    const catId = await insertCategory("reserved");
-    const hit = await insertTx({ description: "monthly savings", type: "expense" });
-    await applyRuleToTransactions({
-      pattern: "savings",
-      categoryId: catId,
-      matchType: "contains",
-      userId: USER,
-    });
-    const row = await getTx(hit);
-    expect(row.type).toBe("reserved");
-    expect(row.categoryId).toBe(catId);
-  });
-
-  it("honours an explicit isReserved=false without a lookup", async () => {
-    const catId = await insertCategory("reserved");
-    const hit = await insertTx({ description: "monthly savings" });
-    await applyRuleToTransactions({
-      pattern: "savings",
-      categoryId: catId,
-      matchType: "contains",
-      userId: USER,
-      isReserved: false,
-    });
-    expect((await getTx(hit)).type).toBe("expense");
   });
 
   it("treats LIKE metacharacters in the pattern as literals", async () => {

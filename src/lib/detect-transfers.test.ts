@@ -25,7 +25,7 @@ async function insertTx(opts: {
   accountId: string;
   date: string;
   amount: number;
-  type?: "income" | "expense" | "internal_transfer" | "reimbursement" | "reserved";
+  type?: "income" | "expense" | "internal_transfer" | "reimbursement";
   userId?: string;
 }): Promise<string> {
   const id = `tx-${++seq}`;
@@ -123,7 +123,7 @@ describe("detectTransfers", () => {
     expect((await detectTransfers(db, USER)).matchedPairs).toBe(1);
   });
 
-  it("skips transactions already typed internal_transfer or reserved", async () => {
+  it("skips transactions already typed internal_transfer", async () => {
     await insertCategory("Internal Transfer");
     await insertTx({
       accountId: "A",
@@ -131,12 +131,6 @@ describe("detectTransfers", () => {
       amount: -100,
       type: "internal_transfer",
     });
-    await insertTx({ accountId: "B", date: "2026-05-01", amount: 100 });
-    expect((await detectTransfers(db, USER)).matchedPairs).toBe(0);
-
-    await testDb.reset();
-    await insertCategory("Internal Transfer");
-    await insertTx({ accountId: "A", date: "2026-05-01", amount: -100, type: "reserved" });
     await insertTx({ accountId: "B", date: "2026-05-01", amount: 100 });
     expect((await detectTransfers(db, USER)).matchedPairs).toBe(0);
   });

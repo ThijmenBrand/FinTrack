@@ -55,9 +55,10 @@ export function ReimbursementPicker({
   const { data: expenseData, isLoading: loading } = useQuery({
     queryKey: ["expenses", accountId, debouncedSearch, transactionDate, transactionAmount],
     queryFn: () => {
+      // No accountId filter: reimbursements are often paid into a different
+      // account than the expense (e.g. spend from Revolut, refunded to main).
       const params = new URLSearchParams({
         type: "expense",
-        accountId,
         limit: "50",
         sortBy: "date",
         sortOrder: "desc",
@@ -139,6 +140,7 @@ export function ReimbursementPicker({
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">
             {formatDate(expense.date)}
+            {expense.accountName ? ` · ${expense.accountName}` : ""}
           </p>
         </PickerRow>
       ))}

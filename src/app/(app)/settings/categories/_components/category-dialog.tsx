@@ -52,9 +52,6 @@ function CategoryForm({
   const [name, setName] = useState(category?.name ?? "");
   const [color, setColor] = useState(category?.color || "#3b82f6");
   const [icon, setIcon] = useState<string | null>(category?.icon ?? null);
-  const [kind, setKind] = useState<"spending" | "reserved">(
-    category?.kind === "reserved" ? "reserved" : "spending"
-  );
   const [error, setError] = useState<string | null>(null);
 
   const isPending = createCategory.isPending || updateCategory.isPending;
@@ -67,7 +64,6 @@ function CategoryForm({
       name,
       color,
       icon,
-      kind,
     };
     try {
       await (category ? updateCategory : createCategory).mutateAsync(payload as never);
@@ -122,24 +118,6 @@ function CategoryForm({
                 className="flex-1"
               />
             </div>
-          </div>
-          <div className="grid gap-2 rounded-md border p-3">
-            <label className="flex items-start gap-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={kind === "reserved"}
-                onChange={(e) => setKind(e.target.checked ? "reserved" : "spending")}
-                className="mt-1"
-              />
-              <div className="flex-1">
-                <div className="font-medium text-sm">Reserved category</div>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Money you move into this category (e.g. savings) is deducted from
-                  Free to Spend but doesn&apos;t count as spending. Set a monthly
-                  target by allocating a budget to this category on the Budgets page.
-                </p>
-              </div>
-            </label>
           </div>
           {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
         </div>

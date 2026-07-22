@@ -21,15 +21,15 @@ const { from: TODAY } = getCurrentMonthRange(1); // first day of the current cal
 let seq = 0;
 const nextId = (prefix: string) => `${prefix}-${++seq}`;
 
-async function insertCategory(kind: "spending" | "reserved" = "spending") {
+async function insertCategory() {
   const id = nextId("cat");
-  await db.insert(categories).values({ id, userId: USER, name: `Cat ${seq}`, kind });
+  await db.insert(categories).values({ id, userId: USER, name: `Cat ${seq}` });
   return id;
 }
 
 async function insertTx(opts: {
   amount: number;
-  type: "income" | "expense" | "reimbursement" | "reserved" | "internal_transfer";
+  type: "income" | "expense" | "reimbursement" | "internal_transfer";
   categoryId?: string | null;
   groupId?: string | null;
   recurringTransactionId?: string | null;
@@ -101,27 +101,21 @@ describe("getMonthMoneyMath", () => {
     const math = await getMonthMoneyMath(USER);
     expect(math.monthlyIncome).toBe(0);
     expect(math.totalFixedCosts).toBe(0);
-    expect(math.reservedTotal).toBe(0);
     expect(math.spentThisMonth).toBe(0);
     expect(math.freeToSpend).toBe(0);
     expect(math.hasIncome).toBe(false);
     expect(math.allocations.size).toBe(0);
   });
 
-  it("computes the full freeToSpend equation across income, fixed, reserved, spend and pots", async () => {
-    const groceries = await insertCategory("spending");
-    const savings = await insertCategory("reserved");
+  it("computes the full freeToSpend equation across income, fixed, spend and pots", async () => {
+    const groceries = await insertCategory();
     await insertBudget(groceries, 300);
-    await insertBudget(savings, 200);
 
     await insertTx({ amount: 3000, type: "income" });
 
     // Recurring rent planned €1000; the actual bill landed €50 higher.
     const rent = await insertRecurringExpense(1000);
     await insertTx({ amount: -1050, type: "expense", recurringTransactionId: rent });
-
-    // €100 actually moved to savings — below the €200 target, so the target wins.
-    await insertTx({ amount: -100, type: "reserved", categoryId: savings });
 
     // Ungrouped groceries spend plus a net-negative pot in the same category.
     await insertTx({ amount: -150, type: "expense", categoryId: groceries });
@@ -131,18 +125,16 @@ describe("getMonthMoneyMath", () => {
     const math = await getMonthMoneyMath(USER);
     expect(math.monthlyIncome).toBe(3000);
     expect(math.totalFixedCosts).toBe(1050); // max(planned 1000, actual 1050)
-    expect(math.reservedTotal).toBe(200); // max(actual 100, target 200)
     expect(math.spentThisMonth).toBe(230); // 150 ungrouped + 80 pot net
-    expect(math.freeToSpend).toBe(3000 - 1050 - 200 - 230);
+    expect(math.freeToSpend).toBe(3000 - 1050 - 230);
     expect(math.hasIncome).toBe(true);
 
-    // Allocations: pot spend counts toward its category; reserved categories excluded.
+    // Allocations: pot spend counts toward its category.
     expect(math.allocations.size).toBe(1);
     expect(math.allocations.get(groceries)).toMatchObject({
       amount: 300,
       spent: 230,
     });
-    expect(math.allocations.has(savings)).toBe(false);
   });
 
   it("reserves the planned recurring amount when the bill has not landed yet", async () => {
@@ -166,19 +158,6 @@ describe("getMonthMoneyMath", () => {
     const math = await getMonthMoneyMath(USER);
     expect(math.totalFixedCosts).toBe(1000);
     expect(math.spentThisMonth).toBe(0);
-  });
-
-  it("uses actual reserved transactions when they exceed the target", async () => {
-    const savings = await insertCategory("reserved");
-    await insertBudget(savings, 200);
-    await insertTx({ amount: -250, type: "reserved", categoryId: savings });
-    expect((await getMonthMoneyMath(USER)).reservedTotal).toBe(250);
-  });
-
-  it("counts reserved actuals even without any budget target", async () => {
-    const savings = await insertCategory("reserved");
-    await insertTx({ amount: -120, type: "reserved", categoryId: savings });
-    expect((await getMonthMoneyMath(USER)).reservedTotal).toBe(120);
   });
 
   it("ignores a net-positive pot — funding a pot is not spending", async () => {
@@ -257,7 +236,7 @@ describe("getMonthMoneyMath", () => {
   });
 
   it("excludes inactive and suggested budgets from allocations", async () => {
-    const groceries = await insertCategory("spending");
+    const groceries = await insertCategory();
     const idle = nextId("bud");
     await db.insert(budgets).values({
       id: idle,

@@ -22,6 +22,7 @@ export function usePreviewUpload() {
 
 interface CommitResult {
   imported: number;
+  duplicatesSkipped: number;
   rulesCreated: number;
   transfersDetected: number;
 }

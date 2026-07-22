@@ -51,8 +51,6 @@ interface TransactionsTableProps {
   onAccountChange: (v: string) => void;
   onCategoryChange: (v: string) => void;
   onTypeChange: (v: string) => void;
-  hideInternal: boolean;
-  onToggleHideInternal: (v: boolean) => void;
   renderRows: (layout: "table" | "card") => ReactNode;
 }
 
@@ -79,8 +77,6 @@ export function TransactionsTable({
   onAccountChange,
   onCategoryChange,
   onTypeChange,
-  hideInternal,
-  onToggleHideInternal,
   renderRows,
 }: TransactionsTableProps) {
   return (
@@ -91,15 +87,6 @@ export function TransactionsTable({
           {pagination.total} transaction{pagination.total !== 1 ? "s" : ""}
         </h2>
         <div className="flex items-center gap-3">
-          <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none">
-            <Checkbox
-              checked={hideInternal}
-              onCheckedChange={(c) => onToggleHideInternal(c === true)}
-              aria-label="Hide internal transfers"
-            />
-            <span className="hidden sm:inline">Hide internal transfers</span>
-            <span className="sm:hidden">Hide transfers</span>
-          </label>
           <Select
           value={String(pagination.limit)}
           onValueChange={(v) =>

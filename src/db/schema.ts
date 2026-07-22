@@ -72,7 +72,7 @@ export const transactions = sqliteTable("transactions", {
   // categories without destroying manual user assignments. Null when no category.
   categorySource: text("category_source", { enum: ["manual", "rule"] }),
   type: text("type", {
-    enum: ["income", "expense", "internal_transfer", "reimbursement", "reserved"],
+    enum: ["income", "expense", "internal_transfer", "reimbursement"],
   }).notNull(),
   // Link to the matching transaction in another account (for internal transfers)
   linkedTransactionId: text("linked_transaction_id"),
@@ -108,12 +108,6 @@ export const categories = sqliteTable("categories", {
   name: text("name").notNull(),
   icon: text("icon"), // Lucide icon name
   color: text("color"), // Hex color for charts
-  // 'spending' = normal expense category. 'reserved' = money set aside (e.g.
-  // savings, tax pot). Reserved categories must have an active budget; their
-  // budget amount is deducted from Free to Spend, and their transactions are
-  // excluded from spent totals (matching the existing Internal Transfer
-  // exclusion pattern). Transactions in reserved categories carry type='reserved'.
-  kind: text("kind", { enum: ["spending", "reserved"] }).notNull().default("spending"),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
@@ -190,6 +184,8 @@ export const userPreferences = sqliteTable("user_preferences", {
   financialMonthStartDay: integer("financial_month_start_day").notNull().default(1),
   // Account selected by default in the Insights account filter. Null = "All accounts".
   defaultAccountId: text("default_account_id").references(() => accounts.id, { onDelete: "set null" }),
+  // When on, internal transfers are hidden from the transactions list by default.
+  hideInternalTransfers: integer("hide_internal_transfers", { mode: "boolean" }).notNull().default(false),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
@@ -210,7 +206,7 @@ export const recurringTransactions = sqliteTable("recurring_transactions", {
     .references(() => accounts.id, { onDelete: "cascade" }),
   description: text("description").notNull(),
   amount: real("amount").notNull(),
-  type: text("type", { enum: ["income", "expense", "reserved"] }).notNull(),
+  type: text("type", { enum: ["income", "expense"] }).notNull(),
   categoryId: text("category_id").references(() => categories.id),
   // Recurrence configuration
   frequency: text("frequency", {

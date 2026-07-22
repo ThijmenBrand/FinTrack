@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { transactions, categoryRules, categories } from "@/db/schema";
-import { eq, and, sql, inArray } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { validatePattern, isMatchType } from "@/lib/validation";
 import { applyRuleToTransactions } from "@/lib/apply-rule";
@@ -27,14 +27,9 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    // Look up target category to derive transaction type from category kind
-    // (kind='reserved' → type='reserved'). Internal-transfer status is a
-    // property of the transaction itself (set at import via IBAN matching),
-    // not tied to a category — so users can categorize transfers freely
-    // (e.g. label a savings transfer as "Saving") without changing the type.
     const [targetCategory] = categoryId
       ? await db
-          .select({ kind: categories.kind })
+          .select({ id: categories.id })
           .from(categories)
           .where(and(eq(categories.id, categoryId), eq(categories.userId, userId)))
       : [null];
@@ -43,19 +38,11 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "Category not found" }, { status: 404 });
     }
 
-    const isAssigningReserved = targetCategory?.kind === "reserved";
-
-    // Update the transactions' category (and type if needed): assigning a
-    // reserved-kind category forces type='reserved'; otherwise any currently
-    // reserved transaction reverts to income/expense based on amount sign.
     await db
       .update(transactions)
       .set({
         categoryId: categoryId || null,
         categorySource: categoryId ? "manual" : null,
-        type: isAssigningReserved
-          ? "reserved"
-          : sql`IIF(${transactions.type} = 'reserved', IIF(${transactions.amount} >= 0, 'income', 'expense'), ${transactions.type})`,
       })
       .where(and(inArray(transactions.id, ids), eq(transactions.userId, userId)));
 
@@ -89,7 +76,6 @@ export async function PUT(request: NextRequest) {
         categoryId,
         matchType,
         userId,
-        isReserved: isAssigningReserved,
       });
     }
 

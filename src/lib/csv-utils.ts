@@ -19,7 +19,7 @@ export interface PreviewTransaction {
   description: string;
   amount: number;
   balance: number | null;
-  type: "income" | "expense" | "internal_transfer" | "reserved" | "reimbursement";
+  type: "income" | "expense" | "internal_transfer" | "reimbursement";
   categoryId: string | null;
   groupId?: string | null;
   /** Expense the row reimburses (chosen during import review); linked at commit. */
@@ -32,6 +32,49 @@ export interface PreviewTransaction {
   targetAccountName?: string;
   recurringTransactionId?: string | null;
   recurringDescription?: string | null;
+}
+
+export interface DedupRow {
+  date: string;
+  amount: number;
+  balance: number | null;
+  description: string;
+}
+
+/**
+ * Split incoming import rows into unique rows and duplicates of transactions
+ * already in the account. Re-importing an overlapping CSV export must not
+ * double-count: match on (date, amount, bank running balance) when the bank
+ * provides a balance column — this is language-independent (e.g. Revolut
+ * translates descriptions between exports) — and fall back to
+ * (date, amount, description) when it doesn't.
+ */
+export function splitDuplicates<T extends DedupRow>(
+  existing: DedupRow[],
+  incoming: T[]
+): { unique: T[]; duplicates: T[] } {
+  const balanceKey = (t: DedupRow) =>
+    `${t.date}|${t.amount.toFixed(2)}|${t.balance!.toFixed(2)}`;
+  const descriptionKey = (t: DedupRow) =>
+    `${t.date}|${t.amount.toFixed(2)}|${t.description.trim().toLowerCase()}`;
+
+  const byBalance = new Set(
+    existing.filter((t) => t.balance != null).map(balanceKey)
+  );
+  const byDescription = new Set(existing.map(descriptionKey));
+
+  const unique: T[] = [];
+  const duplicates: T[] = [];
+  for (const t of incoming) {
+    // Rows without a balance can legitimately repeat (two identical coffees),
+    // so only the exact balance match is trusted when a balance is present.
+    const isDup =
+      t.balance != null
+        ? byBalance.has(balanceKey(t))
+        : byDescription.has(descriptionKey(t));
+    (isDup ? duplicates : unique).push(t);
+  }
+  return { unique, duplicates };
 }
 
 /**

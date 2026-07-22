@@ -5,7 +5,7 @@ import { eq, desc, asc, and, gte, lte, like, or, sql, inArray, notInArray, isNul
 import { withUser } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
 
-const VALID_TX_TYPES = ["income", "expense", "internal_transfer", "reimbursement", "reserved"] as const;
+const VALID_TX_TYPES = ["income", "expense", "internal_transfer", "reimbursement"] as const;
 type TxType = (typeof VALID_TX_TYPES)[number];
 
 // GET /api/transactions — list transactions with filtering, sorting, pagination
@@ -187,8 +187,11 @@ export async function GET(request: NextRequest) {
       .from(transactions)
       .where(eq(transactions.userId, userId));
 
-    // Get sum totals for the filtered results
-    const sumResult = await db
+    // Sum totals for the filtered set. Pot members are NOT counted individually;
+    // each pot contributes its full net (matching the pot row shown in the list):
+    // net > 0 → income, net < 0 → expense. So direct sums cover ungrouped rows
+    // only, and pot nets are added on top.
+    const [directSum] = await db
       .select({
         totalIncome: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END), 0)`,
         totalExpense: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.type} = 'expense' THEN ${transactions.amount} ELSE 0 END), 0)`,
@@ -197,7 +200,36 @@ export async function GET(request: NextRequest) {
         netTotal: sql<number>`COALESCE(SUM(${transactions.amount}), 0)`,
       })
       .from(transactions)
-      .where(whereClause);
+      .where(and(...conditions, isNull(transactions.groupId)));
+
+    // Full net per pot that has at least one member in the filtered set. The
+    // inner select finds those pots; the outer sums ALL their members (the pot
+    // net spans the whole pot, not just the filtered range — same as the row).
+    const potNetRows = await db
+      .select({ net: sql<number>`COALESCE(SUM(${transactions.amount}), 0)` })
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.userId, userId),
+          inArray(
+            transactions.groupId,
+            db
+              .select({ gid: transactions.groupId })
+              .from(transactions)
+              .where(and(...conditions, sql`${transactions.groupId} IS NOT NULL`))
+          )
+        )
+      )
+      .groupBy(transactions.groupId);
+
+    let income = directSum?.totalIncome || 0;
+    let expense = directSum?.totalExpense || 0;
+    let net = directSum?.netTotal || 0;
+    for (const { net: potNet } of potNetRows) {
+      if (potNet > 0) income += potNet;
+      else expense += potNet;
+      net += potNet;
+    }
 
     return NextResponse.json({
       data: rows,
@@ -209,11 +241,11 @@ export async function GET(request: NextRequest) {
       },
       distinctTypes: distinctTypes.map((r) => r.type),
       totals: {
-        income: sumResult[0]?.totalIncome || 0,
-        expense: sumResult[0]?.totalExpense || 0,
-        transfers: sumResult[0]?.totalTransfers || 0,
-        reimbursements: sumResult[0]?.totalReimbursements || 0,
-        net: sumResult[0]?.netTotal || 0,
+        income,
+        expense,
+        transfers: directSum?.totalTransfers || 0,
+        reimbursements: directSum?.totalReimbursements || 0,
+        net,
       },
     });
   }, "Failed to fetch transactions");

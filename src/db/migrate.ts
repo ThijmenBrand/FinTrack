@@ -222,6 +222,25 @@ export async function initializeDatabase() {
     console.error("Failed to migrate recurring_transactions CHECK constraint:", e);
   }
 
+  // The Reserved (set-aside) feature was removed: fold its transactions back
+  // into income/expense based on amount sign (same restore rule the feature
+  // itself used). The CHECK constraints above still permit 'reserved' in old
+  // DBs — harmless, and it avoids another table rebuild.
+  try {
+    await db.run(sql`
+      UPDATE transactions
+         SET type = CASE WHEN amount >= 0 THEN 'income' ELSE 'expense' END
+       WHERE type = 'reserved'
+    `);
+    await db.run(sql`
+      UPDATE recurring_transactions
+         SET type = CASE WHEN amount >= 0 THEN 'income' ELSE 'expense' END
+       WHERE type = 'reserved'
+    `);
+  } catch (e) {
+    console.error("Failed to fold reserved transactions into income/expense:", e);
+  }
+
   // Migrate existing 1:1 reimbursement links to junction table
   await db.run(sql`
     INSERT OR IGNORE INTO reimbursement_links (id, reimbursement_id, expense_id, created_at)

@@ -105,7 +105,6 @@ export function UncategorizedTransactions({ categories }: UncategorizedTransacti
                             name: c.name,
                             color: c.color,
                             icon: c.icon,
-                            kind: c.kind,
                           }))}
                         />
                       </div>

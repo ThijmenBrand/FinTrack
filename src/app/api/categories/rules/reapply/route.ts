@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { categoryRules, categories, transactions } from "@/db/schema";
+import { categoryRules, transactions } from "@/db/schema";
 import { sql, eq, and } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { applyRuleToTransactions } from "@/lib/apply-rule";
@@ -15,15 +15,6 @@ import { applyRuleToTransactions } from "@/lib/apply-rule";
 export async function POST() {
   return withUser(async (userId) => {
     // Step 1: Clear only rule-applied category assignments. Manual ones survive.
-    // Rule-applied transactions in reserved categories carried type='reserved';
-    // restore type from amount sign before nulling the category.
-    await db.run(sql`
-      UPDATE transactions
-         SET type = CASE WHEN amount >= 0 THEN 'income' ELSE 'expense' END
-       WHERE user_id = ${userId}
-         AND category_source = 'rule'
-         AND type = 'reserved'
-    `);
     await db
       .update(transactions)
       .set({ categoryId: null, categorySource: null })
@@ -34,18 +25,15 @@ export async function POST() {
         )
       );
 
-    // Step 2: Fetch all active rules joined with category kind so we can
-    // sync type='reserved' when applying.
+    // Step 2: Fetch all active rules
     const allRules = await db
       .select({
         id: categoryRules.id,
         pattern: categoryRules.pattern,
         categoryId: categoryRules.categoryId,
         matchType: categoryRules.matchType,
-        kind: categories.kind,
       })
       .from(categoryRules)
-      .leftJoin(categories, eq(categoryRules.categoryId, categories.id))
       .where(and(eq(categoryRules.isActive, true), eq(categoryRules.userId, userId)));
 
     // Step 3: Apply each rule in order
@@ -58,7 +46,6 @@ export async function POST() {
         categoryId: rule.categoryId,
         matchType: rule.matchType,
         userId,
-        isReserved: rule.kind === "reserved",
       });
       totalApplied += applied;
       ruleResults.push({

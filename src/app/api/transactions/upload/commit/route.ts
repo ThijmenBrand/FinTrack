@@ -21,12 +21,12 @@ import {
   isIsoDate,
   isMatchType,
 } from "@/lib/validation";
-const TX_TYPES = ["income", "expense", "internal_transfer", "reserved"] as const;
+const TX_TYPES = ["income", "expense", "internal_transfer"] as const;
 type TxType = (typeof TX_TYPES)[number];
 
 // Backstop against unbounded request bodies — a real bank CSV is far smaller.
 const MAX_IMPORT_ROWS = 5000;
-import { matchesRule } from "@/lib/csv-utils";
+import { matchesRule, splitDuplicates } from "@/lib/csv-utils";
 import { applyRuleToTransactions } from "@/lib/apply-rule";
 
 interface CommitTransaction {
@@ -97,7 +97,7 @@ export async function POST(request: NextRequest) {
     const userPlanIds = new Set(userPlans.map((p) => p.id));
 
     const userCategoryRows = await db
-      .select({ id: categories.id, kind: categories.kind })
+      .select({ id: categories.id })
       .from(categories)
       .where(eq(categories.userId, userId));
     const userCategoryIds = new Set(userCategoryRows.map((c) => c.id));
@@ -155,27 +155,38 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // Skip rows already in this account — re-importing an overlapping CSV
+    // export must not double-count (Revolut exports can overlap and even
+    // translate descriptions between languages, see splitDuplicates).
+    const existingRows = await db
+      .select({
+        date: transactions.date,
+        amount: transactions.amount,
+        balance: transactions.balance,
+        description: transactions.description,
+      })
+      .from(transactions)
+      .where(and(eq(transactions.accountId, accountId), eq(transactions.userId, userId)));
+    const { unique: uniqueTxList, duplicates } = splitDuplicates(existingRows, txList);
+
     // Create import batch
     const batchId = crypto.randomUUID();
-    await db.insert(importBatches).values({
-      id: batchId,
-      userId,
-      accountId,
-      fileName: fileName || "import.csv",
-      transactionCount: txList.length,
-      importedAt: new Date().toISOString(),
-    });
+    if (uniqueTxList.length > 0) {
+      await db.insert(importBatches).values({
+        id: batchId,
+        userId,
+        accountId,
+        fileName: fileName || "import.csv",
+        transactionCount: uniqueTxList.length,
+        importedAt: new Date().toISOString(),
+      });
+    }
 
     // Get the "Internal Transfer" category for mirror transactions
     const [transferCategory] = await db
       .select()
       .from(categories)
       .where(and(eq(categories.name, "Internal Transfer"), eq(categories.userId, userId)));
-
-    // Reserved category IDs — when a rule maps a transaction here, type='reserved'.
-    const reservedCategoryIds = new Set(
-      userCategoryRows.filter((c) => c.kind === "reserved").map((c) => c.id)
-    );
 
     // Only allow pot assignments to pots the user actually owns
     const userPots = await db
@@ -219,7 +230,7 @@ export async function POST(request: NextRequest) {
       balance: number | null;
       categoryId: string | null;
       categorySource: "manual" | "rule" | null;
-      type: "income" | "expense" | "internal_transfer" | "reserved" | "reimbursement";
+      type: "income" | "expense" | "internal_transfer" | "reimbursement";
       groupId: string | null;
       linkedTransactionId: string | null;
       recurringTransactionId: string | null;
@@ -233,7 +244,7 @@ export async function POST(request: NextRequest) {
     // Reimbursement rows link to an existing expense chosen during review
     const pendingReimbursements: Array<{ reimbursementId: string; expenseId: string }> = [];
 
-    for (const tx of txList) {
+    for (const tx of uniqueTxList) {
       const sourceId = crypto.randomUUID();
       const note = sanitizeNote(tx.notes);
       const isTransfer = tx.type === "internal_transfer" && tx.targetAccountId;
@@ -285,7 +296,7 @@ export async function POST(request: NextRequest) {
         });
       } else {
         const txType = (
-          ["income", "expense", "internal_transfer", "reserved", "reimbursement"] as const
+          ["income", "expense", "internal_transfer", "reimbursement"] as const
         ).find((t) => t === tx.type) ?? "expense";
         records.push({
           id: sourceId,
@@ -302,7 +313,7 @@ export async function POST(request: NextRequest) {
           groupId: tx.groupId && userPotIds.has(tx.groupId) ? tx.groupId : null,
           linkedTransactionId: null,
           // Only carry the recurring link for income/expense rows; transfers
-          // and reserved transactions don't represent fixed-cost spending.
+          // don't represent fixed-cost spending.
           recurringTransactionId:
             (txType === "income" || txType === "expense") && tx.recurringTransactionId
               ? tx.recurringTransactionId
@@ -380,7 +391,6 @@ export async function POST(request: NextRequest) {
         categoryId: rule.categoryId,
         matchType: rule.matchType || "contains",
         userId,
-        isReserved: reservedCategoryIds.has(rule.categoryId),
       });
     }
 
@@ -398,6 +408,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       imported: records.length,
+      duplicatesSkipped: duplicates.length,
       mirrorTransactions: mirrorRecords.length,
       batchId,
       rulesCreated,

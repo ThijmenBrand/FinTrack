@@ -38,7 +38,6 @@ import {
   Loader2,
   Lock,
   Coins,
-  PiggyBank,
   Sparkles,
   ChevronDown,
   ChevronRight,
@@ -360,7 +359,7 @@ export default function BudgetsPage() {
                     <p className="font-medium">Planning view</p>
                     <p className="text-muted-foreground">
                       These numbers are based on your <span className="font-medium text-foreground">recurring income plan</span>,
-                      not actual transactions. Unallocated = recurring income − fixed costs − reserved − allocated;
+                      not actual transactions. Unallocated = recurring income − fixed costs − allocated;
                       it&apos;s the slice of your monthly plan you haven&apos;t assigned to a bucket yet.
                     </p>
                     <p className="text-muted-foreground">
@@ -487,59 +486,6 @@ export default function BudgetsPage() {
           )}
         </CardContent>
       </Card>
-
-      {/* Reserved (savings / set-aside) */}
-      {data.reserved && data.reserved.length > 0 && (
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <PiggyBank className="h-4 w-4 text-blue-500 dark:text-blue-400" />
-                <CardTitle className="text-base">Reserved</CardTitle>
-              </div>
-              <span className="text-sm tabular-nums text-muted-foreground">
-                {formatCurrency(data.totalReserved)}/mo · {data.reserved.length}
-              </span>
-            </div>
-            <CardDescription className="pt-1">
-              Set aside off Free to Spend. Categories with a monthly target
-              count their target — or actuals, whichever is larger — toward
-              the budget.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="px-0 sm:px-6">
-            <ul className="divide-y border-y sm:border-x sm:rounded-md">
-              {data.reserved.map((r) => {
-                const hasTarget = r.target !== null && r.target > 0;
-                const pct = hasTarget ? Math.min(100, (r.funded / r.target!) * 100) : 0;
-                return (
-                  <CategoryProgressRow
-                    key={r.categoryId}
-                    categoryId={r.categoryId}
-                    color={r.categoryColor || "#3b82f6"}
-                    name={r.categoryName ?? "Unknown"}
-                    dotClassName="rounded-sm"
-                    barClassName="bg-blue-500 dark:bg-blue-400"
-                    hoverClassName="hover:bg-muted/40"
-                    progressPct={hasTarget ? pct : null}
-                    amount={
-                      <span className="text-xs tabular-nums text-muted-foreground">
-                        {hasTarget
-                          ? `${formatCurrency(r.funded)} of ${formatCurrency(r.target!)}`
-                          : formatCurrency(r.funded)}
-                      </span>
-                    }
-                  />
-                );
-              })}
-            </ul>
-            <p className="px-4 pt-3 text-xs text-muted-foreground">
-              Set or change a monthly target by allocating a budget to the
-              reserved category via <strong>Add manually</strong> above.
-            </p>
-          </CardContent>
-        </Card>
-      )}
 
       {/* Fixed Costs — collapsible */}
       <Card>
