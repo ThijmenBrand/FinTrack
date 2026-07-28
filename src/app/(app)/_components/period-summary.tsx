@@ -53,7 +53,7 @@ export async function PeriodSummary({
 
   return (
     <Card>
-      <CardContent className="p-6">
+      <CardContent className="p-4 sm:p-6">
         <div className="flex items-baseline justify-between gap-2">
           <p className="text-sm font-medium">
             {monthLabel}
@@ -125,29 +125,31 @@ export async function PeriodSummary({
             </p>
           )}
 
-          <div className="mt-5 grid w-full grid-cols-3 gap-4 border-t pt-4">
+          {/* Amounts are unbreakable, so the tiles shrink with the viewport
+              instead of spilling out of their grid track. */}
+          <div className="mt-5 grid w-full grid-cols-3 gap-2 border-t pt-4 sm:gap-4">
             <Link
               href={txHref("income")}
-              className="rounded hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring"
+              className="min-w-0 rounded hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring"
             >
               <p className="text-xs text-muted-foreground">Earned</p>
-              <p className="text-lg font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+              <p className="text-base sm:text-lg font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
                 {formatCurrency(summary.monthIncome)}
               </p>
             </Link>
             <Link
               href={txHref("expense")}
-              className="rounded hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring"
+              className="min-w-0 rounded hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring"
             >
               <p className="text-xs text-muted-foreground">Spent</p>
-              <p className="text-lg font-semibold tabular-nums text-red-600 dark:text-red-400">
+              <p className="text-base sm:text-lg font-semibold tabular-nums text-red-600 dark:text-red-400">
                 {formatCurrency(summary.monthExpenses)}
               </p>
             </Link>
-            <div>
+            <div className="min-w-0">
               <p className="text-xs text-muted-foreground">Net</p>
               <p
-                className={`text-lg font-semibold tabular-nums ${
+                className={`text-base sm:text-lg font-semibold tabular-nums ${
                   net >= 0
                     ? "text-emerald-600 dark:text-emerald-400"
                     : "text-red-600 dark:text-red-400"

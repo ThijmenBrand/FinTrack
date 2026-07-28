@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TransactionsFilterLink } from "@/components/transactions-filter-link";
+import { CategoryIcon } from "@/components/category-icon";
 import { getBudgetOverview } from "../_lib/dashboard-queries";
 import { getFinancialMonthRange } from "@/lib/financial-month";
 import { formatCurrency } from "@/lib/utils";
@@ -79,10 +80,10 @@ export async function BudgetCategories({
 
             const row = (
               <>
-                <span
-                  className="mt-1 h-2.5 w-2.5 rounded-full shrink-0"
-                  style={{ backgroundColor: item.categoryColor || "#94a3b8" }}
-                  aria-hidden="true"
+                <CategoryIcon
+                  icon={item.categoryIcon}
+                  color={item.categoryColor || "#94a3b8"}
+                  size="sm"
                 />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline justify-between gap-2">
@@ -173,12 +174,10 @@ export async function BudgetCategories({
               {data.unbudgetedItems.map((item, i) => {
                 const row = (
                   <>
-                    <span
-                      className="h-2.5 w-2.5 rounded-full shrink-0"
-                      style={{
-                        backgroundColor: item.categoryColor || "#94a3b8",
-                      }}
-                      aria-hidden="true"
+                    <CategoryIcon
+                      icon={item.categoryIcon}
+                      color={item.categoryColor || "#94a3b8"}
+                      size="sm"
                     />
                     <span className="truncate text-sm flex-1">
                       {item.categoryName || "Uncategorized"}
@@ -229,7 +228,7 @@ export function BudgetCategoriesSkeleton() {
       <CardContent className="px-6 pb-4 space-y-4">
         {[1, 2, 3, 4].map((i) => (
           <div key={i} className="flex items-start gap-3">
-            <Skeleton className="h-2.5 w-2.5 rounded-full mt-1 shrink-0" />
+            <Skeleton className="h-6 w-6 rounded-full shrink-0" />
             <div className="flex-1">
               <div className="flex justify-between">
                 <Skeleton className="h-4 w-24" />

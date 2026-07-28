@@ -83,22 +83,24 @@ export async function AccountsCard({ userId }: { userId: string }) {
                 href="/settings/accounts"
                 className="flex items-center justify-between rounded-lg border p-3 transition-colors hover:bg-muted/50"
               >
-                <div className="flex items-center gap-3">
+                <div className="flex min-w-0 items-center gap-3">
                   <span
                     className="h-2 w-2 shrink-0 rounded-full"
                     style={{ background: colorFor(account.id) }}
                   />
                   <BankLogo bank={account.bank} size={36} />
-                  <div>
-                    <p className="font-medium text-sm">{account.name}</p>
-                    <p className="text-xs capitalize text-muted-foreground">
+                  <div className="min-w-0">
+                    <p className="font-medium text-sm truncate">
+                      {account.name}
+                    </p>
+                    <p className="text-xs capitalize text-muted-foreground truncate">
                       {account.type}
                       {account.bankName ? ` \u00b7 ${account.bankName}` : ""}
                     </p>
                   </div>
                 </div>
                 <p
-                  className={`text-sm font-semibold tabular-nums ${
+                  className={`text-sm font-semibold tabular-nums shrink-0 pl-2 ${
                     account.currentBalance >= 0
                       ? "text-foreground"
                       : "text-red-600 dark:text-red-400"

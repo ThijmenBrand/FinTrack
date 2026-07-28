@@ -176,12 +176,16 @@ export function PotSaldoGraph({
 
   return (
     <div ref={containerRef} className="w-full relative">
+      {/* viewBox + w-full: the measured width only drives the geometry, it can
+          never make the svg wider than its container (SSR renders before the
+          measurement, and the container can be narrower than the 240 floor). */}
       <svg
+        viewBox={`0 0 ${width} ${height}`}
         width={width}
         height={height}
         role="img"
         aria-label={ariaLabel}
-        className="select-none"
+        className="select-none w-full"
       >
         {/* Y grid lines + labels */}
         {chart.yTickValues.map((v) => {
