@@ -328,7 +328,6 @@ export interface StatResetData {
 
 export interface BalanceTimelineData {
   historical: { date: string; balance: number }[];
-  projected: { date: string; balance: number }[];
   currentBalance: number;
   accountName: string | null;
 }

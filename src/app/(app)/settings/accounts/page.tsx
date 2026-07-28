@@ -61,6 +61,7 @@ import {
 import { formatCurrency } from "@/lib/utils";
 import { BANKS, bankHasSeparateFeeColumn } from "@/lib/banks";
 import { BankLogo } from "@/components/bank-logo";
+import { AccountBalanceDialog } from "@/components/account-balance-dialog";
 
 const ACCOUNT_TYPES = [
   { value: "checking", label: "Checking" },
@@ -99,12 +100,14 @@ function SortableAccountCard({
   onEdit,
   onDelete,
   onToggleDefault,
+  onOpen,
 }: {
   account: Account;
   isDefault: boolean;
   onEdit: (account: Account) => void;
   onDelete: (id: string) => void;
   onToggleDefault: (id: string, makeDefault: boolean) => void;
+  onOpen: (account: Account) => void;
 }) {
   const {
     attributes,
@@ -143,7 +146,19 @@ function SortableAccountCard({
         <GripVertical className="h-4 w-4 text-muted-foreground/50" />
       </button>
 
-      <div className="p-5 pl-6">
+      <div
+        role="button"
+        tabIndex={0}
+        aria-label={`View balance history for ${account.name}`}
+        onClick={() => onOpen(account)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onOpen(account);
+          }
+        }}
+        className="p-5 pl-6 cursor-pointer rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      >
         {/* Top row: icon + name + actions */}
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
@@ -169,6 +184,11 @@ function SortableAccountCard({
             </div>
           </div>
 
+          {/* Stop the menu from bubbling into the card's open-detail handler. */}
+          <div
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -206,6 +226,7 @@ function SortableAccountCard({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          </div>
         </div>
 
         {/* Balance — hero element */}
@@ -261,6 +282,7 @@ export default function AccountsPage() {
   const [localAccounts, setLocalAccounts] = useState<Account[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
+  const [detailAccount, setDetailAccount] = useState<Account | null>(null);
 
   // Form state
   const [name, setName] = useState("");
@@ -572,12 +594,18 @@ export default function AccountsPage() {
                   onEdit={openEditDialog}
                   onDelete={handleDelete}
                   onToggleDefault={handleToggleDefault}
+                  onOpen={setDetailAccount}
                 />
               ))}
             </div>
           </SortableContext>
         </DndContext>
       )}
+
+      <AccountBalanceDialog
+        account={detailAccount}
+        onOpenChange={(open) => !open && setDetailAccount(null)}
+      />
     </div>
   );
 }

@@ -28,14 +28,11 @@ export function useBalanceTimeline(params: {
   accountId?: string;
   dateFrom?: string;
   dateTo?: string;
-  forecastMonths?: number;
 }) {
   const searchParams = new URLSearchParams();
   if (params.accountId) searchParams.set("accountId", params.accountId);
   if (params.dateFrom) searchParams.set("dateFrom", params.dateFrom);
   if (params.dateTo) searchParams.set("dateTo", params.dateTo);
-  if (params.forecastMonths)
-    searchParams.set("forecastMonths", String(params.forecastMonths));
 
   return useQuery({
     queryKey: ["insights-balance", params],
