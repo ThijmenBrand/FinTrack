@@ -70,6 +70,7 @@ export async function setupTestDb(name: string): Promise<TestDb> {
       name TEXT NOT NULL,
       icon TEXT, color TEXT,
       kind TEXT NOT NULL DEFAULT 'spending',
+      sort_order INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL
     )`,
     `CREATE TABLE IF NOT EXISTS category_rules (

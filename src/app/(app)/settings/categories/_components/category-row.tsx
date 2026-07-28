@@ -36,9 +36,11 @@ interface CategoryRowProps {
   /** All categories, for the rule's category re-assignment select. */
   categories: CategoryWithDetails[];
   onEdit: (category: CategoryWithDetails) => void;
+  /** Drag handle rendered at the start of the header row. */
+  dragHandle?: React.ReactNode;
 }
 
-export function CategoryRow({ category, rules, categories, onEdit }: CategoryRowProps) {
+export function CategoryRow({ category, rules, categories, onEdit, dragHandle }: CategoryRowProps) {
   const updateRule = useUpdateCategoryRule();
   const deleteRule = useDeleteCategoryRule();
   const deleteCategory = useDeleteCategory();
@@ -84,6 +86,7 @@ export function CategoryRow({ category, rules, categories, onEdit }: CategoryRow
         onClick={() => hasRules && setExpanded((v) => !v)}
       >
         <div className="flex items-center gap-2">
+          {dragHandle}
           <CategoryIcon icon={category.icon} color={category.color} size="sm" />
           {hasRules ? (
             expanded ? (

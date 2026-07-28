@@ -39,10 +39,10 @@ export async function seedCategoriesForUser(userId: string) {
   const count = (existing.rows[0] as Record<string, unknown>)?.count as number;
 
   if (count === 0) {
-    for (const cat of DEFAULT_CATEGORIES) {
+    for (const [i, cat] of DEFAULT_CATEGORIES.entries()) {
       await db.run(sql`
-        INSERT INTO categories (id, user_id, name, icon, color, created_at)
-        VALUES (${crypto.randomUUID()}, ${userId}, ${cat.name}, ${cat.icon}, ${cat.color}, ${new Date().toISOString()})
+        INSERT INTO categories (id, user_id, name, icon, color, sort_order, created_at)
+        VALUES (${crypto.randomUUID()}, ${userId}, ${cat.name}, ${cat.icon}, ${cat.color}, ${i}, ${new Date().toISOString()})
       `);
     }
   }
@@ -138,10 +138,11 @@ export async function initializeDatabase() {
           name TEXT NOT NULL,
           icon TEXT,
           color TEXT,
+          sort_order INTEGER NOT NULL DEFAULT 0,
           created_at TEXT NOT NULL
         )
       `);
-      await db.run(sql`INSERT INTO categories_new SELECT id, user_id, name, icon, color, created_at FROM categories`);
+      await db.run(sql`INSERT INTO categories_new (id, user_id, name, icon, color, sort_order, created_at) SELECT id, user_id, name, icon, color, sort_order, created_at FROM categories`);
       await db.run(sql`DROP TABLE categories`);
       await db.run(sql`ALTER TABLE categories_new RENAME TO categories`);
       await db.run(sql`PRAGMA foreign_keys = ON`);

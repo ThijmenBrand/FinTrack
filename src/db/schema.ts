@@ -110,6 +110,7 @@ export const categories = sqliteTable("categories", {
   name: text("name").notNull(),
   icon: text("icon"), // Lucide icon name
   color: text("color"), // Hex color for charts
+  sortOrder: integer("sort_order").notNull().default(0),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),

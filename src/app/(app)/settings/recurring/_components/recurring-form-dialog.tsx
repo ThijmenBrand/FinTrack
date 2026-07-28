@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { BankLogo } from "@/components/bank-logo";
 import {
   Dialog,
   DialogContent,
@@ -160,7 +161,10 @@ function RecurringFormBody({
               <SelectContent>
                 {accounts.map((a) => (
                   <SelectItem key={a.id} value={a.id}>
-                    {a.name}
+                    <span className="flex items-center gap-2">
+                      <BankLogo bank={a.bank} size={24} />
+                      {a.name}
+                    </span>
                   </SelectItem>
                 ))}
               </SelectContent>

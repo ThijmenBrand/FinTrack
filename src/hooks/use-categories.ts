@@ -56,6 +56,15 @@ export function useDeleteCategory() {
   });
 }
 
+export function useReorderCategories() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (orderedIds: string[]) =>
+      apiFetch("/api/categories", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderedIds }) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["categories"] }); },
+  });
+}
+
 export function useCategoryRules() {
   return useQuery({
     queryKey: ["category-rules"],

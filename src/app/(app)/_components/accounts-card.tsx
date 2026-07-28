@@ -8,6 +8,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { BankLogo } from "@/components/bank-logo";
 import { getAccountBalances } from "../_lib/dashboard-queries";
 import { formatCurrency } from "@/lib/utils";
 
@@ -49,9 +50,7 @@ export async function AccountsCard({ userId }: { userId: string }) {
                 className="flex items-center justify-between rounded-lg border p-3 transition-colors hover:bg-muted/50"
               >
                 <div className="flex items-center gap-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
-                    <Landmark className="h-4 w-4 text-primary" />
-                  </div>
+                  <BankLogo bank={account.bank} size={36} />
                   <div>
                     <p className="font-medium text-sm">{account.name}</p>
                     <p className="text-xs capitalize text-muted-foreground">

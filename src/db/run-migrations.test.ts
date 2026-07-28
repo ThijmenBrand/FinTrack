@@ -83,6 +83,7 @@ describe("run-migrations pipeline", () => {
     await client.execute("ALTER TABLE user_preferences DROP COLUMN hide_internal_transfers");
     await client.execute("ALTER TABLE transaction_groups DROP COLUMN archived_at");
     await client.execute("ALTER TABLE accounts DROP COLUMN bank");
+    await client.execute("ALTER TABLE categories DROP COLUMN sort_order");
     await client.execute("DROP TABLE stat_resets");
     expect(await columnNames("user_preferences")).not.toContain("hide_internal_transfers");
 
@@ -94,9 +95,10 @@ describe("run-migrations pipeline", () => {
     );
     expect(Number(ledger.rows[0].n)).toBe(migrationCount);
     expect(Number(ledger.rows[0].w)).toBe(baselineWhen);
-    // 0001–0003 re-applied on top of the baseline.
+    // 0001–0004 re-applied on top of the baseline.
     expect(await columnNames("transaction_groups")).toContain("archived_at");
     expect(await columnNames("accounts")).toContain("bank");
+    expect(await columnNames("categories")).toContain("sort_order");
     expect(await tableNames()).toContain("stat_resets");
     expect(await columnNames("user_preferences")).toContain("hide_internal_transfers");
   });
