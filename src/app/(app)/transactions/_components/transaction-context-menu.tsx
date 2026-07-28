@@ -28,6 +28,8 @@ import {
   Trash2,
   Tag,
   Check,
+  Filter,
+  Search,
 } from "lucide-react";
 import { useCategorizeTransaction, useUpdateTransactionNotes } from "@/hooks/use-transactions";
 import { MAX_NOTE_LENGTH, sanitizeNote } from "@/lib/validation";
@@ -48,6 +50,8 @@ interface TransactionContextMenuProps {
   onRemoveFromPot: (tx: Transaction) => void;
   onReimburse: (tx: Transaction) => void;
   onDelete: (tx: Transaction) => void;
+  onFilterByCategory: (tx: Transaction) => void;
+  onFilterByName: (tx: Transaction) => void;
 }
 
 /** Right-click menu for transaction rows, anchored at the cursor. */
@@ -60,6 +64,8 @@ export function TransactionContextMenu({
   onRemoveFromPot,
   onReimburse,
   onDelete,
+  onFilterByCategory,
+  onFilterByName,
 }: TransactionContextMenuProps) {
   const categorize = useCategorizeTransaction();
   const tx = menu?.tx;
@@ -78,6 +84,18 @@ export function TransactionContextMenu({
             <StickyNote />
             {tx.notes ? "Edit note" : "Add note"}
           </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => onFilterByName(tx)}>
+            <Search />
+            Filter by name & description
+          </DropdownMenuItem>
+          {tx.categoryId && (
+            <DropdownMenuItem onSelect={() => onFilterByCategory(tx)}>
+              <Filter />
+              Filter by category
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuSeparator />
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>
               <Tag />

@@ -22,6 +22,7 @@ interface PotMutationPayload {
   categoryId: string | null;
   targetAmount?: number | null;
   targetDate?: string | null;
+  archived?: boolean;
 }
 
 export function useCreatePot() {

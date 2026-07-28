@@ -5,6 +5,7 @@ import { eq, sum, asc, count, and } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
 import { isFiniteNumber } from "@/lib/validation";
+import { isBank, bankLabel } from "@/lib/banks";
 
 const ACCOUNT_TYPES = ["checking", "savings", "joint", "credit", "other"] as const;
 type AccountType = (typeof ACCOUNT_TYPES)[number];
@@ -45,13 +46,16 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   return withUser(async (userId) => {
     const body = await request.json();
-    const { name, type, bankName, iban, currency, initialBalance } = body;
+    const { name, type, bank, bankName, iban, currency, initialBalance } = body;
 
     if (!name || typeof name !== "string" || !isAccountType(type)) {
       return NextResponse.json(
         { error: "Name and a valid type are required" },
         { status: 400 }
       );
+    }
+    if (bank != null && !isBank(bank)) {
+      return NextResponse.json({ error: "Invalid bank" }, { status: 400 });
     }
     if (initialBalance !== undefined && !isFiniteNumber(initialBalance)) {
       return NextResponse.json(
@@ -71,7 +75,10 @@ export async function POST(request: NextRequest) {
       userId,
       name,
       type,
-      bankName: bankName || null,
+      bank: bank ?? null,
+      // Mirror the picked bank's label into bank_name so every existing display
+      // site keeps rendering a human name without knowing about slugs.
+      bankName: bankLabel(bank ?? null, bankName || null),
       iban: iban || null,
       currency: currency || "EUR",
       initialBalance: initialBalance ?? 0,
@@ -95,7 +102,7 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   return withUser(async (userId) => {
     const body = await request.json();
-    const { id, name, type, bankName, iban, currency, initialBalance } = body;
+    const { id, name, type, bank, bankName, iban, currency, initialBalance } = body;
 
     if (!id) {
       return NextResponse.json(
@@ -105,6 +112,9 @@ export async function PUT(request: NextRequest) {
     }
     if (type !== undefined && !isAccountType(type)) {
       return NextResponse.json({ error: "Invalid account type" }, { status: 400 });
+    }
+    if (bank !== undefined && bank !== null && !isBank(bank)) {
+      return NextResponse.json({ error: "Invalid bank" }, { status: 400 });
     }
     if (initialBalance !== undefined && !isFiniteNumber(initialBalance)) {
       return NextResponse.json(
@@ -120,7 +130,12 @@ export async function PUT(request: NextRequest) {
     };
     if (name !== undefined) updates.name = name;
     if (type !== undefined) updates.type = type;
-    if (bankName !== undefined) updates.bankName = bankName || null;
+    if (bank !== undefined) {
+      updates.bank = bank ?? null;
+      updates.bankName = bankLabel(bank ?? null, bankName || null);
+    } else if (bankName !== undefined) {
+      updates.bankName = bankName || null;
+    }
     if (iban !== undefined) updates.iban = iban || null;
     if (currency !== undefined) updates.currency = currency;
     if (initialBalance !== undefined) updates.initialBalance = initialBalance;

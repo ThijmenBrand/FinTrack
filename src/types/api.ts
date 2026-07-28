@@ -3,6 +3,7 @@ export interface Account {
   name: string;
   type: string;
   bankName: string | null;
+  bank: string | null;
   iban: string | null;
   currency: string;
   initialBalance: number;
@@ -94,6 +95,7 @@ export interface Pot {
   targetAmount: number | null;
   targetDate: string | null;
   fundedAmount: number;
+  archivedAt: string | null;
   createdAt: string;
 }
 
@@ -301,6 +303,8 @@ export interface BudgetData {
   suggestions: BudgetSuggestion[];
   automation: AutomationState;
   categoryAverages: Record<string, number>;
+  /** Active statistics reset date; every avgMonthly counts from it. */
+  statsCutoff: string | null;
   month: { from: string; to: string; label: string };
 }
 
@@ -312,6 +316,14 @@ export interface UserPreferencesData {
   financialMonthStartDay: number;
   defaultAccountId: string | null;
   hideInternalTransfers: boolean;
+}
+
+/** A dated line in the sand after which averages start counting again. */
+export interface StatResetData {
+  id: string;
+  date: string;
+  note: string | null;
+  createdAt: string;
 }
 
 export interface BalanceTimelineData {
@@ -349,7 +361,8 @@ export interface InsightsData {
   };
   /**
    * Totals for the preceding period of equal length (for vs-previous deltas).
-   * Null when the request doesn't include a previous range (e.g. All Time).
+   * Null when the request doesn't include a previous range (e.g. All Time) or
+   * when that period predates the statistics reset.
    * categoryTotals keys are categoryId, or "none" for uncategorized.
    */
   previous: {
@@ -358,6 +371,10 @@ export interface InsightsData {
     net: number;
     categoryTotals: Record<string, number>;
   } | null;
+  /** Active statistics reset date, or null when none is set. */
+  statsCutoff: string | null;
+  /** True when `previous` was withheld because it predates the reset. */
+  previousPredatesReset: boolean;
   topMerchants: {
     description: string;
     total: number;

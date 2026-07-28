@@ -36,6 +36,8 @@ interface ImportReviewStepProps {
   pots: ImportPot[];
   accountId: string;
   skipped: number;
+  pending: number;
+  feesApplied: number;
   duplicates: number;
   error?: string | null;
   onBack: () => void;
@@ -75,6 +77,8 @@ export function ImportReviewStep({
   pots,
   accountId,
   skipped,
+  pending,
+  feesApplied,
   duplicates,
   error,
   onBack,
@@ -198,7 +202,13 @@ export function ImportReviewStep({
         setTransactions((prev) =>
           prev.map((t) =>
             t.tempId === tempId
-              ? { ...t, type: "income", reimbursesExpenseId: null, reimbursesDescription: null }
+              ? {
+                  ...t,
+                  type: "income",
+                  reimbursesExpenseId: null,
+                  reimbursesTempId: null,
+                  reimbursesDescription: null,
+                }
               : t
           )
         );
@@ -210,7 +220,7 @@ export function ImportReviewStep({
   );
 
   const handleReimburseSelect = useCallback(
-    (expense: { id: string; description: string }) => {
+    (expense: { id: string; description: string; local?: boolean }) => {
       const tempId = reimburseTargetId;
       if (!tempId) return;
       setTransactions((prev) =>
@@ -219,7 +229,10 @@ export function ImportReviewStep({
             ? {
                 ...t,
                 type: "reimbursement",
-                reimbursesExpenseId: expense.id,
+                // A local pick references another import row by tempId; a DB pick
+                // references an existing expense id. Only one is ever set.
+                reimbursesExpenseId: expense.local ? null : expense.id,
+                reimbursesTempId: expense.local ? expense.id : null,
                 reimbursesDescription: expense.description,
               }
             : t
@@ -228,6 +241,32 @@ export function ImportReviewStep({
       setReimburseTargetId(null);
     },
     [reimburseTargetId]
+  );
+
+  // Other to-be-imported expense rows offered as reimbursement targets.
+  const localExpenses = useMemo(
+    () =>
+      transactions
+        .filter(
+          (t) =>
+            t.type === "expense" &&
+            t.amount < 0 &&
+            t.tempId !== reimburseTargetId
+        )
+        .map((t) => {
+          const cat = categories.find((c) => c.id === t.categoryId);
+          return {
+            id: t.tempId,
+            date: t.date,
+            description: t.name || t.description,
+            amount: t.amount,
+            accountName: null,
+            categoryName: cat?.name ?? null,
+            categoryColor: cat?.color ?? null,
+            local: true,
+          };
+        }),
+    [transactions, reimburseTargetId, categories]
   );
 
   const handleToggleSelect = useCallback((tempId: string) => {
@@ -438,11 +477,15 @@ export function ImportReviewStep({
             </span>
           </div>
         )}
-        {(skipped > 0 || duplicates > 0) && (
+        {(skipped > 0 || pending > 0 || feesApplied > 0 || duplicates > 0) && (
           <div className="text-xs text-muted-foreground ml-auto">
             {[
               duplicates > 0 &&
                 `${duplicates} duplicate${duplicates !== 1 ? "s" : ""} already imported`,
+              feesApplied > 0 &&
+                `${feesApplied} fee${feesApplied !== 1 ? "s" : ""} folded into the amount`,
+              pending > 0 &&
+                `${pending} pending row${pending !== 1 ? "s" : ""} left out (not settled yet)`,
               skipped > 0 &&
                 `${skipped} row${skipped !== 1 ? "s" : ""} skipped (invalid data)`,
             ]
@@ -578,6 +621,7 @@ export function ImportReviewStep({
           transactionDate={reimburseTarget.date}
           accountId={accountId}
           onSelect={handleReimburseSelect}
+          localExpenses={localExpenses}
         />
       )}
 

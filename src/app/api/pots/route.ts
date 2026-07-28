@@ -17,6 +17,7 @@ export async function GET() {
         targetAmount: transactionGroups.targetAmount,
         targetDate: transactionGroups.targetDate,
         fundedAmount: transactionGroups.fundedAmount,
+        archivedAt: transactionGroups.archivedAt,
         createdAt: transactionGroups.createdAt,
         netAmount: sql<number>`COALESCE((
           SELECT SUM(t.amount) FROM transactions t WHERE t.group_id = ${transactionGroups.id} AND t.user_id = ${userId}
@@ -94,7 +95,7 @@ export async function POST(request: NextRequest) {
 // PUT /api/pots — update a pot
 export async function PUT(request: NextRequest) {
   return withUser(async (userId) => {
-    const { id, name, categoryId, targetAmount, targetDate } = await request.json();
+    const { id, name, categoryId, targetAmount, targetDate, archived } = await request.json();
     if (!id) {
       return NextResponse.json({ error: "id is required" }, { status: 400 });
     }
@@ -133,6 +134,9 @@ export async function PUT(request: NextRequest) {
     }
     if (targetDate !== undefined) {
       updates.targetDate = targetDate === null || targetDate === "" ? null : targetDate;
+    }
+    if (archived !== undefined) {
+      updates.archivedAt = archived ? new Date().toISOString() : null;
     }
     // When a target is cleared, also reset funded so a future re-target starts fresh.
     if (

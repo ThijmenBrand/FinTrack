@@ -4,6 +4,7 @@ import { transactions, accounts, categories } from "@/db/schema";
 import { eq, desc, asc, and, gte, lte, like, or, sql, inArray, notInArray, isNull } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
+import { parseSearchTerm } from "@/lib/search-query";
 
 const VALID_TX_TYPES = ["income", "expense", "internal_transfer", "reimbursement"] as const;
 type TxType = (typeof VALID_TX_TYPES)[number];
@@ -47,13 +48,24 @@ export async function GET(request: NextRequest) {
       conditions.push(inArray(transactions.type, types as TxType[]));
     }
     if (search) {
-      const searchPattern = `%${search}%`;
-      conditions.push(
-        or(
+      const parsed = parseSearchTerm(search);
+      const matches = [];
+      if (parsed.text) {
+        const searchPattern = `%${parsed.text}%`;
+        matches.push(
           like(transactions.description, searchPattern),
           like(transactions.name, searchPattern)
-        )!
-      );
+        );
+      }
+      if (parsed.amount) {
+        matches.push(
+          sql`ABS(${transactions.amount}) BETWEEN ${parsed.amount.min} AND ${parsed.amount.max}`
+        );
+      }
+      if (parsed.date) {
+        matches.push(like(transactions.date, `${parsed.date}%`));
+      }
+      if (matches.length) conditions.push(or(...matches)!);
     }
     if (dateFrom) conditions.push(gte(transactions.date, dateFrom));
     if (dateTo) conditions.push(lte(transactions.date, dateTo));

@@ -12,7 +12,7 @@ export function useAccounts() {
 export function useCreateAccount() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { name: string; type: string; bankName: string | null; iban: string | null; currency: string; initialBalance: number }) =>
+    mutationFn: (payload: { name: string; type: string; bank: string | null; bankName: string | null; iban: string | null; currency: string; initialBalance: number }) =>
       apiFetch("/api/accounts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["accounts"] }); },
   });
@@ -21,7 +21,7 @@ export function useCreateAccount() {
 export function useUpdateAccount() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { id: string; name: string; type: string; bankName: string | null; iban: string | null; currency: string; initialBalance: number }) =>
+    mutationFn: (payload: { id: string; name: string; type: string; bank: string | null; bankName: string | null; iban: string | null; currency: string; initialBalance: number }) =>
       apiFetch("/api/accounts", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["accounts"] }); },
   });

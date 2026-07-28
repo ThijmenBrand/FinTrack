@@ -16,6 +16,8 @@ interface ExpenseTransaction {
   accountName: string | null;
   categoryName: string | null;
   categoryColor: string | null;
+  /** True when this is another to-be-imported row (id is a tempId, not a DB id). */
+  local?: boolean;
 }
 
 interface ReimbursementPickerProps {
@@ -30,6 +32,8 @@ interface ReimbursementPickerProps {
   onLinked?: () => void;
   /** When set, selection is reported to the caller instead of linked via the API. */
   onSelect?: (expense: ExpenseTransaction) => void;
+  /** Other to-be-imported expense rows to offer alongside existing DB expenses (import review only). */
+  localExpenses?: ExpenseTransaction[];
 }
 
 export function ReimbursementPicker({
@@ -42,6 +46,7 @@ export function ReimbursementPicker({
   accountId,
   onLinked,
   onSelect,
+  localExpenses = [],
 }: ReimbursementPickerProps) {
   const [linkingId, setLinkingId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -72,6 +77,12 @@ export function ReimbursementPicker({
   });
   const expenses = expenseData ?? [];
 
+  // Sibling import rows are filtered client-side (they never hit the API).
+  const q = debouncedSearch.toLowerCase();
+  const localMatches = q
+    ? localExpenses.filter((e) => e.description.toLowerCase().includes(q))
+    : localExpenses;
+
   const reimburse = useReimburseTransaction();
 
   const handleSelect = async (expense: ExpenseTransaction) => {
@@ -93,6 +104,41 @@ export function ReimbursementPicker({
     }
   };
 
+  const renderExpenseRow = (expense: ExpenseTransaction) => (
+    <PickerRow
+      key={expense.id}
+      className="hover:bg-muted/50"
+      onClick={() => handleSelect(expense)}
+      disabled={linkingId !== null}
+      loading={linkingId === expense.id}
+      leading={<div className="w-4 mr-3 shrink-0" />}
+      trailing={
+        <span className="text-sm font-mono font-medium text-red-600 dark:text-red-400 shrink-0 ml-3">
+          {formatCurrency(expense.amount)}
+        </span>
+      }
+    >
+      <div className="flex items-center gap-2">
+        <p className="text-sm font-medium truncate">{expense.description}</p>
+        {expense.categoryName && (
+          <span className="flex items-center gap-1 shrink-0">
+            <span
+              className="h-2 w-2 rounded-full"
+              style={{ backgroundColor: expense.categoryColor || "#94a3b8" }}
+            />
+            <span className="text-xs text-muted-foreground">
+              {expense.categoryName}
+            </span>
+          </span>
+        )}
+      </div>
+      <p className="text-xs text-muted-foreground mt-0.5">
+        {formatDate(expense.date)}
+        {expense.accountName ? ` · ${expense.accountName}` : ""}
+      </p>
+    </PickerRow>
+  );
+
   return (
     <PickerDialog
       open={open}
@@ -107,43 +153,17 @@ export function ReimbursementPicker({
       onSearchChange={setSearch}
       searchPlaceholder="Search expenses..."
       loading={loading}
-      isEmpty={expenses.length === 0}
+      isEmpty={expenses.length === 0 && localMatches.length === 0}
       emptyMessage={debouncedSearch ? "No matching expenses found." : "No recent expenses in this account."}
     >
-      {expenses.map((expense) => (
-        <PickerRow
-          key={expense.id}
-          className="hover:bg-muted/50"
-          onClick={() => handleSelect(expense)}
-          disabled={linkingId !== null}
-          loading={linkingId === expense.id}
-          leading={<div className="w-4 mr-3 shrink-0" />}
-          trailing={
-            <span className="text-sm font-mono font-medium text-red-600 dark:text-red-400 shrink-0 ml-3">
-              {formatCurrency(expense.amount)}
-            </span>
-          }
-        >
-          <div className="flex items-center gap-2">
-            <p className="text-sm font-medium truncate">{expense.description}</p>
-            {expense.categoryName && (
-              <span className="flex items-center gap-1 shrink-0">
-                <span
-                  className="h-2 w-2 rounded-full"
-                  style={{ backgroundColor: expense.categoryColor || "#94a3b8" }}
-                />
-                <span className="text-xs text-muted-foreground">
-                  {expense.categoryName}
-                </span>
-              </span>
-            )}
-          </div>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            {formatDate(expense.date)}
-            {expense.accountName ? ` · ${expense.accountName}` : ""}
-          </p>
-        </PickerRow>
-      ))}
+      {localMatches.length > 0 && (
+        <p className="text-xs font-medium text-muted-foreground px-1 pt-1">From this import</p>
+      )}
+      {localMatches.map(renderExpenseRow)}
+      {expenses.length > 0 && localMatches.length > 0 && (
+        <p className="text-xs font-medium text-muted-foreground px-1 pt-2">Already recorded</p>
+      )}
+      {expenses.map(renderExpenseRow)}
     </PickerDialog>
   );
 }

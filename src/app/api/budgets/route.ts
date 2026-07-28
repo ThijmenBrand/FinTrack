@@ -15,6 +15,7 @@ import { isRegenerationDue } from "@/lib/auto-budget";
 import { getUserPreferences } from "@/lib/preferences";
 import { toMonthly, getCurrentMonthRange } from "@/lib/month-money";
 import { isFiniteNumber } from "@/lib/validation";
+import { getStatsCutoff } from "@/lib/stat-reset";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const AVG_DAYS_PER_MONTH = 30.4375;
@@ -309,6 +310,9 @@ export async function GET(request: NextRequest) {
 
     // 5. Calculate average monthly spending per category (across all past complete months)
     // Must match the current-month logic: exclude grouped transactions, subtract reimbursements
+    // A statistics reset restarts this average: months before the cutoff are
+    // history, not evidence, so they neither add spend nor count as months.
+    const statsCutoff = await getStatsCutoff(userId);
     const monthlySpendingByCategory = await db
       .select({
         categoryId: transactions.categoryId,
@@ -322,6 +326,7 @@ export async function GET(request: NextRequest) {
           sql`${transactions.groupId} IS NULL`,
           // Exclude current month — only completed months
           sql`substr(${transactions.date}, 1, 7) < ${from.slice(0, 7)}`,
+          ...(statsCutoff ? [gte(transactions.date, statsCutoff)] : []),
           eq(transactions.userId, userId),
         ),
       )
@@ -501,6 +506,8 @@ export async function GET(request: NextRequest) {
       allocations: allocationsWithAvg,
       suggestions,
       categoryAverages: allCategoryAvgs,
+      // Null unless a reset is in force. Every avgMonthly above counts from it.
+      statsCutoff,
       automation: {
         enabled: prefs.autoBudgetEnabled,
         intervalMonths: prefs.autoBudgetIntervalMonths,

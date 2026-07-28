@@ -5,6 +5,8 @@ import type { PreviewTransaction } from "@/lib/csv-utils";
 interface PreviewResult {
   transactions: PreviewTransaction[];
   skipped: number;
+  pending: number;
+  feesApplied: number;
   duplicates: number;
 }
 

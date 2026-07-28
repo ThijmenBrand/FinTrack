@@ -572,6 +572,8 @@ function TransactionsPage() {
         onDelete={(tx) => {
           if (window.confirm("Delete this transaction?")) handleDelete(tx.id);
         }}
+        onFilterByCategory={(tx) => { if (tx.categoryId) applyFilter("category", tx.categoryId); }}
+        onFilterByName={(tx) => applyFilter("search", tx.name || tx.description)}
       />
 
       {/* Note Editor Dialog */}

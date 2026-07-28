@@ -36,6 +36,8 @@ import { useInsights, useBalanceTimeline } from "@/hooks/use-insights";
 import { useAccounts } from "@/hooks/use-accounts";
 import { useBudgets } from "@/hooks/use-budgets";
 import { usePreferences } from "@/hooks/use-preferences";
+import { useStatResets } from "@/hooks/use-stat-resets";
+import { formatResetDate } from "@/lib/stat-reset-marks";
 import {
   getFinancialMonthRange,
   getPreviousFinancialMonth,
@@ -222,6 +224,7 @@ export default function InsightsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { data: prefs } = usePreferences();
+  const { data: resets } = useStatResets();
   const startDay = prefs?.financialMonthStartDay ?? 1;
   const usingFinancialMonth = startDay !== 1;
 
@@ -498,12 +501,23 @@ export default function InsightsPage() {
         </Card>
       </div>
 
+      {/* A comparison that reaches back past the reset would report the reset
+          itself as a change in spending, so it's withheld rather than shown. */}
+      {data.previousPredatesReset && data.statsCutoff && (
+        <p className="-mt-4 text-xs text-muted-foreground">
+          No {deltaLabel?.replace(/^vs /, "") ?? "previous period"} comparison —
+          that period is before your statistics reset on{" "}
+          {formatResetDate(data.statsCutoff)}.
+        </p>
+      )}
+
       {/* Category breakdown (stacked monthly chart + per-category rows) */}
       <CategoryBreakdownCard
         sortedBreakdown={sortedBreakdown}
         totalExpenses={totalExpenses}
         monthlyCategoryTotals={data.monthlyCategoryTotals}
         previousCategoryTotals={data.previous?.categoryTotals ?? null}
+        resets={resets ?? []}
         onCategoryClick={navigateToCategory}
       />
 
@@ -511,6 +525,7 @@ export default function InsightsPage() {
       <SpendingByPeriod
         dailyTotals={data.dailyTotals}
         monthlyTotals={data.monthlyTotals}
+        resets={resets ?? []}
       />
 
       {/* Monthly Budget Performance — only for single financial months; the
@@ -565,6 +580,7 @@ export default function InsightsPage() {
         data={balanceData}
         isLoading={balanceLoading}
         accountLabel={accountLabel}
+        resets={resets ?? []}
       />
     </div>
   );

@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Plus, PiggyBank, Loader2, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PotCard } from "@/components/pot-card";
@@ -13,15 +14,28 @@ import { formatCurrency as fc, toIsoDate } from "@/lib/utils";
 import type { Pot } from "@/types/api";
 
 export default function PotsPage() {
+  return (
+    <Suspense>
+      <PotsPageInner />
+    </Suspense>
+  );
+}
+
+function PotsPageInner() {
   const { data: pots = [], isLoading } = usePots();
   const { data: categories = [] } = useCategories();
+  const searchParams = useSearchParams();
 
   const [createOpen, setCreateOpen] = useState(false);
-  const [activePotId, setActivePotId] = useState<string | null>(null);
+  // Open the pot from a ?pot= link (e.g. from a transaction's pot badge).
+  const [activePotId, setActivePotId] = useState<string | null>(
+    () => searchParams.get("pot")
+  );
   const [quickAllocate, setQuickAllocate] = useState<Pot | null>(null);
   const [showPast, setShowPast] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
 
-  const { activeSpikes, pastSpikes, plain } = useMemo(() => {
+  const { activeSpikes, pastSpikes, plain, archived } = useMemo(() => {
     // "Past" = target date strictly more than a calendar month ago.
     const cutoff = new Date();
     cutoff.setHours(0, 0, 0, 0);
@@ -31,8 +45,11 @@ export default function PotsPage() {
     const activeSpikes: Pot[] = [];
     const pastSpikes: Pot[] = [];
     const plain: Pot[] = [];
+    const archived: Pot[] = [];
     for (const p of pots) {
-      if (p.targetAmount != null && p.targetDate) {
+      if (p.archivedAt) {
+        archived.push(p);
+      } else if (p.targetAmount != null && p.targetDate) {
         if (p.targetDate < cutoffIso) pastSpikes.push(p);
         else activeSpikes.push(p);
       } else {
@@ -47,7 +64,8 @@ export default function PotsPage() {
       (b.targetDate ?? "").localeCompare(a.targetDate ?? "")
     );
     plain.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    return { activeSpikes, pastSpikes, plain };
+    archived.sort((a, b) => (b.archivedAt ?? "").localeCompare(a.archivedAt ?? ""));
+    return { activeSpikes, pastSpikes, plain, archived };
   }, [pots]);
 
   const totalFunded = activeSpikes.reduce((s, p) => s + p.fundedAmount, 0);
@@ -145,6 +163,40 @@ export default function PotsPage() {
               {showPast && (
                 <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 opacity-90">
                   {pastSpikes.map((pot) => (
+                    <PotCard
+                      key={pot.id}
+                      pot={pot}
+                      onClick={() => setActivePotId(pot.id)}
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
+
+          {archived.length > 0 && (
+            <section className="space-y-3 pt-2 border-t">
+              <button
+                type="button"
+                onClick={() => setShowArchived((v) => !v)}
+                className="w-full flex items-center justify-between gap-3 px-1 py-2 text-left text-sm text-muted-foreground hover:text-foreground transition-colors group"
+                aria-expanded={showArchived}
+              >
+                <span className="font-medium text-foreground">
+                  {archived.length} archived pot{archived.length === 1 ? "" : "s"}
+                </span>
+                <span className="flex items-center gap-1 text-xs">
+                  {showArchived ? "Hide" : "Show"}
+                  {showArchived ? (
+                    <ChevronUp className="h-4 w-4" />
+                  ) : (
+                    <ChevronDown className="h-4 w-4" />
+                  )}
+                </span>
+              </button>
+              {showArchived && (
+                <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 opacity-75">
+                  {archived.map((pot) => (
                     <PotCard
                       key={pot.id}
                       pot={pot}

@@ -1,0 +1,1 @@
+ALTER TABLE `transaction_groups` ADD `archived_at` text;

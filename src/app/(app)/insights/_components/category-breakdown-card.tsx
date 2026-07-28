@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import {
   Card,
   CardContent,
@@ -8,6 +8,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { formatCurrency } from "@/lib/utils";
+import { formatResetDate, placeResetMarks } from "@/lib/stat-reset-marks";
+import type { StatResetData } from "@/types/api";
 
 interface CategoryBreakdownEntry {
   categoryId: string | null;
@@ -24,6 +26,8 @@ interface CategoryBreakdownCardProps {
   monthlyCategoryTotals: { month: string; categoryId: string | null; total: number }[];
   /** Keys are categoryId or "none"; null when no previous period was requested. */
   previousCategoryTotals: Record<string, number> | null;
+  /** Statistics resets, newest first. The newest one restarts the per-month averages. */
+  resets: StatResetData[];
   onCategoryClick: (categoryId: string | null) => void;
 }
 
@@ -68,6 +72,7 @@ export function CategoryBreakdownCard({
   totalExpenses,
   monthlyCategoryTotals,
   previousCategoryTotals,
+  resets,
   onCategoryClick,
 }: CategoryBreakdownCardProps) {
   const [hoveredMonth, setHoveredMonth] = useState<string | null>(null);
@@ -117,10 +122,41 @@ export function CategoryBreakdownCard({
       }));
   }, [monthlyCategoryTotals, rankByKey]);
 
-  const distinctMonthCount = useMemo(
-    () => new Set(monthlyCategoryTotals.map((r) => r.month)).size,
-    [monthlyCategoryTotals],
+  // Reset boundaries between the monthly bars, and the index where the current
+  // era begins. Months are keyed "YYYY-MM"; the bucket spans that whole month.
+  const activeReset = resets[0] ?? null;
+  const marks = useMemo(
+    () =>
+      placeResetMarks(
+        months.map((m) => ({ start: `${m.month}-01`, end: `${m.month}-31` })),
+        resets,
+        activeReset?.date ?? null,
+      ),
+    [months, resets, activeReset],
   );
+  const markByIndex = useMemo(
+    () => new Map(marks.map((m) => [m.index, m])),
+    [marks],
+  );
+  const eraStart = marks.find((m) => m.isActive)?.index ?? 0;
+
+  // Per-category "/mo avg" counts the current era only, so a reset genuinely
+  // restarts it instead of averaging two different financial lives together.
+  const eraMonths = useMemo(
+    () => new Set(months.slice(eraStart).map((m) => m.month)),
+    [months, eraStart],
+  );
+  const eraTotalByKey = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const row of monthlyCategoryTotals) {
+      if (!eraMonths.has(row.month)) continue;
+      const key = catKey(row.categoryId);
+      map.set(key, (map.get(key) ?? 0) + row.total);
+    }
+    return map;
+  }, [monthlyCategoryTotals, eraMonths]);
+
+  const distinctMonthCount = eraMonths.size;
   const multiMonth = distinctMonthCount > 1;
 
   const yMax = niceMax(months.length > 0 ? Math.max(...months.map((m) => m.total)) : 0);
@@ -189,19 +225,48 @@ export function CategoryBreakdownCard({
 
                       {/* Stacked bars */}
                       <div className="absolute inset-0 flex items-end gap-2 px-1">
-                        {months.map((m) => {
+                        {months.map((m, i) => {
                           const heightPct = (m.total / yMax) * 100;
                           const isHovered = hoveredMonth === m.month;
                           const dimmed = hoveredMonth !== null && !isHovered;
+                          const isPast = i < eraStart;
+                          const mark = markByIndex.get(i);
                           const topSlices = [...m.segments]
                             .sort((a, b) => b.total - a.total)
                             .slice(0, TOOLTIP_SLICES);
                           const otherTotal =
                             m.total - topSlices.reduce((s, seg) => s + seg.total, 0);
                           return (
+                            <Fragment key={m.month}>
+                            {mark && (
+                              <div
+                                className={
+                                  "relative w-0 shrink-0 self-stretch border-l border-dashed " +
+                                  (mark.isActive
+                                    ? "border-primary/70"
+                                    : "border-muted-foreground/40")
+                                }
+                              >
+                                <span
+                                  className={
+                                    "absolute top-0 left-1 whitespace-nowrap rounded-sm bg-background/90 px-1 text-[10px] leading-tight " +
+                                    (mark.isActive
+                                      ? "font-medium text-primary"
+                                      : "text-muted-foreground")
+                                  }
+                                >
+                                  {mark.isActive ? "Counting from " : "Reset "}
+                                  {formatResetDate(mark.date)}
+                                </span>
+                              </div>
+                            )}
                             <div
-                              key={m.month}
-                              className="relative flex-1 min-w-[16px] h-full flex flex-col justify-end cursor-pointer"
+                              className={
+                                "relative flex-1 min-w-[16px] h-full flex flex-col justify-end cursor-pointer transition-[filter,opacity] " +
+                                (isPast && !isHovered
+                                  ? "opacity-40 saturate-0"
+                                  : "")
+                              }
                               onMouseEnter={() => setHoveredMonth(m.month)}
                               onMouseLeave={() =>
                                 setHoveredMonth((k) => (k === m.month ? null : k))
@@ -276,28 +341,36 @@ export function CategoryBreakdownCard({
                                 ))}
                               </div>
                             </div>
+                            </Fragment>
                           );
                         })}
                       </div>
                     </div>
 
-                    {/* X-axis labels */}
+                    {/* X-axis labels — zero-width spacers mirror the reset
+                        rules above so labels stay aligned with their bars. */}
                     <div className="flex gap-2 mt-3 px-1">
                       {months.map((m, i) => {
                         const showLabel = i % labelStride === 0;
                         const isHovered = hoveredMonth === m.month;
                         return (
-                          <div
-                            key={m.month}
-                            className={
-                              "flex-1 min-w-[16px] text-[10px] text-center truncate transition-colors " +
-                              (isHovered
-                                ? "text-foreground font-medium"
-                                : "text-muted-foreground")
-                            }
-                          >
-                            {showLabel || isHovered ? m.label : ""}
-                          </div>
+                          <Fragment key={m.month}>
+                            {markByIndex.has(i) && (
+                              <div aria-hidden className="w-0 shrink-0" />
+                            )}
+                            <div
+                              className={
+                                "flex-1 min-w-[16px] text-[10px] text-center truncate transition-colors " +
+                                (isHovered
+                                  ? "text-foreground font-medium"
+                                  : i < eraStart
+                                  ? "text-muted-foreground/50"
+                                  : "text-muted-foreground")
+                              }
+                            >
+                              {showLabel || isHovered ? m.label : ""}
+                            </div>
+                          </Fragment>
                         );
                       })}
                     </div>
@@ -375,7 +448,15 @@ export function CategoryBreakdownCard({
                       <div className="text-xs text-muted-foreground tabular-nums">
                         {pct}% · {cat.count} tx
                         {multiMonth && (
-                          <> · {formatCurrency(cat.total / distinctMonthCount)}/mo avg</>
+                          <>
+                            {" "}
+                            ·{" "}
+                            {formatCurrency(
+                              (eraTotalByKey.get(catKey(cat.categoryId)) ?? 0) /
+                                distinctMonthCount,
+                            )}
+                            /mo avg{eraStart > 0 && " since reset"}
+                          </>
                         )}
                       </div>
                     </div>

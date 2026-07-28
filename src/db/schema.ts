@@ -36,6 +36,8 @@ export const accounts = sqliteTable("accounts", {
     enum: ["checking", "savings", "joint", "credit", "other"],
   }).notNull(),
   bankName: text("bank_name"),
+  /** Stable bank slug from BANKS in @/lib/banks; drives import behaviour. */
+  bank: text("bank"),
   iban: text("iban"),
   currency: text("currency").notNull().default("EUR"),
   initialBalance: real("initial_balance").notNull().default(0),
@@ -194,6 +196,27 @@ export const userPreferences = sqliteTable("user_preferences", {
     .$defaultFn(() => new Date().toISOString()),
 });
 
+// ─── Statistics Resets ───────────────────────────────────────────────────────
+// A dated line in the sand: backward-looking maths (budget averages, auto-budget
+// suggestions, vs-previous comparisons) ignores everything before the newest
+// reset. Transactions and the charts that plot them are untouched — the past
+// stays visible, it just stops feeding the averages.
+export const statResets = sqliteTable("stat_resets", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  // ISO YYYY-MM-DD. Averages count from this date, inclusive.
+  date: text("date").notNull(),
+  // Optional user note, e.g. "moved house".
+  note: text("note"),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_stat_resets_user_date").on(table.userId, table.date),
+]);
+
 // ─── Recurring Transactions ──────────────────────────────────────────────────
 // Expected recurring incomes and expenses
 export const recurringTransactions = sqliteTable("recurring_transactions", {
@@ -255,6 +278,8 @@ export const transactionGroups = sqliteTable("transaction_groups", {
   targetAmount: real("target_amount"),
   targetDate: text("target_date"),
   fundedAmount: real("funded_amount").notNull().default(0),
+  // Set when the user archives the pot to hide it from the active list; null = active.
+  archivedAt: text("archived_at"),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
@@ -428,3 +453,5 @@ export type Passkey = typeof passkey.$inferSelect;
 export type UserPin = typeof userPin.$inferSelect;
 export type UserPreferences = typeof userPreferences.$inferSelect;
 export type NewUserPreferences = typeof userPreferences.$inferInsert;
+export type StatReset = typeof statResets.$inferSelect;
+export type NewStatReset = typeof statResets.$inferInsert;

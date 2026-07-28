@@ -60,6 +60,7 @@ import {
   StarOff,
 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
+import { BANKS, bankHasSeparateFeeColumn } from "@/lib/banks";
 
 const ACCOUNT_TYPES = [
   { value: "checking", label: "Checking" },
@@ -277,6 +278,7 @@ export default function AccountsPage() {
   // Form state
   const [name, setName] = useState("");
   const [type, setType] = useState("checking");
+  const [bank, setBank] = useState("");
   const [bankName, setBankName] = useState("");
   const [iban, setIban] = useState("");
   const [currency, setCurrency] = useState("EUR");
@@ -289,6 +291,7 @@ export default function AccountsPage() {
   const resetForm = () => {
     setName("");
     setType("checking");
+    setBank("");
     setBankName("");
     setIban("");
     setCurrency("EUR");
@@ -300,6 +303,7 @@ export default function AccountsPage() {
     setEditingAccount(account);
     setName(account.name);
     setType(account.type);
+    setBank(account.bank || "");
     setBankName(account.bankName || "");
     setIban(account.iban || "");
     setCurrency(account.currency);
@@ -311,6 +315,7 @@ export default function AccountsPage() {
     const payload = {
       name,
       type,
+      bank: bank || null,
       bankName: bankName || null,
       iban: iban || null,
       currency,
@@ -422,14 +427,39 @@ export default function AccountsPage() {
                 </Select>
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="bankName">Bank Name (optional)</Label>
-                <Input
-                  id="bankName"
-                  placeholder="e.g. ING, ABN AMRO, Rabobank"
-                  autoComplete="off"
-                  value={bankName}
-                  onChange={(e) => setBankName(e.target.value)}
-                />
+                <Label htmlFor="bank">Bank (optional)</Label>
+                <Select
+                  value={bank || "none"}
+                  onValueChange={(v) => setBank(v === "none" ? "" : v)}
+                >
+                  <SelectTrigger id="bank">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Not set</SelectItem>
+                    {BANKS.map((b) => (
+                      <SelectItem key={b.value} value={b.value}>
+                        {b.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {bank === "other" && (
+                  <Input
+                    id="bankName"
+                    placeholder="Bank name"
+                    autoComplete="off"
+                    value={bankName}
+                    onChange={(e) => setBankName(e.target.value)}
+                  />
+                )}
+                {bankHasSeparateFeeColumn(bank) && (
+                  <p className="text-xs text-muted-foreground">
+                    Revolut lists card and ATM fees in a separate Fee column.
+                    Imports for this account will subtract them from each
+                    transaction, so your balance stays exact.
+                  </p>
+                )}
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="iban">IBAN (optional)</Label>

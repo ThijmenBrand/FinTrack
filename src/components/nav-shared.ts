@@ -49,6 +49,7 @@ export function useSessionUser() {
   const logout = async () => {
     localStorage.removeItem("lockscreen_username");
     localStorage.removeItem("lockscreen_has_pin");
+    localStorage.removeItem("lockscreen_last_active");
     await signOut();
     router.push("/login");
     router.refresh();

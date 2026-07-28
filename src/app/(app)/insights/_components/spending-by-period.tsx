@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import {
   Card,
   CardContent,
@@ -8,7 +8,13 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, toIsoDate } from "@/lib/utils";
+import {
+  formatResetDate,
+  placeResetMarks,
+  type ResetMark,
+} from "@/lib/stat-reset-marks";
+import type { StatResetData } from "@/types/api";
 
 type Granularity = "daily" | "weekly" | "monthly";
 
@@ -17,11 +23,16 @@ interface PeriodEntry {
   label: string;
   expenses: number;
   income?: number;
+  /** Inclusive ISO bounds of the bucket, for placing reset markers. */
+  start: string;
+  end: string;
 }
 
 interface SpendingByPeriodProps {
   dailyTotals: { date: string; income: number; expenses: number }[];
   monthlyTotals: { month: string; income: number; expenses: number }[];
+  /** Statistics resets, newest first. The newest one dims everything before it. */
+  resets: StatResetData[];
 }
 
 function formatTick(amount: number) {
@@ -86,19 +97,79 @@ function aggregateWeekly(
   }
   return Array.from(map.entries())
     .sort((a, b) => a[1].weekStart.getTime() - b[1].weekStart.getTime())
-    .map(([key, value]) => ({
-      key,
-      label: formatWeekRange(value.weekStart),
-      expenses: value.expenses,
-    }));
+    .map(([key, value]) => {
+      const weekEnd = new Date(value.weekStart);
+      weekEnd.setDate(weekEnd.getDate() + 6);
+      return {
+        key,
+        label: formatWeekRange(value.weekStart),
+        expenses: value.expenses,
+        start: key,
+        end: toIsoDate(weekEnd),
+      };
+    });
+}
+
+/** Last day of the calendar month named by an ISO "YYYY-MM" key. */
+function monthEnd(month: string): string {
+  const [y, m] = month.split("-").map(Number);
+  return toIsoDate(new Date(y, m, 0));
 }
 
 const TICK_COUNT = 5;
 const CHART_HEIGHT = 240;
 
+/**
+ * Bar fill. Buckets before the active reset drop their meaning-colour and go
+ * grey: they are history, not part of the numbers above the chart. Hover still
+ * lifts them a step so the tooltip has something to point at.
+ */
+function barTone(
+  hue: "primary" | "emerald",
+  state: { isHovered: boolean; dimmed: boolean; isPast: boolean },
+): string {
+  if (state.isPast) {
+    return state.isHovered
+      ? "bg-muted-foreground/45"
+      : "bg-muted-foreground/20 dark:bg-muted-foreground/25";
+  }
+  if (state.isHovered) return hue === "emerald" ? "bg-emerald-500" : "bg-primary";
+  if (state.dimmed) return "bg-muted-foreground/15";
+  return hue === "emerald"
+    ? "bg-emerald-500/30 dark:bg-emerald-500/40"
+    : "bg-primary/30 dark:bg-primary/40";
+}
+
+/**
+ * The reset boundary: a zero-width dashed rule that flows between two bars, so
+ * it stays glued to the bucket edge no matter how the chart is sized.
+ */
+function ResetRule({ mark }: { mark: ResetMark }) {
+  return (
+    <div
+      className={
+        "relative w-0 shrink-0 self-stretch border-l border-dashed " +
+        (mark.isActive ? "border-primary/70" : "border-muted-foreground/40")
+      }
+    >
+      <span
+        className={
+          "absolute top-0 left-1 whitespace-nowrap rounded-sm bg-background/90 px-1 text-[10px] leading-tight " +
+          (mark.isActive ? "font-medium text-primary" : "text-muted-foreground")
+        }
+      >
+        {mark.isActive ? "Counting from " : "Reset "}
+        {formatResetDate(mark.date)}
+        {mark.note ? ` · ${mark.note}` : ""}
+      </span>
+    </div>
+  );
+}
+
 export function SpendingByPeriod({
   dailyTotals,
   monthlyTotals,
+  resets,
 }: SpendingByPeriodProps) {
   // Long ranges: daily bars get too dense, so hide that tab.
   const hideDaily = monthlyTotals.length > 3;
@@ -121,6 +192,8 @@ export function SpendingByPeriod({
             day: "numeric",
           }),
           expenses: d.expenses,
+          start: d.date,
+          end: d.date,
         }));
     }
     if (granularity === "weekly") {
@@ -138,8 +211,24 @@ export function SpendingByPeriod({
         }),
         expenses: m.expenses,
         income: m.income,
+        start: `${m.month}-01`,
+        end: monthEnd(m.month),
       }));
   }, [granularity, dailyTotals, monthlyTotals]);
+
+  // Reset markers, and the index from which the current era begins. Buckets
+  // before that index belong to a previous financial life: still plotted, but
+  // desaturated, and excluded from the headline average.
+  const activeReset = resets[0] ?? null;
+  const marks = useMemo(
+    () => placeResetMarks(entries, resets, activeReset?.date ?? null),
+    [entries, resets, activeReset],
+  );
+  const eraStart = marks.find((m) => m.isActive)?.index ?? 0;
+  const markByIndex = useMemo(
+    () => new Map(marks.map((m) => [m.index, m])),
+    [marks],
+  );
 
   const showIncome = granularity === "monthly";
   const rawMax =
@@ -156,8 +245,14 @@ export function SpendingByPeriod({
     return ticks;
   }, [yMax]);
 
-  const total = entries.reduce((s, e) => s + e.expenses, 0);
-  const avg = entries.length > 0 ? total / entries.length : 0;
+  // Headline figures describe the current era only. The pre-reset total is
+  // shown separately rather than dropped, so the two still add up to the range.
+  const liveEntries = entries.slice(eraStart);
+  const total = liveEntries.reduce((s, e) => s + e.expenses, 0);
+  const beforeResetTotal = entries
+    .slice(0, eraStart)
+    .reduce((s, e) => s + e.expenses, 0);
+  const avg = liveEntries.length > 0 ? total / liveEntries.length : 0;
   const granularityNoun =
     granularity === "daily" ? "day" : granularity === "weekly" ? "week" : "month";
 
@@ -169,14 +264,27 @@ export function SpendingByPeriod({
         <div>
           <CardTitle className="text-base">Spending by Period</CardTitle>
           {entries.length > 0 && (
-            <p className="text-xs text-muted-foreground mt-1.5">
-              <span className="font-semibold text-foreground tabular-nums">
-                {formatCurrency(total)}
-              </span>
-              <span className="mx-1.5 text-muted-foreground/60">·</span>
-              <span className="tabular-nums">{formatCurrency(avg)}</span>{" "}
-              avg / {granularityNoun}
-            </p>
+            <>
+              <p className="text-xs text-muted-foreground mt-1.5">
+                <span className="font-semibold text-foreground tabular-nums">
+                  {formatCurrency(total)}
+                </span>
+                <span className="mx-1.5 text-muted-foreground/60">·</span>
+                <span className="tabular-nums">{formatCurrency(avg)}</span>{" "}
+                avg / {granularityNoun}
+                {eraStart > 0 && (
+                  <span className="text-muted-foreground/80">
+                    {" "}
+                    · since your reset
+                  </span>
+                )}
+              </p>
+              {eraStart > 0 && (
+                <p className="text-xs text-muted-foreground/70 mt-0.5 tabular-nums">
+                  {formatCurrency(beforeResetTotal)} before it
+                </p>
+              )}
+            </>
           )}
         </div>
         <Tabs
@@ -251,14 +359,17 @@ export function SpendingByPeriod({
 
                   {/* Bars */}
                   <div className="absolute inset-0 flex items-end gap-2 px-1">
-                    {entries.map((entry) => {
+                    {entries.map((entry, i) => {
                       const heightPct = (entry.expenses / yMax) * 100;
                       const incomePct = ((entry.income ?? 0) / yMax) * 100;
                       const isHovered = hoveredKey === entry.key;
                       const dimmed = hoveredKey !== null && !isHovered;
+                      const isPast = i < eraStart;
+                      const mark = markByIndex.get(i);
                       return (
+                        <Fragment key={entry.key}>
+                        {mark && <ResetRule mark={mark} />}
                         <div
-                          key={entry.key}
                           className="relative flex-1 min-w-[16px] h-full flex flex-col justify-end cursor-pointer"
                           onMouseEnter={() => setHoveredKey(entry.key)}
                           onMouseLeave={() =>
@@ -301,11 +412,7 @@ export function SpendingByPeriod({
                               <div
                                 className={
                                   "flex-1 rounded-md transition-[background-color,opacity] duration-150 " +
-                                  (isHovered
-                                    ? "bg-emerald-500"
-                                    : dimmed
-                                    ? "bg-muted-foreground/15"
-                                    : "bg-emerald-500/30 dark:bg-emerald-500/40")
+                                  barTone("emerald", { isHovered, dimmed, isPast })
                                 }
                                 style={{
                                   height: `${Math.max(incomePct, 0.8)}%`,
@@ -315,11 +422,7 @@ export function SpendingByPeriod({
                               <div
                                 className={
                                   "flex-1 rounded-md transition-[background-color,opacity] duration-150 " +
-                                  (isHovered
-                                    ? "bg-primary"
-                                    : dimmed
-                                    ? "bg-muted-foreground/15"
-                                    : "bg-primary/30 dark:bg-primary/40")
+                                  barTone("primary", { isHovered, dimmed, isPast })
                                 }
                                 style={{
                                   height: `${Math.max(heightPct, 0.8)}%`,
@@ -331,11 +434,7 @@ export function SpendingByPeriod({
                             <div
                               className={
                                 "w-full rounded-md transition-[background-color,opacity] duration-150 " +
-                                (isHovered
-                                  ? "bg-primary"
-                                  : dimmed
-                                  ? "bg-muted-foreground/15"
-                                  : "bg-primary/30 dark:bg-primary/40")
+                                barTone("primary", { isHovered, dimmed, isPast })
                               }
                               style={{
                                 height: `${Math.max(heightPct, 0.8)}%`,
@@ -344,28 +443,36 @@ export function SpendingByPeriod({
                             />
                           )}
                         </div>
+                        </Fragment>
                       );
                     })}
                   </div>
                 </div>
 
-                {/* X-axis labels */}
+                {/* X-axis labels — reset rules repeat here as zero-width
+                    spacers so the labels stay aligned with their bars. */}
                 <div className="flex gap-2 mt-3 px-1">
                   {entries.map((entry, i) => {
                     const showLabel = i % labelStride === 0;
                     const isHovered = hoveredKey === entry.key;
                     return (
-                      <div
-                        key={entry.key}
-                        className={
-                          "flex-1 min-w-[16px] text-[10px] text-center truncate transition-colors " +
-                          (isHovered
-                            ? "text-foreground font-medium"
-                            : "text-muted-foreground")
-                        }
-                      >
-                        {showLabel || isHovered ? entry.label : ""}
-                      </div>
+                      <Fragment key={entry.key}>
+                        {markByIndex.has(i) && (
+                          <div aria-hidden className="w-0 shrink-0" />
+                        )}
+                        <div
+                          className={
+                            "flex-1 min-w-[16px] text-[10px] text-center truncate transition-colors " +
+                            (isHovered
+                              ? "text-foreground font-medium"
+                              : i < eraStart
+                              ? "text-muted-foreground/50"
+                              : "text-muted-foreground")
+                          }
+                        >
+                          {showLabel || isHovered ? entry.label : ""}
+                        </div>
+                      </Fragment>
                     );
                   })}
                 </div>

@@ -32,6 +32,9 @@ yarn-error.log*
 .env*.local
 .env
 
+# local tooling caches
+.impeccable
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

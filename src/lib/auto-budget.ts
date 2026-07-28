@@ -8,6 +8,7 @@ import {
 import { and, eq, gte, lte, sql } from "drizzle-orm";
 import type { BudgetSuggestion } from "@/types/api";
 import { effectiveExpenseAmount } from "@/lib/reimbursement-sql";
+import { clampFrom, getStatsCutoff } from "@/lib/stat-reset";
 
 /**
  * Round a number up to the nearest multiple of 5 (e.g. 142.30 -> 145).
@@ -58,6 +59,11 @@ export async function regenerateBudgetSuggestions(
     );
   }
   const window = getLookbackWindow(lookbackMonths);
+  // A statistics reset means older spending no longer describes this user, so
+  // the lookback never reaches past it. monthsCovered is counted from the rows
+  // that survive, so a short post-reset history yields a short-history average
+  // rather than one diluted by months of zeros.
+  const from = clampFrom(window.from, await getStatsCutoff(userId))!;
 
   // Categories that already have recurring expenses are treated as fixed costs
   // and excluded from auto-budgets.
@@ -93,7 +99,7 @@ export async function regenerateBudgetSuggestions(
         eq(transactions.type, "expense"),
         sql`${transactions.groupId} IS NULL`,
         sql`${transactions.categoryId} IS NOT NULL`,
-        gte(transactions.date, window.from),
+        gte(transactions.date, from),
         lte(transactions.date, window.to),
       ),
     )

@@ -17,6 +17,7 @@ const journal = JSON.parse(
   fs.readFileSync(path.join(process.cwd(), "drizzle/meta/_journal.json"), "utf8"),
 ) as { entries: { when: number }[] };
 const baselineWhen = journal.entries[0].when;
+const migrationCount = journal.entries.length;
 
 let client: Client;
 const tableNames = async () =>
@@ -48,12 +49,12 @@ describe("run-migrations pipeline", () => {
     // The column whose absence took prod down must exist after migrating.
     expect(await columnNames("user_preferences")).toContain("hide_internal_transfers");
 
-    // Baseline recorded exactly once, stamped at the journal timestamp so the
-    // migrator will skip 0000 but still run any future migration (when > this).
+    // Every journal entry recorded once, the oldest stamped at 0000's journal
+    // timestamp so the migrator skips it but still runs any future migration.
     const ledger = await client.execute(
       "SELECT count(*) n, min(created_at) w FROM __drizzle_migrations",
     );
-    expect(ledger.rows[0].n).toBe(1);
+    expect(Number(ledger.rows[0].n)).toBe(migrationCount);
     expect(Number(ledger.rows[0].w)).toBe(baselineWhen);
 
     // initializeDatabase seeds the admin user.
@@ -72,14 +73,17 @@ describe("run-migrations pipeline", () => {
   it("is idempotent on re-run", async () => {
     await expect(runMigrations()).resolves.not.toThrow();
     const ledger = await client.execute("SELECT count(*) n FROM __drizzle_migrations");
-    expect(ledger.rows[0].n).toBe(1);
+    expect(Number(ledger.rows[0].n)).toBe(migrationCount);
   });
 
   it("baselines a pre-migration database and repairs column drift", async () => {
-    // Simulate old prod: app tables exist, but no drizzle ledger and the newer
-    // column is missing.
+    // Simulate old prod: app tables exist, but no drizzle ledger, none of the
+    // post-baseline migrations applied, and a column missing.
     await client.execute("DROP TABLE __drizzle_migrations");
     await client.execute("ALTER TABLE user_preferences DROP COLUMN hide_internal_transfers");
+    await client.execute("ALTER TABLE transaction_groups DROP COLUMN archived_at");
+    await client.execute("ALTER TABLE accounts DROP COLUMN bank");
+    await client.execute("DROP TABLE stat_resets");
     expect(await columnNames("user_preferences")).not.toContain("hide_internal_transfers");
 
     // Must not error on the existing tables (no "table already exists").
@@ -88,8 +92,12 @@ describe("run-migrations pipeline", () => {
     const ledger = await client.execute(
       "SELECT count(*) n, min(created_at) w FROM __drizzle_migrations",
     );
-    expect(ledger.rows[0].n).toBe(1);
+    expect(Number(ledger.rows[0].n)).toBe(migrationCount);
     expect(Number(ledger.rows[0].w)).toBe(baselineWhen);
+    // 0001–0003 re-applied on top of the baseline.
+    expect(await columnNames("transaction_groups")).toContain("archived_at");
+    expect(await columnNames("accounts")).toContain("bank");
+    expect(await tableNames()).toContain("stat_resets");
     expect(await columnNames("user_preferences")).toContain("hide_internal_transfers");
   });
 });

@@ -7,7 +7,62 @@ import {
   extractPattern,
   findMatchingRecurring,
   splitDuplicates,
+  isUnsettledRow,
+  applyFee,
 } from "./csv-utils";
+
+describe("applyFee", () => {
+  // Real Revolut rows: the balance went 888,92 -> 880,85 -> 477,40, i.e. the
+  // -403,45 withdrawal actually cost 411,52 once its 8,07 fee is counted.
+  it("subtracts the fee from an expense", () => {
+    expect(applyFee(-403.45, "8.07")).toBe(-411.52);
+    expect(applyFee(-443.45, "8.87")).toBe(-452.32);
+  });
+
+  it("subtracts the fee from income too", () => {
+    expect(applyFee(100, "1.00")).toBe(99);
+  });
+
+  it("leaves the amount alone when there is no fee", () => {
+    expect(applyFee(-5, "")).toBe(-5);
+    expect(applyFee(-5, undefined)).toBe(-5);
+    expect(applyFee(-5, "0")).toBe(-5);
+    expect(applyFee(-5, "0.00")).toBe(-5);
+    expect(applyFee(-5, "not a number")).toBe(-5);
+  });
+
+  it("handles European decimal commas", () => {
+    expect(applyFee(-403.45, "8,07")).toBe(-411.52);
+  });
+
+  it("does not accumulate binary float error", () => {
+    // 0.1 + 0.2 territory — a raw subtraction here yields -411.51999999999995.
+    expect(applyFee(-411.52, "0.1")).toBe(-411.62);
+  });
+});
+
+describe("isUnsettledRow", () => {
+  // Revolut exports PENDING/REVERTED rows with an empty Balance cell. Importing
+  // them double-counted €1.239,99 on the Revolut account (July 2026): a -393
+  // transfer and a -846,99 cash withdrawal that had both already settled.
+  it("drops a row whose mapped balance cell is empty", () => {
+    expect(isUnsettledRow(true, "")).toBe(true);
+    expect(isUnsettledRow(true, undefined)).toBe(true);
+    expect(isUnsettledRow(true, "   ")).toBe(true);
+  });
+
+  it("keeps a settled row that carries a balance", () => {
+    expect(isUnsettledRow(true, "0.56")).toBe(false);
+    // A genuine zero balance is still settled — must not be read as blank.
+    expect(isUnsettledRow(true, "0")).toBe(false);
+  });
+
+  it("keeps every row when the export has no balance column", () => {
+    // Erste Bank / savings exports: all 206 rows blank, all real.
+    expect(isUnsettledRow(false, undefined)).toBe(false);
+    expect(isUnsettledRow(false, "")).toBe(false);
+  });
+});
 
 describe("parseAmount", () => {
   it("parses plain amounts", () => {

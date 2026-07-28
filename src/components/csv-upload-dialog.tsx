@@ -34,10 +34,12 @@ import { useCategories } from "@/hooks/use-categories";
 import { usePots } from "@/hooks/use-pots";
 import { usePreviewUpload, useCommitUpload } from "@/hooks/use-csv-upload";
 import type { Category } from "@/types/api";
+import { bankHasSeparateFeeColumn } from "@/lib/banks";
 
 interface Account {
   id: string;
   name: string;
+  bank: string | null;
 }
 
 interface CsvUploadDialogProps {
@@ -72,6 +74,7 @@ export function CsvUploadDialog({
     amount: "",
     name: "",
     balance: "",
+    fee: "",
     counterpartyIban: "",
   });
   const [result, setResult] = useState<{
@@ -86,6 +89,8 @@ export function CsvUploadDialog({
   // Preview + review state
   const [previewData, setPreviewData] = useState<PreviewTransaction[]>([]);
   const [previewSkipped, setPreviewSkipped] = useState(0);
+  const [previewPending, setPreviewPending] = useState(0);
+  const [previewFees, setPreviewFees] = useState(0);
   const [previewDuplicates, setPreviewDuplicates] = useState(0);
   const { data: categories = [] } = useCategories();
   const { data: pots = [] } = usePots();
@@ -98,11 +103,13 @@ export function CsvUploadDialog({
     setFile(null);
     setHeaders([]);
     setPreviewRows([]);
-    setMapping({ date: "", description: "", amount: "", name: "", balance: "", counterpartyIban: "" });
+    setMapping({ date: "", description: "", amount: "", name: "", balance: "", fee: "", counterpartyIban: "" });
     setResult(null);
     setError(null);
     setPreviewData([]);
     setPreviewSkipped(0);
+    setPreviewPending(0);
+    setPreviewFees(0);
     setPreviewDuplicates(0);
   };
 
@@ -140,7 +147,7 @@ export function CsvUploadDialog({
         setHeaders(cols);
         setPreviewRows(results.data as Record<string, string>[]);
 
-        const autoMapping = { date: "", description: "", amount: "", name: "", balance: "", counterpartyIban: "" };
+        const autoMapping = { date: "", description: "", amount: "", name: "", balance: "", fee: "", counterpartyIban: "" };
 
         const namePriority = ["partnername", "counterparty name", "naam", "name"];
         const descPriority = ["omschrijving", "description", "memo", "buchungs-details", "buchungsdetails"];
@@ -164,6 +171,7 @@ export function CsvUploadDialog({
         autoMapping.description = findBestMatch(cols, descPriority, [autoMapping.name]);
         autoMapping.amount = findBestMatch(cols, amountPriority);
         autoMapping.balance = findBestMatch(cols, balancePriority);
+        autoMapping.fee = findBestMatch(cols, ["fee", "kosten", "gebühr"]);
         autoMapping.counterpartyIban = findBestMatch(cols, ibanPriority);
 
         // If neither description nor name auto-detected, fall back to name keywords
@@ -194,6 +202,8 @@ export function CsvUploadDialog({
 
       setPreviewData(data.transactions);
       setPreviewSkipped(data.skipped);
+      setPreviewPending(data.pending);
+      setPreviewFees(data.feesApplied);
       setPreviewDuplicates(data.duplicates);
       setStep("review");
     } catch (err) {
@@ -225,6 +235,7 @@ export function CsvUploadDialog({
           categoryId: tx.categoryId,
           groupId: tx.groupId ?? null,
           reimbursesExpenseId: tx.reimbursesExpenseId ?? null,
+          reimbursesTempId: tx.reimbursesTempId ?? null,
           notes: tx.notes ?? null,
           targetAccountId: tx.targetAccountId,
           recurringTransactionId: tx.recurringTransactionId ?? null,
@@ -250,6 +261,12 @@ export function CsvUploadDialog({
 
   const canProceedToPreview =
     mapping.date && mapping.description && mapping.amount && selectedAccountId;
+
+  // Only Revolut splits fees into their own column; the server enforces this
+  // too, so an account on any other bank never sees the mapping.
+  const showFeeColumn = bankHasSeparateFeeColumn(
+    accounts.find((a) => a.id === selectedAccountId)?.bank ?? null
+  );
 
   // Widen dialog for the review step (and while committing, since the review
   // step stays mounted underneath)
@@ -455,6 +472,33 @@ export function CsvUploadDialog({
                     </SelectContent>
                   </Select>
                 </div>
+                {showFeeColumn && (
+                  <div className="grid gap-2">
+                    <Label>Fee Column (optional)</Label>
+                    <Select
+                      value={mapping.fee || "none"}
+                      onValueChange={(v) =>
+                        setMapping((m) => ({ ...m, fee: v === "none" ? "" : v }))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select column..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">None</SelectItem>
+                        {headers.map((h) => (
+                          <SelectItem key={h} value={h}>
+                            {h}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Revolut bills card and ATM fees separately. Mapping this
+                      subtracts each fee from its transaction.
+                    </p>
+                  </div>
+                )}
                 <div className="grid gap-2">
                   <Label>Counterparty IBAN (optional)</Label>
                   <Select
@@ -573,6 +617,8 @@ export function CsvUploadDialog({
               pots={pots}
               accountId={selectedAccountId}
               skipped={previewSkipped}
+              pending={previewPending}
+              feesApplied={previewFees}
               duplicates={previewDuplicates}
               error={error}
               onBack={() => setStep("map-columns")}
