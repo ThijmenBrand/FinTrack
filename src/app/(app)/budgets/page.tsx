@@ -51,6 +51,7 @@ import {
 } from "@/components/ui/popover";
 import { BudgetHistoryDialog } from "@/components/budget-history-dialog";
 import { BudgetSuggestionsDialog } from "@/components/budget-suggestions-dialog";
+import { BudgetRing } from "@/components/budget-ring";
 import { formatCurrency } from "@/lib/utils";
 import { formatResetDate } from "@/lib/stat-reset-marks";
 import { AllocationRow } from "./_components/allocation-row";
@@ -198,12 +199,32 @@ export default function BudgetsPage() {
       !["Salary", "Internal Transfer", "Income - Other"].includes(c.name)
   );
 
-  // Budget bar percentages
-  const incomeTotal = data.monthlyIncome;
-  const fixedPct = incomeTotal > 0 ? (data.totalFixedCosts / incomeTotal) * 100 : 0;
-  const allocatedPct = incomeTotal > 0 ? (data.totalAllocated / incomeTotal) * 100 : 0;
-  const unallocatedPct = incomeTotal > 0 ? (Math.max(0, data.unallocated) / incomeTotal) * 100 : 0;
   const totalPlanned = data.totalFixedCosts + data.totalAllocated;
+
+  // Ring: one slice per allocated category, fixed costs as a single slice, the
+  // rest of the income left unallocated. Percentages are of monthly income —
+  // or of the plan itself when there's no income on record.
+  const ringTotal = data.monthlyIncome > 0 ? data.monthlyIncome : totalPlanned;
+  const ringSegments = [
+    ...(data.totalFixedCosts > 0
+      ? [{ label: "Fixed costs", value: data.totalFixedCosts, color: "#94a3b8" }]
+      : []),
+    ...[...data.allocations]
+      .sort((a, b) => b.amount - a.amount)
+      .map((a) => ({
+        label: a.categoryName ?? "Uncategorized",
+        value: a.amount,
+        color: a.categoryColor || "var(--color-primary)",
+      })),
+  ];
+  const periodDays =
+    Math.round(
+      (new Date(data.month.to + "T00:00:00").getTime() -
+        new Date(data.month.from + "T00:00:00").getTime()) /
+        86400000,
+    ) + 1;
+  const perDay = periodDays > 0 ? ringTotal / periodDays : 0;
+  const pctOf = (value: number) => (ringTotal > 0 ? (value / ringTotal) * 100 : 0);
 
   const hasSuggestions = data.suggestions.length > 0;
   const showRegenBanner =
@@ -402,44 +423,54 @@ export default function BudgetsPage() {
             </div>
           </div>
         </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="h-3 rounded-full bg-muted overflow-hidden flex">
-            {fixedPct > 0 && (
-              <div
-                className="h-full bg-slate-400 transition-all duration-500"
-                style={{ width: `${fixedPct}%` }}
-                title={`Fixed costs: ${fixedPct.toFixed(1)}%`}
-              />
-            )}
-            {allocatedPct > 0 && (
-              <div
-                className="h-full bg-blue-500 transition-all duration-500"
-                style={{ width: `${allocatedPct}%` }}
-                title={`Allocated: ${allocatedPct.toFixed(1)}%`}
-              />
-            )}
-            {unallocatedPct > 0 && (
-              <div
-                className="h-full bg-emerald-400/40 transition-all duration-500"
-                style={{ width: `${unallocatedPct}%` }}
-                title={`Unallocated: ${unallocatedPct.toFixed(1)}%`}
-              />
-            )}
+        <CardContent className="space-y-4">
+          <div className="flex items-center gap-6">
+            <BudgetRing
+              className="w-32 shrink-0 sm:w-36"
+              thickness={13}
+              total={ringTotal}
+              segments={ringSegments}
+            />
+            <div className="min-w-0">
+              <p className="text-sm text-muted-foreground">
+                {data.monthlyIncome > 0 ? "Monthly income" : "Planned"}
+              </p>
+              <p className="text-3xl font-bold tabular-nums leading-tight">
+                {formatCurrency(ringTotal)}
+              </p>
+              <p className="text-sm text-muted-foreground tabular-nums">
+                ~{formatCurrency(perDay)} per day
+              </p>
+            </div>
           </div>
-          <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs">
-            <span className="flex items-center gap-1.5 text-muted-foreground">
-              <span className="h-2 w-2 rounded-sm bg-slate-400" />
-              Fixed {fixedPct.toFixed(0)}%
-            </span>
-            <span className="flex items-center gap-1.5 text-muted-foreground">
-              <span className="h-2 w-2 rounded-sm bg-blue-500" />
-              Allocated {allocatedPct.toFixed(0)}%
-            </span>
-            <span className="flex items-center gap-1.5 text-muted-foreground">
-              <span className="h-2 w-2 rounded-sm bg-emerald-400/40" />
-              Unallocated {Math.max(0, unallocatedPct).toFixed(0)}%
-            </span>
-          </div>
+
+          <ul className="max-w-md space-y-1.5">
+            {ringSegments.map((s) => (
+              <li key={s.label} className="flex items-center gap-2.5 text-sm">
+                <span
+                  className="h-2.5 w-2.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: s.color }}
+                  aria-hidden="true"
+                />
+                <span className="truncate">{s.label}</span>
+                <span className="ml-auto shrink-0 tabular-nums text-muted-foreground">
+                  {Math.round(pctOf(s.value))}%
+                </span>
+              </li>
+            ))}
+            {data.unallocated > 0 && (
+              <li className="flex items-center gap-2.5 text-sm text-muted-foreground">
+                <span
+                  className="h-2.5 w-2.5 shrink-0 rounded-full bg-muted"
+                  aria-hidden="true"
+                />
+                <span className="truncate">Unallocated</span>
+                <span className="ml-auto shrink-0 tabular-nums">
+                  {Math.round(pctOf(data.unallocated))}%
+                </span>
+              </li>
+            )}
+          </ul>
           {data.unallocated < 0 && (
             <div className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 rounded-lg px-3 py-2">
               <AlertTriangle className="h-4 w-4" />

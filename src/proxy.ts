@@ -40,7 +40,10 @@ export async function proxy(request: NextRequest) {
   if (
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||
-    pathname.startsWith("/icons")
+    pathname.startsWith("/icons") ||
+    // The image optimizer refetches these server-side without cookies; a
+    // redirect to /login makes it report "not a valid image".
+    pathname.startsWith("/banks")
   ) {
     return NextResponse.next();
   }

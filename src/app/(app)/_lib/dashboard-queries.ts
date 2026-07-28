@@ -148,71 +148,6 @@ async function getFundedAccountIds(
 
 // ─── Per-widget queries ─────────────────────────────────────────────
 
-/**
- * Cumulative spending per day for the current financial month, plus the
- * period bounds. The final point reconciles exactly with
- * `getBudgetOverview().totalBudgetSpent`: plain expenses use
- * `effectiveExpenseAmount` and pot activity is the cumulative net floored at
- * zero, mirroring the month-total formula.
- */
-export async function getSpendingSeries(userId: string, startDay: number = 1) {
-  const { monthStart, monthEnd } = getDateRanges(startDay);
-
-  const [daily, potDaily] = await Promise.all([
-    db
-      .select({
-        date: transactions.date,
-        total: sql<number>`sum(${effectiveExpenseAmount()})`,
-      })
-      .from(transactions)
-      .where(
-        and(
-          eq(transactions.userId, userId),
-          eq(transactions.type, "expense"),
-          sql`${transactions.groupId} IS NULL`,
-          gte(transactions.date, monthStart),
-          lte(transactions.date, monthEnd),
-        ),
-      )
-      .groupBy(transactions.date),
-
-    db
-      .select({
-        date: sql<string>`t.date`,
-        net: sql<number>`SUM(t.amount)`,
-      })
-      .from(sql`transactions t`)
-      .innerJoin(sql`transaction_groups g`, sql`t.group_id = g.id`)
-      .where(
-        sql`t.group_id IS NOT NULL AND t.type != 'internal_transfer' AND t.user_id = ${userId} AND t.date >= ${monthStart} AND t.date <= ${monthEnd}`,
-      )
-      .groupBy(sql`t.date`),
-  ]);
-
-  const expenseByDate = new Map(daily.map((r) => [r.date, Number(r.total) || 0]));
-  const potNetByDate = new Map(potDaily.map((r) => [r.date, Number(r.net) || 0]));
-
-  const todayIso = toIsoDate(new Date());
-  const lastIso = todayIso < monthEnd ? todayIso : monthEnd;
-
-  const series: { date: string; value: number }[] = [];
-  let cumExpense = 0;
-  let cumPotNet = 0;
-  const cursor = new Date(`${monthStart}T00:00:00`);
-  while (toIsoDate(cursor) <= lastIso) {
-    const iso = toIsoDate(cursor);
-    cumExpense += expenseByDate.get(iso) ?? 0;
-    cumPotNet += potNetByDate.get(iso) ?? 0;
-    series.push({
-      date: iso,
-      value: cumExpense + Math.abs(Math.min(0, cumPotNet)),
-    });
-    cursor.setDate(cursor.getDate() + 1);
-  }
-
-  return { series, monthStart, monthEnd, today: lastIso };
-}
-
 export const getBudgetOverview = cache(async (
   userId: string,
   startDay: number = 1,
@@ -425,6 +360,82 @@ export const getAccountBalances = cache(async (userId: string) => {
     currentBalance: row.initialBalance + Number(row.txTotal),
   }));
 });
+
+/**
+ * Balance history per account, walked backwards from today's balance.
+ * Sampled weekly — the dashboard card is small and 6 months of daily points per
+ * account is a lot of payload for a line you can't read that precisely anyway.
+ */
+export const getAccountBalanceSeries = cache(async (
+  userId: string,
+  months: number = 6,
+) => {
+  const balances = await getAccountBalances(userId);
+  if (balances.length === 0) return [];
+
+  const start = new Date();
+  start.setMonth(start.getMonth() - months);
+  const from = toIsoDate(start);
+  const today = toIsoDate(new Date());
+
+  // No upper bound on purpose: currentBalance includes future-dated transactions,
+  // so every delta from `from` onwards has to come back off to get the balance at
+  // the window start.
+  const rows = await db
+    .select({
+      accountId: transactions.accountId,
+      date: transactions.date,
+      delta: sql<number>`SUM(${transactions.amount})`,
+    })
+    .from(transactions)
+    .where(
+      and(eq(transactions.userId, userId), gte(transactions.date, from)),
+    )
+    .groupBy(transactions.accountId, transactions.date);
+
+  const byAccount = new Map<string, Map<string, number>>();
+  for (const r of rows) {
+    if (!r.accountId) continue;
+    const m = byAccount.get(r.accountId) ?? new Map<string, number>();
+    m.set(r.date, Number(r.delta));
+    byAccount.set(r.accountId, m);
+  }
+
+  return balances.map((a) => ({
+    id: a.id,
+    name: a.name,
+    points: walkBalanceBack(
+      a.currentBalance,
+      byAccount.get(a.id) ?? new Map(),
+      from,
+      today,
+    ),
+  }));
+});
+
+/** Exported for tests. Rewinds `currentBalance` to `from`, then walks forward. */
+export function walkBalanceBack(
+  currentBalance: number,
+  deltas: Map<string, number>,
+  from: string,
+  today: string,
+): { date: string; value: number }[] {
+  let running = currentBalance;
+  for (const v of deltas.values()) running -= v;
+
+  const points: { date: string; value: number }[] = [];
+  const cursor = new Date(from + "T00:00:00");
+  const stop = new Date(today + "T00:00:00");
+  let day = 0;
+  while (cursor <= stop) {
+    const date = toIsoDate(cursor);
+    running += deltas.get(date) ?? 0;
+    if (day % 7 === 0 || date === today) points.push({ date, value: running });
+    cursor.setDate(cursor.getDate() + 1);
+    day++;
+  }
+  return points;
+}
 
 export async function getMonthSummary(
   userId: string,

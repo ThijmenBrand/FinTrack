@@ -315,7 +315,6 @@ export default function InsightsPage() {
     accountId: accountIdParam,
     dateFrom: dateFrom || undefined,
     dateTo: dateTo || undefined,
-    forecastMonths: 3,
   });
   // Budget caps are envelope-style (PR #33) and span all accounts, but the
   // spend side respects the page's account filter so every card reflects the

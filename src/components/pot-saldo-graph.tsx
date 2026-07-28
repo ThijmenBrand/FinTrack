@@ -8,11 +8,22 @@ export interface SaldoPoint {
   value: number;
 }
 
+export interface GraphLine {
+  points: SaldoPoint[];
+  /** Falls back to primary. */
+  color?: string;
+  /** Shown in the tooltip when set. */
+  label?: string;
+  dashed?: boolean;
+}
+
 interface PotSaldoGraphProps {
   /** Stepwise actual series (e.g. funded over time, or running net). */
-  series: SaldoPoint[];
+  series?: SaldoPoint[];
   /** Optional dashed reference series (e.g. expected pace). */
   expectedSeries?: SaldoPoint[];
+  /** Several named series at once. When set, `series`/`expectedSeries` are ignored. */
+  lines?: GraphLine[];
   /** Optional horizontal reference line (e.g. target amount). */
   target?: number | null;
   /** Optional today marker (YYYY-MM-DD). */
@@ -23,10 +34,13 @@ interface PotSaldoGraphProps {
   ariaLabel?: string;
   /** Draw a dot on every series point. Turn off for dense daily series. */
   showPoints?: boolean;
+  /** Shown when there is nothing to plot. */
+  emptyMessage?: string;
+  height?: number;
 }
 
 const PADDING = { top: 16, right: 16, bottom: 28, left: 56 };
-const HEIGHT = 220;
+const DEFAULT_COLOR = "var(--color-primary, #3b82f6)";
 
 function toDateNum(iso: string): number {
   return new Date(iso).getTime();
@@ -39,11 +53,14 @@ function formatValue(n: number): string {
 export function PotSaldoGraph({
   series,
   expectedSeries,
+  lines,
   target,
   today,
   lineColor,
   ariaLabel = "Saldo over time",
   showPoints = true,
+  emptyMessage = "Not enough data yet — start allocating or link a transaction.",
+  height = 220,
 }: PotSaldoGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [hoverX, setHoverX] = useState<number | null>(null);
@@ -60,99 +77,92 @@ export function PotSaldoGraph({
     return () => window.removeEventListener("resize", update);
   }, []);
 
-  const chart = useMemo(() => {
-    if (series.length === 0) return null;
+  const allLines: GraphLine[] = useMemo(
+    () =>
+      (lines ?? [
+        { points: series ?? [], color: lineColor },
+        ...(expectedSeries ? [{ points: expectedSeries, dashed: true }] : []),
+      ]).filter((l) => l.points.length > 0),
+    [lines, series, expectedSeries, lineColor]
+  );
 
-    const allPoints = [
-      ...series,
-      ...(expectedSeries ?? []),
-    ].map((p) => ({ x: toDateNum(p.date), y: p.value }));
+  // The first line drives hover/points; the rest are read at the same date.
+  const primary = allLines[0]?.points ?? [];
+
+  const chart = useMemo(() => {
+    if (allLines.length === 0) return null;
+
+    const allPoints = allLines.flatMap((l) =>
+      l.points.map((p) => ({ x: toDateNum(p.date), y: p.value }))
+    );
 
     const minX = Math.min(...allPoints.map((p) => p.x));
     const maxX = Math.max(...allPoints.map((p) => p.x));
     const xSpan = Math.max(1, maxX - minX);
 
-    const valueMaxRaw = Math.max(
-      ...allPoints.map((p) => p.y),
-      target ?? 0
-    );
+    const valueMaxRaw = Math.max(...allPoints.map((p) => p.y), target ?? 0);
     const valueMin = Math.min(0, ...allPoints.map((p) => p.y));
     const valueMax = valueMaxRaw <= 0 ? 1 : valueMaxRaw * 1.08;
     const ySpan = Math.max(1, valueMax - valueMin);
 
     const innerW = width - PADDING.left - PADDING.right;
-    const innerH = HEIGHT - PADDING.top - PADDING.bottom;
+    const innerH = height - PADDING.top - PADDING.bottom;
 
     const xFor = (iso: string) =>
       PADDING.left + ((toDateNum(iso) - minX) / xSpan) * innerW;
     const yFor = (val: number) =>
       PADDING.top + ((valueMax - val) / ySpan) * innerH;
 
-    const buildPath = (points: SaldoPoint[], stepwise: boolean) => {
-      if (points.length === 0) return "";
+    const buildPath = (points: SaldoPoint[]) => {
       const segs: string[] = [];
       points.forEach((p, i) => {
         const x = xFor(p.date);
         const y = yFor(p.value);
-        if (i === 0) {
-          segs.push(`M ${x} ${y}`);
-        } else if (stepwise) {
-          segs.push(`H ${x}`);
-          segs.push(`V ${y}`);
-        } else {
-          segs.push(`L ${x} ${y}`);
-        }
+        if (i === 0) segs.push(`M ${x} ${y}`);
+        else segs.push(`H ${x}`, `V ${y}`); // stepwise
       });
       return segs.join(" ");
     };
 
-    const seriesPath = buildPath(series, true);
-    const expectedPath = expectedSeries
-      ? buildPath(expectedSeries, true)
-      : null;
-
-    // Y-axis ticks (3 lines)
-    const yTickValues = [valueMin, (valueMin + valueMax) / 2, valueMax];
-
     return {
-      seriesPath,
-      expectedPath,
+      paths: allLines.map((l) => buildPath(l.points)),
       xFor,
       yFor,
       innerW,
       innerH,
       valueMin,
       valueMax,
-      yTickValues,
+      // Y-axis ticks (3 lines)
+      yTickValues: [valueMin, (valueMin + valueMax) / 2, valueMax],
       minX,
       maxX,
       xSpan,
     };
-  }, [series, expectedSeries, target, width]);
+  }, [allLines, target, width, height]);
 
-  if (!chart || series.length === 0) {
+  if (!chart) {
     return (
       <div
         ref={containerRef}
-        style={{ height: HEIGHT }}
+        style={{ height }}
         className="w-full flex items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground"
       >
-        Not enough data yet — start allocating or link a transaction.
+        {emptyMessage}
       </div>
     );
   }
 
-  // Find nearest series point to hovered x-coordinate.
+  // Find nearest point on the primary line to the hovered x-coordinate.
   const hoverPoint =
     hoverX !== null
-      ? series.reduce<{ point: SaldoPoint; dist: number; sx: number }>(
+      ? primary.reduce<{ point: SaldoPoint; dist: number; sx: number }>(
           (best, p) => {
             const sx = chart.xFor(p.date);
             const dist = Math.abs(sx - hoverX);
             if (dist < best.dist) return { point: p, dist, sx };
             return best;
           },
-          { point: series[0], dist: Infinity, sx: chart.xFor(series[0].date) }
+          { point: primary[0], dist: Infinity, sx: chart.xFor(primary[0].date) }
         )
       : null;
 
@@ -168,7 +178,7 @@ export function PotSaldoGraph({
     <div ref={containerRef} className="w-full relative">
       <svg
         width={width}
-        height={HEIGHT}
+        height={height}
         role="img"
         aria-label={ariaLabel}
         className="select-none"
@@ -201,7 +211,7 @@ export function PotSaldoGraph({
           );
         })}
 
-        {/* X-axis date labels (start, today, end) */}
+        {/* X-axis date labels (start, end) */}
         {[chart.minX, chart.maxX].map((t, i) => {
           const x =
             PADDING.left + ((t - chart.minX) / chart.xSpan) * chart.innerW;
@@ -214,7 +224,7 @@ export function PotSaldoGraph({
             <text
               key={`x-${i}`}
               x={x}
-              y={HEIGHT - 8}
+              y={height - 8}
               textAnchor={i === 0 ? "start" : "end"}
               fontSize={10}
               fill="currentColor"
@@ -251,72 +261,77 @@ export function PotSaldoGraph({
           </g>
         )}
 
-        {/* Expected pace line */}
-        {chart.expectedPath && (
-          <path
-            d={chart.expectedPath}
-            fill="none"
-            stroke="currentColor"
-            strokeOpacity={0.45}
-            strokeDasharray="4 4"
-            strokeWidth={1.5}
-          />
-        )}
-
         {/* Today vertical marker */}
         {todayX != null && (
           <line
             x1={todayX}
             x2={todayX}
             y1={PADDING.top}
-            y2={HEIGHT - PADDING.bottom}
+            y2={height - PADDING.bottom}
             stroke="currentColor"
             strokeOpacity={0.25}
             strokeWidth={1}
           />
         )}
 
-        {/* Actual series */}
-        <path
-          d={chart.seriesPath}
-          fill="none"
-          stroke={lineColor || "var(--color-primary, #3b82f6)"}
-          strokeWidth={2}
-          strokeLinejoin="round"
-          strokeLinecap="round"
-        />
-
-        {/* Series points */}
-        {showPoints && series.map((p) => (
-          <circle
-            key={`pt-${p.date}-${p.value}`}
-            cx={chart.xFor(p.date)}
-            cy={chart.yFor(p.value)}
-            r={3}
-            fill={lineColor || "var(--color-primary, #3b82f6)"}
+        {/* Series */}
+        {chart.paths.map((d, i) => (
+          <path
+            key={`line-${i}`}
+            d={d}
+            fill="none"
+            stroke={allLines[i].color || DEFAULT_COLOR}
+            strokeOpacity={allLines[i].dashed ? 0.45 : 1}
+            strokeDasharray={allLines[i].dashed ? "4 4" : undefined}
+            strokeWidth={allLines[i].dashed ? 1.5 : 2}
+            strokeLinejoin="round"
+            strokeLinecap="round"
           />
         ))}
 
-        {/* Hover crosshair + dot */}
+        {/* Points on the primary line */}
+        {showPoints &&
+          allLines.length === 1 &&
+          primary.map((p) => (
+            <circle
+              key={`pt-${p.date}-${p.value}`}
+              cx={chart.xFor(p.date)}
+              cy={chart.yFor(p.value)}
+              r={3}
+              fill={allLines[0].color || DEFAULT_COLOR}
+            />
+          ))}
+
+        {/* Hover crosshair + dot per line */}
         {hoverPoint && (
           <g>
             <line
               x1={hoverPoint.sx}
               x2={hoverPoint.sx}
               y1={PADDING.top}
-              y2={HEIGHT - PADDING.bottom}
+              y2={height - PADDING.bottom}
               stroke="currentColor"
               strokeOpacity={0.3}
               strokeWidth={1}
             />
-            <circle
-              cx={hoverPoint.sx}
-              cy={chart.yFor(hoverPoint.point.value)}
-              r={5}
-              fill={lineColor || "var(--color-primary, #3b82f6)"}
-              stroke="var(--background)"
-              strokeWidth={2}
-            />
+            {allLines.map((l, i) => {
+              // Dashed lines are references, not readings — no dot, no tooltip row.
+              const p = l.dashed
+                ? null
+                : l.points.find((q) => q.date === hoverPoint.point.date);
+              if (!p) return null;
+              return (
+                <circle
+                  key={`hover-${i}`}
+                  cx={hoverPoint.sx}
+                  cy={chart.yFor(p.value)}
+                  r={5}
+                  fill={l.color || DEFAULT_COLOR}
+                  stroke="var(--background)"
+                  strokeWidth={2}
+                />
+              );
+            })}
           </g>
         )}
 
@@ -352,9 +367,29 @@ export function PotSaldoGraph({
               year: "numeric",
             })}
           </div>
-          <div className="font-semibold tabular-nums">
-            {formatValue(hoverPoint.point.value)}
-          </div>
+          {allLines.map((l, i) => {
+            const p = l.points.find((q) => q.date === hoverPoint.point.date);
+            if (!p) return null;
+            return (
+              <div
+                key={`tip-${i}`}
+                className="flex items-center justify-between gap-3"
+              >
+                {l.label && (
+                  <span className="flex items-center gap-1.5 text-muted-foreground">
+                    <span
+                      className="h-2 w-2 rounded-full"
+                      style={{ background: l.color || DEFAULT_COLOR }}
+                    />
+                    {l.label}
+                  </span>
+                )}
+                <span className="font-semibold tabular-nums">
+                  {formatValue(p.value)}
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

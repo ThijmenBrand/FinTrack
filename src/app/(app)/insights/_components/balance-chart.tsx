@@ -37,7 +37,6 @@ function formatAxisDate(iso: string) {
 interface Point {
   date: string;
   balance: number;
-  kind: "historical" | "projected";
 }
 
 interface Props {
@@ -57,7 +56,6 @@ const MIN_VIEW_SPAN = 0.05;
 
 export function BalanceChart({ data, isLoading, accountLabel, resets }: Props) {
   const gradId = useId();
-  const projGradId = useId();
   const clipId = useId();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -97,20 +95,7 @@ export function BalanceChart({ data, isLoading, accountLabel, resets }: Props) {
     );
   }, []);
 
-  const points: Point[] = useMemo(() => {
-    if (!data) return [];
-    const hist: Point[] = data.historical.map((p) => ({
-      ...p,
-      kind: "historical",
-    }));
-    const histEnd = hist.length > 0 ? hist[hist.length - 1].date : null;
-    const projSlice =
-      data.projected.length > 0 && data.projected[0].date === histEnd
-        ? data.projected.slice(1)
-        : data.projected;
-    const proj: Point[] = projSlice.map((p) => ({ ...p, kind: "projected" }));
-    return [...hist, ...proj];
-  }, [data]);
+  const points: Point[] = useMemo(() => data?.historical ?? [], [data]);
 
   const isEmpty = !isLoading && points.length === 0;
 
@@ -173,8 +158,7 @@ export function BalanceChart({ data, isLoading, accountLabel, resets }: Props) {
   const yFor = (v: number) =>
     PAD_T + innerH - ((v - yMin) / yRange) * innerH;
 
-  const histLen = data!.historical.length;
-  const projStartIdx = histLen;
+  const histLen = points.length;
 
   const pathBetween = (from: number, to: number) =>
     points
@@ -201,14 +185,6 @@ export function BalanceChart({ data, isLoading, accountLabel, resets }: Props) {
     .filter((r) => r.idx > 0)
     .map((r) => ({ ...r, x: xFor(r.idx), isActive: r.date === activeReset?.date }))
     .filter((r) => r.x >= PAD_L && r.x <= W - PAD_R);
-
-  const projAnchorIdx = Math.max(0, histLen - 1);
-  const projPath = [points[projAnchorIdx], ...points.slice(histLen)]
-    .map((p, i) => {
-      const idx = i === 0 ? projAnchorIdx : histLen + (i - 1);
-      return `${i === 0 ? "M" : "L"} ${xFor(idx)} ${yFor(p.balance)}`;
-    })
-    .join(" ");
 
   const histArea =
     histLen > 0
@@ -242,9 +218,6 @@ export function BalanceChart({ data, isLoading, accountLabel, resets }: Props) {
     return out;
   })();
 
-  const hasProjection = data!.projected.length > 0;
-  const todayX =
-    hasProjection && projStartIdx > 0 ? xFor(projStartIdx - 1) : null;
   const isZoomed = view.start > 0.001 || view.end < 0.999;
 
   const onMove: React.MouseEventHandler<SVGSVGElement> = (e) => {
@@ -348,8 +321,6 @@ export function BalanceChart({ data, isLoading, accountLabel, resets }: Props) {
   const tipLeftPct = hover ? (hoverX / Math.max(W, 1)) * 100 : 0;
 
   const colorHist = "rgb(16, 185, 129)";
-  const colorProj = "rgb(99, 102, 241)";
-  const isProjectedHover = hover?.kind === "projected";
 
   return (
     <Card>
@@ -357,10 +328,7 @@ export function BalanceChart({ data, isLoading, accountLabel, resets }: Props) {
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div>
             <CardTitle className="text-base">Balance over time</CardTitle>
-            <p className="text-xs text-muted-foreground mt-1">
-              {accountLabel}
-              {hasProjection ? " · projected for next 3 months" : ""}
-            </p>
+            <p className="text-xs text-muted-foreground mt-1">{accountLabel}</p>
           </div>
           <div className="text-right">
             <p className="text-xs text-muted-foreground">Current balance</p>
@@ -391,10 +359,6 @@ export function BalanceChart({ data, isLoading, accountLabel, resets }: Props) {
               <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor={colorHist} stopOpacity="0.25" />
                 <stop offset="100%" stopColor={colorHist} stopOpacity="0" />
-              </linearGradient>
-              <linearGradient id={projGradId} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={colorProj} stopOpacity="0.18" />
-                <stop offset="100%" stopColor={colorProj} stopOpacity="0" />
               </linearGradient>
               <clipPath id={clipId}>
                 <rect x={PAD_L} y={PAD_T} width={innerW} height={innerH} />
@@ -469,17 +433,6 @@ export function BalanceChart({ data, isLoading, accountLabel, resets }: Props) {
                   strokeLinecap="round"
                 />
               )}
-              {projPath && (
-                <path
-                  d={projPath}
-                  fill="none"
-                  stroke={colorProj}
-                  strokeWidth="2"
-                  strokeDasharray="5 4"
-                  strokeLinejoin="round"
-                  strokeLinecap="round"
-                />
-              )}
               {resetLines.map((r) => (
                 <g key={r.id}>
                   <line
@@ -508,29 +461,6 @@ export function BalanceChart({ data, isLoading, accountLabel, resets }: Props) {
                   </text>
                 </g>
               ))}
-              {todayX != null && todayX >= PAD_L && todayX <= W - PAD_R && (
-                <g>
-                  <line
-                    x1={todayX}
-                    x2={todayX}
-                    y1={PAD_T}
-                    y2={H - PAD_B}
-                    stroke="currentColor"
-                    className="text-muted-foreground"
-                    strokeDasharray="3 3"
-                    strokeWidth="1"
-                    opacity="0.6"
-                  />
-                  <text
-                    x={todayX + 4}
-                    y={PAD_T + 11}
-                    className="fill-muted-foreground"
-                    fontSize="10"
-                  >
-                    Today
-                  </text>
-                </g>
-              )}
               {hover && hoverInPlot && (
                 <g pointerEvents="none">
                   <line
@@ -547,7 +477,7 @@ export function BalanceChart({ data, isLoading, accountLabel, resets }: Props) {
                     cx={hoverX}
                     cy={hoverY}
                     r="4"
-                    fill={isProjectedHover ? colorProj : colorHist}
+                    fill={colorHist}
                     stroke="white"
                     strokeWidth="2"
                   />
@@ -568,13 +498,9 @@ export function BalanceChart({ data, isLoading, accountLabel, resets }: Props) {
               <div className="flex items-center gap-1.5">
                 <span
                   className="h-1.5 w-1.5 rounded-full"
-                  style={{
-                    backgroundColor: isProjectedHover ? colorProj : colorHist,
-                  }}
+                  style={{ backgroundColor: colorHist }}
                 />
-                <span className="text-muted-foreground">
-                  {isProjectedHover ? "Projected" : "Actual"}
-                </span>
+                <span className="text-muted-foreground">Balance</span>
                 <span className="ml-auto font-semibold">
                   {formatCurrency(hover.balance)}
                 </span>
@@ -602,24 +528,6 @@ export function BalanceChart({ data, isLoading, accountLabel, resets }: Props) {
           )}
         </div>
 
-        <div className="flex items-center gap-4 pt-3 text-xs text-muted-foreground justify-center flex-wrap">
-          <span className="flex items-center gap-1.5">
-            <span
-              className="h-0.5 w-4 rounded-sm"
-              style={{ backgroundColor: colorHist }}
-            />
-            Actual balance
-          </span>
-          {hasProjection && (
-            <span className="flex items-center gap-1.5">
-              <span
-                className="h-0.5 w-4 rounded-sm border-t-2 border-dashed"
-                style={{ borderColor: colorProj }}
-              />
-              Projected (recurring + spikes)
-            </span>
-          )}
-        </div>
       </CardContent>
     </Card>
   );
