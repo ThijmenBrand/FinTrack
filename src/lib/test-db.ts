@@ -57,7 +57,7 @@ export async function setupTestDb(name: string): Promise<TestDb> {
       user_id TEXT NOT NULL,
       name TEXT NOT NULL,
       type TEXT NOT NULL,
-      bank_name TEXT, iban TEXT,
+      bank_name TEXT, bank TEXT, iban TEXT,
       currency TEXT NOT NULL DEFAULT 'EUR',
       initial_balance REAL NOT NULL DEFAULT 0,
       sort_order INTEGER NOT NULL DEFAULT 0,
@@ -143,6 +143,7 @@ export async function setupTestDb(name: string): Promise<TestDb> {
       target_amount REAL,
       target_date TEXT,
       funded_amount REAL NOT NULL DEFAULT 0,
+      archived_at TEXT,
       created_at TEXT NOT NULL
     )`,
     `CREATE TABLE IF NOT EXISTS user_preferences (
@@ -157,6 +158,13 @@ export async function setupTestDb(name: string): Promise<TestDb> {
       hide_internal_transfers INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS stat_resets (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      date TEXT NOT NULL,
+      note TEXT,
+      created_at TEXT NOT NULL
     )`,
     `CREATE TABLE IF NOT EXISTS audit_log (
       id TEXT PRIMARY KEY,

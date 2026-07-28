@@ -28,14 +28,15 @@ import {
   useState,
   useEffect,
   useCallback,
-  useRef,
   type ReactNode,
 } from "react";
 import { useHasPin } from "@/hooks/use-pin";
 
 const LS_USERNAME_KEY = "lockscreen_username";
 const LS_HAS_PIN_KEY = "lockscreen_has_pin";
-const LOCK_DELAY_MS = 60_000; // 60 seconds grace period before requiring PIN
+const LS_LAST_ACTIVE_KEY = "lockscreen_last_active";
+const IDLE_TIMEOUT_MS = 5 * 60_000; // lock after 5 minutes of inactivity
+const IDLE_CHECK_MS = 30_000;
 
 interface LockScreenContextValue {
   isLocked: boolean;
@@ -59,7 +60,6 @@ export function LockScreenProvider({ children }: { children: ReactNode }) {
   const [isLocked, setIsLocked] = useState(false);
   const [username, setUsername] = useState("");
   const { data: pinStatus } = useHasPin();
-  const hiddenAtRef = useRef<number | null>(null);
 
   // Cache hasPin into localStorage whenever it changes
   useEffect(() => {
@@ -68,50 +68,68 @@ export function LockScreenProvider({ children }: { children: ReactNode }) {
     }
   }, [pinStatus]);
 
-  // On mount: if localStorage has username + hasPin, start locked
-  useEffect(() => {
+  const touch = useCallback(() => {
+    localStorage.setItem(LS_LAST_ACTIVE_KEY, String(Date.now()));
+  }, []);
+
+  // Lock only when the last recorded activity is older than the idle timeout.
+  // Survives reloads and backgrounding because the timestamp lives in localStorage.
+  const lockIfIdle = useCallback(() => {
     const storedUsername = localStorage.getItem(LS_USERNAME_KEY);
-    const storedHasPin = localStorage.getItem(LS_HAS_PIN_KEY);
-
-    if (storedUsername && storedHasPin === "true") {
-      setUsername(storedUsername);
-      setIsLocked(true);
+    if (!storedUsername || localStorage.getItem(LS_HAS_PIN_KEY) !== "true") {
+      return;
     }
-  }, []);
 
-  // Lock on visibility change after grace period (tab hidden / app backgrounded)
+    const lastActive = Number(localStorage.getItem(LS_LAST_ACTIVE_KEY));
+    if (!lastActive) {
+      // No history yet (fresh login) — start the clock instead of locking.
+      touch();
+      return;
+    }
+    if (Date.now() - lastActive < IDLE_TIMEOUT_MS) return;
+
+    setUsername(storedUsername);
+    setIsLocked(true);
+  }, [touch]);
+
+  // Check on mount, on a coarse interval, and whenever the tab becomes visible
+  // (timers are throttled or frozen while backgrounded, so the visibility check
+  // is what catches a long stint in the background).
   useEffect(() => {
-    function handleVisibilityChange() {
-      if (document.visibilityState === "hidden") {
-        hiddenAtRef.current = Date.now();
-      } else if (document.visibilityState === "visible") {
-        const hiddenAt = hiddenAtRef.current;
-        hiddenAtRef.current = null;
+    lockIfIdle();
 
-        if (hiddenAt && Date.now() - hiddenAt >= LOCK_DELAY_MS) {
-          const storedUsername = localStorage.getItem(LS_USERNAME_KEY);
-          const storedHasPin = localStorage.getItem(LS_HAS_PIN_KEY);
+    const interval = setInterval(lockIfIdle, IDLE_CHECK_MS);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") lockIfIdle();
+    };
 
-          if (storedUsername && storedHasPin === "true") {
-            setUsername(storedUsername);
-            setIsLocked(true);
-          }
-        }
-      }
-    }
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [lockIfIdle]);
 
-    document.addEventListener("visibilitychange", handleVisibilityChange);
+  // Record activity while unlocked. ponytail: pointer + key only; add scroll/
+  // wheel if someone reports locking mid-read on a long page.
+  useEffect(() => {
+    if (isLocked) return;
+
+    const events = ["pointerdown", "keydown"] as const;
+    events.forEach((e) => document.addEventListener(e, touch, { passive: true }));
     return () =>
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, []);
+      events.forEach((e) => document.removeEventListener(e, touch));
+  }, [isLocked, touch]);
 
   const unlock = useCallback(() => {
+    touch();
     setIsLocked(false);
-  }, []);
+  }, [touch]);
 
   const clearLockState = useCallback(() => {
     localStorage.removeItem(LS_USERNAME_KEY);
     localStorage.removeItem(LS_HAS_PIN_KEY);
+    localStorage.removeItem(LS_LAST_ACTIVE_KEY);
     setIsLocked(false);
     setUsername("");
   }, []);

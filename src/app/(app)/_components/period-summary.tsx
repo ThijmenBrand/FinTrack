@@ -41,6 +41,17 @@ export async function PeriodSummary({
   const perDay = !over && daysLeft > 0 ? left / daysLeft : 0;
   const net = summary.monthIncome - summary.monthExpenses;
 
+  // Link the Earned/Spent tiles to the same financial period on /transactions.
+  const txHref = (type: "income" | "expense") => {
+    const p = new URLSearchParams({
+      type,
+      dateFrom: spending.monthStart,
+      dateTo: spending.monthEnd,
+    });
+    if (accountId) p.set("account", accountId);
+    return `/transactions?${p}`;
+  };
+
   // Linear budget pace: 0 at period start → total budget at period end,
   // one point per day so the stepwise renderer approximates a straight line.
   let expectedSeries: { date: string; value: number }[] | undefined;
@@ -120,18 +131,24 @@ export async function PeriodSummary({
             )}
 
             <div className="mt-5 grid grid-cols-3 gap-4 border-t pt-4">
-              <div>
+              <Link
+                href={txHref("income")}
+                className="rounded hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring"
+              >
                 <p className="text-xs text-muted-foreground">Earned</p>
                 <p className="text-lg font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
                   {formatCurrency(summary.monthIncome)}
                 </p>
-              </div>
-              <div>
+              </Link>
+              <Link
+                href={txHref("expense")}
+                className="rounded hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring"
+              >
                 <p className="text-xs text-muted-foreground">Spent</p>
                 <p className="text-lg font-semibold tabular-nums text-red-600 dark:text-red-400">
                   {formatCurrency(summary.monthExpenses)}
                 </p>
-              </div>
+              </Link>
               <div>
                 <p className="text-xs text-muted-foreground">Net</p>
                 <p

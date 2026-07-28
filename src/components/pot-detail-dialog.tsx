@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { usePotDetails, useDeletePot } from "@/hooks/use-pots";
+import { usePotDetails, useDeletePot, useUpdatePot } from "@/hooks/use-pots";
 import { useCategories } from "@/hooks/use-categories";
 import { AllocateToPotDialog } from "@/components/allocate-to-pot-dialog";
 import { EditPotDialog } from "@/components/edit-pot-dialog";
@@ -19,6 +19,7 @@ export function PotDetailDialog({ potId, onOpenChange }: PotDetailDialogProps) {
   const { data, isLoading } = usePotDetails(potId);
   const { data: categories = [] } = useCategories();
   const deletePot = useDeletePot();
+  const updatePot = useUpdatePot();
 
   const [showAllocate, setShowAllocate] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
@@ -26,6 +27,12 @@ export function PotDetailDialog({ potId, onOpenChange }: PotDetailDialogProps) {
   const handleDelete = async () => {
     if (!potId) return;
     await deletePot.mutateAsync(potId);
+    onOpenChange(false);
+  };
+
+  const handleArchive = async () => {
+    if (!potId || !data) return;
+    await updatePot.mutateAsync({ id: potId, archived: !data.pot.archivedAt });
     onOpenChange(false);
   };
 
@@ -42,6 +49,8 @@ export function PotDetailDialog({ potId, onOpenChange }: PotDetailDialogProps) {
               onEdit={() => setShowEdit(true)}
               onDelete={handleDelete}
               deleting={deletePot.isPending}
+              onArchive={handleArchive}
+              archiving={updatePot.isPending}
             />
           )}
         </DialogContent>

@@ -21,7 +21,7 @@ import {
   isIsoDate,
   isMatchType,
 } from "@/lib/validation";
-const TX_TYPES = ["income", "expense", "internal_transfer"] as const;
+const TX_TYPES = ["income", "expense", "internal_transfer", "reimbursement"] as const;
 type TxType = (typeof TX_TYPES)[number];
 
 // Backstop against unbounded request bodies — a real bank CSV is far smaller.
@@ -40,6 +40,7 @@ interface CommitTransaction {
   categoryId: string | null;
   groupId?: string | null;
   reimbursesExpenseId?: string | null;
+  reimbursesTempId?: string | null;
   notes?: string | null;
   targetAccountId?: string;
   recurringTransactionId?: string | null;
@@ -241,11 +242,20 @@ export async function POST(request: NextRequest) {
     }> = [];
 
     const mirrorRecords: typeof records = [];
-    // Reimbursement rows link to an existing expense chosen during review
-    const pendingReimbursements: Array<{ reimbursementId: string; expenseId: string }> = [];
+    // Reimbursement rows link to an expense chosen during review: either an
+    // existing DB expense (expenseId) or another row in this same import
+    // (expenseTempId, resolved to its new id after the map is fully built).
+    const pendingReimbursements: Array<{
+      reimbursementId: string;
+      expenseId: string | null;
+      expenseTempId: string | null;
+    }> = [];
+    // tempId → the id we assign the row on insert, for resolving sibling links.
+    const tempIdToSourceId = new Map<string, string>();
 
     for (const tx of uniqueTxList) {
       const sourceId = crypto.randomUUID();
+      tempIdToSourceId.set(tx.tempId, sourceId);
       const note = sanitizeNote(tx.notes);
       const isTransfer = tx.type === "internal_transfer" && tx.targetAccountId;
 
@@ -323,10 +333,11 @@ export async function POST(request: NextRequest) {
           importBatchId: batchId,
           createdAt: new Date().toISOString(),
         });
-        if (txType === "reimbursement" && tx.amount > 0 && tx.reimbursesExpenseId) {
+        if (txType === "reimbursement" && tx.amount > 0 && (tx.reimbursesExpenseId || tx.reimbursesTempId)) {
           pendingReimbursements.push({
             reimbursementId: sourceId,
-            expenseId: tx.reimbursesExpenseId,
+            expenseId: tx.reimbursesExpenseId ?? null,
+            expenseTempId: tx.reimbursesTempId ?? null,
           });
         }
       }
@@ -342,19 +353,27 @@ export async function POST(request: NextRequest) {
 
     // Link reimbursements to their expenses; only user-owned negative-amount
     // transactions qualify (same rules as /api/transactions/reimburse)
-    if (pendingReimbursements.length > 0) {
+    // Resolve sibling (same-import) targets to the ids we just assigned; a
+    // target dropped as a duplicate has no new id and is silently skipped.
+    const resolvedReimbursements = pendingReimbursements
+      .map((p) => ({
+        reimbursementId: p.reimbursementId,
+        expenseId: p.expenseId ?? (p.expenseTempId ? tempIdToSourceId.get(p.expenseTempId) ?? null : null),
+      }))
+      .filter((p): p is { reimbursementId: string; expenseId: string } => p.expenseId !== null);
+    if (resolvedReimbursements.length > 0) {
       const validExpenses = await db
         .select({ id: transactions.id })
         .from(transactions)
         .where(
           and(
-            inArray(transactions.id, pendingReimbursements.map((p) => p.expenseId)),
+            inArray(transactions.id, resolvedReimbursements.map((p) => p.expenseId)),
             eq(transactions.userId, userId),
             lt(transactions.amount, 0)
           )
         );
       const validExpenseIds = new Set(validExpenses.map((e) => e.id));
-      const linkRows = pendingReimbursements
+      const linkRows = resolvedReimbursements
         .filter((p) => validExpenseIds.has(p.expenseId))
         .map((p) => ({
           id: crypto.randomUUID(),

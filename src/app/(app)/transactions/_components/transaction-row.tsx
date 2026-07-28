@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -35,6 +36,22 @@ const TYPE_BADGES: Record<string, { label: string; variant: "default" | "seconda
 };
 
 type Layout = "table" | "card";
+
+/** Pot badge — links to the pot's detail on the pots page. */
+function PotBadge({ groupId, groupName, className }: { groupId: string; groupName: string; className: string }) {
+  return (
+    <Link
+      href={`/pots?pot=${groupId}`}
+      onClick={(e) => e.stopPropagation()}
+      title={`View pot: ${groupName}`}
+    >
+      <Badge variant="outline" className={`${className} hover:bg-muted transition-colors`}>
+        <Package className="h-2.5 w-2.5" />
+        {groupName}
+      </Badge>
+    </Link>
+  );
+}
 
 interface TransactionRowProps {
   tx: Transaction;
@@ -131,11 +148,12 @@ export function TransactionRow({
             <p className={`text-sm font-medium truncate ${isInPot ? "line-through" : ""}`}>
               {tx.description}
             </p>
-            {tx.groupName && (
-              <Badge variant="outline" className="text-[10px] px-1 py-0 shrink-0 gap-0.5">
-                <Package className="h-2.5 w-2.5" />
-                {tx.groupName}
-              </Badge>
+            {tx.groupId && tx.groupName && (
+              <PotBadge
+                groupId={tx.groupId}
+                groupName={tx.groupName}
+                className="text-[10px] px-1 py-0 shrink-0 gap-0.5"
+              />
             )}
           </div>
           <p className="text-xs text-muted-foreground">
@@ -187,11 +205,12 @@ export function TransactionRow({
               </Tooltip>
             </TooltipProvider>
           )}
-          {tx.groupName && (
-            <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0 gap-0.5">
-              <Package className="h-2.5 w-2.5" />
-              {tx.groupName}
-            </Badge>
+          {tx.groupId && tx.groupName && (
+            <PotBadge
+              groupId={tx.groupId}
+              groupName={tx.groupName}
+              className="text-[10px] px-1.5 py-0 shrink-0 gap-0.5"
+            />
           )}
         </div>
         {tx.name && tx.description && tx.description !== tx.name && (

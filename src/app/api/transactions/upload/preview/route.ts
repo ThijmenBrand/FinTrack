@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { categoryRules, accounts, categories, recurringTransactions, transactions as transactionsTable } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
+import { bankHasSeparateFeeColumn } from "@/lib/banks";
 import Papa from "papaparse";
 import {
   parseAmount,
@@ -12,6 +13,8 @@ import {
   splitNameAndDescription,
   findMatchingRecurring,
   splitDuplicates,
+  isUnsettledRow,
+  applyFee,
   type ColumnMapping,
   type PreviewTransaction,
 } from "@/lib/csv-utils";
@@ -43,7 +46,7 @@ export async function POST(request: NextRequest) {
     }
 
     const [ownedAccount] = await db
-      .select({ id: accounts.id })
+      .select({ id: accounts.id, bank: accounts.bank })
       .from(accounts)
       .where(and(eq(accounts.id, accountId), eq(accounts.userId, userId)))
       .limit(1);
@@ -132,6 +135,11 @@ export async function POST(request: NextRequest) {
     const allColumns = (parsed.meta.fields || []).filter((c) => c.length > 0);
     const transactions: PreviewTransaction[] = [];
     let skipped = 0;
+    let pending = 0;
+    let feesApplied = 0;
+    const feeColumn = bankHasSeparateFeeColumn(ownedAccount.bank)
+      ? mapping.fee
+      : undefined;
     for (let rowIndex = 0; rowIndex < parsed.data.length; rowIndex++) {
       const row = parsed.data[rowIndex];
       const dateRaw = row[mapping.date]?.trim();
@@ -172,15 +180,28 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      const amount = parseAmount(amountRaw);
+      let amount = parseAmount(amountRaw);
       if (isNaN(amount)) {
         skipped++;
         continue;
+      }
+      // Gated on the account's bank server-side, not just in the picker: only
+      // Revolut bills fees as a separate column.
+      if (feeColumn) {
+        const withFee = applyFee(amount, row[feeColumn]);
+        if (withFee !== amount) feesApplied++;
+        amount = withFee;
       }
 
       const date = parseDate(dateRaw);
       if (!date) {
         skipped++;
+        continue;
+      }
+
+      // Pending/reverted authorisations, not settled money — see isUnsettledRow.
+      if (isUnsettledRow(Boolean(mapping.balance), balanceRaw)) {
+        pending++;
         continue;
       }
 
@@ -275,6 +296,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       transactions: unique,
       skipped,
+      pending,
+      feesApplied,
       duplicates: duplicates.length,
     });
   }, "Failed to preview CSV");

@@ -157,6 +157,60 @@ export async function BudgetCategories({
             );
           })}
         </ul>
+
+        {data.unbudgetedItems.length > 0 && (
+          <div className="mt-2 border-t pt-3">
+            <div className="flex items-baseline justify-between gap-2 px-4">
+              <span className="text-sm font-medium">Not budgeted</span>
+              <span className="text-sm font-semibold tabular-nums">
+                {formatCurrency(data.unbudgetedTotal)}
+              </span>
+            </div>
+            <p className="px-4 pb-1 text-xs text-muted-foreground">
+              Counted in the total at the top, but not in any budget above
+            </p>
+            <ul>
+              {data.unbudgetedItems.map((item, i) => {
+                const row = (
+                  <>
+                    <span
+                      className="h-2.5 w-2.5 rounded-full shrink-0"
+                      style={{
+                        backgroundColor: item.categoryColor || "#94a3b8",
+                      }}
+                      aria-hidden="true"
+                    />
+                    <span className="truncate text-sm flex-1">
+                      {item.categoryName || "Uncategorized"}
+                    </span>
+                    <span className="text-sm tabular-nums shrink-0">
+                      {formatCurrency(item.spent)}
+                    </span>
+                  </>
+                );
+                const rowClass =
+                  "flex items-center gap-3 rounded-lg px-4 py-1.5";
+                return (
+                  <li key={item.categoryId ?? `x${i}`}>
+                    {item.categoryId ? (
+                      <TransactionsFilterLink
+                        category={item.categoryId}
+                        period={fmRange ? undefined : "this-month"}
+                        dateFrom={fmRange?.from}
+                        dateTo={fmRange?.to}
+                        className={`${rowClass} transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
+                      >
+                        {row}
+                      </TransactionsFilterLink>
+                    ) : (
+                      <div className={rowClass}>{row}</div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

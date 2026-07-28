@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
+import { parseSearchTerm } from "@/lib/search-query";
 import type { Account, Category, Pot } from "@/types/api";
 
 export const TYPE_OPTIONS = [
@@ -23,6 +24,13 @@ const PERIOD_OPTIONS = [
 ];
 
 const FILTER_KEYS = ["account", "category", "type", "period", "pot"] as const;
+
+function describeSearch(raw: string): string {
+  const parsed = parseSearchTerm(raw);
+  if (parsed.date) return "Search text or that date";
+  if (parsed.amount) return parsed.text ? "Search text or that amount" : "Search around that amount";
+  return "Search descriptions";
+}
 
 // Only category and type support exclusion (GitHub-style `-key:value` tokens).
 const EXCLUDE_KEYS = ["category", "type"] as const;
@@ -220,7 +228,7 @@ export function TransactionSearchBar({
       ? keyMatches
       : [
           ...keyMatches,
-          { type: "search" as const, key: "search", exclude, label: body, description: "Search descriptions", value: body },
+          { type: "search" as const, key: "search", exclude, label: raw, description: describeSearch(raw), value: raw },
         ];
   }, [inputValue, accounts, categories, pots, distinctTypes]);
 
@@ -316,7 +324,7 @@ export function TransactionSearchBar({
           ref={inputRef}
           type="text"
           className="flex-1 min-w-[120px] bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-          placeholder={activeTokens.length === 0 ? "Filter transactions... (e.g. account:ING type:expense)" : "Add filter..."}
+          placeholder={activeTokens.length === 0 ? "Filter transactions... (e.g. account:ING, 12.50, ~12.50, 2026-07-28)" : "Add filter..."}
           value={inputValue}
           onChange={(e) => {
             setInputValue(e.target.value);

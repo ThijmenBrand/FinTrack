@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Pencil, CalendarClock, Coins } from "lucide-react";
+import { Pencil, CalendarClock, Coins, Archive, ArchiveRestore } from "lucide-react";
 import { PotSaldoGraph, type SaldoPoint } from "@/components/pot-saldo-graph";
 import { SpikeProgress } from "@/components/spike-progress";
 import { PlainAmount } from "@/components/plain-amount";
@@ -32,6 +32,9 @@ interface PotDetailContentProps {
   /** Deletes the pot and closes the dialog. */
   onDelete: () => void | Promise<void>;
   deleting: boolean;
+  /** Archives or unarchives the pot and closes the dialog. */
+  onArchive: () => void | Promise<void>;
+  archiving: boolean;
 }
 
 export function PotDetailContent({
@@ -40,6 +43,8 @@ export function PotDetailContent({
   onEdit,
   onDelete,
   deleting,
+  onArchive,
+  archiving,
 }: PotDetailContentProps) {
   const { pot, spike, allocations, transactions } = data;
   const isSpike = spike != null && pot.targetAmount != null && pot.targetDate;
@@ -323,14 +328,29 @@ export function PotDetailContent({
           )}
         </section>
 
-        {/* Delete */}
-        <ConfirmDeleteButton
-          variant="text"
-          label="Delete pot"
-          onConfirm={onDelete}
-          pending={deleting}
-          message="Delete this pot? Linked transactions will be unlinked but kept."
-        />
+        {/* Archive + Delete */}
+        <div className="flex items-center justify-between gap-3 pt-1">
+          <Button variant="ghost" size="sm" onClick={onArchive} disabled={archiving}>
+            {pot.archivedAt ? (
+              <>
+                <ArchiveRestore className="h-4 w-4" />
+                Unarchive
+              </>
+            ) : (
+              <>
+                <Archive className="h-4 w-4" />
+                Archive
+              </>
+            )}
+          </Button>
+          <ConfirmDeleteButton
+            variant="text"
+            label="Delete pot"
+            onConfirm={onDelete}
+            pending={deleting}
+            message="Delete this pot? Linked transactions will be unlinked but kept."
+          />
+        </div>
       </div>
     </>
   );

@@ -7,9 +7,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import type { BalanceTimelineData } from "@/types/api";
+import type { BalanceTimelineData, StatResetData } from "@/types/api";
 import { Loader2 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
+import { formatResetDate } from "@/lib/stat-reset-marks";
 
 function formatCurrencyShort(amount: number) {
   const abs = Math.abs(amount);
@@ -43,6 +44,8 @@ interface Props {
   data: BalanceTimelineData | undefined;
   isLoading: boolean;
   accountLabel: string;
+  /** Statistics resets, newest first. Drawn as boundaries on the timeline. */
+  resets: StatResetData[];
 }
 
 const H_DESKTOP = 320;
@@ -52,7 +55,7 @@ const PAD_B = 32;
 const MOBILE_BREAKPOINT = 500;
 const MIN_VIEW_SPAN = 0.05;
 
-export function BalanceChart({ data, isLoading, accountLabel }: Props) {
+export function BalanceChart({ data, isLoading, accountLabel, resets }: Props) {
   const gradId = useId();
   const projGradId = useId();
   const clipId = useId();
@@ -173,10 +176,31 @@ export function BalanceChart({ data, isLoading, accountLabel }: Props) {
   const histLen = data!.historical.length;
   const projStartIdx = histLen;
 
-  const histPath = points
-    .slice(0, histLen)
-    .map((p, i) => `${i === 0 ? "M" : "L"} ${xFor(i)} ${yFor(p.balance)}`)
-    .join(" ");
+  const pathBetween = (from: number, to: number) =>
+    points
+      .slice(from, to)
+      .map((p, i) => `${i === 0 ? "M" : "L"} ${xFor(from + i)} ${yFor(p.balance)}`)
+      .join(" ");
+
+  // Statistics resets split the actual-balance line into eras. The current era
+  // keeps the emerald line and its fill; earlier ones drop to a grey outline —
+  // the balance still happened, it just no longer feeds any average.
+  const resetIdx = (iso: string) => {
+    const i = points.findIndex((p) => p.date >= iso);
+    return i >= 0 && i < histLen ? i : -1;
+  };
+  const activeReset = resets[0] ?? null;
+  const eraIdx = activeReset ? Math.max(0, resetIdx(activeReset.date)) : 0;
+
+  const pastPath = eraIdx > 0 ? pathBetween(0, eraIdx + 1) : "";
+  const histPath = pathBetween(eraIdx, histLen);
+
+  // Every reset that lands inside the plotted history gets a boundary rule.
+  const resetLines = resets
+    .map((r) => ({ ...r, idx: resetIdx(r.date) }))
+    .filter((r) => r.idx > 0)
+    .map((r) => ({ ...r, x: xFor(r.idx), isActive: r.date === activeReset?.date }))
+    .filter((r) => r.x >= PAD_L && r.x <= W - PAD_R);
 
   const projAnchorIdx = Math.max(0, histLen - 1);
   const projPath = [points[projAnchorIdx], ...points.slice(histLen)]
@@ -188,7 +212,7 @@ export function BalanceChart({ data, isLoading, accountLabel }: Props) {
 
   const histArea =
     histLen > 0
-      ? `${histPath} L ${xFor(histLen - 1)} ${yFor(yMin)} L ${xFor(0)} ${yFor(yMin)} Z`
+      ? `${histPath} L ${xFor(histLen - 1)} ${yFor(yMin)} L ${xFor(eraIdx)} ${yFor(yMin)} Z`
       : "";
 
   const yTicks = (() => {
@@ -423,6 +447,18 @@ export function BalanceChart({ data, isLoading, accountLabel }: Props) {
 
             <g clipPath={`url(#${clipId})`}>
               {histArea && <path d={histArea} fill={`url(#${gradId})`} />}
+              {pastPath && (
+                <path
+                  d={pastPath}
+                  fill="none"
+                  stroke="currentColor"
+                  className="text-muted-foreground"
+                  strokeWidth="1.5"
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                  opacity="0.5"
+                />
+              )}
               {histPath && (
                 <path
                   d={histPath}
@@ -444,6 +480,34 @@ export function BalanceChart({ data, isLoading, accountLabel }: Props) {
                   strokeLinecap="round"
                 />
               )}
+              {resetLines.map((r) => (
+                <g key={r.id}>
+                  <line
+                    x1={r.x}
+                    x2={r.x}
+                    y1={PAD_T}
+                    y2={H - PAD_B}
+                    stroke="currentColor"
+                    className={
+                      r.isActive ? "text-primary" : "text-muted-foreground"
+                    }
+                    strokeDasharray="3 3"
+                    strokeWidth="1"
+                    opacity={r.isActive ? 0.8 : 0.45}
+                  />
+                  <text
+                    x={r.x + 4}
+                    y={H - PAD_B - 5}
+                    className={
+                      r.isActive ? "fill-primary" : "fill-muted-foreground"
+                    }
+                    fontSize="10"
+                  >
+                    {r.isActive ? "Counting from " : "Reset "}
+                    {formatResetDate(r.date)}
+                  </text>
+                </g>
+              ))}
               {todayX != null && todayX >= PAD_L && todayX <= W - PAD_R && (
                 <g>
                   <line

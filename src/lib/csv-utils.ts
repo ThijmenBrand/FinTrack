@@ -9,6 +9,8 @@ export interface ColumnMapping {
   amount: string;
   name?: string;
   balance?: string;
+  /** Separate fee column (Revolut). See applyFee. */
+  fee?: string;
   counterpartyIban?: string;
 }
 
@@ -22,8 +24,10 @@ export interface PreviewTransaction {
   type: "income" | "expense" | "internal_transfer" | "reimbursement";
   categoryId: string | null;
   groupId?: string | null;
-  /** Expense the row reimburses (chosen during import review); linked at commit. */
+  /** Existing DB expense the row reimburses (chosen during import review); linked at commit. */
   reimbursesExpenseId?: string | null;
+  /** Another to-be-imported expense row (by tempId) the row reimburses; resolved to its new id at commit. */
+  reimbursesTempId?: string | null;
   reimbursesDescription?: string | null;
   notes?: string | null;
   suggestedPattern: string;
@@ -75,6 +79,48 @@ export function splitDuplicates<T extends DedupRow>(
     (isDup ? duplicates : unique).push(t);
   }
   return { unique, duplicates };
+}
+
+/**
+ * Fold a separate fee column into the transaction amount.
+ *
+ * Revolut bills fees alongside the transaction instead of as their own row: the
+ * running balance moves by `amount - fee`. A -403,45 ATM withdrawal with an
+ * 8,07 fee really takes 411,52 out. Leaving the fee out drifts the balance a
+ * few euro a month (it cost €21,81 over 7 months on the Revolut account).
+ *
+ * The fee is signed as a positive charge, so it is subtracted in both
+ * directions: an income of 100 with a 1,00 fee nets 99.
+ *
+ * ponytail: folded into the amount rather than emitted as its own transaction —
+ * keeps the balance chain reconciling and dedup keyed on one row. Split it out
+ * only if fees ever need their own category or budget line.
+ */
+export function applyFee(amount: number, feeRaw: string | undefined): number {
+  if (!feeRaw?.trim()) return amount;
+  const fee = parseAmount(feeRaw);
+  if (!Number.isFinite(fee) || fee === 0) return amount;
+  return Number((amount - fee).toFixed(2));
+}
+
+/**
+ * True when a row is an authorisation rather than money that actually moved.
+ *
+ * Banks only fill the running-balance cell once a payment settles, so when the
+ * export *has* a balance column and this row's cell is empty, the row is
+ * PENDING/REVERTED (Revolut). Those must not be imported: the same payment
+ * reappears later as a settled row — often with a different description, and
+ * sometimes split into several rows — so `splitDuplicates` can never pair them
+ * and the amount gets counted twice.
+ *
+ * Guarded on the column being mapped at all: exports without a balance column
+ * (Erste Bank, the savings accounts) leave every row blank and are all real.
+ */
+export function isUnsettledRow(
+  balanceColumnMapped: boolean,
+  balanceRaw: string | undefined
+): boolean {
+  return balanceColumnMapped && !balanceRaw?.trim();
 }
 
 /**

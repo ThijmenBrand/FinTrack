@@ -52,6 +52,7 @@ import {
 import { BudgetHistoryDialog } from "@/components/budget-history-dialog";
 import { BudgetSuggestionsDialog } from "@/components/budget-suggestions-dialog";
 import { formatCurrency } from "@/lib/utils";
+import { formatResetDate } from "@/lib/stat-reset-marks";
 import { AllocationRow } from "./_components/allocation-row";
 import { SuggestionRow } from "./_components/suggestion-row";
 import { AllocationDialog } from "./_components/allocation-dialog";
@@ -225,6 +226,20 @@ export default function BudgetsPage() {
               <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </p>
+          {/* Every "avg /mo" below is computed from this date onward. Saying so
+              once here beats repeating it on each row. */}
+          {data.statsCutoff && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Averages count from your statistics reset on{" "}
+              {formatResetDate(data.statsCutoff)}.{" "}
+              <Link
+                href="/settings/general"
+                className="text-primary hover:underline"
+              >
+                Change
+              </Link>
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Select

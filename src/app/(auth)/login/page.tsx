@@ -54,6 +54,7 @@ export default function LoginPage() {
       }
 
       localStorage.setItem("lockscreen_username", username);
+      localStorage.setItem("lockscreen_last_active", String(Date.now()));
       router.push("/");
     } catch {
       setError("Something went wrong. Please try again.");
@@ -75,6 +76,7 @@ export default function LoginPage() {
       if (username) {
         localStorage.setItem("lockscreen_username", username);
       }
+      localStorage.setItem("lockscreen_last_active", String(Date.now()));
       router.push("/");
     } catch {
       setError("Biometric authentication failed. Try another method.");

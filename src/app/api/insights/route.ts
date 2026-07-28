@@ -4,6 +4,7 @@ import { transactions, categories, transactionGroups } from "@/db/schema";
 import { eq, and, gte, lte, sql, inArray, type SQL } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { effectiveExpenseAmount, potSpentAmount } from "@/lib/reimbursement-sql";
+import { getStatsCutoff, isBeforeCutoff } from "@/lib/stat-reset";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -313,6 +314,14 @@ export async function GET(request: NextRequest) {
 
     // Previous-period totals (same account filter, same range semantics as the
     // main summary/breakdown) for vs-previous deltas.
+    //
+    // A statistics reset ends the comparison: unless the whole previous period
+    // sits after the cutoff it belongs to a different financial life, and a
+    // delta against it would read as a real change when it is only the reset.
+    // Clamping the period instead would compare a short window to a full one —
+    // equally wrong. Return null and tell the client why.
+    const statsCutoff = await getStatsCutoff(userId);
+    const previousPredatesReset = isBeforeCutoff(prevDateFrom, statsCutoff);
     let previous: {
       totalIncome: number;
       totalExpenses: number;
@@ -322,6 +331,7 @@ export async function GET(request: NextRequest) {
     if (
       prevDateFrom &&
       prevDateTo &&
+      !previousPredatesReset &&
       ISO_DATE.test(prevDateFrom) &&
       ISO_DATE.test(prevDateTo)
     ) {
@@ -370,6 +380,8 @@ export async function GET(request: NextRequest) {
         txCount: summary.txCount,
       },
       previous,
+      statsCutoff,
+      previousPredatesReset,
       topMerchants: topMerchants.map((m) => ({
         description: m.description,
         total: m.total,

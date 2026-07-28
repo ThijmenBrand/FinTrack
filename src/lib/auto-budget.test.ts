@@ -126,6 +126,14 @@ async function createSchema() {
     funded_amount REAL NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
   )`);
+
+  await exec(`CREATE TABLE IF NOT EXISTS stat_resets (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    date TEXT NOT NULL,
+    note TEXT,
+    created_at TEXT NOT NULL
+  )`);
 }
 
 async function seedFixtures() {
