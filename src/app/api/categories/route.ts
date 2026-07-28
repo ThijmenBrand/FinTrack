@@ -1,14 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { categories, categoryRules, transactions } from "@/db/schema";
-import { eq, sql, and } from "drizzle-orm";
+import { eq, sql, and, asc, count } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
 
 // GET /api/categories — list all categories with transaction counts
 export async function GET() {
   return withUser(async (userId) => {
-    const allCategories = await db.select().from(categories).where(eq(categories.userId, userId));
+    const allCategories = await db
+      .select()
+      .from(categories)
+      .where(eq(categories.userId, userId))
+      .orderBy(asc(categories.sortOrder), asc(categories.createdAt));
 
     const categoriesWithCounts = await Promise.all(
       allCategories.map(async (cat) => {
@@ -48,12 +52,16 @@ export async function POST(request: NextRequest) {
     }
 
     const id = crypto.randomUUID();
+    // New categories land at the bottom of the user's order.
+    const [{ total }] = await db.select({ total: count() }).from(categories).where(eq(categories.userId, userId));
+
     await db.insert(categories).values({
       id,
       userId,
       name,
       icon: icon || null,
       color: color || "#94a3b8",
+      sortOrder: total,
       createdAt: new Date().toISOString(),
     });
 
@@ -121,6 +129,30 @@ export async function PUT(request: NextRequest) {
 
     return NextResponse.json(updated);
   }, "Failed to update category");
+}
+
+// PATCH /api/categories — reorder categories
+export async function PATCH(request: NextRequest) {
+  return withUser(async (userId) => {
+    const body = await request.json();
+    const { orderedIds } = body as { orderedIds: string[] };
+
+    if (!Array.isArray(orderedIds) || orderedIds.some((id) => typeof id !== "string")) {
+      return NextResponse.json(
+        { error: "orderedIds array is required" },
+        { status: 400 }
+      );
+    }
+
+    for (let i = 0; i < orderedIds.length; i++) {
+      await db
+        .update(categories)
+        .set({ sortOrder: i })
+        .where(and(eq(categories.id, orderedIds[i]), eq(categories.userId, userId)));
+    }
+
+    return NextResponse.json({ success: true });
+  }, "Failed to reorder categories");
 }
 
 // DELETE /api/categories — delete a category

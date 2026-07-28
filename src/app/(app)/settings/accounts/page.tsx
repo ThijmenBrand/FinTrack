@@ -55,12 +55,12 @@ import {
   Trash2,
   MoreVertical,
   GripVertical,
-  Wallet,
   Star,
   StarOff,
 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { BANKS, bankHasSeparateFeeColumn } from "@/lib/banks";
+import { BankLogo } from "@/components/bank-logo";
 
 const ACCOUNT_TYPES = [
   { value: "checking", label: "Checking" },
@@ -70,31 +70,26 @@ const ACCOUNT_TYPES = [
   { value: "other", label: "Other" },
 ];
 
-const ACCOUNT_TYPE_STYLES: Record<string, { badge: string; iconBg: string }> = {
+const ACCOUNT_TYPE_STYLES: Record<string, { badge: string }> = {
   checking: {
     badge:
       "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800",
-    iconBg: "bg-blue-600 text-white dark:bg-blue-500",
   },
   savings: {
     badge:
       "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800",
-    iconBg: "bg-emerald-600 text-white dark:bg-emerald-500",
   },
   joint: {
     badge:
       "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-200 dark:border-violet-800",
-    iconBg: "bg-violet-600 text-white dark:bg-violet-500",
   },
   credit: {
     badge:
       "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800",
-    iconBg: "bg-amber-600 text-white dark:bg-amber-500",
   },
   other: {
     badge:
       "bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800",
-    iconBg: "bg-slate-600 text-white dark:bg-slate-500",
   },
 };
 
@@ -126,7 +121,7 @@ function SortableAccountCard({
     zIndex: isDragging ? 10 : undefined,
   };
 
-  const { iconBg, badge: typeBadge } =
+  const { badge: typeBadge } =
     ACCOUNT_TYPE_STYLES[account.type] || ACCOUNT_TYPE_STYLES.other;
   const netChange = account.transactionTotal;
 
@@ -152,15 +147,7 @@ function SortableAccountCard({
         {/* Top row: icon + name + actions */}
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
-            <div
-              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${iconBg}`}
-            >
-              {account.type === "credit" ? (
-                <Wallet className="h-5 w-5" />
-              ) : (
-                <Landmark className="h-5 w-5" />
-              )}
-            </div>
+            <BankLogo bank={account.bank} size={40} />
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
                 <h3 className="font-semibold text-sm leading-tight truncate">
@@ -439,7 +426,10 @@ export default function AccountsPage() {
                     <SelectItem value="none">Not set</SelectItem>
                     {BANKS.map((b) => (
                       <SelectItem key={b.value} value={b.value}>
-                        {b.label}
+                        <span className="flex items-center gap-2">
+                          <BankLogo bank={b.value} size={24} />
+                          {b.label}
+                        </span>
                       </SelectItem>
                     ))}
                   </SelectContent>

@@ -405,6 +405,7 @@ export const getAccountBalances = cache(async (userId: string) => {
       userId: accounts.userId,
       name: accounts.name,
       type: accounts.type,
+      bank: accounts.bank,
       bankName: accounts.bankName,
       iban: accounts.iban,
       currency: accounts.currency,

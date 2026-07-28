@@ -35,6 +35,7 @@ import { usePots } from "@/hooks/use-pots";
 import { usePreviewUpload, useCommitUpload } from "@/hooks/use-csv-upload";
 import type { Category } from "@/types/api";
 import { bankHasSeparateFeeColumn } from "@/lib/banks";
+import { BankLogo } from "@/components/bank-logo";
 
 interface Account {
   id: string;
@@ -346,7 +347,10 @@ export function CsvUploadDialog({
                   <SelectContent>
                     {accounts.map((a) => (
                       <SelectItem key={a.id} value={a.id}>
-                        {a.name}
+                        <span className="flex items-center gap-2">
+                          <BankLogo bank={a.bank} size={24} />
+                          {a.name}
+                        </span>
                       </SelectItem>
                     ))}
                   </SelectContent>
