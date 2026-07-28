@@ -14,7 +14,7 @@ import { getMonthMoneyMath, toMonthly } from "@/lib/month-money";
 import { classifyOnTrack } from "@/lib/on-track";
 import { getFinancialMonthRange } from "@/lib/financial-month";
 import { formatCurrency, toIsoDate } from "@/lib/utils";
-import { effectiveExpenseAmount } from "@/lib/reimbursement-sql";
+import { effectiveExpenseAmount, potSpentAmount } from "@/lib/reimbursement-sql";
 import type {
   MonthMoneyView,
   SavingTowardSpike,
@@ -146,6 +146,94 @@ async function getFundedAccountIds(
   return Array.from(set);
 }
 
+interface CategorySpend {
+  categoryId: string | null;
+  categoryName: string | null;
+  categoryColor: string | null;
+  categoryIcon: string | null;
+  spent: number;
+}
+
+/**
+ * Pot spending in a window, netted per pot (so a pot that took in more than it
+ * spent contributes 0) and rolled up by the category assigned to the *pot* —
+ * not to its member transactions. Same rule as /api/budgets and the Free to
+ * Spend math, so a pot with a category lands in that category's budget instead
+ * of an "Into pots" catch-all. Pots without a category come back under a `null`
+ * categoryId.
+ */
+async function getPotSpendByCategory(
+  userId: string,
+  from: string,
+  to: string,
+): Promise<CategorySpend[]> {
+  const rows = await db
+    .select({
+      categoryId: transactionGroups.categoryId,
+      categoryName: categories.name,
+      categoryColor: categories.color,
+      categoryIcon: categories.icon,
+      total: sql<number>`${potSpentAmount()}`,
+    })
+    .from(transactionGroups)
+    .innerJoin(transactions, eq(transactions.groupId, transactionGroups.id))
+    .leftJoin(categories, eq(transactionGroups.categoryId, categories.id))
+    .where(
+      and(
+        eq(transactionGroups.userId, userId),
+        sql`${transactions.type} != 'internal_transfer'`,
+        gte(transactions.date, from),
+        lte(transactions.date, to),
+      ),
+    )
+    .groupBy(transactionGroups.id, transactionGroups.categoryId);
+
+  const byCategory = new Map<string, CategorySpend>();
+  for (const r of rows) {
+    const key = r.categoryId ?? "";
+    const existing = byCategory.get(key);
+    if (existing) {
+      existing.spent += Number(r.total) || 0;
+      continue;
+    }
+    byCategory.set(key, {
+      categoryId: r.categoryId,
+      categoryName: r.categoryId ? r.categoryName : "Into pots",
+      categoryColor: r.categoryColor,
+      categoryIcon: r.categoryId ? r.categoryIcon : "PiggyBank",
+      spent: Number(r.total) || 0,
+    });
+  }
+  return Array.from(byCategory.values());
+}
+
+/**
+ * The "Not budgeted" list: transaction spending and pot spending in categories
+ * that have no budget, merged so a category appearing in both shows one row.
+ */
+function mergeUnbudgeted(
+  txByCategory: CategorySpend[],
+  potByCategory: CategorySpend[],
+  budgetedCategoryIds: Set<string>,
+): CategorySpend[] {
+  const out = new Map<string, CategorySpend>();
+  // Uncategorized transactions and category-less pots stay distinct buckets,
+  // hence the different fallback keys.
+  const add = (rows: CategorySpend[], noCategoryKey: string) => {
+    for (const r of rows) {
+      if (r.categoryId && budgetedCategoryIds.has(r.categoryId)) continue;
+      const existing = out.get(r.categoryId ?? noCategoryKey);
+      if (existing) existing.spent += r.spent;
+      else out.set(r.categoryId ?? noCategoryKey, { ...r });
+    }
+  };
+  add(txByCategory, "uncategorized");
+  add(potByCategory, "pots");
+  return Array.from(out.values())
+    .filter((r) => r.spent !== 0)
+    .sort((a, b) => b.spent - a.spent);
+}
+
 // ─── Per-widget queries ─────────────────────────────────────────────
 
 export const getBudgetOverview = cache(async (
@@ -156,7 +244,7 @@ export const getBudgetOverview = cache(async (
   // intentionally ignore the dashboard's defaultAccountId scoping.
   const { monthStart, monthEnd, monthProgress } = getDateRanges(startDay);
 
-  const [allBudgets, recurringExpenses, monthByCategory, monthPotContrib] =
+  const [allBudgets, recurringExpenses, monthByCategory, monthPotSpend] =
     await Promise.all([
       db
         .select({
@@ -164,6 +252,7 @@ export const getBudgetOverview = cache(async (
           categoryId: budgets.categoryId,
           categoryName: categories.name,
           categoryColor: categories.color,
+          categoryIcon: categories.icon,
           amount: budgets.amount,
           period: budgets.period,
         })
@@ -199,6 +288,7 @@ export const getBudgetOverview = cache(async (
           categoryId: transactions.categoryId,
           categoryName: categories.name,
           categoryColor: categories.color,
+          categoryIcon: categories.icon,
           total: sql<number>`sum(${effectiveExpenseAmount()})`,
         })
         .from(transactions)
@@ -214,13 +304,7 @@ export const getBudgetOverview = cache(async (
         )
         .groupBy(transactions.categoryId),
 
-      db
-        .select({ potNet: sql<number>`SUM(t.amount)` })
-        .from(sql`transactions t`)
-        .innerJoin(sql`transaction_groups g`, sql`t.group_id = g.id`)
-        .where(
-          sql`t.group_id IS NOT NULL AND t.type != 'internal_transfer' AND t.user_id = ${userId} AND t.date >= ${monthStart} AND t.date <= ${monthEnd}`,
-        ),
+      getPotSpendByCategory(userId, monthStart, monthEnd),
     ]);
 
   // Per-budgeted-category spending — drives the per-category chips.
@@ -237,27 +321,38 @@ export const getBudgetOverview = cache(async (
       async ([period, periodBudgets]) => {
         const { from, to } = getPeriodRange(period, startDay);
         const categoryIds = periodBudgets.map((b) => b.categoryId);
-        const results = await db
-          .select({
-            categoryId: transactions.categoryId,
-            total: sql<number>`sum(${effectiveExpenseAmount()})`,
-          })
-          .from(transactions)
-          .where(
-            and(
-              eq(transactions.userId, userId),
-              inArray(transactions.categoryId, categoryIds),
-              eq(transactions.type, "expense"),
-              sql`${transactions.groupId} IS NULL`,
-              gte(transactions.date, from),
-              lte(transactions.date, to),
+        const budgeted = new Set(categoryIds);
+        const [results, potSpend] = await Promise.all([
+          db
+            .select({
+              categoryId: transactions.categoryId,
+              total: sql<number>`sum(${effectiveExpenseAmount()})`,
+            })
+            .from(transactions)
+            .where(
+              and(
+                eq(transactions.userId, userId),
+                inArray(transactions.categoryId, categoryIds),
+                eq(transactions.type, "expense"),
+                sql`${transactions.groupId} IS NULL`,
+                gte(transactions.date, from),
+                lte(transactions.date, to),
+              )
             )
-          )
-          .groupBy(transactions.categoryId);
+            .groupBy(transactions.categoryId),
+          getPotSpendByCategory(userId, from, to),
+        ]);
         for (const r of results) {
           if (r.categoryId) {
             spendingByCategory.set(r.categoryId, r.total || 0);
           }
+        }
+        for (const p of potSpend) {
+          if (!p.categoryId || !budgeted.has(p.categoryId)) continue;
+          spendingByCategory.set(
+            p.categoryId,
+            (spendingByCategory.get(p.categoryId) ?? 0) + p.spent,
+          );
         }
       }
     )
@@ -271,6 +366,7 @@ export const getBudgetOverview = cache(async (
         categoryId: b.categoryId,
         categoryName: b.categoryName,
         categoryColor: b.categoryColor,
+        categoryIcon: b.categoryIcon,
         period: b.period,
         spent,
         limit: b.amount,
@@ -297,31 +393,23 @@ export const getBudgetOverview = cache(async (
   const totalBudgeted = totalAllocated + totalFixedCosts;
 
   const txTotal = monthByCategory.reduce((s, r) => s + (Number(r.total) || 0), 0);
-  const potNet = Number(monthPotContrib[0]?.potNet) || 0;
-  const potExpense = Math.abs(Math.min(0, potNet));
+  const potExpense = monthPotSpend.reduce((s, r) => s + r.spent, 0);
   const totalBudgetSpent = txTotal + potExpense;
 
   // The gap between the headline and the bars: spending in categories with no
-  // budget (incl. uncategorized), plus net money moved into pots.
+  // budget (incl. uncategorized), plus pots that have no category of their own.
   const budgetedCategoryIds = new Set(allBudgets.map((b) => b.categoryId));
-  const unbudgetedItems = monthByCategory
-    .filter((r) => !r.categoryId || !budgetedCategoryIds.has(r.categoryId))
-    .map((r) => ({
+  const unbudgetedItems = mergeUnbudgeted(
+    monthByCategory.map((r) => ({
       categoryId: r.categoryId,
       categoryName: r.categoryName,
       categoryColor: r.categoryColor,
+      categoryIcon: r.categoryIcon,
       spent: Number(r.total) || 0,
-    }))
-    .filter((r) => r.spent !== 0);
-  if (potExpense !== 0) {
-    unbudgetedItems.push({
-      categoryId: null,
-      categoryName: "Into pots",
-      categoryColor: null,
-      spent: potExpense,
-    });
-  }
-  unbudgetedItems.sort((a, b) => b.spent - a.spent);
+    })),
+    monthPotSpend,
+    budgetedCategoryIds,
+  );
 
   return {
     budgetItems,

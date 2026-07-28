@@ -61,7 +61,9 @@ export async function TopSpendingCard({
                       className="h-3 w-3 rounded-full shrink-0"
                       style={{ backgroundColor: cat.color }}
                     />
-                    <span className="text-sm w-28 truncate">{cat.name}</span>
+                    <span className="text-sm min-w-0 flex-1 truncate">
+                      {cat.name}
+                    </span>
                     <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
                       <div
                         className="h-full rounded-full"
@@ -71,7 +73,7 @@ export async function TopSpendingCard({
                         }}
                       />
                     </div>
-                    <span className="text-sm font-semibold w-24 text-right tabular-nums">
+                    <span className="text-sm font-semibold shrink-0 text-right tabular-nums">
                       {formatCurrency(cat.total)}
                     </span>
                   </>
