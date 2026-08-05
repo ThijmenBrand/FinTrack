@@ -5,6 +5,7 @@ import { eq, desc, asc, and, gte, lte, like, or, sql, inArray, notInArray, isNul
 import { withUser } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
 import { parseSearchTerm } from "@/lib/search-query";
+import { effectiveExpenseAmount } from "@/lib/reimbursement-sql";
 
 const VALID_TX_TYPES = ["income", "expense", "internal_transfer", "reimbursement"] as const;
 type TxType = (typeof VALID_TX_TYPES)[number];
@@ -154,20 +155,20 @@ export async function GET(request: NextRequest) {
           JOIN transactions t2 ON t2.id = rl2.expense_id AND t2.user_id = "transactions"."user_id"
           WHERE rl2.reimbursement_id = ${transactions.id}
         )`,
-        effectiveAmount: sql<number>`(
-          ${transactions.amount} + COALESCE(
-            (SELECT SUM(r.amount) FROM reimbursement_links rl
-             JOIN transactions r ON r.id = rl.reimbursement_id AND r.user_id = "transactions"."user_id"
-             WHERE rl.expense_id = ${transactions.id}),
-            0
-          )
-        )`,
+        // Signed form of `effectiveExpenseAmount` (which returns a positive
+        // magnitude) so the row shows the same reimbursement-adjusted value the
+        // totals card and /api/insights sum: pro-rata across every expense a
+        // reimbursement covers, floored at 0 when over-reimbursed.
+        effectiveAmount: sql<number>`-(${effectiveExpenseAmount()})`,
         reimbursementCount: sql<number>`(
           SELECT COUNT(*) FROM reimbursement_links rl WHERE rl.expense_id = ${transactions.id}
         )`,
+        // Pro-rata share too, so `amount - reimbursedTotal` reconciles with
+        // `effectiveAmount` in the detail dialog.
         reimbursedTotal: sql<number>`COALESCE(
-          (SELECT SUM(r.amount) FROM reimbursement_links rl
-           JOIN transactions r ON r.id = rl.reimbursement_id
+          (SELECT SUM(r.amount / (SELECT COUNT(*) FROM reimbursement_links rl2 WHERE rl2.reimbursement_id = rl.reimbursement_id))
+           FROM reimbursement_links rl
+           JOIN transactions r ON r.id = rl.reimbursement_id AND r.user_id = "transactions"."user_id"
            WHERE rl.expense_id = ${transactions.id}),
           0
         )`,
@@ -200,48 +201,52 @@ export async function GET(request: NextRequest) {
       .where(eq(transactions.userId, userId));
 
     // Sum totals for the filtered set. Pot members are NOT counted individually;
-    // each pot contributes its full net (matching the pot row shown in the list):
-    // net > 0 → income, net < 0 → expense. So direct sums cover ungrouped rows
-    // only, and pot nets are added on top.
+    // each pot contributes one net, split by sign: net > 0 → income, net < 0 →
+    // expense. So direct sums cover ungrouped rows only, pot nets are added on
+    // top. Note the pot row rendered in the list shows the pot's LIFETIME
+    // figures; these totals deliberately cover the filtered range instead.
+    //
+    // Expenses are reimbursement-adjusted (same `effectiveExpenseAmount` the
+    // rows and /api/insights use) so the card matches the struck-through amounts
+    // in the table below it. Because reimbursements are already netted off the
+    // expenses here, they must NOT be added to `net` again on top.
     const [directSum] = await db
       .select({
         totalIncome: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END), 0)`,
-        totalExpense: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.type} = 'expense' THEN ${transactions.amount} ELSE 0 END), 0)`,
+        totalExpense: sql<number>`-COALESCE(SUM(CASE WHEN ${transactions.type} = 'expense' THEN (
+          ${effectiveExpenseAmount()}
+        ) ELSE 0 END), 0)`,
         totalTransfers: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.type} = 'internal_transfer' THEN ${transactions.amount} ELSE 0 END), 0)`,
         totalReimbursements: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.type} = 'reimbursement' THEN ${transactions.amount} ELSE 0 END), 0)`,
-        netTotal: sql<number>`COALESCE(SUM(${transactions.amount}), 0)`,
       })
       .from(transactions)
       .where(and(...conditions, isNull(transactions.groupId)));
 
-    // Full net per pot that has at least one member in the filtered set. The
-    // inner select finds those pots; the outer sums ALL their members (the pot
-    // net spans the whole pot, not just the filtered range — same as the row).
+    // Net per pot over the members that match the current filter. Scoped to the
+    // filter, not the pot's whole lifetime: a pot with one member in July must
+    // not drag its January spending into a July total. Mirrors
+    // /api/insights `potSpendingPerPot`, including the internal-transfer
+    // exclusion — moving money into a pot isn't spending it.
     const potNetRows = await db
       .select({ net: sql<number>`COALESCE(SUM(${transactions.amount}), 0)` })
       .from(transactions)
       .where(
         and(
-          eq(transactions.userId, userId),
-          inArray(
-            transactions.groupId,
-            db
-              .select({ gid: transactions.groupId })
-              .from(transactions)
-              .where(and(...conditions, sql`${transactions.groupId} IS NOT NULL`))
-          )
+          ...conditions,
+          sql`${transactions.groupId} IS NOT NULL`,
+          sql`${transactions.type} != 'internal_transfer'`
         )
       )
       .groupBy(transactions.groupId);
 
     let income = directSum?.totalIncome || 0;
     let expense = directSum?.totalExpense || 0;
-    let net = directSum?.netTotal || 0;
+    const transfers = directSum?.totalTransfers || 0;
     for (const { net: potNet } of potNetRows) {
       if (potNet > 0) income += potNet;
       else expense += potNet;
-      net += potNet;
     }
+    const net = income + expense + transfers;
 
     return NextResponse.json({
       data: rows,
@@ -255,7 +260,7 @@ export async function GET(request: NextRequest) {
       totals: {
         income,
         expense,
-        transfers: directSum?.totalTransfers || 0,
+        transfers,
         reimbursements: directSum?.totalReimbursements || 0,
         net,
       },

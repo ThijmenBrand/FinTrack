@@ -5,8 +5,9 @@ import { setupTestDb } from "./test-db";
 const testDb = await setupTestDb("tx-totals");
 
 const { db } = await import("@/db");
-const { transactions, transactionGroups } = await import("@/db/schema");
-const { eq, and, sql, isNull, inArray, gte, lte } = await import("drizzle-orm");
+const { transactions, transactionGroups, reimbursementLinks } = await import("@/db/schema");
+const { eq, and, sql, isNull, gte, lte } = await import("drizzle-orm");
+const { effectiveExpenseAmount } = await import("@/lib/reimbursement-sql");
 
 const USER = "user-1";
 let seq = 0;
@@ -20,10 +21,15 @@ async function insertPot() {
 
 async function insert(
   amount: number,
-  opts: { groupId?: string; date?: string; type?: "income" | "expense" } = {}
+  opts: {
+    groupId?: string;
+    date?: string;
+    type?: "income" | "expense" | "reimbursement" | "internal_transfer";
+  } = {}
 ) {
+  const id = nextId("tx");
   await db.insert(transactions).values({
-    id: nextId("tx"),
+    id,
     userId: USER,
     accountId: "acct-1",
     date: opts.date ?? "2026-07-15",
@@ -32,15 +38,27 @@ async function insert(
     type: opts.type ?? (amount < 0 ? "expense" : "income"),
     groupId: opts.groupId ?? null,
   });
+  return id;
+}
+
+/** Link a reimbursement transaction to the expenses it pays back. */
+async function reimburse(amount: number, ...expenseIds: string[]) {
+  const id = await insert(amount, { type: "reimbursement" });
+  await db
+    .insert(reimbursementLinks)
+    .values(expenseIds.map((expenseId) => ({ reimbursementId: id, expenseId })));
 }
 
 // Mirrors the totals computation in /api/transactions GET: direct (ungrouped)
-// sums plus each present pot's FULL net, split by sign.
+// sums plus each pot's net over the filtered members, split by sign.
 async function totals(conditions = [eq(transactions.userId, USER)]) {
   const [direct] = await db
     .select({
       income: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END), 0)`,
-      net: sql<number>`COALESCE(SUM(${transactions.amount}), 0)`,
+      expense: sql<number>`-COALESCE(SUM(CASE WHEN ${transactions.type} = 'expense' THEN (
+        ${effectiveExpenseAmount()}
+      ) ELSE 0 END), 0)`,
+      transfers: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.type} = 'internal_transfer' THEN ${transactions.amount} ELSE 0 END), 0)`,
     })
     .from(transactions)
     .where(and(...conditions, isNull(transactions.groupId)));
@@ -50,27 +68,20 @@ async function totals(conditions = [eq(transactions.userId, USER)]) {
     .from(transactions)
     .where(
       and(
-        eq(transactions.userId, USER),
-        inArray(
-          transactions.groupId,
-          db
-            .select({ gid: transactions.groupId })
-            .from(transactions)
-            .where(and(...conditions, sql`${transactions.groupId} IS NOT NULL`))
-        )
+        ...conditions,
+        sql`${transactions.groupId} IS NOT NULL`,
+        sql`${transactions.type} != 'internal_transfer'`
       )
     )
     .groupBy(transactions.groupId);
 
   let income = direct?.income || 0;
-  let expense = 0;
-  let net = direct?.net || 0;
+  let expense = direct?.expense || 0;
   for (const { net: potNet } of potNetRows) {
     if (potNet > 0) income += potNet;
     else expense += potNet;
-    net += potNet;
   }
-  return { income, expense, net };
+  return { income, expense, net: income + expense + (direct?.transfers || 0) };
 }
 
 beforeEach(() => testDb.reset());
@@ -102,7 +113,7 @@ describe("transaction totals with pots", () => {
     expect(expense).toBe(0);
   });
 
-  it("uses the full pot net even when the filter only matches some members", async () => {
+  it("scopes a pot's net to the filtered members, not its whole lifetime", async () => {
     const pot = await insertPot();
     await insert(300, { groupId: pot, date: "2026-07-15" }); // in range
     await insert(-1000, { groupId: pot, date: "2026-01-01" }); // out of range
@@ -112,8 +123,51 @@ describe("transaction totals with pots", () => {
       lte(transactions.date, "2026-07-31"),
     ];
     const { income, expense } = await totals(conds);
-    // pot present via the July member, but its net spans both → -700 → expense
-    expect(income).toBe(0);
-    expect(expense).toBeCloseTo(-700, 2);
+    // only the July member counts → +300 → income. Counting January too would
+    // report -700 of expense in a month that had none.
+    expect(income).toBeCloseTo(300, 2);
+    expect(expense).toBe(0);
+  });
+
+  it("ignores internal transfers into a pot — funding it is not spending it", async () => {
+    const pot = await insertPot();
+    await insert(500, { groupId: pot, type: "internal_transfer" });
+    await insert(-120, { groupId: pot });
+    const { income, expense } = await totals();
+    expect(income).toBe(0); // the 500 top-up must not read as income
+    expect(expense).toBeCloseTo(-120, 2);
+  });
+});
+
+describe("transaction totals with reimbursements", () => {
+  it("nets a reimbursement off the expense it repays, not on top as income", async () => {
+    const tx = await insert(-18.77);
+    await reimburse(18.77, tx);
+    const { income, expense, net } = await totals();
+    expect(expense).toBe(0); // row shows € 0,00 — the card must agree
+    expect(income).toBe(0); // the reimbursement is not income
+    expect(net).toBe(0);
+  });
+
+  it("subtracts a partial reimbursement", async () => {
+    const tx = await insert(-75);
+    await reimburse(37.5, tx);
+    const { expense } = await totals();
+    expect(expense).toBeCloseTo(-37.5, 2);
+  });
+
+  it("splits a reimbursement pro-rata across the expenses it covers", async () => {
+    const a = await insert(-60);
+    const b = await insert(-40);
+    await reimburse(50, a, b); // 25 off each, not 50 off both
+    const { expense } = await totals();
+    expect(expense).toBeCloseTo(-50, 2); // (60-25) + (40-25); double-subtracting gives 0
+  });
+
+  it("floors an over-reimbursed expense at zero", async () => {
+    const tx = await insert(-20);
+    await reimburse(30, tx);
+    const { expense } = await totals();
+    expect(expense).toBe(0);
   });
 });

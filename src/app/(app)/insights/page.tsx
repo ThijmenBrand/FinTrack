@@ -302,10 +302,10 @@ export default function InsightsPage() {
     prevDateFrom: prevRange?.from,
     prevDateTo: prevRange?.to,
   });
+  // Full history: the chart has its own range picker (1M…All) and slices
+  // client-side, so it must not be capped by the page's date preset.
   const { data: balanceData, isLoading: balanceLoading } = useBalanceTimeline({
     accountId: accountIdParam,
-    dateFrom: dateFrom || undefined,
-    dateTo: dateTo || undefined,
   });
   // Budget caps are envelope-style (PR #33) and span all accounts, but the
   // spend side respects the page's account filter so every card reflects the
@@ -346,7 +346,10 @@ export default function InsightsPage() {
     // When a financial month is active, the transactions page's "this-month"/"last-month"
     // shortcut still means calendar months, so pass explicit dates instead.
     const usePeriodShortcut = mappedPeriod && !(usingFinancialMonth && (preset === "this_month" || preset === "last_month"));
-    if (usePeriodShortcut) {
+    if (params.has("dateFrom") || params.has("dateTo")) {
+      // The caller passed an explicit range (a clicked chart bucket) — it wins
+      // over the page preset.
+    } else if (usePeriodShortcut) {
       params.set("period", mappedPeriod);
     } else if (preset !== "all") {
       if (dateFrom) params.set("dateFrom", dateFrom);
@@ -505,6 +508,9 @@ export default function InsightsPage() {
           dailyTotals={data.dailyTotals}
           monthlyTotals={data.monthlyTotals}
           resets={resets ?? []}
+          onSelectRange={(from, to) =>
+            navigateToTransactions({ dateFrom: from, dateTo: to })
+          }
         />
         <BalanceChart
           data={balanceData}

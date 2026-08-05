@@ -7,9 +7,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { BalanceTimelineData, StatResetData } from "@/types/api";
 import { Loader2 } from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, toIsoDate } from "@/lib/utils";
 import { formatResetDate } from "@/lib/stat-reset-marks";
 
 function formatCurrencyShort(amount: number) {
@@ -52,7 +53,32 @@ const H_MOBILE = 240;
 const PAD_T = 16;
 const PAD_B = 32;
 const MOBILE_BREAKPOINT = 500;
-const MIN_VIEW_SPAN = 0.05;
+// Zoom floor expressed in data points, so a "1M" window on years of history
+// isn't clamped back open the way a fixed fraction would.
+const MIN_VIEW_POINTS = 7;
+
+const RANGES = [
+  { key: "1M", days: 30 },
+  { key: "3M", days: 91 },
+  { key: "6M", days: 182 },
+  { key: "1Y", days: 365 },
+  { key: "All", days: null },
+] as const;
+type RangeKey = (typeof RANGES)[number]["key"];
+
+/**
+ * Normalised left edge of a trailing `days` window over `dates` (ascending).
+ * 0 when the range covers everything already, so "1Y" on 3 months of history
+ * is just "All" rather than an empty slice.
+ */
+export function rangeViewStart(dates: string[], days: number | null): number {
+  if (days === null || dates.length < 2) return 0;
+  const cutoff = new Date(dates[dates.length - 1] + "T00:00:00");
+  cutoff.setDate(cutoff.getDate() - days);
+  const iso = toIsoDate(cutoff);
+  const i = dates.findIndex((d) => d >= iso);
+  return i > 0 ? i / (dates.length - 1) : 0;
+}
 
 export function BalanceChart({ data, isLoading, accountLabel, resets }: Props) {
   const gradId = useId();
@@ -63,6 +89,8 @@ export function BalanceChart({ data, isLoading, accountLabel, resets }: Props) {
   const [containerWidth, setContainerWidth] = useState(600);
   const [isTouch, setIsTouch] = useState(false);
   const [view, setView] = useState({ start: 0, end: 1 });
+  // null once a pinch/pan lands somewhere no preset describes.
+  const [range, setRange] = useState<RangeKey | null>("All");
 
   const pinchRef = useRef<{
     initialDist: number;
@@ -136,10 +164,24 @@ export function BalanceChart({ data, isLoading, accountLabel, resets }: Props) {
   }
 
   const n = points.length;
-  const span = Math.max(MIN_VIEW_SPAN, view.end - view.start);
-  const visStart = Math.max(0, Math.floor(view.start * (n - 1)));
-  const visEnd = Math.min(n - 1, Math.ceil(view.end * (n - 1)));
+  const minSpan = Math.min(1, MIN_VIEW_POINTS / Math.max(n - 1, 1));
+  const span = Math.max(minSpan, view.end - view.start);
+  // When the floor widened the window, keep its right edge where the user left it.
+  const viewStart = Math.max(0, Math.min(view.start, 1 - span));
+  const visStart = Math.max(0, Math.floor(viewStart * (n - 1)));
+  const visEnd = Math.min(n - 1, Math.ceil((viewStart + span) * (n - 1)));
   const visiblePoints = points.slice(visStart, visEnd + 1);
+
+  // Presets are a slice of the already-fetched history: no refetch, and pinch
+  // zoom still layers on top of whatever a button picked.
+  const selectRange = (key: RangeKey) => {
+    setRange(key);
+    const days = RANGES.find((r) => r.key === key)!.days;
+    setView({
+      start: rangeViewStart(points.map((p) => p.date), days),
+      end: 1,
+    });
+  };
 
   const balances = visiblePoints.map((p) => p.balance);
   const rawMin = Math.min(...balances);
@@ -153,7 +195,7 @@ export function BalanceChart({ data, isLoading, accountLabel, resets }: Props) {
   const xFor = (i: number) => {
     if (n === 1) return PAD_L + innerW / 2;
     const norm = i / (n - 1);
-    return PAD_L + ((norm - view.start) / span) * innerW;
+    return PAD_L + ((norm - viewStart) / span) * innerW;
   };
   const yFor = (v: number) =>
     PAD_T + innerH - ((v - yMin) / yRange) * innerH;
@@ -228,7 +270,7 @@ export function BalanceChart({ data, isLoading, accountLabel, resets }: Props) {
     const xInVB = xRatio * W;
     const xInPlot = xInVB - PAD_L;
     const ratioInPlot = Math.max(0, Math.min(1, xInPlot / innerW));
-    const norm = view.start + ratioInPlot * span;
+    const norm = viewStart + ratioInPlot * span;
     const idx = Math.round(norm * (n - 1));
     setHoverIdx(Math.max(0, Math.min(n - 1, idx)));
   };
@@ -274,7 +316,8 @@ export function BalanceChart({ data, isLoading, accountLabel, resets }: Props) {
       const initialSpan = initialEnd - initialStart;
       const scale = initialDist / Math.max(dist, 1);
       let newSpan = initialSpan * scale;
-      newSpan = Math.max(MIN_VIEW_SPAN, Math.min(1, newSpan));
+      newSpan = Math.max(minSpan, Math.min(1, newSpan));
+      setRange(null);
       const ratioFromStart =
         initialSpan > 0 ? (midpoint - initialStart) / initialSpan : 0.5;
       let newStart = midpoint - newSpan * ratioFromStart;
@@ -337,6 +380,18 @@ export function BalanceChart({ data, isLoading, accountLabel, resets }: Props) {
             </p>
           </div>
         </div>
+        <Tabs
+          value={range ?? ""}
+          onValueChange={(v) => selectRange(v as RangeKey)}
+        >
+          <TabsList className="h-8">
+            {RANGES.map((r) => (
+              <TabsTrigger key={r.key} value={r.key} className="px-2.5 text-xs">
+                {r.key}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
       </CardHeader>
       <CardContent>
         <div ref={containerRef} className="relative w-full">
@@ -513,7 +568,7 @@ export function BalanceChart({ data, isLoading, accountLabel, resets }: Props) {
               {isZoomed ? (
                 <button
                   type="button"
-                  onClick={() => setView({ start: 0, end: 1 })}
+                  onClick={() => selectRange("All")}
                   aria-label="Reset chart zoom"
                   className="pointer-events-auto rounded-md border bg-background/90 px-2 py-1 text-[10px] font-medium text-muted-foreground shadow-sm backdrop-blur transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
