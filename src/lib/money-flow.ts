@@ -45,10 +45,13 @@ type Bucket = { accountId: string; categoryId: string | null; total: number };
  * category) → accounts → spending categories, with account→account ribbons for
  * internal transfers.
  *
- * Every figure here uses the same netting as /api/insights, so the diagram and
- * the cards around it can't disagree: expenses are reimbursement-adjusted and
- * net off income booked to the same category, and pot (transaction-group)
- * spending is netted per pot and attributed to the pot's own category.
+ * The left column adds up to the Income card and the right to the Expenses
+ * card, because the same netting is applied and no more: expenses are
+ * reimbursement-adjusted, and pot (transaction-group) spending is netted per
+ * pot and attributed to the pot's own category. Income is NOT netted off
+ * same-category spending the way /api/insights' categoryBreakdown does — that
+ * turns a €2.000 gift booked to a category with €2.000 of spend into no
+ * ribbons at all, and the diagram silently loses money the cards report.
  *
  * What's left over after those flows — money that arrived before the window or
  * stayed put — closes each in-scope account's bar as "From balance" / "Left in
@@ -94,15 +97,18 @@ export async function buildMoneyFlow(
     acctRows,
     catRows,
   ] = await Promise.all([
-    // Ungrouped expenses and income in one pass: `net` is spend minus the
-    // income booked to the same category, `reimbursed` is how much
-    // reimbursement money that netting already absorbed.
+    // Ungrouped expenses and income in one pass, kept on separate legs: a
+    // Sankey has to route every euro that arrived, so income booked to a
+    // spending category is still a source, not a discount on that category.
+    // `reimbursed` is how much reimbursement money the expense leg absorbed.
     db
       .select({
         accountId: transactions.accountId,
         categoryId: transactions.categoryId,
-        net: sql<number>`sum(CASE WHEN ${transactions.type} = 'expense'
-          THEN (${effectiveExpenseAmount()}) ELSE -${transactions.amount} END)`,
+        expense: sql<number>`sum(CASE WHEN ${transactions.type} = 'expense'
+          THEN (${effectiveExpenseAmount()}) ELSE 0 END)`,
+        income: sql<number>`sum(CASE WHEN ${transactions.type} = 'income'
+          THEN ${transactions.amount} ELSE 0 END)`,
         reimbursed: sql<number>`sum(CASE WHEN ${transactions.type} = 'expense'
           THEN abs(${transactions.amount}) - (${effectiveExpenseAmount()}) ELSE 0 END)`,
       })
@@ -201,8 +207,9 @@ export async function buildMoneyFlow(
   );
   const catMeta = new Map(catRows.map((c) => [c.id, c]));
 
-  // Whatever a category nets to decides which side of the accounts it sits on:
-  // a rent share paid back reduces Rent, a salary is a source.
+  // A category can sit on both sides of the accounts: money came in under it
+  // and money went out under it. Netting the two would hide the smaller leg
+  // from the diagram entirely, so each is carried on its own.
   const spend: Bucket[] = [];
   const sources: Bucket[] = [];
   const reimbursedByAccount = new Map<string, number>();
@@ -211,10 +218,9 @@ export async function buildMoneyFlow(
       row.accountId,
       (reimbursedByAccount.get(row.accountId) ?? 0) + (row.reimbursed ?? 0),
     );
-    const net = row.net ?? 0;
     const bucket = { accountId: row.accountId, categoryId: row.categoryId };
-    if (net > 0) spend.push({ ...bucket, total: net });
-    else if (net < 0) sources.push({ ...bucket, total: -net });
+    if ((row.expense ?? 0) > 0) spend.push({ ...bucket, total: row.expense });
+    if ((row.income ?? 0) > 0) sources.push({ ...bucket, total: row.income });
   }
   for (const row of potRows) {
     const total = row.total ?? 0;

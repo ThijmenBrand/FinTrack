@@ -238,13 +238,28 @@ describe("buildMoneyFlow", () => {
     expect(Math.max(...nodes.map((n) => n.depth))).toBe(4);
   });
 
-  it("nets income booked to a spending category, like the breakdown card", async () => {
+  it("routes income booked to a spending category instead of netting it away", async () => {
     await tx({ accountId: "checking", amount: -1000, type: "expense", categoryId: "rent" });
     await tx({ accountId: "checking", amount: 400, type: "income", categoryId: "rent" });
 
     const flow = await buildMoneyFlow(USER, {});
-    expect(link(flow, "acct:checking", "cat:rent")?.value).toBe(600);
-    expect(link(flow, "in:rent", "acct:checking")).toBeUndefined();
+    expect(link(flow, "in:rent", "acct:checking")?.value).toBe(400);
+    expect(link(flow, "acct:checking", "cat:rent")?.value).toBe(1000);
+  });
+
+  // The regression the diagram shipped with: a gift booked to a category that
+  // already had spend vanished from both columns, so the left side came up
+  // short against the Income card by exactly that amount.
+  it("shows every euro the Income card counts on the left", async () => {
+    await tx({ accountId: "checking", amount: 3000, type: "income", categoryId: "salary" });
+    await tx({ accountId: "checking", amount: 2000, type: "income", categoryId: "rent" });
+    await tx({ accountId: "checking", amount: -1800, type: "expense", categoryId: "rent" });
+
+    const flow = await buildMoneyFlow(USER, {});
+    const incoming = flow.links
+      .filter((l) => l.source.startsWith("in:") && l.source !== "in:__balance")
+      .reduce((sum, l) => sum + l.value, 0);
+    expect(incoming).toBe(5000);
   });
 
   it("nets a pot over the range instead of counting its gross spend", async () => {
