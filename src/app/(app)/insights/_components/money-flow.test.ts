@@ -26,6 +26,15 @@ describe("legFilters", () => {
     });
   });
 
+  it("drops the account filter for a node click", () => {
+    expect(legFilters(null, "cat:c-woning")).toEqual({
+      category: "c-woning",
+      type: "expense",
+    });
+    // A transfer bar with no account side names no filterable pair.
+    expect(legFilters(null, "acct:a2")).toBeNull();
+  });
+
   it("leaves the aggregate legs unfiltered", () => {
     for (const id of [
       "cat:other",

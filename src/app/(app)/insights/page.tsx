@@ -509,7 +509,7 @@ export default function InsightsPage() {
         onCategoryClick={navigateToCategory}
       />
 
-      {/* Category breakdown (stacked monthly chart + per-category rows) */}
+      {/* Category breakdown (per-category rows) */}
       <CategoryBreakdownCard
         sortedBreakdown={sortedBreakdown}
         totalExpenses={totalExpenses}
