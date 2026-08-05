@@ -99,6 +99,17 @@ export interface Pot {
   createdAt: string;
 }
 
+// A pot's net over the currently filtered range, as opposed to `Pot.netAmount`
+// which is lifetime. `isPartial` means the range excludes some pot members.
+export interface PotRangeTotal {
+  groupId: string;
+  net: number;
+  /** Members inside the range; both counts exclude internal transfers. */
+  memberCount: number;
+  totalMemberCount: number;
+  isPartial: boolean;
+}
+
 export interface UpcomingSpike {
   id: string;
   name: string;
