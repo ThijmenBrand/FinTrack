@@ -5,8 +5,11 @@ import { eq, and, gte, lte, sql, inArray, type SQL } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { effectiveExpenseAmount, potSpentAmount } from "@/lib/reimbursement-sql";
 import { getStatsCutoff, isBeforeCutoff } from "@/lib/stat-reset";
+import { trendWindow } from "@/lib/trend-window";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+/** Months of history the monthly bars always cover, current month included. */
+const TREND_MONTHS = 12;
 
 /**
  * GET /api/insights — aggregated spending data for charts
@@ -111,6 +114,14 @@ export async function GET(request: NextRequest) {
     // floors per pot over the whole range). Deliberate edge: a pot that nets
     // positive over the range floors to 0 in the summary but nets negative in
     // the time series — rare and accepted.
+    // The monthly bars are a trend, so they always span a trailing year even
+    // when the selected range is a single month — otherwise "Monthly" draws one
+    // bar and says nothing. The time series is therefore queried over the union
+    // of the range and that window; `dailyTotals` is trimmed back to the range
+    // below so every other consumer stays range-scoped.
+    const series = trendWindow(dateFrom, dateTo, TREND_MONTHS);
+    const seriesConditions = buildConditions(series.from, series.to);
+
     const [directDaily, potDaily] = await Promise.all([
       db
         .select({
@@ -121,7 +132,7 @@ export async function GET(request: NextRequest) {
           ) ELSE 0 END)`,
         })
         .from(transactions)
-        .where(and(sql`${transactions.groupId} IS NULL`, ...conditions))
+        .where(and(sql`${transactions.groupId} IS NULL`, ...seriesConditions))
         .groupBy(transactions.date),
       db
         .select({
@@ -133,7 +144,7 @@ export async function GET(request: NextRequest) {
         .where(
           and(
             sql`${transactions.type} != 'internal_transfer'`,
-            ...conditions,
+            ...seriesConditions,
           ),
         )
         .groupBy(transactions.date),
@@ -149,8 +160,12 @@ export async function GET(request: NextRequest) {
       entry.expenses += p.delta ?? 0;
       dailyByDate.set(p.date, entry);
     }
-    const dailyTotals = [...dailyByDate.values()].sort((a, b) =>
+    const seriesDaily = [...dailyByDate.values()].sort((a, b) =>
       a.date.localeCompare(b.date),
+    );
+    // Back to the selected range for the daily/weekly views and the summary.
+    const dailyTotals = seriesDaily.filter(
+      (d) => (!dateFrom || d.date >= dateFrom) && (!dateTo || d.date <= dateTo),
     );
 
     // Monthly totals derived from the merged dailies so they reconcile.
@@ -158,7 +173,7 @@ export async function GET(request: NextRequest) {
       string,
       { month: string; income: number; expenses: number }
     >();
-    for (const d of dailyTotals) {
+    for (const d of seriesDaily) {
       const month = d.date.slice(0, 7);
       const m = monthlyMap.get(month) ?? { month, income: 0, expenses: 0 };
       m.income += d.income;

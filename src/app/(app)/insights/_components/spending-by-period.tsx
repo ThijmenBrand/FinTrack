@@ -33,6 +33,8 @@ interface SpendingByPeriodProps {
   monthlyTotals: { month: string; income: number; expenses: number }[];
   /** Statistics resets, newest first. The newest one dims everything before it. */
   resets: StatResetData[];
+  /** Clicking a bucket opens the transactions list for its inclusive date range. */
+  onSelectRange: (from: string, to: string) => void;
 }
 
 function formatTick(amount: number) {
@@ -170,9 +172,12 @@ export function SpendingByPeriod({
   dailyTotals,
   monthlyTotals,
   resets,
+  onSelectRange,
 }: SpendingByPeriodProps) {
-  // Long ranges: daily bars get too dense, so hide that tab.
-  const hideDaily = monthlyTotals.length > 3;
+  // Long ranges: daily bars get too dense, so hide that tab. Measured on the
+  // dailies, since monthlyTotals always spans a trailing year.
+  const hideDaily =
+    new Set(dailyTotals.map((d) => d.date.slice(0, 7))).size > 3;
   const [rawGranularity, setGranularity] = useState<Granularity>(
     hideDaily ? "monthly" : "weekly"
   );
@@ -272,6 +277,15 @@ export function SpendingByPeriod({
                 <span className="mx-1.5 text-muted-foreground/60">·</span>
                 <span className="tabular-nums">{formatCurrency(avg)}</span>{" "}
                 avg / {granularityNoun}
+                {/* Monthly reaches past the page's date range, so the total it
+                    reports needs to say how far. */}
+                {granularity === "monthly" && (
+                  <span className="text-muted-foreground/80">
+                    {" "}
+                    · across {liveEntries.length} month
+                    {liveEntries.length === 1 ? "" : "s"}
+                  </span>
+                )}
                 {eraStart > 0 && (
                   <span className="text-muted-foreground/80">
                     {" "}
@@ -369,8 +383,15 @@ export function SpendingByPeriod({
                       return (
                         <Fragment key={entry.key}>
                         {mark && <ResetRule mark={mark} />}
-                        <div
-                          className="relative flex-1 min-w-[16px] h-full flex flex-col justify-end cursor-pointer"
+                        <button
+                          type="button"
+                          aria-label={`View transactions for ${entry.label}`}
+                          className="relative flex-1 min-w-[16px] h-full flex flex-col justify-end cursor-pointer rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          onClick={() => onSelectRange(entry.start, entry.end)}
+                          onFocus={() => setHoveredKey(entry.key)}
+                          onBlur={() =>
+                            setHoveredKey((k) => (k === entry.key ? null : k))
+                          }
                           onMouseEnter={() => setHoveredKey(entry.key)}
                           onMouseLeave={() =>
                             setHoveredKey((k) => (k === entry.key ? null : k))
@@ -442,7 +463,7 @@ export function SpendingByPeriod({
                               }}
                             />
                           )}
-                        </div>
+                        </button>
                         </Fragment>
                       );
                     })}
