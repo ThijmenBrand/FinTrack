@@ -32,16 +32,20 @@ export function useMoneyFlow(params: {
   dateFrom?: string;
   dateTo?: string;
   accountId?: string;
+  /** The diagram is collapsed by default; don't pay for it until it's opened. */
+  enabled?: boolean;
 }) {
+  const { enabled = true, ...query } = params;
   const searchParams = new URLSearchParams();
-  if (params.dateFrom) searchParams.set("dateFrom", params.dateFrom);
-  if (params.dateTo) searchParams.set("dateTo", params.dateTo);
-  if (params.accountId) searchParams.set("accountId", params.accountId);
+  if (query.dateFrom) searchParams.set("dateFrom", query.dateFrom);
+  if (query.dateTo) searchParams.set("dateTo", query.dateTo);
+  if (query.accountId) searchParams.set("accountId", query.accountId);
 
   return useQuery({
-    queryKey: ["insights-flow", params],
+    queryKey: ["insights-flow", query],
     queryFn: () => apiFetch<MoneyFlowData>(`/api/insights/flow?${searchParams}`),
     staleTime: 2 * 60 * 1000,
+    enabled,
   });
 }
 

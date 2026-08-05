@@ -313,10 +313,12 @@ export default function InsightsPage() {
     prevDateFrom: prevRange?.from,
     prevDateTo: prevRange?.to,
   });
+  const [flowOpen, setFlowOpen] = useState(false);
   const { data: flowData, isLoading: flowLoading } = useMoneyFlow({
     dateFrom,
     dateTo,
     accountId: accountIdParam,
+    enabled: flowOpen,
   });
   // Full history: the chart has its own range picker (1M…All) and slices
   // client-side, so it must not be capped by the page's date preset.
@@ -506,11 +508,6 @@ export default function InsightsPage() {
         onCategoryClick={navigateToCategory}
       />
 
-      {/* The whole period on one canvas: what came in, which account held it,
-          where it left to. Sits above the category detail because it's the
-          only view that shows the account leg of the journey. */}
-      <MoneyFlow data={flowData} isLoading={flowLoading} />
-
       {/* Category breakdown (stacked monthly chart + per-category rows) */}
       <CategoryBreakdownCard
         sortedBreakdown={sortedBreakdown}
@@ -553,6 +550,16 @@ export default function InsightsPage() {
       <TopSpending
         merchants={data.topMerchants}
         totalExpenses={totalExpenses}
+      />
+
+      {/* The whole period on one canvas: what came in, which account held it,
+          where it left to. Collapsed at the bottom — it's the deep-dive view,
+          not something to scroll past on every visit. */}
+      <MoneyFlow
+        data={flowData}
+        isLoading={flowLoading}
+        open={flowOpen}
+        onOpenChange={setFlowOpen}
       />
     </div>
   );
