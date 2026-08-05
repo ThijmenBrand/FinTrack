@@ -13,7 +13,6 @@ const {
   reimbursementLinks,
 } = await import("@/db/schema");
 const { buildMoneyFlow } = await import("./money-flow");
-const { layoutSankey } = await import("./sankey");
 
 const USER = "user-1";
 const NOW = "2026-07-01T00:00:00.000Z";
@@ -221,7 +220,7 @@ describe("buildMoneyFlow", () => {
     expect(link(flow, "acct:external", "cat:__left")).toBeUndefined();
   });
 
-  it("nets a cycle of three accounts so the layout stays a DAG", async () => {
+  it("nets a cycle of three accounts down to what really moved", async () => {
     await db.insert(accounts).values({ id: "third", userId: USER, name: "Third", type: "savings", sortOrder: 2, createdAt: NOW, updatedAt: NOW });
     await transferPair("checking", "savings", 300);
     await transferPair("savings", "third", 200);
@@ -231,11 +230,6 @@ describe("buildMoneyFlow", () => {
     expect(link(flow, "acct:checking", "acct:savings")?.value).toBe(200);
     expect(link(flow, "acct:savings", "acct:third")?.value).toBe(100);
     expect(link(flow, "acct:third", "acct:checking")).toBeUndefined();
-
-    // balance → checking → savings → third → leftover: the real chain length,
-    // not the runaway relaxation a surviving cycle drives to MAX_DEPTH.
-    const { nodes } = layoutSankey(flow.nodes, flow.links, { width: 600, height: 400 });
-    expect(Math.max(...nodes.map((n) => n.depth))).toBe(4);
   });
 
   it("routes income booked to a spending category instead of netting it away", async () => {

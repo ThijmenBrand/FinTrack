@@ -41,17 +41,17 @@ type Node = MoneyFlowData["nodes"][number];
 type Bucket = { accountId: string; categoryId: string | null; total: number };
 
 /**
- * The Sankey behind the Insights "Money flow" card: income sources (by
- * category) → accounts → spending categories, with account→account ribbons for
+ * The graph behind the Insights "Money flow" card: income sources (by
+ * category) → accounts → spending categories, with account→account edges for
  * internal transfers.
  *
- * The left column adds up to the Income card and the right to the Expenses
+ * The in side adds up to the Income card and the out side to the Expenses
  * card, because the same netting is applied and no more: expenses are
  * reimbursement-adjusted, and pot (transaction-group) spending is netted per
  * pot and attributed to the pot's own category. Income is NOT netted off
  * same-category spending the way /api/insights' categoryBreakdown does — that
- * turns a €2.000 gift booked to a category with €2.000 of spend into no
- * ribbons at all, and the diagram silently loses money the cards report.
+ * turns a €2.000 gift booked to a category with €2.000 of spend into no flows
+ * at all, and the card silently loses money the other cards report.
  *
  * What's left over after those flows — money that arrived before the window or
  * stayed put — closes each in-scope account's bar as "From balance" / "Left in
@@ -97,9 +97,9 @@ export async function buildMoneyFlow(
     acctRows,
     catRows,
   ] = await Promise.all([
-    // Ungrouped expenses and income in one pass, kept on separate legs: a
-    // Sankey has to route every euro that arrived, so income booked to a
-    // spending category is still a source, not a discount on that category.
+    // Ungrouped expenses and income in one pass, kept on separate legs: every
+    // euro that arrived has to be routed, so income booked to a spending
+    // category is still a source, not a discount on that category.
     // `reimbursed` is how much reimbursement money the expense leg absorbed.
     db
       .select({
@@ -349,8 +349,8 @@ export async function buildMoneyFlow(
   // Money that went round in a circle never really left, so the smallest leg of
   // a cycle is subtracted from every edge in it until the account graph is
   // acyclic. A savings buffer topped up and dipped into is the shortest case;
-  // longer ones matter because a Sankey can't lay a cycle out at all — it
-  // marches the columns rightwards until it hits the depth cap.
+  // without this both legs are listed at full size and the account looks like
+  // it moved twice the money it did.
   const findCycle = (): string[] | null => {
     const out = new Map<string, string[]>();
     for (const [key, value] of pairs) {

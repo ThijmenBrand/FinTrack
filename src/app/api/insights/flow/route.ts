@@ -7,7 +7,7 @@ const isoDate = (value: string | null) =>
   value && ISO_DATE.test(value) ? value : null;
 
 /**
- * GET /api/insights/flow — money-flow (Sankey) graph for a range.
+ * GET /api/insights/flow — money-flow graph for a range.
  * Query params: dateFrom, dateTo, accountId (comma-separated).
  */
 export async function GET(request: NextRequest) {

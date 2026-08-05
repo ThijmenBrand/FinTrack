@@ -392,7 +392,7 @@ export interface InsightsData {
   }[];
 }
 
-/** Sankey graph of income sources → accounts → spending, plus transfers. */
+/** Flow graph of income sources → accounts → spending, plus transfers. */
 export interface MoneyFlowData {
   nodes: {
     id: string;

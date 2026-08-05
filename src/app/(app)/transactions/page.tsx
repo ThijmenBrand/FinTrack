@@ -147,13 +147,16 @@ function TransactionsPage() {
   }, [search, accountFilter, potFilter, categoryFilters, typeFilters, periodFilter, dateFromOverride, dateToOverride, excludeCategories, excludeTypes, sortBy, sortOrder, router]);
 
   // The "hide internal transfers" preference excludes that type from the query
-  // without showing up as a removable filter chip.
+  // without showing up as a removable filter chip. Asking for transfers
+  // explicitly (a money-flow leg, a type chip) beats the preference — otherwise
+  // the list comes back empty with nothing on screen explaining why.
   const queryExcludeTypes = useMemo(() => {
     if (!preferences?.hideInternalTransfers) return excludeTypes;
+    if (typeFilters.includes("internal_transfer")) return excludeTypes;
     return excludeTypes.includes("internal_transfer")
       ? excludeTypes
       : [...excludeTypes, "internal_transfer"];
-  }, [excludeTypes, preferences?.hideInternalTransfers]);
+  }, [excludeTypes, typeFilters, preferences?.hideInternalTransfers]);
 
   // Compute dateFrom/dateTo — URL overrides win over period preset
   const { from: dateFrom, to: dateTo } = useMemo(() => {

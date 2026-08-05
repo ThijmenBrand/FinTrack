@@ -357,8 +357,9 @@ export default function InsightsPage() {
     for (const [k, v] of Object.entries(extra)) {
       if (v) params.set(k, v);
     }
-    // The transactions page only filters on a single account.
-    if (selectedAccountIds.length === 1)
+    // The transactions page only filters on a single account. A caller that
+    // named one (a money-flow leg belongs to one account) wins.
+    if (!params.has("account") && selectedAccountIds.length === 1)
       params.set("account", selectedAccountIds[0]);
     const mappedPeriod = PRESET_TO_TX_PERIOD[preset];
     // When a financial month is active, the transactions page's "this-month"/"last-month"
@@ -560,6 +561,7 @@ export default function InsightsPage() {
         isLoading={flowLoading}
         open={flowOpen}
         onOpenChange={setFlowOpen}
+        onSelect={navigateToTransactions}
       />
     </div>
   );

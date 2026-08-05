@@ -1,9 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { ChevronRight } from "lucide-react";
 import { Card, CardContent, CardTitle } from "@/components/ui/card";
-import { layoutSankey } from "@/lib/sankey";
 import { formatCurrency } from "@/lib/utils";
 import type { MoneyFlowData } from "@/types/api";
 
@@ -12,77 +11,140 @@ interface MoneyFlowProps {
   isLoading: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Opens the transactions list with these filters. */
+  onSelect: (filters: Record<string, string>) => void;
 }
 
-// Width of the diagram itself; the label gutters are measured from the labels
-// and added on top, so a long account name widens the SVG instead of clipping.
-const INNER_WIDTH = 632;
-const NODE_WIDTH = 12;
-const ROW = 30;
-const CHAR_W = 6; // ~advance of the 11px label font
-const MAX_NAME = 24;
+type Leg = { id: string; name: string; color: string; value: number };
 
-const shortName = (name: string) =>
-  name.length > MAX_NAME ? `${name.slice(0, MAX_NAME - 1)}…` : name;
-
-const gutter = (nodes: { name: string; value: number }[]) =>
-  Math.max(
-    100,
-    ...nodes.map(
-      (n) =>
-        (shortName(n.name).length + formatCurrency(n.value).length + 1) *
-          CHAR_W +
-        16,
-    ),
-  );
-
-// Labels sit on top of the ribbons in the middle columns, so they're painted
-// with a card-coloured outline to stay legible.
-const LABEL_STYLE = {
-  paintOrder: "stroke" as const,
-  stroke: "var(--card)",
-  strokeWidth: 3,
-  strokeLinejoin: "round" as const,
-};
+const total = (legs: Leg[]) => legs.reduce((s, l) => s + l.value, 0);
+const bySize = (a: Leg, b: Leg) => b.value - a.value;
 
 /**
- * Where the money came from, which account it landed in, and where it left to —
- * a Sankey across income sources → accounts → spending categories, with
- * account-to-account ribbons for internal transfers.
+ * The transactions filters a leg stands for, or null for the aggregate legs
+ * ("Other income", "Left in account", uncategorized) that no filter can
+ * reproduce. Node ids come from buildMoneyFlow: `in:`/`cat:` + category id,
+ * or `acct:` + account id for transfers.
+ */
+export function legFilters(accountId: string, nodeId: string): Record<string, string> | null {
+  const sep = nodeId.indexOf(":");
+  const kind = nodeId.slice(0, sep);
+  const id = nodeId.slice(sep + 1);
+  if (kind === "acct")
+    return id === "external" ? null : { account: accountId, type: "internal_transfer" };
+  if (id === "__reimb") return { account: accountId, type: "reimbursement" };
+  if (id === "none" || id === "other" || id.startsWith("__")) return null;
+  return {
+    account: accountId,
+    category: id,
+    type: kind === "in" ? "income" : "expense",
+  };
+}
+
+function Legs({
+  title,
+  legs,
+  max,
+  accountId,
+  onSelect,
+}: {
+  title: string;
+  legs: Leg[];
+  max: number;
+  accountId: string;
+  onSelect: (filters: Record<string, string>) => void;
+}) {
+  return (
+    <div className="min-w-0">
+      <div className="mb-1 flex items-baseline justify-between gap-2 border-b pb-1">
+        <span className="text-xs font-medium text-muted-foreground">
+          {title}
+        </span>
+        <span className="text-xs tabular-nums text-muted-foreground">
+          {formatCurrency(total(legs))}
+        </span>
+      </div>
+      {legs.length === 0 ? (
+        <p className="py-1 text-sm text-muted-foreground">Nothing this period</p>
+      ) : (
+        legs.map((leg) => {
+          const filters = legFilters(accountId, leg.id);
+          return (
+            <button
+              key={leg.id}
+              type="button"
+              disabled={!filters}
+              onClick={filters ? () => onSelect(filters) : undefined}
+              className="-mx-2 grid w-[calc(100%+1rem)] grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 rounded-md px-2 py-1 text-left enabled:hover:bg-muted/60 disabled:cursor-default"
+            >
+              <span className="min-w-0 truncate text-sm">{leg.name}</span>
+              <span className="text-right text-sm tabular-nums whitespace-nowrap">
+                {formatCurrency(leg.value)}
+              </span>
+              <div className="col-span-2 h-1 overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full"
+                  style={{
+                    width: `${(leg.value / max) * 100}%`,
+                    backgroundColor: leg.color,
+                  }}
+                />
+              </div>
+            </button>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
+/**
+ * Where the money came from and where it left to, per account: income sources
+ * and incoming transfers on one side, spending categories and outgoing
+ * transfers on the other. Bars are scaled across the whole period, so a leg's
+ * width is comparable between accounts.
  */
 export function MoneyFlow({
   data,
   isLoading,
   open,
   onOpenChange,
+  onSelect,
 }: MoneyFlowProps) {
-  const [hovered, setHovered] = useState<string | null>(null);
-
-  const height = Math.max(
-    320,
-    Math.min(760, (data?.nodes.length ?? 0) * ROW),
-  );
-
-  const layout = useMemo(
-    () =>
-      layoutSankey(data?.nodes ?? [], data?.links ?? [], {
-        width: INNER_WIDTH,
-        height,
-        nodeWidth: NODE_WIDTH,
-      }),
-    [data, height],
-  );
-
-  const nodeById = useMemo(
-    () => new Map(layout.nodes.map((n) => [n.id, n])),
-    [layout],
-  );
-  const maxDepth = Math.max(0, ...layout.nodes.map((n) => n.depth));
-  // Only the first column labels outward-left and only the last column runs
-  // past the right edge; middle labels sit over the ribbons.
-  const marginLeft = gutter(layout.nodes.filter((n) => n.depth === 0));
-  const marginRight = gutter(layout.nodes.filter((n) => n.depth === maxDepth));
-  const active = (id: string) => hovered === null || hovered === id;
+  const { groups, max } = useMemo(() => {
+    const nodes = new Map((data?.nodes ?? []).map((n) => [n.id, n]));
+    const links = data?.links ?? [];
+    const leg = (id: string, value: number): Leg => {
+      const node = nodes.get(id);
+      return {
+        id,
+        name: node?.name ?? "Unknown",
+        color: node?.color ?? "currentColor",
+        value,
+      };
+    };
+    const groups = (data?.nodes ?? [])
+      .filter((n) => n.kind === "account")
+      .map((account) => ({
+        account,
+        inLegs: links
+          .filter((l) => l.target === account.id)
+          .map((l) => leg(l.source, l.value))
+          .sort(bySize),
+        outLegs: links
+          .filter((l) => l.source === account.id)
+          .map((l) => leg(l.target, l.value))
+          .sort(bySize),
+      }))
+      .sort(
+        (a, b) =>
+          total(b.inLegs) +
+          total(b.outLegs) -
+          total(a.inLegs) -
+          total(a.outLegs),
+      );
+    return { groups, max: Math.max(1, ...links.map((l) => l.value)) };
+  }, [data]);
 
   return (
     <Card>
@@ -96,7 +158,7 @@ export function MoneyFlow({
           <ChevronRight className="h-4 w-4 shrink-0 self-center text-muted-foreground transition-transform group-[[open]]:rotate-90" />
           <CardTitle className="text-base">Money flow</CardTitle>
           <span className="text-xs text-muted-foreground">
-            income → accounts → spending · net of reimbursements
+            per account: what came in, where it left to · net of reimbursements
           </span>
         </summary>
         <CardContent>
@@ -104,80 +166,39 @@ export function MoneyFlow({
             <p className="text-muted-foreground text-sm py-8 text-center">
               Following the money…
             </p>
-          ) : layout.nodes.length === 0 ? (
+          ) : groups.length === 0 ? (
             <p className="text-muted-foreground text-sm py-8 text-center">
               No flows to show for this period.
             </p>
           ) : (
-            <div className="overflow-x-auto">
-              <svg
-                viewBox={`0 0 ${marginLeft + INNER_WIDTH + marginRight} ${
-                  height + 16
-                }`}
-                className="w-full min-w-[720px]"
-                role="img"
-                aria-label="Money flow diagram"
-              >
-                <g transform={`translate(${marginLeft}, 8)`}>
-                  {layout.links.map((l) => (
-                    <path
-                      key={`${l.source} ${l.target}`}
-                      d={l.path}
-                      fill="none"
-                      stroke={nodeById.get(l.source)?.color ?? "currentColor"}
-                      strokeWidth={l.width}
-                      className="transition-opacity"
-                      opacity={active(l.source) || active(l.target) ? 0.42 : 0.08}
-                      onMouseEnter={() => setHovered(l.source)}
-                      onMouseLeave={() => setHovered(null)}
-                    >
-                      <title>
-                        {`${nodeById.get(l.source)?.name} → ${
-                          nodeById.get(l.target)?.name
-                        }: ${formatCurrency(l.value)}`}
-                      </title>
-                    </path>
-                  ))}
-
-                  {layout.nodes.map((n) => {
-                    // First column labels outside on the left, everything else to
-                    // the right of its bar.
-                    const leftLabel = n.depth === 0 && maxDepth > 0;
-                    return (
-                      <g
-                        key={n.id}
-                        onMouseEnter={() => setHovered(n.id)}
-                        onMouseLeave={() => setHovered(null)}
-                      >
-                        <rect
-                          x={n.x0}
-                          y={n.y0}
-                          width={n.x1 - n.x0}
-                          height={Math.max(n.y1 - n.y0, 1)}
-                          fill={n.color ?? "currentColor"}
-                          rx={2}
-                        >
-                          <title>{`${n.name}: ${formatCurrency(n.value)}`}</title>
-                        </rect>
-                        <text
-                          x={leftLabel ? n.x0 - 8 : n.x1 + 8}
-                          y={(n.y0 + n.y1) / 2}
-                          textAnchor={leftLabel ? "end" : "start"}
-                          dominantBaseline="middle"
-                          className="fill-foreground text-[11px]"
-                          style={LABEL_STYLE}
-                          opacity={active(n.id) ? 1 : 0.35}
-                        >
-                          {shortName(n.name)}
-                          <tspan className="fill-muted-foreground" dx={6}>
-                            {formatCurrency(n.value)}
-                          </tspan>
-                        </text>
-                      </g>
-                    );
-                  })}
-                </g>
-              </svg>
+            <div className="space-y-6">
+              {groups.map(({ account, inLegs, outLegs }) => (
+                <div key={account.id}>
+                  <p className="mb-2 flex items-center gap-2 text-sm font-medium">
+                    <span
+                      className="h-2.5 w-2.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: account.color }}
+                    />
+                    {account.name}
+                  </p>
+                  <div className="grid gap-x-8 gap-y-4 sm:grid-cols-2">
+                    <Legs
+                      title="In"
+                      legs={inLegs}
+                      max={max}
+                      accountId={account.id.slice("acct:".length)}
+                      onSelect={onSelect}
+                    />
+                    <Legs
+                      title="Out"
+                      legs={outLegs}
+                      max={max}
+                      accountId={account.id.slice("acct:".length)}
+                      onSelect={onSelect}
+                    />
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </CardContent>
