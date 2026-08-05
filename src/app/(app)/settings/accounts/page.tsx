@@ -171,7 +171,7 @@ function SortableAccountCard({
                 {isDefault && (
                   <span
                     className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
-                    title="Default account for Insights"
+                    title="Fallback account for the Dashboard and Insights when you have no checking account"
                   >
                     <Star className="h-2.5 w-2.5 fill-current" />
                     Default

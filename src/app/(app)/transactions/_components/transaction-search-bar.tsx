@@ -129,8 +129,16 @@ export function TransactionSearchBar({
   const activeTokens = useMemo(() => {
     const tokens: FilterToken[] = [];
     if (accountFilter !== "all") {
-      const acc = accounts.find((a) => a.id === accountFilter);
-      tokens.push({ key: "account", value: accountFilter, prefix: "account:", text: acc?.name || accountFilter });
+      // The dashboard links here with its whole account scope, so the filter
+      // can be a comma-separated list.
+      const ids = accountFilter.split(",");
+      const names = ids.map((id) => accounts.find((a) => a.id === id)?.name).filter(Boolean);
+      tokens.push({
+        key: "account",
+        value: accountFilter,
+        prefix: "account:",
+        text: names.length === ids.length ? names.join(", ") : `${ids.length} accounts`,
+      });
     }
     for (const id of categoryFilters) {
       const cat = categories.find((c) => c.id === id);

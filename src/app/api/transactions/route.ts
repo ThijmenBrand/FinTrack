@@ -18,7 +18,9 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(100, Math.max(1, Number(searchParams.get("limit")) || 25));
     const sortBy = searchParams.get("sortBy") || "date";
     const sortOrder = searchParams.get("sortOrder") || "desc";
-    const accountId = searchParams.get("accountId");
+    // accountId may be a comma-separated list (the dashboard links to its whole
+    // account scope, not a single account).
+    const accountIds = searchParams.get("accountId")?.split(",").filter(Boolean) ?? [];
     const groupId = searchParams.get("groupId");
     const types = searchParams.getAll("type").filter(Boolean);
     const search = searchParams.get("search");
@@ -39,7 +41,7 @@ export async function GET(request: NextRequest) {
     // type filter keeps strips the income/reimbursement legs and reports gross
     // spend instead.
     const scopeConditions = [eq(transactions.userId, userId)];
-    if (accountId) scopeConditions.push(eq(transactions.accountId, accountId));
+    if (accountIds.length) scopeConditions.push(inArray(transactions.accountId, accountIds));
     if (groupId) scopeConditions.push(eq(transactions.groupId, groupId));
     if (dateFrom) scopeConditions.push(gte(transactions.date, dateFrom));
     if (dateTo) scopeConditions.push(lte(transactions.date, dateTo));

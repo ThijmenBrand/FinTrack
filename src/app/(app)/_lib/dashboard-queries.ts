@@ -15,6 +15,7 @@ import { classifyOnTrack } from "@/lib/on-track";
 import { getFinancialMonthRange, getPeriodProgress } from "@/lib/financial-month";
 import { formatCurrency, toIsoDate } from "@/lib/utils";
 import { effectiveExpenseAmount, potSpentAmount } from "@/lib/reimbursement-sql";
+import { defaultScopeAccountIds } from "@/lib/account-scope";
 import type {
   MonthMoneyView,
   SavingTowardSpike,
@@ -90,25 +91,41 @@ function getDateRanges(startDay: number = 1) {
 }
 
 /**
- * Resolve a single `defaultAccountId` to the set of accounts whose activity
- * should count toward "your" spending: the default account itself, plus any
- * account that received an `internal_transfer` paired with an outflow on the
- * default account during the period.
+ * The accounts the dashboard scopes to by default — every checking account,
+ * falling back to the single default-account preference. See
+ * {@link defaultScopeAccountIds}.
+ */
+export const getDefaultScopeAccountIds = cache(async (
+  userId: string,
+  defaultAccountId: string | null,
+): Promise<string[]> => {
+  const rows = await db
+    .select({ id: accounts.id, type: accounts.type })
+    .from(accounts)
+    .where(eq(accounts.userId, userId));
+  return defaultScopeAccountIds(rows, defaultAccountId);
+});
+
+/**
+ * Expand the scoped accounts to the set whose activity should count toward
+ * "your" spending: the scoped accounts themselves, plus any account that
+ * received an `internal_transfer` paired with an outflow on one of them during
+ * the period.
  *
  * This handles the cross-account spending case: when the user transfers €X
  * from their main account to a secondary account and then spends from the
- * secondary, that spending was funded from the default account and should
+ * secondary, that spending was funded from the scoped accounts and should
  * still appear in the account-scoped Expenses / Free to Spend tiles.
  *
- * Returns `undefined` (meaning "no scoping") when `defaultAccountId` is null.
+ * Returns `undefined` (meaning "no scoping") when the scope is empty.
  */
 async function getFundedAccountIds(
   userId: string,
-  defaultAccountId: string | undefined,
+  scopeAccountIds: string[] | undefined,
   from: string,
   to: string,
 ): Promise<string[] | undefined> {
-  if (!defaultAccountId) return undefined;
+  if (!scopeAccountIds || scopeAccountIds.length === 0) return undefined;
   const rows = await db
     .select({ destAccountId: transactions.accountId })
     .from(transactions)
@@ -116,7 +133,7 @@ async function getFundedAccountIds(
       sql`transactions src`,
       sql`src.id = ${transactions.linkedTransactionId}
           AND src.user_id = ${userId}
-          AND src.account_id = ${defaultAccountId}
+          AND ${inArray(sql`src.account_id`, scopeAccountIds)}
           AND src.amount < 0
           AND src.date >= ${from} AND src.date <= ${to}`,
     )
@@ -127,7 +144,7 @@ async function getFundedAccountIds(
         sql`${transactions.amount} > 0`,
       ),
     );
-  const set = new Set<string>([defaultAccountId]);
+  const set = new Set<string>(scopeAccountIds);
   for (const r of rows) if (r.destAccountId) set.add(r.destAccountId);
   return Array.from(set);
 }
@@ -514,10 +531,10 @@ export function walkBalanceBack(
 export async function getMonthSummary(
   userId: string,
   startDay: number = 1,
-  accountId?: string,
+  scopeAccountIds?: string[],
 ) {
   const { monthStart, monthEnd } = getDateRanges(startDay);
-  const accountIds = await getFundedAccountIds(userId, accountId, monthStart, monthEnd);
+  const accountIds = await getFundedAccountIds(userId, scopeAccountIds, monthStart, monthEnd);
   const accountFilter = accountIds && accountIds.length > 0
     ? inArray(transactions.accountId, accountIds)
     : sql`1=1`;
@@ -693,14 +710,14 @@ function baseSpikeFields(
 export async function getMonthMoneyView(
   userId: string,
   startDay: number = 1,
-  accountId?: string,
+  scopeAccountIds?: string[],
 ): Promise<MonthMoneyView> {
   const { monthStart, monthEnd } = getDateRanges(startDay);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const todayIso = toIsoDate(today);
 
-  const accountIds = await getFundedAccountIds(userId, accountId, monthStart, monthEnd);
+  const accountIds = await getFundedAccountIds(userId, scopeAccountIds, monthStart, monthEnd);
 
   const [math, schedule, rows] = await Promise.all([
     getMonthMoneyMath(userId, startDay, { accountIds }),
@@ -853,10 +870,10 @@ export async function getSavingTowardSpikes(
 export async function getTopCategories(
   userId: string,
   startDay: number = 1,
-  accountId?: string,
+  scopeAccountIds?: string[],
 ) {
   const { monthStart, monthEnd } = getDateRanges(startDay);
-  const accountIds = await getFundedAccountIds(userId, accountId, monthStart, monthEnd);
+  const accountIds = await getFundedAccountIds(userId, scopeAccountIds, monthStart, monthEnd);
   const accountFilter = accountIds && accountIds.length > 0
     ? inArray(transactions.accountId, accountIds)
     : sql`1=1`;

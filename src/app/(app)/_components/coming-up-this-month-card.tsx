@@ -13,13 +13,13 @@ import { ComingUpThisMonthList } from "./coming-up-this-month-list";
 export async function ComingUpThisMonthCard({
   userId,
   startDay = 1,
-  accountId,
+  accountIds,
 }: {
   userId: string;
   startDay?: number;
-  accountId?: string;
+  accountIds?: string[];
 }) {
-  const money = await getMonthMoneyView(userId, startDay, accountId);
+  const money = await getMonthMoneyView(userId, startDay, accountIds);
 
   if (money.thisMonthSpikes.length === 0) return null;
 

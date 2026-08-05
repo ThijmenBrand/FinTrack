@@ -95,15 +95,15 @@ function Stat({
 export async function PeriodSummary({
   userId,
   startDay = 1,
-  accountId,
+  accountIds,
 }: {
   userId: string;
   startDay?: number;
-  accountId?: string;
+  accountIds?: string[];
 }) {
   const [budget, summary] = await Promise.all([
     getBudgetOverview(userId, startDay),
-    getMonthSummary(userId, startDay, accountId),
+    getMonthSummary(userId, startDay, accountIds),
   ]);
 
   const period = getFinancialMonthRange(new Date(), startDay);
@@ -122,7 +122,7 @@ export async function PeriodSummary({
       dateFrom: period.from,
       dateTo: period.to,
     });
-    if (accountId) p.set("account", accountId);
+    if (accountIds?.length) p.set("account", accountIds.join(","));
     return `/transactions?${p}`;
   };
 
