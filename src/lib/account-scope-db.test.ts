@@ -4,9 +4,10 @@ import { setupTestDb } from "./test-db";
 // Must run before the lazy `@/db` proxy first connects (see test-db.ts).
 const testDb = await setupTestDb("account-scope");
 
-const { getDefaultScopeAccountIds, getMonthSummary } = await import(
+const { getScopeAccountRows, getMonthSummary } = await import(
   "@/app/(app)/_lib/dashboard-queries"
 );
+const { defaultScopeAccountIds } = await import("@/lib/account-scope");
 const { db } = await import("@/db");
 const { accounts, transactions } = await import("@/db/schema");
 
@@ -46,7 +47,7 @@ afterAll(() => testDb.cleanup());
 
 describe("dashboard account scope", () => {
   it("defaults to every checking account", async () => {
-    expect(await getDefaultScopeAccountIds(USER, null)).toEqual(["chk-1", "chk-2"]);
+    expect(defaultScopeAccountIds(await getScopeAccountRows(USER), null)).toEqual(["chk-1", "chk-2"]);
   });
 
   it("sums both checking accounts and skips savings", async () => {

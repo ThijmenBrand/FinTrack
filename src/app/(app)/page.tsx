@@ -13,7 +13,8 @@ import {
   PeriodSummary,
   PeriodSummarySkeleton,
 } from "./_components/period-summary";
-import { getDefaultScopeAccountIds } from "./_lib/dashboard-queries";
+import { getScopeAccountRows } from "./_lib/dashboard-queries";
+import { defaultScopeAccountIds } from "@/lib/account-scope";
 import {
   BudgetCategories,
   BudgetCategoriesSkeleton,
@@ -63,10 +64,15 @@ function DashboardHeader({ startDay }: { startDay: number }) {
 export default async function DashboardPage() {
   const session = await requireAuth();
   const userId = session.userId;
-  const prefs = await getUserPreferences(userId);
+  // The account query doesn't depend on prefs, so don't wait on them serially —
+  // against a remote DB each round trip here delays every card below.
+  const [prefs, scopeRows] = await Promise.all([
+    getUserPreferences(userId),
+    getScopeAccountRows(userId),
+  ]);
   const startDay = prefs.financialMonthStartDay;
-  // Everyday money only: all checking accounts (see getDefaultScopeAccountIds).
-  const accountIds = await getDefaultScopeAccountIds(userId, prefs.defaultAccountId);
+  // Everyday money only: all checking accounts (see defaultScopeAccountIds).
+  const accountIds = defaultScopeAccountIds(scopeRows, prefs.defaultAccountId);
 
   return (
     <div className="space-y-4">
