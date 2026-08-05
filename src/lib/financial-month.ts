@@ -43,6 +43,34 @@ export function getPreviousFinancialMonth(
   return { from: toIsoDate(prevStart), to: toIsoDate(prevEnd) };
 }
 
+// Where `reference` sits inside its financial month. `elapsedDays` and
+// `daysLeft` both count today, so they overlap by one and sum to totalDays + 1.
+// `progress` drives the "today" markers on budget bars.
+export function getPeriodProgress(reference: Date, startDay: number) {
+  const { from, to } = getFinancialMonthRange(reference, startDay);
+  // Parse as local midnight so the math matches the local `todayMs` below.
+  const startMs = new Date(`${from}T00:00:00`).getTime();
+  const endMs = new Date(`${to}T00:00:00`).getTime();
+  const totalDays = Math.round((endMs - startMs) / 86400000) + 1;
+  const todayMs = new Date(
+    reference.getFullYear(),
+    reference.getMonth(),
+    reference.getDate(),
+  ).getTime();
+  const elapsedDays = Math.min(
+    totalDays,
+    Math.max(1, Math.round((todayMs - startMs) / 86400000) + 1),
+  );
+  return {
+    from,
+    to,
+    totalDays,
+    elapsedDays,
+    daysLeft: totalDays - elapsedDays + 1,
+    progress: totalDays > 0 ? elapsedDays / totalDays : 0,
+  };
+}
+
 // Human label for the financial month that contains `reference`.
 // `startDay === 1` reduces to a calendar-month label ("May 2026"); otherwise
 // returns the explicit range ("Apr 27 – May 26").

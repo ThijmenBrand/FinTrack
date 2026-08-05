@@ -244,35 +244,3 @@
     animation: none !important;
   }
 }
-
-/* Advice notification banners */
-.advice-warning {
-  background-color: rgba(245, 158, 11, 0.15);
-  border-color: #f59e0b;
-  color: #92400e;
-}
-.advice-success {
-  background-color: rgba(16, 185, 129, 0.15);
-  border-color: #10b981;
-  color: #065f46;
-}
-.advice-info {
-  background-color: rgba(59, 130, 246, 0.15);
-  border-color: #3b82f6;
-  color: #1e3a5f;
-}
-.dark .advice-warning {
-  background-color: rgba(245, 158, 11, 0.2);
-  border-color: #d97706;
-  color: #fde68a;
-}
-.dark .advice-success {
-  background-color: rgba(16, 185, 129, 0.2);
-  border-color: #059669;
-  color: #a7f3d0;
-}
-.dark .advice-info {
-  background-color: rgba(59, 130, 246, 0.2);
-  border-color: #2563eb;
-  color: #bfdbfe;
-}

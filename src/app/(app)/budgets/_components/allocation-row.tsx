@@ -1,26 +1,40 @@
 "use client";
 
+import { useState } from "react";
 import type { Allocation } from "@/types/api";
 import { Button } from "@/components/ui/button";
 import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
 import { formatCurrency } from "@/lib/utils";
 import { Pencil } from "lucide-react";
+import {
+  ROW_GRID,
+  CELL_BAR,
+  CELL_AMOUNT,
+  CELL_DELTA,
+} from "./budget-row";
 
-function statusColor(status: Allocation["status"]): { bar: string; text: string } {
-  if (status === "exceeded") {
-    return { bar: "#ef4444", text: "text-red-600 dark:text-red-400" };
-  }
-  if (status === "warning") {
-    return { bar: "#f59e0b", text: "text-amber-600 dark:text-amber-400" };
-  }
-  return { bar: "", text: "text-muted-foreground" };
-}
+const TONE = {
+  exceeded: {
+    bar: "#ef4444",
+    text: "text-red-600 dark:text-red-400",
+    badge: "border-red-500/40 text-red-600 dark:text-red-400",
+    label: "over",
+  },
+  warning: {
+    bar: "#f59e0b",
+    text: "text-amber-600 dark:text-amber-400",
+    badge: "border-amber-500/40 text-amber-600 dark:text-amber-400",
+    label: "tight",
+  },
+  ok: { bar: "", text: "text-muted-foreground", badge: "", label: "" },
+} as const;
 
 interface AllocationRowProps {
   alloc: Allocation;
   readOnly?: boolean;
   deletePending?: boolean;
-  onClick: () => void;
+  /** Opens the full history dialog. */
+  onHistory: () => void;
   onEdit: () => void;
   onDelete: () => void | Promise<void>;
 }
@@ -29,81 +43,106 @@ export function AllocationRow({
   alloc,
   readOnly = false,
   deletePending,
-  onClick,
+  onHistory,
   onEdit,
   onDelete,
 }: AllocationRowProps) {
-  const colors = statusColor(alloc.status);
-  const barColor = colors.bar || alloc.categoryColor || "#3b82f6";
-  const remainingLabel =
-    alloc.status === "exceeded"
-      ? `${formatCurrency(alloc.spent - alloc.amount)} over`
-      : `${formatCurrency(alloc.remaining)} left`;
+  const [open, setOpen] = useState(false);
+  const tone = TONE[alloc.status];
+  const untouched = alloc.spent === 0;
+  const barColor = tone.bar || alloc.categoryColor || "#3b82f6";
 
   return (
-    <li
-      role="button"
-      tabIndex={0}
-      onClick={onClick}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onClick();
-        }
-      }}
-      className="group grid grid-cols-[auto_1fr_auto] items-center gap-x-3 gap-y-1 px-4 py-2.5 hover:bg-muted/50 cursor-pointer sm:grid-cols-[auto_minmax(0,1.4fr)_minmax(140px,2fr)_auto_auto]"
-    >
-      {/* Color dot */}
-      <span
-        className="h-2.5 w-2.5 rounded-full shrink-0"
-        style={{ backgroundColor: alloc.categoryColor || "#94a3b8" }}
-      />
+    <li>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className={`w-full cursor-pointer text-left transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none ${ROW_GRID}`}
+      >
+        {/* Color dot */}
+        <span
+          className={`h-2 w-2 shrink-0 rounded-full ${untouched ? "opacity-40" : ""}`}
+          style={{ backgroundColor: alloc.categoryColor || "#94a3b8" }}
+        />
 
-      {/* Name + avg */}
-      <div className="min-w-0">
-        <div className="truncate text-sm font-medium">{alloc.categoryName}</div>
-        {alloc.avgMonthly > 0 && (
-          <div className="truncate text-xs text-muted-foreground">
-            avg {formatCurrency(alloc.avgMonthly)}/mo · {alloc.avgMonths} mo
-          </div>
-        )}
-      </div>
+        {/* Name + status badge */}
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="truncate text-sm font-medium">
+            {alloc.categoryName}
+          </span>
+          {tone.label && (
+            <span
+              className={`shrink-0 rounded-full border px-1.5 py-px text-[10px] font-semibold ${tone.badge}`}
+            >
+              {tone.label}
+            </span>
+          )}
+        </span>
 
-      {/* Inline progress bar (desktop only) */}
-      <div className="col-span-3 sm:col-span-1 sm:px-2 row-start-2 sm:row-start-auto">
-        <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-          <div
-            className="h-full rounded-full transition-all duration-500"
-            style={{
-              width: `${Math.min(alloc.percentage, 100)}%`,
-              backgroundColor: barColor,
-            }}
-          />
-        </div>
-      </div>
+        {/* Progress */}
+        <span className={`block ${CELL_BAR}`}>
+          <span className="block h-1.5 overflow-hidden rounded-full bg-muted">
+            <span
+              className="block h-full rounded-full transition-all duration-500"
+              style={{
+                width: `${Math.min(alloc.percentage, 100)}%`,
+                backgroundColor: barColor,
+              }}
+            />
+          </span>
+        </span>
 
-      {/* Spent / Limit + status */}
-      <div className="text-right tabular-nums text-sm row-start-1 col-start-3 sm:row-start-auto sm:col-start-auto shrink-0">
-        <div>
+        {/* Spent / limit */}
+        <span
+          className={`whitespace-nowrap text-right text-sm tabular-nums ${CELL_AMOUNT}`}
+        >
           <span className="font-medium">{formatCurrency(alloc.spent)}</span>
           <span className="text-muted-foreground">
             {" / "}
             {formatCurrency(alloc.amount)}
           </span>
-        </div>
-        <div className={`text-xs ${colors.text}`}>{remainingLabel}</div>
-      </div>
+        </span>
 
-      {/* Actions */}
-      {!readOnly && (
-        <div
-          className="flex items-center gap-0.5 row-start-1 col-start-3 justify-end sm:row-start-auto sm:col-start-auto sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity"
-          onClick={(e) => e.stopPropagation()}
+        {/* Over / left */}
+        <span
+          className={`whitespace-nowrap text-xs tabular-nums ${tone.text} ${CELL_DELTA}`}
         >
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onEdit} aria-label="Edit">
-            <Pencil className="h-3.5 w-3.5" />
-          </Button>
-          <ConfirmDeleteButton onConfirm={onDelete} pending={deletePending} />
+          {alloc.status === "exceeded"
+            ? `${formatCurrency(alloc.spent - alloc.amount)} over`
+            : `${formatCurrency(alloc.remaining)} left`}
+        </span>
+      </button>
+
+      {open && (
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-4 pb-3 pl-9 text-xs text-muted-foreground">
+          {alloc.avgMonthly > 0 && (
+            <span>
+              avg {formatCurrency(alloc.avgMonthly)}/mo · {alloc.avgMonths} mo
+            </span>
+          )}
+          <span>{Math.round(alloc.percentage)}% of budget used</span>
+          <button
+            type="button"
+            onClick={onHistory}
+            className="text-primary hover:underline"
+          >
+            Full history →
+          </button>
+          {!readOnly && (
+            <span className="ml-auto flex items-center gap-0.5">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={onEdit}
+                aria-label="Edit"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </Button>
+              <ConfirmDeleteButton onConfirm={onDelete} pending={deletePending} />
+            </span>
+          )}
         </div>
       )}
     </li>

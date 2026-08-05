@@ -12,7 +12,7 @@ import { eq, and, gte, lte, sql, sum, inArray, isNotNull } from "drizzle-orm";
 import { getPaySchedule, paydaysBetween, type PaySchedule } from "@/lib/pay-schedule";
 import { getMonthMoneyMath, toMonthly } from "@/lib/month-money";
 import { classifyOnTrack } from "@/lib/on-track";
-import { getFinancialMonthRange } from "@/lib/financial-month";
+import { getFinancialMonthRange, getPeriodProgress } from "@/lib/financial-month";
 import { formatCurrency, toIsoDate } from "@/lib/utils";
 import { effectiveExpenseAmount, potSpentAmount } from "@/lib/reimbursement-sql";
 import type {
@@ -71,7 +71,12 @@ function getDateRanges(startDay: number = 1) {
   const d = now.getDate();
   const dow = now.getDay();
 
-  const { from: monthStart, to: monthEnd } = getFinancialMonthRange(now, startDay);
+  // Fraction of the financial month elapsed, including today.
+  const {
+    from: monthStart,
+    to: monthEnd,
+    progress: monthProgress,
+  } = getPeriodProgress(now, startDay);
 
   const weekOff = dow === 0 ? -6 : 1 - dow;
   const weekStart = toIsoDate(new Date(y, m, d + weekOff));
@@ -79,18 +84,6 @@ function getDateRanges(startDay: number = 1) {
 
   const lastWeekStart = toIsoDate(new Date(y, m, d + weekOff - 7));
   const lastWeekEnd = toIsoDate(new Date(y, m, d + weekOff - 1));
-
-  // Fraction of the financial-month elapsed, including today.
-  // Parse as local midnight so the math matches the local `todayMs` below.
-  const startMs = new Date(`${monthStart}T00:00:00`).getTime();
-  const endMs = new Date(`${monthEnd}T00:00:00`).getTime();
-  const totalDays = Math.round((endMs - startMs) / 86400000) + 1;
-  const todayMs = new Date(y, m, d).getTime();
-  const elapsedDays = Math.min(
-    totalDays,
-    Math.max(1, Math.round((todayMs - startMs) / 86400000) + 1),
-  );
-  const monthProgress = totalDays > 0 ? elapsedDays / totalDays : 0;
 
   return {
     monthStart,

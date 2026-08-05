@@ -2,12 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -25,13 +19,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  BarChart3,
-  Calendar,
-  ChevronDown,
-  Landmark,
-  Loader2,
-} from "lucide-react";
+import { Calendar, ChevronDown, Landmark, Loader2 } from "lucide-react";
 import { useInsights, useBalanceTimeline } from "@/hooks/use-insights";
 import { useAccounts } from "@/hooks/use-accounts";
 import { useBudgets } from "@/hooks/use-budgets";
@@ -45,9 +33,12 @@ import {
 import { BalanceChart } from "./_components/balance-chart";
 import { SpendingByPeriod } from "./_components/spending-by-period";
 import { BudgetPerformance } from "./_components/budget-performance";
-import { DeltaLine, SummaryCard } from "./_components/summary-card";
+import { StatStrip } from "./_components/stat-strip";
+import { SignalCards } from "./_components/signal-cards";
+import { TopSpending } from "./_components/top-spending";
 import { CategoryBreakdownCard } from "./_components/category-breakdown-card";
-import { formatCurrency, toIsoDate } from "@/lib/utils";
+import { daysLeftIn, elapsedDays, formatRangeLabel } from "./_components/period";
+import { toIsoDate } from "@/lib/utils";
 
 type PresetKey = "this_month" | "last_month" | "this_year" | "last_3_months" | "all" | "custom";
 
@@ -378,21 +369,26 @@ export default function InsightsPage() {
     (a, b) => b.total - a.total
   );
   const totalExpenses = sortedBreakdown.reduce((s, c) => s + c.total, 0);
-  const showDeltas = data.previous !== null && deltaLabel !== null;
+  const daysLeft = daysLeftIn(dateTo);
+  const unbudgetedCategoryIds = new Set(
+    (budgetData?.unbudgetedSpending ?? []).map((c) => c.categoryId),
+  );
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-4">
+      <div className="flex items-end justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Insights</h1>
-          <p className="text-muted-foreground">
-            Visual breakdowns of your spending.
+          <p className="text-sm text-muted-foreground">
             {usingFinancialMonth && (preset === "this_month" || preset === "last_month") && (
-              <span className="ml-2 text-xs">
-                · Financial month: {ordinal(startDay)} – {ordinal(startDay === 1 ? 31 : startDay - 1)} of next month
-              </span>
+              <>
+                Financial month: {ordinal(startDay)} –{" "}
+                {ordinal(startDay === 1 ? 31 : startDay - 1)} of next month ·{" "}
+              </>
             )}
+            {formatRangeLabel(dateFrom, dateTo)}
+            {daysLeft > 0 && ` · ${daysLeft} day${daysLeft === 1 ? "" : "s"} left`}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -460,45 +456,18 @@ export default function InsightsPage() {
         </div>
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid gap-4 sm:grid-cols-3">
-        <SummaryCard
-          type="income"
-          amount={data.summary.totalIncome}
-          subtitle={`${data.summary.txCount} transactions in period`}
-          delta={showDeltas ? data.summary.totalIncome - data.previous!.totalIncome : null}
-          deltaLabel={deltaLabel ?? undefined}
-          onClick={() => navigateToTransactions({ type: "income" })}
-        />
-        <SummaryCard
-          type="expense"
-          amount={data.summary.totalExpenses}
-          delta={showDeltas ? data.summary.totalExpenses - data.previous!.totalExpenses : null}
-          deltaLabel={deltaLabel ?? undefined}
-          onClick={() => navigateToTransactions({ type: "expense" })}
-        />
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Net</CardTitle>
-            <BarChart3 className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div
-              className={`text-2xl font-bold ${data.summary.net >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}
-            >
-              {data.summary.net >= 0 ? "+" : ""}
-              {formatCurrency(data.summary.net)}
-            </div>
-            {showDeltas && (
-              <DeltaLine
-                delta={data.summary.net - data.previous!.net}
-                label={deltaLabel!}
-                upIsGood
-              />
-            )}
-          </CardContent>
-        </Card>
-      </div>
+      {/* Headline numbers */}
+      <StatStrip
+        income={data.summary.totalIncome}
+        expenses={data.summary.totalExpenses}
+        net={data.summary.net}
+        txCount={data.summary.txCount}
+        previous={deltaLabel !== null ? data.previous : null}
+        deltaLabel={deltaLabel}
+        elapsedDays={elapsedDays(dateFrom, dateTo, data.dailyTotals)}
+        onIncomeClick={() => navigateToTransactions({ type: "income" })}
+        onExpensesClick={() => navigateToTransactions({ type: "expense" })}
+      />
 
       {/* A comparison that reaches back past the reset would report the reset
           itself as a change in spending, so it's withheld rather than shown. */}
@@ -510,6 +479,14 @@ export default function InsightsPage() {
         </p>
       )}
 
+      {/* What needs attention, before any chart asks you to find it yourself */}
+      <SignalCards
+        data={data}
+        budget={isSingleFinancialMonth ? budgetData ?? null : null}
+        totalExpenses={totalExpenses}
+        onCategoryClick={navigateToCategory}
+      />
+
       {/* Category breakdown (stacked monthly chart + per-category rows) */}
       <CategoryBreakdownCard
         sortedBreakdown={sortedBreakdown}
@@ -517,15 +494,25 @@ export default function InsightsPage() {
         monthlyCategoryTotals={data.monthlyCategoryTotals}
         previousCategoryTotals={data.previous?.categoryTotals ?? null}
         resets={resets ?? []}
+        unbudgetedCategoryIds={unbudgetedCategoryIds}
         onCategoryClick={navigateToCategory}
       />
 
-      {/* Spending by Period (daily/weekly/monthly toggle) */}
-      <SpendingByPeriod
-        dailyTotals={data.dailyTotals}
-        monthlyTotals={data.monthlyTotals}
-        resets={resets ?? []}
-      />
+      {/* The two time-series read as a pair, so they sit side by side once
+          there's room for both without squashing either. */}
+      <div className="grid gap-4 xl:grid-cols-2">
+        <SpendingByPeriod
+          dailyTotals={data.dailyTotals}
+          monthlyTotals={data.monthlyTotals}
+          resets={resets ?? []}
+        />
+        <BalanceChart
+          data={balanceData}
+          isLoading={balanceLoading}
+          accountLabel={accountLabel}
+          resets={resets ?? []}
+        />
+      </div>
 
       {/* Monthly Budget Performance — only for single financial months; the
           API pro-rates caps for other ranges, which misleads here. */}
@@ -536,50 +523,9 @@ export default function InsightsPage() {
         />
       )}
 
-      {/* Top Merchants */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Top Spending</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {data.topMerchants.length === 0 ? (
-            <p className="text-muted-foreground text-sm py-8 text-center">
-              No expense data for this period.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {data.topMerchants.map((m, i) => (
-                <div
-                  key={i}
-                  className="flex items-center justify-between py-1.5 border-b last:border-0"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <span className="text-xs text-muted-foreground w-5 text-right shrink-0">
-                      {i + 1}.
-                    </span>
-                    <span className="text-sm truncate">{m.description}</span>
-                  </div>
-                  <div className="text-right shrink-0 ml-4">
-                    <span className="text-sm font-medium">
-                      {formatCurrency(m.total)}
-                    </span>
-                    <span className="text-xs text-muted-foreground ml-2">
-                      ({m.count}x)
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Balance Over Time */}
-      <BalanceChart
-        data={balanceData}
-        isLoading={balanceLoading}
-        accountLabel={accountLabel}
-        resets={resets ?? []}
+      <TopSpending
+        merchants={data.topMerchants}
+        totalExpenses={totalExpenses}
       />
     </div>
   );

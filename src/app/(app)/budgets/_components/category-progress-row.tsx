@@ -2,12 +2,15 @@
 
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import { ROW_GRID, CELL_BAR, CELL_AMOUNT, CELL_DELTA } from "./budget-row";
 
 interface CategoryProgressRowProps {
   categoryId: string;
   color: string;
   name: string;
   amount: ReactNode;
+  /** Trailing column — the "left"/"due" note beside the amount. */
+  delta?: ReactNode;
   subtitle?: ReactNode;
   /** Progress fill percentage; omit/null to hide the bar. */
   progressPct?: number | null;
@@ -18,18 +21,19 @@ interface CategoryProgressRowProps {
 
 /**
  * Clickable list row that navigates to the category's transactions.
- * Used by the Fixed Costs list.
+ * Shares its column template with the allocation rows so both lists line up.
  */
 export function CategoryProgressRow({
   categoryId,
   color,
   name,
   amount,
+  delta,
   subtitle,
   progressPct = null,
   barClassName = "bg-slate-400",
   dotClassName = "rounded-full",
-  hoverClassName = "hover:bg-muted/50",
+  hoverClassName = "hover:bg-muted/50 focus-visible:bg-muted/50",
 }: CategoryProgressRowProps) {
   const router = useRouter();
   const go = () => router.push(`/transactions?category=${categoryId}`);
@@ -45,26 +49,33 @@ export function CategoryProgressRow({
           go();
         }
       }}
-      className={`flex items-center gap-3 px-4 py-2.5 transition-colors cursor-pointer ${hoverClassName}`}
+      className={`cursor-pointer transition-colors focus-visible:outline-none ${hoverClassName} ${ROW_GRID}`}
     >
       <span
-        className={`h-2.5 w-2.5 shrink-0 ${dotClassName}`}
+        className={`h-2 w-2 shrink-0 ${dotClassName}`}
         style={{ backgroundColor: color }}
       />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-baseline justify-between gap-2 flex-wrap">
-          <span className="truncate text-sm font-medium">{name}</span>
-          {amount}
-        </div>
+      <div className="min-w-0">
+        <div className="truncate text-sm font-medium">{name}</div>
         {subtitle}
+      </div>
+      <div className={CELL_BAR}>
         {progressPct !== null && (
-          <div className="mt-1 h-1.5 rounded-full bg-muted overflow-hidden">
+          <div className="h-1.5 overflow-hidden rounded-full bg-muted">
             <div
               className={`h-full rounded-full transition-all duration-500 ${barClassName}`}
               style={{ width: `${progressPct}%` }}
             />
           </div>
         )}
+      </div>
+      <div
+        className={`whitespace-nowrap text-right text-sm tabular-nums ${CELL_AMOUNT}`}
+      >
+        {amount}
+      </div>
+      <div className={`whitespace-nowrap text-xs tabular-nums ${CELL_DELTA}`}>
+        {delta}
       </div>
     </li>
   );

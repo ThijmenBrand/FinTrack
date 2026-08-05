@@ -28,6 +28,8 @@ interface CategoryBreakdownCardProps {
   previousCategoryTotals: Record<string, number> | null;
   /** Statistics resets, newest first. The newest one restarts the per-month averages. */
   resets: StatResetData[];
+  /** Categories with spending but no budget cap — flagged inline in the list. */
+  unbudgetedCategoryIds?: Set<string>;
   onCategoryClick: (categoryId: string | null) => void;
 }
 
@@ -73,6 +75,7 @@ export function CategoryBreakdownCard({
   monthlyCategoryTotals,
   previousCategoryTotals,
   resets,
+  unbudgetedCategoryIds,
   onCategoryClick,
 }: CategoryBreakdownCardProps) {
   const [hoveredMonth, setHoveredMonth] = useState<string | null>(null);
@@ -170,8 +173,11 @@ export function CategoryBreakdownCard({
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="flex flex-row flex-wrap items-baseline justify-between gap-2 space-y-0">
         <CardTitle className="text-base">Where your money went</CardTitle>
+        <span className="text-xs text-muted-foreground tabular-nums">
+          Total {formatCurrency(totalExpenses)}
+        </span>
       </CardHeader>
       <CardContent>
         {sortedBreakdown.length === 0 ? (
@@ -422,6 +428,14 @@ export function CategoryBreakdownCard({
                         }}
                       />
                       <span className="text-sm truncate">{cat.categoryName}</span>
+                      {cat.categoryId &&
+                        unbudgetedCategoryIds?.has(cat.categoryId) && (
+                          // Desktop only — the name column has no room for it
+                          // on mobile, where the signal card says the same thing.
+                          <span className="hidden shrink-0 rounded-full border border-amber-300 px-1.5 text-[10px] font-semibold text-amber-600 sm:inline dark:border-amber-900/60 dark:text-amber-400">
+                            no budget
+                          </span>
+                        )}
                     </div>
                     <div className="flex-1 h-5 bg-muted rounded-full overflow-hidden">
                       <div
@@ -463,10 +477,6 @@ export function CategoryBreakdownCard({
                   </div>
                 );
               })}
-              <div className="border-t pt-2 mt-3 flex justify-between text-sm font-semibold">
-                <span>Total</span>
-                <span className="tabular-nums">{formatCurrency(totalExpenses)}</span>
-              </div>
             </div>
           </div>
         )}
