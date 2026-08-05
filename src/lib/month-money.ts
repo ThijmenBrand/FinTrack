@@ -8,6 +8,7 @@ import {
 } from "@/db/schema";
 import { eq, and, gte, lte, sql, inArray } from "drizzle-orm";
 import { getFinancialMonthRange } from "@/lib/financial-month";
+import { toMonthly } from "@/lib/recurring";
 import { effectiveExpenseAmount, potSpentAmount } from "@/lib/reimbursement-sql";
 
 export interface MonthMoneyMath {
@@ -32,20 +33,7 @@ export interface MonthMoneyOptions {
   accountIds?: string[];
 }
 
-export function toMonthly(amount: number, frequency: string): number {
-  switch (frequency) {
-    case "weekly":
-      return Math.abs(amount) * 4.33;
-    case "biweekly":
-      return Math.abs(amount) * 2.17;
-    case "monthly":
-      return Math.abs(amount);
-    case "yearly":
-      return Math.abs(amount) / 12;
-    default:
-      return Math.abs(amount);
-  }
-}
+export { toMonthly };
 
 /**
  * Combine ungrouped expense total with the net flow of pot transactions for

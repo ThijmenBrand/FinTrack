@@ -2,30 +2,24 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRecurring, useRecurringForecast, useCreateRecurring, useUpdateRecurring, useDeleteRecurring } from "@/hooks/use-recurring";
+import {
+  useRecurring,
+  useRecurringForecast,
+  useCreateRecurring,
+  useUpdateRecurring,
+  useDeleteRecurring,
+} from "@/hooks/use-recurring";
 import { useAccounts } from "@/hooks/use-accounts";
 import { useCategories } from "@/hooks/use-categories";
 import type { RecurringTx } from "@/types/api";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  TrendingUp,
-  TrendingDown,
-  RefreshCcw,
-  AlertTriangle,
-  CheckCircle,
-  Info,
-  Loader2,
-  ArrowLeft,
-} from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { AlertTriangle, Plus, RefreshCcw } from "lucide-react";
 import { RecurringFormDialog } from "./_components/recurring-form-dialog";
-import { RecurringGroupCard } from "./_components/recurring-group-card";
+import { RecurringList } from "./_components/recurring-list";
+import { CashFlowCard } from "./_components/cash-flow-card";
+import { UpcomingPayments } from "./_components/upcoming-payments";
 
 export default function RecurringPage() {
   const { data: items = [], isLoading: loading } = useRecurring();
@@ -65,237 +59,125 @@ export default function RecurringPage() {
     await updateRecurring.mutateAsync({ id: item.id, isActive: !item.isActive });
   };
 
-  const incomeItems = items.filter((i) => i.type === "income");
-  const expenseItems = items.filter((i) => i.type === "expense");
+  // Only warnings get banner treatment. The info/success advice is a footnote
+  // on the numbers it describes and lives inside the cash flow card.
+  const warnings = forecast?.advice.filter((a) => a.type === "warning") ?? [];
+
+  // The settings layout already owns the <h1> and names this tab, so this is a
+  // section heading — not a second page title.
+  const header = (
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h2 className="text-xl font-semibold tracking-tight">Recurring</h2>
+        <p className="text-sm text-muted-foreground">
+          Plans that repeat on a schedule, and what they do to your balance. Recurring expenses
+          become the{" "}
+          <Link href="/budgets" className="text-primary hover:underline">
+            fixed costs
+          </Link>{" "}
+          on your budget.
+        </p>
+      </div>
+      <RecurringFormDialog
+        open={dialogOpen}
+        onOpenChange={handleDialogOpenChange}
+        editing={editing}
+        accounts={accounts}
+        categories={categories}
+        onSubmit={handleFormSubmit}
+      />
+    </div>
+  );
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-24">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div className="space-y-8">
+        {header}
+        <Card>
+          <CardHeader className="pb-4">
+            <Skeleton className="h-4 w-28" />
+            <Skeleton className="h-3 w-64" />
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Skeleton className="h-[200px] w-full" />
+            <Skeleton className="h-28 w-full" />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-4">
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-3 w-48" />
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {[0, 1, 2].map((i) => (
+              <Skeleton key={i} className="h-12 w-full" />
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (items.length === 0) {
+    return (
+      <div className="space-y-8">
+        {header}
+        <Card>
+          <CardContent className="flex flex-col items-center px-6 py-16 text-center">
+            <RefreshCcw className="mb-4 h-10 w-10 text-muted-foreground/30" />
+            <h2 className="text-base font-semibold">No recurring plans yet</h2>
+            <p className="mt-1.5 max-w-md text-sm text-muted-foreground">
+              Add your salary, rent, and subscriptions once, and this page projects your balance
+              months ahead and lists every payment before it lands.
+            </p>
+            {/* The dialog itself is already mounted in the header — this just
+                opens it, so there's only ever one instance on the page. */}
+            <Button className="mt-6" onClick={() => setDialogOpen(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              Add Recurring
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
   return (
-    <div className="space-y-8">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Recurring</h1>
-          <p className="text-muted-foreground">
-            Manage recurring incomes and expenses, and view cash flow forecasts.{" "}
-            <Link
-              href="/budgets"
-              className="inline-flex items-center gap-1 text-primary hover:underline"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" />
-              Back to Budgets
-            </Link>
-          </p>
-        </div>
-        <RecurringFormDialog
-          open={dialogOpen}
-          onOpenChange={handleDialogOpenChange}
-          editing={editing}
-          accounts={accounts}
-          categories={categories}
-          onSubmit={handleFormSubmit}
-        />
-      </div>
+    <div className="space-y-6">
+      {header}
 
-      {/* Smart Advice */}
-      {forecast && forecast.advice.length > 0 && (
+      {warnings.length > 0 && (
         <div className="space-y-2">
-          {forecast.advice.map((a, i) => {
-            const Icon =
-              a.type === "warning"
-                ? AlertTriangle
-                : a.type === "success"
-                  ? CheckCircle
-                  : Info;
-            const adviceClass =
-              a.type === "warning"
-                ? "advice-warning"
-                : a.type === "success"
-                  ? "advice-success"
-                  : "advice-info";
-            return (
-              <div
-                key={i}
-                className={`flex items-start gap-3 rounded-lg border px-4 py-3 text-sm ${adviceClass}`}
-              >
-                <Icon className="h-4 w-4 mt-0.5 shrink-0 opacity-80" />
-                <span>{a.message}</span>
-              </div>
-            );
-          })}
+          {warnings.map((a, i) => (
+            <div
+              key={i}
+              className="flex items-start gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-100"
+            >
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+              <span>{a.message}</span>
+            </div>
+          ))}
         </div>
       )}
 
-      {/* Monthly Summary Cards */}
-      {forecast && (
-        <div className="grid gap-4 sm:grid-cols-3">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">
-                Monthly Recurring Income
-              </CardTitle>
-              <TrendingUp className="h-4 w-4 text-emerald-500 dark:text-emerald-400" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-                {formatCurrency(forecast.monthlyRecurringIncome)}
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">
-                Monthly Recurring Expenses
-              </CardTitle>
-              <TrendingDown className="h-4 w-4 text-red-500 dark:text-red-400" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-red-600 dark:text-red-400">
-                {formatCurrency(forecast.monthlyRecurringExpenses)}
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">
-                Monthly Net
-              </CardTitle>
-              <RefreshCcw className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div
-                className={`text-2xl font-bold ${forecast.monthlyNet >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}
-              >
-                {forecast.monthlyNet >= 0 ? "+" : ""}
-                {formatCurrency(forecast.monthlyNet)}
-              </div>
-            </CardContent>
-          </Card>
+      {forecast && <CashFlowCard forecast={forecast} />}
+
+      {/* The list is what people came to edit, so it takes the wide column and
+          sits beside the schedule rather than under a tall one. */}
+      <div className="grid gap-6 lg:grid-cols-5">
+        <div className="lg:col-span-3">
+          <RecurringList
+            items={items}
+            onEdit={openEdit}
+            onDelete={handleDelete}
+            onToggle={toggleActive}
+          />
         </div>
-      )}
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Cash Flow Forecast Chart */}
-        {forecast && forecast.monthlyForecast.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">
-                Cash Flow Forecast
-              </CardTitle>
-              <CardDescription>
-                Projected balance based on recurring payments
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {forecast.monthlyForecast.map((m) => (
-                  <div key={m.month} className="space-y-1">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="font-medium">{m.label}</span>
-                      <span
-                        className={`font-semibold ${m.endBalance >= 0 ? "text-foreground" : "text-red-600 dark:text-red-400"}`}
-                      >
-                        {formatCurrency(m.endBalance)}
-                      </span>
-                    </div>
-                    <div className="flex gap-4 text-xs text-muted-foreground">
-                      <span className="text-emerald-600 dark:text-emerald-400">
-                        +{formatCurrency(m.income)}
-                      </span>
-                      <span className="text-red-500 dark:text-red-400">
-                        -{formatCurrency(m.expenses)}
-                      </span>
-                      <span
-                        className={
-                          m.net >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-500 dark:text-red-400"
-                        }
-                      >
-                        Net: {m.net >= 0 ? "+" : ""}
-                        {formatCurrency(m.net)}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Upcoming Payments */}
         {forecast && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Upcoming Payments</CardTitle>
-              <CardDescription>
-                Next scheduled recurring payments
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {forecast.upcomingPayments.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-8 text-center">
-                  No upcoming payments. Add recurring transactions above.
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {forecast.upcomingPayments.map((p, i) => (
-                    <div
-                      key={i}
-                      className="flex items-center justify-between py-1.5 border-b last:border-0"
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="text-xs text-muted-foreground w-16 shrink-0">
-                          {new Date(p.date).toLocaleDateString("nl-NL", {
-                            day: "numeric",
-                            month: "short",
-                          })}
-                        </div>
-                        {p.categoryColor && (
-                          <span
-                            className="h-2 w-2 rounded-full shrink-0"
-                            style={{ backgroundColor: p.categoryColor }}
-                          />
-                        )}
-                        <span className="text-sm truncate">
-                          {p.description}
-                        </span>
-                      </div>
-                      <span
-                        className={`text-sm font-medium shrink-0 ml-2 ${p.type === "income" ? "text-emerald-600 dark:text-emerald-400" : "text-red-500 dark:text-red-400"}`}
-                      >
-                        {p.type === "income" ? "+" : "-"}
-                        {formatCurrency(Math.abs(p.amount))}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <div className="lg:col-span-2">
+            <UpcomingPayments payments={forecast.upcomingPayments} />
+          </div>
         )}
-      </div>
-
-      {/* Recurring Transactions List */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        <RecurringGroupCard
-          type="income"
-          items={incomeItems}
-          onEdit={openEdit}
-          onDelete={handleDelete}
-          onToggle={toggleActive}
-        />
-        <RecurringGroupCard
-          type="expense"
-          items={expenseItems}
-          onEdit={openEdit}
-          onDelete={handleDelete}
-          onToggle={toggleActive}
-        />
       </div>
     </div>
   );

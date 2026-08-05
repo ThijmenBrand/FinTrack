@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   Card,
   CardContent,
@@ -9,7 +8,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { AlertTriangle, TrendingDown, ArrowRight } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import type { BudgetData } from "@/types/api";
 
@@ -32,8 +31,6 @@ interface BudgetPerformanceProps {
 }
 
 export function BudgetPerformance({ data, accountLabel }: BudgetPerformanceProps) {
-  const router = useRouter();
-
   if (!data) return null;
 
   const hasAnyBudget =
@@ -57,6 +54,9 @@ export function BudgetPerformance({ data, accountLabel }: BudgetPerformanceProps
     overBudgetOnTracked += Math.max(0, fc.spent - fc.monthlyAmount);
   }
   const unbudgetedTotal = unbudgetedSpending.reduce((s, c) => s + c.spent, 0);
+  const biggestUnbudgeted = [...unbudgetedSpending].sort(
+    (a, b) => b.spent - a.spent,
+  )[0];
 
   const remaining = totalBudget - totalSpentThisMonth;
   const isOver = remaining < 0;
@@ -73,14 +73,6 @@ export function BudgetPerformance({ data, accountLabel }: BudgetPerformanceProps
 
   const pastRange = isPastRange(data.month.to);
   const daysLeft = pastRange ? 0 : daysLeftInMonth(data.month.to);
-
-  const navigateToCategory = (categoryId: string) => {
-    const params = new URLSearchParams();
-    params.set("category", categoryId);
-    params.set("dateFrom", data.month.from);
-    params.set("dateTo", data.month.to);
-    router.push(`/transactions?${params.toString()}`);
-  };
 
   return (
     <Card className={isOver ? "border-red-300 dark:border-red-900/60" : undefined}>
@@ -99,34 +91,23 @@ export function BudgetPerformance({ data, accountLabel }: BudgetPerformanceProps
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Headline status */}
-        <div
-          className={`rounded-lg px-4 py-3 ${
-            isOver
-              ? "bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-300"
-              : "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300"
-          }`}
-        >
-          <div className="flex items-start gap-3">
-            {isOver ? (
-              <AlertTriangle className="h-5 w-5 mt-0.5 shrink-0" />
-            ) : (
-              <TrendingDown className="h-5 w-5 mt-0.5 shrink-0" />
-            )}
-            <div className="flex-1 min-w-0">
-              <div className="text-2xl font-bold">
-                {formatCurrency(Math.abs(remaining))}{" "}
-                <span className="text-sm font-medium">
-                  {isOver ? "over budget" : "under budget"}
-                </span>
-              </div>
-              <div className="text-sm opacity-90">
-                Spent {formatCurrency(totalSpentThisMonth)} of{" "}
-                {formatCurrency(totalBudget)}
-                {totalBudget > 0 && ` (${pctOfBudget}%)`}
-              </div>
-            </div>
-          </div>
+        {/* Headline status — one line, no colored box: the number carries the tone. */}
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <span
+            className={`text-xl font-semibold tabular-nums ${
+              isOver
+                ? "text-red-600 dark:text-red-400"
+                : "text-emerald-600 dark:text-emerald-400"
+            }`}
+          >
+            {formatCurrency(Math.abs(remaining))}{" "}
+            {isOver ? "over budget" : "under budget"}
+          </span>
+          <span className="text-sm text-muted-foreground tabular-nums">
+            spent {formatCurrency(totalSpentThisMonth)} of{" "}
+            {formatCurrency(totalBudget)}
+            {totalBudget > 0 && ` · ${pctOfBudget}%`}
+          </span>
         </div>
 
         {/* Stacked progress bar */}
@@ -178,50 +159,19 @@ export function BudgetPerformance({ data, accountLabel }: BudgetPerformanceProps
                 Unbudgeted {formatCurrency(unbudgetedTotal)}
               </span>
             )}
+            {/* The per-category detail lives in "Where your money went", which
+                flags these same categories — this is just the way to act on it. */}
+            {biggestUnbudgeted && (
+              <Link
+                href="/budgets"
+                className="inline-flex items-center gap-1 text-primary hover:underline sm:ml-auto"
+              >
+                Set budget for {biggestUnbudgeted.categoryName}
+                <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
+            )}
           </div>
         </div>
-
-        {/* Unbudgeted leakage list */}
-        {unbudgetedSpending.length > 0 && (
-          <div className="space-y-2 pt-2 border-t">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-medium">Spending without a budget</h3>
-              <span className="text-xs text-muted-foreground">
-                {unbudgetedSpending.length} categor
-                {unbudgetedSpending.length === 1 ? "y" : "ies"}
-              </span>
-            </div>
-            <ul className="space-y-1">
-              {unbudgetedSpending.map((cat) => (
-                <li key={cat.categoryId}>
-                  <button
-                    type="button"
-                    onClick={() => navigateToCategory(cat.categoryId)}
-                    className="w-full flex items-center justify-between gap-2 py-1.5 px-2 -mx-2 rounded-md hover:bg-muted/60 transition-colors text-left"
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span
-                        className="h-2.5 w-2.5 rounded-sm shrink-0"
-                        style={{ backgroundColor: cat.categoryColor }}
-                      />
-                      <span className="text-sm truncate">{cat.categoryName}</span>
-                    </div>
-                    <span className="text-sm font-medium tabular-nums shrink-0">
-                      {formatCurrency(cat.spent)}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-            <Link
-              href="/budgets"
-              className="inline-flex items-center gap-1 text-sm text-primary hover:underline pt-1"
-            >
-              Set budgets for these
-              <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
-          </div>
-        )}
       </CardContent>
     </Card>
   );

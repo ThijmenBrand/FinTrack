@@ -124,3 +124,90 @@ export function generateOccurrences(
 }
 
 export { frequencyDates };
+
+/**
+ * Normalise any frequency to what it costs per month, so plans on different
+ * cadences can be summed and compared. Lives here (not month-money) because
+ * the UI needs it client-side and month-money pulls in the db.
+ */
+export function toMonthly(amount: number, frequency: string): number {
+  switch (frequency) {
+    case "weekly":
+      return Math.abs(amount) * 4.33;
+    case "biweekly":
+      return Math.abs(amount) * 2.17;
+    case "monthly":
+      return Math.abs(amount);
+    case "yearly":
+      return Math.abs(amount) / 12;
+    default:
+      return Math.abs(amount);
+  }
+}
+
+/**
+ * Calculate the next occurrence date for a recurring transaction.
+ */
+export function getNextOccurrence(
+  frequency: string,
+  startDate: string,
+  dayOfWeek: number | null,
+  dayOfMonth: number | null,
+  monthOfYear: number | null,
+  refDate: Date = new Date()
+): string {
+  const ref = new Date(refDate);
+  ref.setHours(0, 0, 0, 0);
+
+  switch (frequency) {
+    case "weekly": {
+      const targetDow = dayOfWeek ?? new Date(startDate).getDay();
+      const current = ref.getDay();
+      let daysAhead = targetDow - current;
+      if (daysAhead <= 0) daysAhead += 7;
+      const next = new Date(ref);
+      next.setDate(next.getDate() + daysAhead);
+      return toIsoDate(next);
+    }
+    case "biweekly": {
+      const start = new Date(startDate);
+      const diffMs = ref.getTime() - start.getTime();
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+      const cycleDay = ((diffDays % 14) + 14) % 14;
+      const daysUntil = cycleDay === 0 ? 14 : 14 - cycleDay;
+      const next = new Date(ref);
+      next.setDate(next.getDate() + daysUntil);
+      return toIsoDate(next);
+    }
+    case "monthly": {
+      const dom = dayOfMonth ?? new Date(startDate).getDate();
+      let year = ref.getFullYear();
+      let month = ref.getMonth();
+      // If we're past this month's day, go to next month
+      if (ref.getDate() >= dom) {
+        month += 1;
+        if (month > 11) {
+          month = 0;
+          year += 1;
+        }
+      }
+      // Clamp to valid day (e.g., Feb 31 -> Feb 28)
+      const lastDay = new Date(year, month + 1, 0).getDate();
+      const actualDay = Math.min(dom, lastDay);
+      return toIsoDate(new Date(year, month, actualDay));
+    }
+    case "yearly": {
+      const moy = (monthOfYear ?? new Date(startDate).getMonth() + 1) - 1; // 0-indexed
+      const dom2 = dayOfMonth ?? new Date(startDate).getDate();
+      let year = ref.getFullYear();
+      const thisYearDate = new Date(year, moy, Math.min(dom2, new Date(year, moy + 1, 0).getDate()));
+      if (ref >= thisYearDate) {
+        year += 1;
+      }
+      const lastDay = new Date(year, moy + 1, 0).getDate();
+      return toIsoDate(new Date(year, moy, Math.min(dom2, lastDay)));
+    }
+    default:
+      return startDate;
+  }
+}

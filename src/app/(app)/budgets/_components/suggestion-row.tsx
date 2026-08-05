@@ -4,6 +4,7 @@ import type { BudgetSuggestion } from "@/types/api";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
 import { Sparkles, X, Check } from "lucide-react";
+import { ROW_GRID, CELL_BAR, CELL_AMOUNT, CELL_DELTA } from "./budget-row";
 
 interface SuggestionRowProps {
   suggestion: BudgetSuggestion;
@@ -19,15 +20,15 @@ export function SuggestionRow({ suggestion, busy, onAccept, onReject }: Suggesti
       ? suggestion.suggestedAmount - suggestion.currentAmount
       : null;
   return (
-    <li className="grid grid-cols-[auto_1fr_auto] items-center gap-x-3 gap-y-1 border-l-2 border-blue-400 bg-blue-50/40 px-4 py-2.5 dark:bg-blue-950/20 sm:grid-cols-[auto_minmax(0,1.4fr)_minmax(140px,2fr)_auto_auto]">
+    <li className={`bg-blue-50/60 dark:bg-blue-950/25 ${ROW_GRID}`}>
       <span
-        className="h-2.5 w-2.5 rounded-full shrink-0"
+        className="h-2 w-2 rounded-full shrink-0"
         style={{ backgroundColor: suggestion.categoryColor || "#3b82f6" }}
       />
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <span className="truncate text-sm font-medium">{suggestion.categoryName}</span>
-          <span className="inline-flex items-center gap-0.5 rounded-md bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+          <span className="inline-flex shrink-0 items-center gap-0.5 rounded-md bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
             <Sparkles className="h-2.5 w-2.5" />
             {isNew ? "New" : "Update"}
           </span>
@@ -36,7 +37,7 @@ export function SuggestionRow({ suggestion, busy, onAccept, onReject }: Suggesti
           avg {formatCurrency(suggestion.avgMonthly)}/mo · {suggestion.monthsOfData} mo
         </div>
       </div>
-      <div className="hidden sm:block sm:px-2 text-xs text-muted-foreground">
+      <div className={`hidden text-xs text-muted-foreground sm:block ${CELL_BAR}`}>
         {suggestion.currentAmount !== null ? (
           <span>
             {formatCurrency(suggestion.currentAmount)} →{" "}
@@ -61,11 +62,11 @@ export function SuggestionRow({ suggestion, busy, onAccept, onReject }: Suggesti
           </span>
         )}
       </div>
-      <div className="text-right tabular-nums text-sm row-start-1 col-start-3 sm:row-start-auto sm:col-start-auto shrink-0">
-        <div className="font-medium">{formatCurrency(suggestion.suggestedAmount)}</div>
-        <div className="text-xs text-muted-foreground">/mo</div>
+      <div className={`whitespace-nowrap text-right text-sm tabular-nums ${CELL_AMOUNT}`}>
+        <span className="font-medium">{formatCurrency(suggestion.suggestedAmount)}</span>
+        <span className="text-muted-foreground">/mo</span>
       </div>
-      <div className="flex items-center gap-1 row-start-1 col-start-3 justify-end sm:row-start-auto sm:col-start-auto">
+      <div className={`flex items-center justify-end gap-1 ${CELL_DELTA}`}>
         <Button
           variant="outline"
           size="sm"

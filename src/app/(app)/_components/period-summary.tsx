@@ -1,14 +1,96 @@
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { BudgetRing } from "@/components/budget-ring";
 import { getBudgetOverview, getMonthSummary } from "../_lib/dashboard-queries";
-import {
-  formatFinancialMonthLabel,
-  getFinancialMonthRange,
-} from "@/lib/financial-month";
+import { getFinancialMonthRange } from "@/lib/financial-month";
 import { formatCurrency } from "@/lib/utils";
+
+/**
+ * Spent-against-budget on a single linear scale. When you overspend the bar
+ * keeps growing past the limit instead of pinning at 100% like the old gauge
+ * did, so the tick marks where the budget ran out and the red tail shows by
+ * how much.
+ */
+function BudgetBar({ spent, budgeted }: { spent: number; budgeted: number }) {
+  const over = spent > budgeted;
+  const scale = Math.max(spent, budgeted);
+  const limitPct = (budgeted / scale) * 100;
+  const spentPct = (spent / scale) * 100;
+
+  return (
+    <div className="mt-3">
+      <div
+        className="relative h-2 rounded-full bg-muted"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={Math.round(budgeted)}
+        aria-valuenow={Math.round(spent)}
+        aria-label="Spent of total budget"
+      >
+        <div className="absolute inset-0 overflow-hidden rounded-full">
+          <div
+            className={`h-full transition-all duration-500 ${
+              over || spent / budgeted >= 0.8 ? "bg-amber-500" : "bg-emerald-500"
+            }`}
+            style={{ width: `${over ? limitPct : spentPct}%` }}
+          />
+          {over && (
+            <div
+              className="absolute inset-y-0 bg-red-500"
+              style={{ left: `${limitPct}%`, width: `${spentPct - limitPct}%` }}
+            />
+          )}
+        </div>
+        {over && (
+          <div
+            className="absolute -top-0.5 -bottom-0.5 w-0.5 rounded-full bg-foreground"
+            style={{ left: `${limitPct}%` }}
+            aria-hidden="true"
+          />
+        )}
+      </div>
+      {over && (
+        // Nudged left so the label reads as centred under the tick.
+        <div
+          className="mt-1 text-[11px] text-muted-foreground"
+          style={{ marginLeft: `max(0px, calc(${limitPct}% - 30px))` }}
+        >
+          budget limit
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  valueClass,
+  href,
+}: {
+  label: string;
+  value: string;
+  valueClass?: string;
+  href?: string;
+}) {
+  const body = (
+    <>
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className={`text-base font-semibold tabular-nums sm:text-lg ${valueClass ?? ""}`}>
+        {value}
+      </p>
+    </>
+  );
+  if (!href) return <div className="min-w-0 flex-1 lg:flex-none">{body}</div>;
+  return (
+    <Link
+      href={href}
+      className="min-w-0 flex-1 rounded hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring lg:flex-none"
+    >
+      {body}
+    </Link>
+  );
+}
 
 export async function PeriodSummary({
   userId,
@@ -24,20 +106,13 @@ export async function PeriodSummary({
     getMonthSummary(userId, startDay, accountId),
   ]);
 
-  const monthLabel = formatFinancialMonthLabel(new Date(), startDay);
-  const now = new Date();
-  const period = getFinancialMonthRange(now, startDay);
-  const todayMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const endMs = new Date(`${period.to}T00:00:00`).getTime();
-  const daysLeft = Math.max(0, Math.round((endMs - todayMs) / 86400000) + 1);
-
+  const period = getFinancialMonthRange(new Date(), startDay);
   const hasBudget = budget.totalBudgeted > 0;
   const left = budget.totalBudgeted - budget.totalBudgetSpent;
   const pct = hasBudget
     ? Math.round((budget.totalBudgetSpent / budget.totalBudgeted) * 100)
     : 0;
   const over = hasBudget && left < 0;
-  const perDay = !over && daysLeft > 0 ? left / daysLeft : 0;
   const net = summary.monthIncome - summary.monthExpenses;
 
   // Link the Earned/Spent tiles to the same financial period on /transactions.
@@ -53,112 +128,70 @@ export async function PeriodSummary({
 
   return (
     <Card>
-      <CardContent className="p-4 sm:p-6">
-        <div className="flex items-baseline justify-between gap-2">
-          <p className="text-sm font-medium">
-            {monthLabel}
-            <span className="text-muted-foreground font-normal">
-              {" "}· {daysLeft} day{daysLeft === 1 ? "" : "s"} left
-            </span>
-          </p>
-          <Link
-            href="/budgets"
-            className="text-xs text-primary hover:underline focus-visible:ring-2 focus-visible:ring-ring rounded flex items-center gap-0.5 shrink-0"
-          >
-            All budgets <ArrowRight className="h-3 w-3" aria-hidden="true" />
-          </Link>
-        </div>
-
-        <div className="mt-2 flex flex-col items-center">
-          <BudgetRing
-            half
-            thickness={8}
-            className="w-full max-w-[300px]"
-            total={hasBudget ? budget.totalBudgeted : 0}
-            segments={[
-              {
-                label: "Spent",
-                value: budget.totalBudgetSpent,
-                color: over
-                  ? "var(--color-destructive)"
-                  : pct >= 85
-                    ? "var(--color-warning)"
-                    : "var(--color-primary)",
-              },
-            ]}
-          >
-            <p
-              className={`text-3xl sm:text-4xl font-bold tracking-tight tabular-nums ${
-                over ? "text-red-600 dark:text-red-400" : ""
-              }`}
-            >
-              {formatCurrency(hasBudget ? Math.abs(left) : summary.monthExpenses)}
-            </p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              {hasBudget
-                ? over
-                  ? "over budget"
-                  : "left to spend"
-                : "spent this period"}
-            </p>
-          </BudgetRing>
-
+      <CardContent className="flex flex-col gap-5 p-4 sm:p-6 lg:flex-row lg:items-center lg:gap-10">
+        <div className="min-w-0 lg:flex-1">
           {hasBudget ? (
-            <div className="mt-2 text-center">
-              <p className="text-sm text-muted-foreground tabular-nums">
-                {formatCurrency(budget.totalBudgetSpent)} of{" "}
-                {formatCurrency(budget.totalBudgeted)} used ({pct}%)
-              </p>
-              {perDay > 0 && (
-                <p className="text-xs text-muted-foreground">
-                  about {formatCurrency(perDay)} per day for {daysLeft} more day
-                  {daysLeft === 1 ? "" : "s"}
-                </p>
-              )}
-            </div>
+            <>
+              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <span
+                  className={`text-xl font-semibold tabular-nums sm:text-2xl ${
+                    over
+                      ? "text-red-600 dark:text-red-400"
+                      : "text-emerald-600 dark:text-emerald-400"
+                  }`}
+                >
+                  {formatCurrency(Math.abs(left))}{" "}
+                  {over ? "over budget" : "left to spend"}
+                </span>
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  spent {formatCurrency(budget.totalBudgetSpent)} of{" "}
+                  {formatCurrency(budget.totalBudgeted)} · {pct}%
+                </span>
+              </div>
+              <BudgetBar
+                spent={budget.totalBudgetSpent}
+                budgeted={budget.totalBudgeted}
+              />
+            </>
           ) : (
-            <p className="mt-2 text-sm text-muted-foreground text-center">
-              <Link href="/budgets" className="text-primary hover:underline">
-                Set budgets
-              </Link>{" "}
-              to see what&apos;s left
-            </p>
-          )}
-
-          {/* Amounts are unbreakable, so the tiles shrink with the viewport
-              instead of spilling out of their grid track. */}
-          <div className="mt-5 grid w-full grid-cols-3 gap-2 border-t pt-4 sm:gap-4">
-            <Link
-              href={txHref("income")}
-              className="min-w-0 rounded hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <p className="text-xs text-muted-foreground">Earned</p>
-              <p className="text-base sm:text-lg font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
-                {formatCurrency(summary.monthIncome)}
-              </p>
-            </Link>
-            <Link
-              href={txHref("expense")}
-              className="min-w-0 rounded hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <p className="text-xs text-muted-foreground">Spent</p>
-              <p className="text-base sm:text-lg font-semibold tabular-nums text-red-600 dark:text-red-400">
+            <>
+              <p className="text-xl font-semibold tabular-nums sm:text-2xl">
                 {formatCurrency(summary.monthExpenses)}
               </p>
-            </Link>
-            <div className="min-w-0">
-              <p className="text-xs text-muted-foreground">Net</p>
-              <p
-                className={`text-base sm:text-lg font-semibold tabular-nums ${
-                  net >= 0
-                    ? "text-emerald-600 dark:text-emerald-400"
-                    : "text-red-600 dark:text-red-400"
-                }`}
-              >
-                {formatCurrency(net)}
+              <p className="mt-1 text-sm text-muted-foreground">
+                spent this period ·{" "}
+                <Link href="/budgets" className="text-primary hover:underline">
+                  set budgets
+                </Link>{" "}
+                to see what&apos;s left
               </p>
-            </div>
-          </div>
+            </>
+          )}
+        </div>
+
+        {/* Amounts are unbreakable, so the tiles shrink with the viewport
+            instead of spilling out of their track. */}
+        <div className="flex gap-4 border-t pt-4 sm:gap-8 lg:shrink-0 lg:border-0 lg:pt-0">
+          <Stat
+            label="Earned"
+            value={formatCurrency(summary.monthIncome)}
+            valueClass="text-emerald-600 dark:text-emerald-400"
+            href={txHref("income")}
+          />
+          <Stat
+            label="Spent"
+            value={formatCurrency(summary.monthExpenses)}
+            href={txHref("expense")}
+          />
+          <Stat
+            label="Net"
+            value={formatCurrency(net)}
+            valueClass={
+              net >= 0
+                ? "text-emerald-600 dark:text-emerald-400"
+                : "text-red-600 dark:text-red-400"
+            }
+          />
         </div>
       </CardContent>
     </Card>
@@ -168,23 +201,18 @@ export async function PeriodSummary({
 export function PeriodSummarySkeleton() {
   return (
     <Card>
-      <CardContent className="p-6">
-        <div className="flex items-baseline justify-between">
-          <Skeleton className="h-4 w-44" />
-          <Skeleton className="h-3 w-20" />
+      <CardContent className="flex flex-col gap-5 p-4 sm:p-6 lg:flex-row lg:items-center lg:gap-10">
+        <div className="lg:flex-1">
+          <Skeleton className="h-7 w-64" />
+          <Skeleton className="mt-3 h-2 w-full rounded-full" />
         </div>
-        <div className="mt-4 flex flex-col items-center">
-          <Skeleton className="h-[150px] w-full max-w-[300px] rounded-lg" />
-          <Skeleton className="mt-2 h-4 w-56" />
-          <Skeleton className="mt-1.5 h-3 w-44" />
-          <div className="mt-5 grid w-full grid-cols-3 gap-4 border-t pt-4">
-            {[1, 2, 3].map((i) => (
-              <div key={i}>
-                <Skeleton className="h-3 w-12 mb-1.5" />
-                <Skeleton className="h-6 w-20" />
-              </div>
-            ))}
-          </div>
+        <div className="flex gap-4 border-t pt-4 sm:gap-8 lg:shrink-0 lg:border-0 lg:pt-0">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="flex-1 lg:flex-none">
+              <Skeleton className="mb-1.5 h-3 w-12" />
+              <Skeleton className="h-6 w-24" />
+            </div>
+          ))}
         </div>
       </CardContent>
     </Card>

@@ -3,6 +3,7 @@ import {
   getFinancialMonthRange,
   getPreviousFinancialMonth,
   formatFinancialMonthLabel,
+  getPeriodProgress,
 } from "./financial-month";
 
 describe("getFinancialMonthRange", () => {
@@ -137,5 +138,37 @@ describe("formatFinancialMonthLabel", () => {
     expect(
       formatFinancialMonthLabel(new Date(2026, 4, 15), 1, "nl-NL"),
     ).toMatch(/mei 2026/);
+  });
+});
+
+describe("getPeriodProgress", () => {
+  it("counts today in both elapsed and remaining days", () => {
+    // May 2026 has 31 days; the 15th is day 15 with 17 left including today.
+    const p = getPeriodProgress(new Date(2026, 4, 15), 1);
+    expect(p.totalDays).toBe(31);
+    expect(p.elapsedDays).toBe(15);
+    expect(p.daysLeft).toBe(17);
+    expect(p.progress).toBeCloseTo(15 / 31);
+  });
+
+  it("is 1 day elapsed on the first day and full on the last", () => {
+    const first = getPeriodProgress(new Date(2026, 4, 1), 1);
+    expect(first.elapsedDays).toBe(1);
+    expect(first.daysLeft).toBe(31);
+
+    const last = getPeriodProgress(new Date(2026, 4, 31), 1);
+    expect(last.progress).toBe(1);
+    expect(last.daysLeft).toBe(1);
+  });
+
+  it("follows a shifted financial month", () => {
+    // startDay 7 → the window containing Aug 5, 2026 is Jul 7 – Aug 6.
+    const p = getPeriodProgress(new Date(2026, 7, 5), 7);
+    expect({ from: p.from, to: p.to }).toEqual({
+      from: "2026-07-07",
+      to: "2026-08-06",
+    });
+    expect(p.totalDays).toBe(31);
+    expect(p.daysLeft).toBe(2);
   });
 });
