@@ -20,7 +20,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Calendar, ChevronDown, Landmark, Loader2 } from "lucide-react";
-import { useInsights, useBalanceTimeline } from "@/hooks/use-insights";
+import {
+  useInsights,
+  useBalanceTimeline,
+  useMoneyFlow,
+} from "@/hooks/use-insights";
 import { useAccounts } from "@/hooks/use-accounts";
 import { useBudgets } from "@/hooks/use-budgets";
 import { usePreferences } from "@/hooks/use-preferences";
@@ -37,6 +41,7 @@ import { StatStrip } from "./_components/stat-strip";
 import { SignalCards } from "./_components/signal-cards";
 import { TopSpending } from "./_components/top-spending";
 import { CategoryBreakdownCard } from "./_components/category-breakdown-card";
+import { MoneyFlow } from "./_components/money-flow";
 import { daysLeftIn, elapsedDays, formatRangeLabel } from "./_components/period";
 import { toIsoDate } from "@/lib/utils";
 import { defaultScopeAccountIds } from "@/lib/account-scope";
@@ -308,6 +313,11 @@ export default function InsightsPage() {
     prevDateFrom: prevRange?.from,
     prevDateTo: prevRange?.to,
   });
+  const { data: flowData, isLoading: flowLoading } = useMoneyFlow({
+    dateFrom,
+    dateTo,
+    accountId: accountIdParam,
+  });
   // Full history: the chart has its own range picker (1M…All) and slices
   // client-side, so it must not be capped by the page's date preset.
   const { data: balanceData, isLoading: balanceLoading } = useBalanceTimeline({
@@ -495,6 +505,11 @@ export default function InsightsPage() {
         totalExpenses={totalExpenses}
         onCategoryClick={navigateToCategory}
       />
+
+      {/* The whole period on one canvas: what came in, which account held it,
+          where it left to. Sits above the category detail because it's the
+          only view that shows the account leg of the journey. */}
+      <MoneyFlow data={flowData} isLoading={flowLoading} />
 
       {/* Category breakdown (stacked monthly chart + per-category rows) */}
       <CategoryBreakdownCard
