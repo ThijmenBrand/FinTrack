@@ -39,6 +39,7 @@ import { TopSpending } from "./_components/top-spending";
 import { CategoryBreakdownCard } from "./_components/category-breakdown-card";
 import { daysLeftIn, elapsedDays, formatRangeLabel } from "./_components/period";
 import { toIsoDate } from "@/lib/utils";
+import { defaultScopeAccountIds } from "@/lib/account-scope";
 
 type PresetKey = "this_month" | "last_month" | "this_year" | "last_3_months" | "all" | "custom";
 
@@ -197,7 +198,9 @@ const ordinal = (n: number): string => {
 };
 
 // Saved account selection (per device). Empty array = all accounts.
-const ACCOUNTS_STORAGE_KEY = "insights-account-selection";
+// Bumped to v2 so a saved single-account selection doesn't shadow the new
+// checking-accounts default.
+const ACCOUNTS_STORAGE_KEY = "insights-account-selection-v2";
 
 function loadSavedAccountIds(): string[] | null {
   if (typeof window === "undefined") return null;
@@ -233,23 +236,27 @@ export default function InsightsPage() {
     return loadSavedAccountIds() ?? [];
   });
 
-  // Apply the user's default account on first load when neither the URL nor a
-  // saved selection pinned one. After this runs once, the user is in control —
-  // even switching to "All accounts" must not get overridden by the default.
+  const { data: accountsData } = useAccounts();
+
+  // Apply the default account scope (the checking accounts, same as the
+  // dashboard) on first load when neither the URL nor a saved selection pinned
+  // one. After this runs once, the user is in control — even switching to
+  // "All accounts" must not get overridden by the default.
   const hadInitialSelection = useRef(
     searchParams.get("account") !== null || loadSavedAccountIds() !== null,
   );
   const defaultApplied = useRef(false);
   useEffect(() => {
     if (defaultApplied.current) return;
-    if (!prefs) return;
+    if (!prefs || !accountsData) return;
     defaultApplied.current = true;
     if (hadInitialSelection.current) return;
-    if (prefs.defaultAccountId) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- One-shot sync from async-loaded prefs; can't derive during render because user must still be able to override.
-      setSelectedAccountIds([prefs.defaultAccountId]);
+    const scope = defaultScopeAccountIds(accountsData, prefs.defaultAccountId);
+    if (scope.length > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- One-shot sync from async-loaded prefs/accounts; can't derive during render because user must still be able to override.
+      setSelectedAccountIds(scope);
     }
-  }, [prefs]);
+  }, [prefs, accountsData]);
 
   // Non-custom presets are derived; custom uses user-controlled state.
   const computedRange = preset === "custom" ? null : getPresetRange(preset, startDay);
@@ -275,7 +282,6 @@ export default function InsightsPage() {
     );
   }, [preset, selectedAccountIds, customDateFrom, customDateTo, router]);
 
-  const { data: accountsData } = useAccounts();
   const accountIdParam =
     selectedAccountIds.length > 0 ? selectedAccountIds.join(",") : undefined;
   const accountLabel =

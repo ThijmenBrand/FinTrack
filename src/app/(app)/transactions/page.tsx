@@ -551,10 +551,18 @@ function TransactionsPage() {
         accountOptions={accountOptions}
         categoryOptions={categoryOptions}
         typeOptions={availableTypeOptions}
-        accountFilter={accountFilter}
+        accountFilter={accountFilter === "all" ? [] : accountFilter.split(",")}
         categoryFilter={categoryFilters}
         typeFilter={typeFilters}
-        onAccountChange={(v) => { setAccountFilter(v); setPagination((p) => ({ ...p, page: 1 })); }}
+        onAccountChange={(v) => {
+          setAccountFilter((prev) => {
+            if (v === "all") return "all";
+            const ids = prev === "all" ? [] : prev.split(",");
+            const next = ids.includes(v) ? ids.filter((id) => id !== v) : [...ids, v];
+            return next.length ? next.join(",") : "all";
+          });
+          setPagination((p) => ({ ...p, page: 1 }));
+        }}
         onCategoryChange={(v) => toggleInclude(setCategoryFilters, v)}
         onTypeChange={(v) => toggleInclude(setTypeFilters, v)}
         renderRows={renderItems}

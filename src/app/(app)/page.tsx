@@ -13,6 +13,7 @@ import {
   PeriodSummary,
   PeriodSummarySkeleton,
 } from "./_components/period-summary";
+import { getDefaultScopeAccountIds } from "./_lib/dashboard-queries";
 import {
   BudgetCategories,
   BudgetCategoriesSkeleton,
@@ -64,14 +65,15 @@ export default async function DashboardPage() {
   const userId = session.userId;
   const prefs = await getUserPreferences(userId);
   const startDay = prefs.financialMonthStartDay;
-  const accountId = prefs.defaultAccountId ?? undefined;
+  // Everyday money only: all checking accounts (see getDefaultScopeAccountIds).
+  const accountIds = await getDefaultScopeAccountIds(userId, prefs.defaultAccountId);
 
   return (
     <div className="space-y-4">
       <DashboardHeader startDay={startDay} />
 
       <Suspense fallback={<PeriodSummarySkeleton />}>
-        <PeriodSummary userId={userId} startDay={startDay} accountId={accountId} />
+        <PeriodSummary userId={userId} startDay={startDay} accountIds={accountIds} />
       </Suspense>
 
       {/* Budgets carry the page, so they get the wide column; the side cards
@@ -89,14 +91,14 @@ export default async function DashboardPage() {
             <ComingUpThisMonthCard
               userId={userId}
               startDay={startDay}
-              accountId={accountId}
+              accountIds={accountIds}
             />
           </Suspense>
           <Suspense fallback={<TopSpendingCardSkeleton />}>
             <TopSpendingCard
               userId={userId}
               startDay={startDay}
-              accountId={accountId}
+              accountIds={accountIds}
             />
           </Suspense>
           <Suspense fallback={<SavingTowardCardSkeleton />}>

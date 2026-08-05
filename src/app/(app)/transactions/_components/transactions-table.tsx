@@ -45,7 +45,7 @@ interface TransactionsTableProps {
   accountOptions: Option[];
   categoryOptions: Option[];
   typeOptions: Option[];
-  accountFilter: string;
+  accountFilter: string[];
   categoryFilter: string[];
   typeFilter: string[];
   onAccountChange: (v: string) => void;
