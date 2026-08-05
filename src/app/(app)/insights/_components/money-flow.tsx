@@ -11,6 +11,8 @@ interface MoneyFlowProps {
   isLoading: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Opens the transactions list with these filters. */
+  onSelect: (filters: Record<string, string>) => void;
 }
 
 type Leg = { id: string; name: string; color: string; value: number };
@@ -18,14 +20,39 @@ type Leg = { id: string; name: string; color: string; value: number };
 const total = (legs: Leg[]) => legs.reduce((s, l) => s + l.value, 0);
 const bySize = (a: Leg, b: Leg) => b.value - a.value;
 
+/**
+ * The transactions filters a leg stands for, or null for the aggregate legs
+ * ("Other income", "Left in account", uncategorized) that no filter can
+ * reproduce. Node ids come from buildMoneyFlow: `in:`/`cat:` + category id,
+ * or `acct:` + account id for transfers.
+ */
+export function legFilters(accountId: string, nodeId: string): Record<string, string> | null {
+  const sep = nodeId.indexOf(":");
+  const kind = nodeId.slice(0, sep);
+  const id = nodeId.slice(sep + 1);
+  if (kind === "acct")
+    return id === "external" ? null : { account: accountId, type: "internal_transfer" };
+  if (id === "__reimb") return { account: accountId, type: "reimbursement" };
+  if (id === "none" || id === "other" || id.startsWith("__")) return null;
+  return {
+    account: accountId,
+    category: id,
+    type: kind === "in" ? "income" : "expense",
+  };
+}
+
 function Legs({
   title,
   legs,
   max,
+  accountId,
+  onSelect,
 }: {
   title: string;
   legs: Leg[];
   max: number;
+  accountId: string;
+  onSelect: (filters: Record<string, string>) => void;
 }) {
   return (
     <div className="min-w-0">
@@ -40,26 +67,32 @@ function Legs({
       {legs.length === 0 ? (
         <p className="py-1 text-sm text-muted-foreground">Nothing this period</p>
       ) : (
-        legs.map((leg) => (
-          <div
-            key={leg.id}
-            className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 py-1"
-          >
-            <span className="min-w-0 truncate text-sm">{leg.name}</span>
-            <span className="text-right text-sm tabular-nums whitespace-nowrap">
-              {formatCurrency(leg.value)}
-            </span>
-            <div className="col-span-2 h-1 overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full rounded-full"
-                style={{
-                  width: `${(leg.value / max) * 100}%`,
-                  backgroundColor: leg.color,
-                }}
-              />
-            </div>
-          </div>
-        ))
+        legs.map((leg) => {
+          const filters = legFilters(accountId, leg.id);
+          return (
+            <button
+              key={leg.id}
+              type="button"
+              disabled={!filters}
+              onClick={filters ? () => onSelect(filters) : undefined}
+              className="-mx-2 grid w-[calc(100%+1rem)] grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 rounded-md px-2 py-1 text-left enabled:hover:bg-muted/60 disabled:cursor-default"
+            >
+              <span className="min-w-0 truncate text-sm">{leg.name}</span>
+              <span className="text-right text-sm tabular-nums whitespace-nowrap">
+                {formatCurrency(leg.value)}
+              </span>
+              <div className="col-span-2 h-1 overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full"
+                  style={{
+                    width: `${(leg.value / max) * 100}%`,
+                    backgroundColor: leg.color,
+                  }}
+                />
+              </div>
+            </button>
+          );
+        })
       )}
     </div>
   );
@@ -76,6 +109,7 @@ export function MoneyFlow({
   isLoading,
   open,
   onOpenChange,
+  onSelect,
 }: MoneyFlowProps) {
   const { groups, max } = useMemo(() => {
     const nodes = new Map((data?.nodes ?? []).map((n) => [n.id, n]));
@@ -148,8 +182,20 @@ export function MoneyFlow({
                     {account.name}
                   </p>
                   <div className="grid gap-x-8 gap-y-4 sm:grid-cols-2">
-                    <Legs title="In" legs={inLegs} max={max} />
-                    <Legs title="Out" legs={outLegs} max={max} />
+                    <Legs
+                      title="In"
+                      legs={inLegs}
+                      max={max}
+                      accountId={account.id.slice("acct:".length)}
+                      onSelect={onSelect}
+                    />
+                    <Legs
+                      title="Out"
+                      legs={outLegs}
+                      max={max}
+                      accountId={account.id.slice("acct:".length)}
+                      onSelect={onSelect}
+                    />
                   </div>
                 </div>
               ))}
