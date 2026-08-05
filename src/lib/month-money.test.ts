@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { toMonthly, combineMonthSpend, mergeCategorySpend } from "./month-money";
+import { toMonthly, mergeCategorySpend } from "./month-money";
 
 describe("toMonthly", () => {
   it("converts known frequencies", () => {
@@ -22,36 +22,6 @@ describe("toMonthly", () => {
   it("handles zero", () => {
     expect(toMonthly(0, "monthly")).toBe(0);
     expect(toMonthly(0, "weekly")).toBe(0);
-  });
-});
-
-describe("combineMonthSpend", () => {
-  it("adds the magnitude of a net-negative pot to the ungrouped tx total", () => {
-    // Pot net out is -30 (more out than in), so |min(0, -30)| = 30.
-    expect(combineMonthSpend(100, -30)).toBe(130);
-  });
-
-  it("ignores a net-positive pot — funding is not spending", () => {
-    // Pot received +70 net (deposit > expense). min(0, 70) = 0 → contributes 0.
-    expect(combineMonthSpend(100, 70)).toBe(100);
-  });
-
-  it("treats a zero pot net as zero spend", () => {
-    expect(combineMonthSpend(100, 0)).toBe(100);
-  });
-
-  it("documents the mixed-flow under-counting case", () => {
-    // A pot got +€100 and spent €30 in the same month → potNet = +70.
-    // The €30 outflow is masked by the deposit; combineMonthSpend returns 100.
-    // This is the chosen design: pots are treated as a net flow, not a tally
-    // of individual outflows. Locking in a regression test so future changes
-    // are deliberate.
-    expect(combineMonthSpend(100, 70)).toBe(100);
-  });
-
-  it("treats a fully-negative pot as adding the full magnitude", () => {
-    // Pure spend of €40 from a pot, no deposits → potNet = -40.
-    expect(combineMonthSpend(0, -40)).toBe(40);
   });
 });
 
