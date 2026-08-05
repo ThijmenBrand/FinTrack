@@ -57,13 +57,6 @@ export function getPeriodRange(
   }
 }
 
-function reimbursementAdjustment() {
-  return sql`COALESCE(
-    (SELECT SUM(r.amount) FROM reimbursement_links rl JOIN transactions r ON r.id = rl.reimbursement_id AND r.user_id = "transactions"."user_id" WHERE rl.expense_id = "transactions"."id"),
-    0
-  )`;
-}
-
 function getDateRanges(startDay: number = 1) {
   const now = new Date();
   const y = now.getFullYear();
@@ -528,17 +521,14 @@ export async function getMonthSummary(
   const accountFilter = accountIds && accountIds.length > 0
     ? inArray(transactions.accountId, accountIds)
     : sql`1=1`;
-  const accountFilterAlias = accountIds && accountIds.length > 0
-    ? sql` AND t.account_id IN (${sql.join(
-        accountIds.map((id) => sql`${id}`),
-        sql`, `,
-      )})`
-    : sql``;
 
-  const [accountBalances, monthIncome, monthExpense, monthPotContrib] =
+  const [accountBalances, monthIncome, monthExpense, monthPotSpend] =
     await Promise.all([
       getAccountBalances(userId),
 
+      // Grouped rows are excluded here and netted into the pot spend below —
+      // counting a pot's refund as income *and* as reduced pot spend would
+      // credit it twice.
       db
         .select({ total: sum(transactions.amount) })
         .from(transactions)
@@ -546,6 +536,7 @@ export async function getMonthSummary(
           and(
             eq(transactions.userId, userId),
             eq(transactions.type, "income"),
+            sql`${transactions.groupId} IS NULL`,
             gte(transactions.date, monthStart),
             lte(transactions.date, monthEnd),
             accountFilter,
@@ -554,45 +545,52 @@ export async function getMonthSummary(
 
       db
         .select({
-          total: sql<number>`sum(${transactions.amount} + ${reimbursementAdjustment()})`,
+          total: sql<number>`sum(${effectiveExpenseAmount()})`,
         })
         .from(transactions)
-        .leftJoin(categories, eq(transactions.categoryId, categories.id))
         .where(
           and(
             eq(transactions.userId, userId),
             eq(transactions.type, "expense"),
-              sql`${transactions.groupId} IS NULL`,
+            sql`${transactions.groupId} IS NULL`,
             gte(transactions.date, monthStart),
             lte(transactions.date, monthEnd),
             accountFilter,
           )
         ),
 
+      // Netted per pot, like /api/insights and /api/budgets — a single net
+      // across all pots would let one pot's deposit erase another's spending.
       db
-        .select({
-          potNet: sql<number>`SUM(t.amount)`,
-        })
-        .from(sql`transactions t`)
-        .innerJoin(sql`transaction_groups g`, sql`t.group_id = g.id`)
+        .select({ spent: sql<number>`${potSpentAmount()}` })
+        .from(transactionGroups)
+        .innerJoin(transactions, eq(transactions.groupId, transactionGroups.id))
         .where(
-          sql`t.group_id IS NOT NULL AND t.type != 'internal_transfer' AND t.user_id = ${userId} AND t.date >= ${monthStart} AND t.date <= ${monthEnd}${accountFilterAlias}`
-        ),
+          and(
+            eq(transactionGroups.userId, userId),
+            sql`${transactions.type} != 'internal_transfer'`,
+            gte(transactions.date, monthStart),
+            lte(transactions.date, monthEnd),
+            accountFilter,
+          )
+        )
+        .groupBy(transactionGroups.id),
     ]);
 
   const totalBalance = accountBalances.reduce(
     (acc, a) => acc + a.currentBalance,
     0
   );
-  const monthPotExpense = Math.min(0, monthPotContrib[0]?.potNet || 0);
+  const potExpense = monthPotSpend.reduce(
+    (s, r) => s + (Number(r.spent) || 0),
+    0,
+  );
 
   return {
     totalBalance,
     accountCount: accountBalances.length,
     monthIncome: Number(monthIncome[0]?.total) || 0,
-    monthExpenses:
-      Math.abs(Number(monthExpense[0]?.total) || 0) +
-      Math.abs(monthPotExpense),
+    monthExpenses: (Number(monthExpense[0]?.total) || 0) + potExpense,
   };
 }
 

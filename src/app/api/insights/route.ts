@@ -62,18 +62,22 @@ export async function GET(request: NextRequest) {
       };
     };
 
-    // Direct (ungrouped) expenses per category, reimbursement-adjusted.
+    // Direct (ungrouped) NET spend per category: reimbursement-adjusted expenses
+    // minus income booked to the same category (a rent share paid back, say), so
+    // a category reads the same net total the transactions page shows when you
+    // filter on it. Categories that net to zero or less are dropped downstream.
     const directCategoryExpenses = (conds: SQL[]) =>
       db
         .select({
           categoryId: transactions.categoryId,
-          total: sql<number>`sum(${effectiveExpenseAmount()})`,
+          total: sql<number>`sum(CASE WHEN ${transactions.type} = 'expense'
+            THEN (${effectiveExpenseAmount()}) ELSE -${transactions.amount} END)`,
           count: sql<number>`count(*)`,
         })
         .from(transactions)
         .where(
           and(
-            eq(transactions.type, "expense"),
+            inArray(transactions.type, ["expense", "income"]),
             sql`${transactions.groupId} IS NULL`,
             ...conds,
           ),
@@ -182,19 +186,21 @@ export async function GET(request: NextRequest) {
     }
     const monthlyTotals = [...monthlyMap.values()];
 
-    // Month × category expense matrix: direct effective expenses plus signed
-    // pot spend, merged in JS, each (month, category) cell clamped at 0.
+    // Month × category expense matrix: direct net spend (same expense-minus-income
+    // netting as the breakdown above) plus signed pot spend, merged in JS, each
+    // (month, category) cell clamped at 0.
     const [directMonthlyCat, potMonthlyCat] = await Promise.all([
       db
         .select({
           month: sql<string>`substr(${transactions.date}, 1, 7)`,
           categoryId: transactions.categoryId,
-          total: sql<number>`sum(${effectiveExpenseAmount()})`,
+          total: sql<number>`sum(CASE WHEN ${transactions.type} = 'expense'
+            THEN (${effectiveExpenseAmount()}) ELSE -${transactions.amount} END)`,
         })
         .from(transactions)
         .where(
           and(
-            eq(transactions.type, "expense"),
+            inArray(transactions.type, ["expense", "income"]),
             sql`${transactions.groupId} IS NULL`,
             ...conditions,
           ),
@@ -368,6 +374,10 @@ export async function GET(request: NextRequest) {
         categoryTotals[key] = (categoryTotals[key] ?? 0) + amount;
         prevPotSpending += amount;
       }
+      // Same rule as the current-period breakdown: a category that nets to zero
+      // or less isn't spending, so it compares as absent rather than negative.
+      for (const [key, total] of Object.entries(categoryTotals))
+        if (total <= 0) delete categoryTotals[key];
       const prevTotalExpenses = prevSummary.totalExpenses + prevPotSpending;
       previous = {
         totalIncome: prevSummary.totalIncome,
@@ -378,13 +388,17 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json({
-      categoryBreakdown: [...breakdownByCat.values()].map((c) => ({
-        categoryId: c.categoryId,
-        categoryName: c.categoryName || "Uncategorized",
-        categoryColor: c.categoryColor || "#94a3b8",
-        total: c.total,
-        count: c.count,
-      })),
+      categoryBreakdown: [...breakdownByCat.values()]
+        // Salary and other income-dominant categories net out to zero or less —
+        // they're not places money went.
+        .filter((c) => c.total > 0)
+        .map((c) => ({
+          categoryId: c.categoryId,
+          categoryName: c.categoryName || "Uncategorized",
+          categoryColor: c.categoryColor || "#94a3b8",
+          total: c.total,
+          count: c.count,
+        })),
       dailyTotals,
       monthlyTotals,
       monthlyCategoryTotals,

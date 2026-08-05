@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { transactions, accounts, categories } from "@/db/schema";
-import { eq, desc, asc, and, gte, lte, like, or, sql, inArray, notInArray, isNull } from "drizzle-orm";
+import { eq, desc, asc, and, gte, lte, like, or, sql, inArray, notInArray, isNull, isNotNull } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
 import { parseSearchTerm } from "@/lib/search-query";
@@ -33,10 +33,19 @@ export async function GET(request: NextRequest) {
     const nearAmountRaw = searchParams.get("nearAmount");
     const nearAmount = nearAmountRaw ? Number(nearAmountRaw) : null;
 
+    // Account/date scope, shared by the list filters and the pot-net totals
+    // below. Kept separate from the row-level filters (type, category, search)
+    // because a pot's contribution is a NET: summing it over only the rows a
+    // type filter keeps strips the income/reimbursement legs and reports gross
+    // spend instead.
+    const scopeConditions = [eq(transactions.userId, userId)];
+    if (accountId) scopeConditions.push(eq(transactions.accountId, accountId));
+    if (groupId) scopeConditions.push(eq(transactions.groupId, groupId));
+    if (dateFrom) scopeConditions.push(gte(transactions.date, dateFrom));
+    if (dateTo) scopeConditions.push(lte(transactions.date, dateTo));
+
     // Build conditions — always filter by userId
-    const conditions = [eq(transactions.userId, userId)];
-    if (accountId) conditions.push(eq(transactions.accountId, accountId));
-    if (groupId) conditions.push(eq(transactions.groupId, groupId));
+    const conditions = [...scopeConditions];
     if (reimbursesExpenseId) {
       conditions.push(sql`${transactions.id} IN (
         SELECT rl.reimbursement_id FROM reimbursement_links rl WHERE rl.expense_id = ${reimbursesExpenseId}
@@ -68,8 +77,6 @@ export async function GET(request: NextRequest) {
       }
       if (matches.length) conditions.push(or(...matches)!);
     }
-    if (dateFrom) conditions.push(gte(transactions.date, dateFrom));
-    if (dateTo) conditions.push(lte(transactions.date, dateTo));
     if (uncategorized === "true") {
       conditions.push(sql`${transactions.categoryId} IS NULL`);
     } else if (categoryIds.length) {
@@ -222,22 +229,36 @@ export async function GET(request: NextRequest) {
       .from(transactions)
       .where(and(...conditions, isNull(transactions.groupId)));
 
-    // Net per pot over the members that match the current filter. Scoped to the
-    // filter, not the pot's whole lifetime: a pot with one member in July must
-    // not drag its January spending into a July total. Mirrors
-    // /api/insights `potSpendingPerPot`, including the internal-transfer
-    // exclusion — moving money into a pot isn't spending it.
-    const potNetRows = await db
-      .select({ net: sql<number>`COALESCE(SUM(${transactions.amount}), 0)` })
-      .from(transactions)
-      .where(
-        and(
-          ...conditions,
-          sql`${transactions.groupId} IS NOT NULL`,
-          sql`${transactions.type} != 'internal_transfer'`
-        )
-      )
-      .groupBy(transactions.groupId);
+    // Which pots the current filters touch. The row-level filters decide
+    // *whether* a pot counts; they must not decide *how much* it counts, or a
+    // `type: expense` filter would drop the pot's refunds and overstate spend.
+    const filteredPotIds = (
+      await db
+        .selectDistinct({ groupId: transactions.groupId })
+        .from(transactions)
+        .where(and(...conditions, isNotNull(transactions.groupId)))
+    )
+      .map((r) => r.groupId)
+      .filter((id): id is string => !!id);
+
+    // Net per pot over every member in range. Scoped to the range, not the
+    // pot's whole lifetime: a pot with one member in July must not drag its
+    // January spending into a July total. Mirrors /api/insights
+    // `potSpendingPerPot`, including the internal-transfer exclusion — moving
+    // money into a pot isn't spending it.
+    const potNetRows = filteredPotIds.length
+      ? await db
+          .select({ net: sql<number>`COALESCE(SUM(${transactions.amount}), 0)` })
+          .from(transactions)
+          .where(
+            and(
+              ...scopeConditions,
+              inArray(transactions.groupId, filteredPotIds),
+              sql`${transactions.type} != 'internal_transfer'`
+            )
+          )
+          .groupBy(transactions.groupId)
+      : [];
 
     let income = directSum?.totalIncome || 0;
     let expense = directSum?.totalExpense || 0;

@@ -36,16 +36,6 @@ export interface MonthMoneyOptions {
 export { toMonthly };
 
 /**
- * Combine ungrouped expense total with the net flow of pot transactions for
- * the same window. Pots only contribute to "spent" when their net is negative
- * (more out than in); a net-positive pot this month adds zero — funding the
- * pot is not the same as spending money.
- */
-export function combineMonthSpend(txTotal: number, potNet: number): number {
-  return txTotal + Math.abs(Math.min(0, potNet));
-}
-
-/**
  * Merge per-category spending from ungrouped transactions and from pots into a
  * single map keyed by categoryId. Each transaction is expected to appear in
  * exactly one of the two inputs (the SQL queries enforce this via
@@ -113,12 +103,6 @@ export async function getMonthMoneyMath(
   const accountFilter = hasAccountFilter
     ? inArray(transactions.accountId, accountIds!)
     : sql`1=1`;
-  const accountFilterAlias = hasAccountFilter
-    ? sql` AND t.account_id IN (${sql.join(
-        accountIds!.map((id) => sql`${id}`),
-        sql`, `,
-      )})`
-    : sql``;
 
   const [
     txIncome,
@@ -137,6 +121,9 @@ export async function getMonthMoneyMath(
         and(
           eq(transactions.userId, userId),
           eq(transactions.type, "income"),
+          // Grouped rows are netted into the pot spend below; counting them as
+          // income too would credit a pot's refund twice.
+          sql`${transactions.groupId} IS NULL`,
           gte(transactions.date, from),
           lte(transactions.date, to),
           accountFilter,
@@ -198,13 +185,22 @@ export async function getMonthMoneyMath(
         )
       ),
 
+    // Netted per pot (not one net across all of them) so a deposit into one pot
+    // can't cancel out spending from another.
     db
-      .select({ potNet: sql<number>`SUM(t.amount)` })
-      .from(sql`transactions t`)
-      .innerJoin(sql`transaction_groups g`, sql`t.group_id = g.id`)
+      .select({ spent: sql<number>`${potSpentAmount()}` })
+      .from(transactionGroups)
+      .innerJoin(transactions, eq(transactions.groupId, transactionGroups.id))
       .where(
-        sql`t.group_id IS NOT NULL AND t.type != 'internal_transfer' AND t.user_id = ${userId} AND t.date >= ${from} AND t.date <= ${to}${accountFilterAlias}`
-      ),
+        and(
+          eq(transactionGroups.userId, userId),
+          sql`${transactions.type} != 'internal_transfer'`,
+          gte(transactions.date, from),
+          lte(transactions.date, to),
+          accountFilter,
+        )
+      )
+      .groupBy(transactionGroups.id),
 
     db
       .select({
@@ -233,8 +229,8 @@ export async function getMonthMoneyMath(
   }, 0);
 
   const txTotal = Number(txExpense[0]?.total) || 0;
-  const potNet = Number(potExpense[0]?.potNet) || 0;
-  const spentThisMonth = combineMonthSpend(txTotal, potNet);
+  const potSpent = potExpense.reduce((s, r) => s + (Number(r.spent) || 0), 0);
+  const spentThisMonth = txTotal + potSpent;
 
   // Per-category spending for the budget warning. Pots count toward their
   // category, matching how the budgets page displays things.

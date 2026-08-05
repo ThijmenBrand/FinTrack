@@ -6,7 +6,7 @@ const testDb = await setupTestDb("tx-totals");
 
 const { db } = await import("@/db");
 const { transactions, transactionGroups, reimbursementLinks } = await import("@/db/schema");
-const { eq, and, sql, isNull, gte, lte } = await import("drizzle-orm");
+const { eq, and, sql, isNull, isNotNull, inArray, gte, lte } = await import("drizzle-orm");
 const { effectiveExpenseAmount } = await import("@/lib/reimbursement-sql");
 
 const USER = "user-1";
@@ -50,8 +50,13 @@ async function reimburse(amount: number, ...expenseIds: string[]) {
 }
 
 // Mirrors the totals computation in /api/transactions GET: direct (ungrouped)
-// sums plus each pot's net over the filtered members, split by sign.
-async function totals(conditions = [eq(transactions.userId, USER)]) {
+// sums plus each pot's net, split by sign. `conditions` are the full filters
+// (they pick which pots count); `scope` is the account/date subset (it decides
+// how much each of those pots contributes).
+async function totals(
+  conditions = [eq(transactions.userId, USER)],
+  scope = conditions
+) {
   const [direct] = await db
     .select({
       income: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END), 0)`,
@@ -63,17 +68,28 @@ async function totals(conditions = [eq(transactions.userId, USER)]) {
     .from(transactions)
     .where(and(...conditions, isNull(transactions.groupId)));
 
-  const potNetRows = await db
-    .select({ net: sql<number>`COALESCE(SUM(${transactions.amount}), 0)` })
-    .from(transactions)
-    .where(
-      and(
-        ...conditions,
-        sql`${transactions.groupId} IS NOT NULL`,
-        sql`${transactions.type} != 'internal_transfer'`
-      )
-    )
-    .groupBy(transactions.groupId);
+  const potIds = (
+    await db
+      .selectDistinct({ groupId: transactions.groupId })
+      .from(transactions)
+      .where(and(...conditions, isNotNull(transactions.groupId)))
+  )
+    .map((r) => r.groupId)
+    .filter((id): id is string => !!id);
+
+  const potNetRows = potIds.length
+    ? await db
+        .select({ net: sql<number>`COALESCE(SUM(${transactions.amount}), 0)` })
+        .from(transactions)
+        .where(
+          and(
+            ...scope,
+            inArray(transactions.groupId, potIds),
+            sql`${transactions.type} != 'internal_transfer'`
+          )
+        )
+        .groupBy(transactions.groupId)
+    : [];
 
   let income = direct?.income || 0;
   let expense = direct?.expense || 0;
@@ -127,6 +143,22 @@ describe("transaction totals with pots", () => {
     // report -700 of expense in a month that had none.
     expect(income).toBeCloseTo(300, 2);
     expect(expense).toBe(0);
+  });
+
+  it("keeps a pot's net intact under a type filter", async () => {
+    const pot = await insertPot();
+    await insert(-1000, { groupId: pot });
+    await insert(300, { groupId: pot }); // refund into the pot
+    const conds = [
+      eq(transactions.userId, USER),
+      eq(transactions.type, "expense"),
+    ];
+    const scope = [eq(transactions.userId, USER)];
+    const { expense } = await totals(conds, scope);
+    // -700, not -1000: filtering the list to expenses must not strip the
+    // refund leg out of the pot's net (that's what made /transactions read
+    // higher than /insights for the same period).
+    expect(expense).toBeCloseTo(-700, 2);
   });
 
   it("ignores internal transfers into a pot — funding it is not spending it", async () => {
