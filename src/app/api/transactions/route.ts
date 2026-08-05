@@ -247,10 +247,21 @@ export async function GET(request: NextRequest) {
     // pot's whole lifetime: a pot with one member in July must not drag its
     // January spending into a July total. Mirrors /api/insights
     // `potSpendingPerPot`, including the internal-transfer exclusion — moving
-    // money into a pot isn't spending it.
+    // money into a pot isn't spending it. `memberCount` vs `totalMemberCount`
+    // tells the UI whether the range covers the whole pot.
     const potNetRows = filteredPotIds.length
       ? await db
-          .select({ net: sql<number>`COALESCE(SUM(${transactions.amount}), 0)` })
+          .select({
+            groupId: transactions.groupId,
+            net: sql<number>`COALESCE(SUM(${transactions.amount}), 0)`,
+            memberCount: sql<number>`COUNT(*)`,
+            totalMemberCount: sql<number>`(
+              SELECT COUNT(*) FROM transactions t2
+              WHERE t2.group_id = ${transactions.groupId}
+                AND t2.user_id = ${userId}
+                AND t2.type != 'internal_transfer'
+            )`,
+          })
           .from(transactions)
           .where(
             and(
@@ -262,12 +273,18 @@ export async function GET(request: NextRequest) {
           .groupBy(transactions.groupId)
       : [];
 
+    // A pot contributes one net, on the side its sign puts it. With a `type`
+    // filter active, only count the side the user asked for — otherwise
+    // filtering on income reports a pot's net *spend* under Expenses.
+    const wantIncome = !types.length || types.some((t) => t === "income" || t === "reimbursement");
+    const wantExpense = !types.length || types.includes("expense");
+
     let income = directSum?.totalIncome || 0;
     let expense = directSum?.totalExpense || 0;
     const transfers = directSum?.totalTransfers || 0;
     for (const { net: potNet } of potNetRows) {
-      if (potNet > 0) income += potNet;
-      else expense += potNet;
+      if (potNet > 0 && wantIncome) income += potNet;
+      else if (potNet < 0 && wantExpense) expense += potNet;
     }
     const net = income + expense + transfers;
 
@@ -280,6 +297,15 @@ export async function GET(request: NextRequest) {
         totalPages: Math.ceil(total / limit),
       },
       distinctTypes: distinctTypes.map((r) => r.type),
+      // Per-pot figures for the filtered range, so the pot row can show what
+      // the pot did *in this period* instead of its lifetime net.
+      potTotals: potNetRows.map((r) => ({
+        groupId: r.groupId!,
+        net: r.net,
+        memberCount: r.memberCount,
+        totalMemberCount: r.totalMemberCount,
+        isPartial: r.memberCount < r.totalMemberCount,
+      })),
       totals: {
         income,
         expense,

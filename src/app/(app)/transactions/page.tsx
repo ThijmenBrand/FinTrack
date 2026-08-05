@@ -24,7 +24,7 @@ import { usePots, useDeletePot, useAddToPot, useRemoveFromPot, useCreatePot } fr
 import { useTransactions, useDeleteTransaction, useDetectTransfers, useDeleteReimbursement, useBulkCategorizeTransactions, useBulkDeleteTransactions } from "@/hooks/use-transactions";
 import { usePreferences } from "@/hooks/use-preferences";
 import { formatDate } from "@/lib/utils";
-import type { Transaction, Pot, Pagination } from "@/types/api";
+import type { Transaction, Pot, Pagination, PotRangeTotal } from "@/types/api";
 import {
   TransactionSearchBar,
   computeDateRange,
@@ -182,6 +182,14 @@ function TransactionsPage() {
   const transactions = txData?.data ?? [];
   const distinctTypes = txData?.distinctTypes ?? [];
   const totals = txData?.totals ?? null;
+
+  // Per-pot net for the filtered range. The pot row shows this instead of the
+  // pot's lifetime net, so it reconciles with the totals card above it.
+  const potTotalsById = useMemo(() => {
+    const map = new Map<string, PotRangeTotal>();
+    for (const pt of txData?.potTotals ?? []) map.set(pt.groupId, pt);
+    return map;
+  }, [txData?.potTotals]);
 
   // Show the live row from the query cache so the open detail dialog reflects
   // categorize/link mutations; fall back to the snapshot if it left the page.
@@ -393,6 +401,7 @@ function TransactionsPage() {
         <PotRow
           key={`pot-${item.data.id}`}
           pot={item.data}
+          rangeTotal={potTotalsById.get(item.data.id)}
           layout={layout}
           categories={categories}
           onAddTransactions={() => setAddToPotPicker(item.data)}

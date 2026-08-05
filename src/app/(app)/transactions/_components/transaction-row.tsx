@@ -24,9 +24,10 @@ import {
   Undo2,
   Target,
   StickyNote,
+  Filter,
 } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import type { Transaction, Category, Pot } from "@/types/api";
+import type { Transaction, Category, Pot, PotRangeTotal } from "@/types/api";
 
 const TYPE_BADGES: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
   income: { label: "Income", variant: "default" },
@@ -311,6 +312,8 @@ export function TransactionRow({
 
 interface PotRowProps {
   pot: Pot;
+  /** Pot net over the filtered range; falls back to the lifetime net. */
+  rangeTotal?: PotRangeTotal;
   layout: Layout;
   categories: Category[];
   onAddTransactions: () => void;
@@ -320,6 +323,7 @@ interface PotRowProps {
 
 export function PotRow({
   pot,
+  rangeTotal,
   layout,
   categories,
   onAddTransactions,
@@ -331,6 +335,16 @@ export function PotRow({
       ? `${Math.min(100, Math.round((pot.fundedAmount / pot.targetAmount) * 100))}%`
       : "0%";
 
+  // Show the range figures so the row reconciles with the totals card above;
+  // `isPartial` flags that the filters hide part of the pot.
+  const amount = rangeTotal ? rangeTotal.net : pot.netAmount;
+  const count = rangeTotal ? rangeTotal.memberCount : pot.transactionCount;
+  const partialLabel = rangeTotal?.isPartial
+    ? `Filtered range — ${rangeTotal.memberCount} of ${rangeTotal.totalMemberCount} transactions. Lifetime net: ${
+        pot.netAmount >= 0 ? "+" : ""
+      }${formatCurrency(pot.netAmount)}`
+    : null;
+
   if (layout === "card") {
     return (
       <div className="flex items-center gap-3 px-4 py-3 bg-muted/40 border-t-2">
@@ -340,7 +354,8 @@ export function PotRow({
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold truncate">{pot.name}</p>
           <p className="text-xs text-muted-foreground">
-            {pot.transactionCount} transaction{pot.transactionCount !== 1 ? "s" : ""}
+            {count} transaction{count !== 1 ? "s" : ""}
+            {partialLabel && " · in range"}
           </p>
           {pot.targetAmount != null && pot.targetDate && (
             <div className="mt-1 space-y-1">
@@ -359,10 +374,13 @@ export function PotRow({
             </div>
           )}
         </div>
-        <span className={`text-sm font-mono font-semibold shrink-0 ${
-          pot.netAmount >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
-        }`}>
-          {pot.netAmount >= 0 ? "+" : ""}{formatCurrency(pot.netAmount)}
+        <span
+          className={`text-sm font-mono font-semibold shrink-0 ${
+            amount >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
+          }`}
+          title={partialLabel ?? undefined}
+        >
+          {amount >= 0 ? "+" : ""}{formatCurrency(amount)}
         </span>
         <div className="flex gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
           <Button
@@ -400,8 +418,21 @@ export function PotRow({
             <Package className="h-4 w-4 text-muted-foreground" />
             <span>{pot.name}</span>
             <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-              {pot.transactionCount} tx
+              {count} tx
             </Badge>
+            {partialLabel && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-1 font-normal cursor-help">
+                      <Filter className="h-2.5 w-2.5" />
+                      In range
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">{partialLabel}</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
             {pot.targetAmount != null && pot.targetDate && (
               <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-1 font-normal">
                 <Target className="h-2.5 w-2.5" />
@@ -435,10 +466,13 @@ export function PotRow({
         <Badge variant="outline" className="text-xs">Pot</Badge>
       </TableCell>
       <TableCell className="text-right whitespace-nowrap">
-        <span className={`font-mono text-sm font-semibold ${
-          pot.netAmount >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
-        }`}>
-          {pot.netAmount >= 0 ? "+" : ""}{formatCurrency(pot.netAmount)}
+        <span
+          className={`font-mono text-sm font-semibold ${
+            amount >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
+          }`}
+          title={partialLabel ?? undefined}
+        >
+          {amount >= 0 ? "+" : ""}{formatCurrency(amount)}
         </span>
       </TableCell>
       <TableCell>

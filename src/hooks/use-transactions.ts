@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
-import type { Transaction, Pagination, Category } from "@/types/api";
+import type { Transaction, Pagination, Category, PotRangeTotal } from "@/types/api";
 
 interface TransactionFilters {
   page?: number;
@@ -23,6 +23,7 @@ interface TransactionsResponse {
   data: Transaction[];
   pagination: Pagination;
   distinctTypes?: string[];
+  potTotals?: PotRangeTotal[];
   totals?: { income: number; expense: number; transfers: number; reimbursements: number; net: number };
 }
 

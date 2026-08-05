@@ -15,7 +15,6 @@ import { classifyOnTrack } from "@/lib/on-track";
 import { getFinancialMonthRange, getPeriodProgress } from "@/lib/financial-month";
 import { formatCurrency, toIsoDate } from "@/lib/utils";
 import { effectiveExpenseAmount, potSpentAmount } from "@/lib/reimbursement-sql";
-import { defaultScopeAccountIds } from "@/lib/account-scope";
 import type {
   MonthMoneyView,
   SavingTowardSpike,
@@ -91,20 +90,16 @@ function getDateRanges(startDay: number = 1) {
 }
 
 /**
- * The accounts the dashboard scopes to by default — every checking account,
- * falling back to the single default-account preference. See
- * {@link defaultScopeAccountIds}.
+ * The rows {@link defaultScopeAccountIds} needs to pick the dashboard's
+ * default scope. Fetched separately from preferences so the page can run
+ * both queries in parallel — the query itself doesn't depend on prefs.
  */
-export const getDefaultScopeAccountIds = cache(async (
-  userId: string,
-  defaultAccountId: string | null,
-): Promise<string[]> => {
-  const rows = await db
+export const getScopeAccountRows = cache(async (userId: string) =>
+  db
     .select({ id: accounts.id, type: accounts.type })
     .from(accounts)
-    .where(eq(accounts.userId, userId));
-  return defaultScopeAccountIds(rows, defaultAccountId);
-});
+    .where(eq(accounts.userId, userId)),
+);
 
 /**
  * Expand the scoped accounts to the set whose activity should count toward
@@ -118,13 +113,16 @@ export const getDefaultScopeAccountIds = cache(async (
  * still appear in the account-scoped Expenses / Free to Spend tiles.
  *
  * Returns `undefined` (meaning "no scoping") when the scope is empty.
+ *
+ * Cached per render pass: three dashboard cards ask for the same window, and
+ * against a remote DB the duplicate round trips are pure waste.
  */
-async function getFundedAccountIds(
+const getFundedAccountIds = cache(async (
   userId: string,
   scopeAccountIds: string[] | undefined,
   from: string,
   to: string,
-): Promise<string[] | undefined> {
+): Promise<string[] | undefined> => {
   if (!scopeAccountIds || scopeAccountIds.length === 0) return undefined;
   const rows = await db
     .select({ destAccountId: transactions.accountId })
@@ -147,7 +145,7 @@ async function getFundedAccountIds(
   const set = new Set<string>(scopeAccountIds);
   for (const r of rows) if (r.destAccountId) set.add(r.destAccountId);
   return Array.from(set);
-}
+});
 
 interface CategorySpend {
   categoryId: string | null;
@@ -325,6 +323,26 @@ export const getBudgetOverview = cache(async (
         const { from, to } = getPeriodRange(period, startDay);
         const categoryIds = periodBudgets.map((b) => b.categoryId);
         const budgeted = new Set(categoryIds);
+
+        // Monthly budgets can reuse the month-wide queries above instead of
+        // re-running them — same range, same expense math, just unfiltered by
+        // category. Saves a serial round-trip wave on the common path.
+        if (period === "monthly") {
+          for (const r of monthByCategory) {
+            if (r.categoryId && budgeted.has(r.categoryId)) {
+              spendingByCategory.set(r.categoryId, Number(r.total) || 0);
+            }
+          }
+          for (const p of monthPotSpend) {
+            if (!p.categoryId || !budgeted.has(p.categoryId)) continue;
+            spendingByCategory.set(
+              p.categoryId,
+              (spendingByCategory.get(p.categoryId) ?? 0) + p.spent,
+            );
+          }
+          return;
+        }
+
         const [results, potSpend] = await Promise.all([
           db
             .select({
@@ -719,10 +737,36 @@ export async function getMonthMoneyView(
 
   const accountIds = await getFundedAccountIds(userId, scopeAccountIds, monthStart, monthEnd);
 
-  const [math, schedule, rows] = await Promise.all([
+  // Per-pot spend already booked this month. `math.freeToSpend` and
+  // `alloc.spent` already include these amounts, so we subtract the spend
+  // from each spike's targetAmount to avoid double-counting. Queried for every
+  // target-pot (joined instead of filtered by the spike ids) so it can run in
+  // the same wave as the spike rows — extra pots just go unread from the map.
+  const [math, schedule, rows, inMonth] = await Promise.all([
     getMonthMoneyMath(userId, startDay, { accountIds }),
     getPaySchedule(userId),
     loadSpikeRowsBetween(userId, todayIso, monthEnd),
+    db
+      .select({
+        groupId: transactions.groupId,
+        spent: sql<number>`abs(sum(case when ${transactions.amount} < 0 then ${transactions.amount} else 0 end))`,
+      })
+      .from(transactions)
+      .innerJoin(
+        transactionGroups,
+        eq(transactions.groupId, transactionGroups.id),
+      )
+      .where(
+        and(
+          eq(transactions.userId, userId),
+          isNotNull(transactionGroups.targetAmount),
+          isNotNull(transactionGroups.targetDate),
+          sql`${transactions.type} != 'internal_transfer'`,
+          gte(transactions.date, monthStart),
+          lte(transactions.date, monthEnd)
+        )
+      )
+      .groupBy(transactions.groupId),
   ]);
 
   // Sort by date so the per-spike "free after" lines accumulate in time order.
@@ -730,31 +774,9 @@ export async function getMonthMoneyView(
     .map((r) => ({ row: r, base: baseSpikeFields(r, today, schedule) }))
     .sort((a, b) => a.row.targetDate.localeCompare(b.row.targetDate));
 
-  // Per-pot spend already booked this month. `math.freeToSpend` and
-  // `alloc.spent` already include these amounts, so we subtract the spend
-  // from each spike's targetAmount to avoid double-counting.
-  const potIds = sorted.map(({ row }) => row.id);
   const spentByPot = new Map<string, number>();
-  if (potIds.length > 0) {
-    const inMonth = await db
-      .select({
-        groupId: transactions.groupId,
-        spent: sql<number>`abs(sum(case when ${transactions.amount} < 0 then ${transactions.amount} else 0 end))`,
-      })
-      .from(transactions)
-      .where(
-        and(
-          eq(transactions.userId, userId),
-          inArray(transactions.groupId, potIds),
-          sql`${transactions.type} != 'internal_transfer'`,
-          gte(transactions.date, monthStart),
-          lte(transactions.date, monthEnd)
-        )
-      )
-      .groupBy(transactions.groupId);
-    for (const r of inMonth) {
-      if (r.groupId) spentByPot.set(r.groupId, Number(r.spent) || 0);
-    }
+  for (const r of inMonth) {
+    if (r.groupId) spentByPot.set(r.groupId, Number(r.spent) || 0);
   }
 
   const remainingByPot = new Map<string, number>();

@@ -55,7 +55,8 @@ async function reimburse(amount: number, ...expenseIds: string[]) {
 // how much each of those pots contributes).
 async function totals(
   conditions = [eq(transactions.userId, USER)],
-  scope = conditions
+  scope = conditions,
+  types: string[] = []
 ) {
   const [direct] = await db
     .select({
@@ -79,7 +80,17 @@ async function totals(
 
   const potNetRows = potIds.length
     ? await db
-        .select({ net: sql<number>`COALESCE(SUM(${transactions.amount}), 0)` })
+        .select({
+          groupId: transactions.groupId,
+          net: sql<number>`COALESCE(SUM(${transactions.amount}), 0)`,
+          memberCount: sql<number>`COUNT(*)`,
+          totalMemberCount: sql<number>`(
+            SELECT COUNT(*) FROM transactions t2
+            WHERE t2.group_id = ${transactions.groupId}
+              AND t2.user_id = ${USER}
+              AND t2.type != 'internal_transfer'
+          )`,
+        })
         .from(transactions)
         .where(
           and(
@@ -91,13 +102,26 @@ async function totals(
         .groupBy(transactions.groupId)
     : [];
 
+  const wantIncome = !types.length || types.some((t) => t === "income" || t === "reimbursement");
+  const wantExpense = !types.length || types.includes("expense");
+
   let income = direct?.income || 0;
   let expense = direct?.expense || 0;
   for (const { net: potNet } of potNetRows) {
-    if (potNet > 0) income += potNet;
-    else expense += potNet;
+    if (potNet > 0 && wantIncome) income += potNet;
+    else if (potNet < 0 && wantExpense) expense += potNet;
   }
-  return { income, expense, net: income + expense + (direct?.transfers || 0) };
+  return {
+    income,
+    expense,
+    net: income + expense + (direct?.transfers || 0),
+    potTotals: potNetRows.map((r) => ({
+      groupId: r.groupId!,
+      net: r.net,
+      memberCount: r.memberCount,
+      isPartial: r.memberCount < r.totalMemberCount,
+    })),
+  };
 }
 
 beforeEach(() => testDb.reset());
@@ -154,11 +178,50 @@ describe("transaction totals with pots", () => {
       eq(transactions.type, "expense"),
     ];
     const scope = [eq(transactions.userId, USER)];
-    const { expense } = await totals(conds, scope);
+    const { expense } = await totals(conds, scope, ["expense"]);
     // -700, not -1000: filtering the list to expenses must not strip the
     // refund leg out of the pot's net (that's what made /transactions read
     // higher than /insights for the same period).
     expect(expense).toBeCloseTo(-700, 2);
+  });
+
+  it("drops a negative pot net when the filter asks only for income", async () => {
+    await insert(816.82); // direct income
+    const pot = await insertPot();
+    await insert(-1000, { groupId: pot });
+    await insert(300, { groupId: pot }); // refund, matches the income filter
+    const conds = [eq(transactions.userId, USER), eq(transactions.type, "income")];
+    const scope = [eq(transactions.userId, USER)];
+    const { income, expense } = await totals(conds, scope, ["income"]);
+    // The pot's refund leg pulls the pot into scope, but its net is spend.
+    // Reporting -700 of "expenses" under an income-only filter is the bug.
+    expect(income).toBeCloseTo(816.82, 2);
+    expect(expense).toBe(0);
+  });
+
+  it("flags a pot as partial when the range hides some of its members", async () => {
+    const pot = await insertPot();
+    await insert(-400, { groupId: pot, date: "2026-07-15" });
+    await insert(-1000, { groupId: pot, date: "2026-01-01" }); // out of range
+    const conds = [
+      eq(transactions.userId, USER),
+      gte(transactions.date, "2026-07-01"),
+      lte(transactions.date, "2026-07-31"),
+    ];
+    const { potTotals } = await totals(conds);
+    expect(potTotals).toHaveLength(1);
+    expect(potTotals[0].net).toBeCloseTo(-400, 2); // range net, not the -1400 lifetime
+    expect(potTotals[0].memberCount).toBe(1);
+    expect(potTotals[0].isPartial).toBe(true);
+  });
+
+  it("does not flag a pot as partial when the range covers all of it", async () => {
+    const pot = await insertPot();
+    await insert(-400, { groupId: pot, date: "2026-07-15" });
+    await insert(500, { groupId: pot, type: "internal_transfer", date: "2026-07-16" });
+    const { potTotals } = await totals();
+    // The top-up is excluded from both counts, so it must not read as partial.
+    expect(potTotals[0].isPartial).toBe(false);
   });
 
   it("ignores internal transfers into a pot — funding it is not spending it", async () => {
