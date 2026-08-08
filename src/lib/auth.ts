@@ -1,6 +1,6 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { admin, username } from "better-auth/plugins";
+import { admin, twoFactor, username } from "better-auth/plugins";
 import { passkey } from "@better-auth/passkey";
 import { NextResponse } from "next/server";
 import { db } from "@/db/index";
@@ -71,8 +71,14 @@ export const auth = betterAuth({
   database: drizzleAdapter(db, { provider: "sqlite", schema }),
   secret: getSecret(),
   baseURL: getBaseURL(),
+  appName: "FinTrack",
   trustedOrigins: [getBaseURL()],
-  plugins: [username(), admin(), passkey({ rpName: "FinTrack" })],
+  plugins: [
+    username(),
+    admin(),
+    passkey({ rpName: "FinTrack" }),
+    twoFactor({ issuer: "FinTrack" }),
+  ],
   rateLimit: {
     enabled: true,
     // In-memory limits reset on every serverless cold start; the database
@@ -158,6 +164,7 @@ export interface SessionData {
   username: string;
   displayUsername: string;
   isAdmin: boolean;
+  twoFactorEnabled: boolean;
 }
 
 // ─── Session Helpers (identical signatures to old API) ──────────────────────
@@ -194,6 +201,7 @@ export async function requireAuth(): Promise<SessionData> {
       "",
     displayUsername: session.user.name || "",
     isAdmin: (session.user as Record<string, unknown>).role === "admin",
+    twoFactorEnabled: (session.user as Record<string, unknown>).twoFactorEnabled === true,
   };
 }
 
@@ -209,6 +217,9 @@ export async function requireBackofficeAdmin(): Promise<SessionData> {
   if ((session.user as Record<string, unknown>).role !== "admin") {
     redirect("/");
   }
+  if ((session.user as Record<string, unknown>).twoFactorEnabled !== true) {
+    redirect("/backoffice/security");
+  }
   return {
     userId: session.user.id,
     username:
@@ -217,6 +228,7 @@ export async function requireBackofficeAdmin(): Promise<SessionData> {
       "",
     displayUsername: session.user.name || "",
     isAdmin: true,
+    twoFactorEnabled: (session.user as Record<string, unknown>).twoFactorEnabled === true,
   };
 }
 
@@ -240,9 +252,16 @@ export async function requireAdmin(): Promise<SessionData> {
       "",
     displayUsername: session.user.name || "",
     isAdmin: (session.user as Record<string, unknown>).role === "admin",
+    twoFactorEnabled: (session.user as Record<string, unknown>).twoFactorEnabled === true,
   };
   if (!data.isAdmin) {
     throw new Response(JSON.stringify({ error: "Forbidden" }), {
+      status: 403,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (!data.twoFactorEnabled) {
+    throw new Response(JSON.stringify({ error: "Two-factor authentication is required for admin accounts" }), {
       status: 403,
       headers: { "Content-Type": "application/json" },
     });

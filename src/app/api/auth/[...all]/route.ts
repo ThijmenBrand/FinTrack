@@ -128,6 +128,19 @@ export async function POST(req: NextRequest) {
     return handleDeletePasskey(req);
   }
 
+  // An administrator may never remove the factor that protects access to the
+  // backoffice. This guard lives in front of Better Auth's endpoint so it also
+  // applies to direct API calls, not just the settings UI.
+  if (url.pathname.endsWith("/two-factor/disable")) {
+    const session = await auth.api.getSession({ headers: await headers() });
+    if ((session?.user as Record<string, unknown> | undefined)?.role === "admin") {
+      return NextResponse.json(
+        { error: "Administrators must keep two-factor authentication enabled" },
+        { status: 403 },
+      );
+    }
+  }
+
   const { ipAddress, userAgent } = getRequestMeta(req.headers);
 
   // Intercept sign-in attempts to log failures

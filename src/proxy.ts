@@ -16,6 +16,7 @@ const publicPaths = [
   "/reset-password",
   "/invite",
   "/api/invites/accept",
+  "/two-factor",
 ];
 
 type Session = NonNullable<Awaited<ReturnType<typeof auth.api.getSession>>>;
@@ -31,6 +32,10 @@ async function getValidSession(request: NextRequest): Promise<Session | null> {
 
 function isAdminSession(session: Session): boolean {
   return (session.user as Record<string, unknown>).role === "admin";
+}
+
+function hasTwoFactorEnabled(session: Session): boolean {
+  return (session.user as Record<string, unknown>).twoFactorEnabled === true;
 }
 
 function clearAuthCookies(response: NextResponse): NextResponse {
@@ -120,6 +125,9 @@ export async function proxy(request: NextRequest) {
     if (pathname.startsWith("/backoffice")) {
       if (!admin) {
         return NextResponse.redirect(new URL("/", request.url));
+      }
+      if (!hasTwoFactorEnabled(session) && pathname !== "/backoffice/security") {
+        return NextResponse.redirect(new URL("/backoffice/security", request.url));
       }
     } else if (admin) {
       return NextResponse.redirect(new URL("/backoffice", request.url));

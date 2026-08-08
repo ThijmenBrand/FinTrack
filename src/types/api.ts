@@ -187,6 +187,7 @@ export interface Profile {
   username: string;
   displayUsername: string;
   isAdmin: boolean;
+  twoFactorEnabled: boolean;
   createdAt: string;
 }
 

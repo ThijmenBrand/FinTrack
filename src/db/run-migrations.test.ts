@@ -88,6 +88,8 @@ describe("run-migrations pipeline", () => {
     await client.execute("DROP TABLE app_settings");
     await client.execute("DROP TABLE rate_limit");
     await client.execute("DROP TABLE invites");
+    await client.execute("DROP TABLE twoFactor");
+    await client.execute("ALTER TABLE user DROP COLUMN two_factor_enabled");
     expect(await columnNames("user_preferences")).not.toContain("hide_internal_transfers");
 
     // Must not error on the existing tables (no "table already exists").
@@ -106,6 +108,8 @@ describe("run-migrations pipeline", () => {
     expect(await tableNames()).toContain("app_settings");
     expect(await tableNames()).toContain("rate_limit");
     expect(await tableNames()).toContain("invites");
+    expect(await tableNames()).toContain("twoFactor");
+    expect(await columnNames("user")).toContain("two_factor_enabled");
     expect(await columnNames("user_preferences")).toContain("hide_internal_transfers");
   });
 });
