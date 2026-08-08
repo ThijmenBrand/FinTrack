@@ -45,10 +45,19 @@ export function useRevokeInvite() {
     apiFetch(`/api/admin/invites?id=${id}`, { method: "DELETE" }));
 }
 
-export function useUpdateUserEmail() {
+export type UserUpdate = {
+  id: string;
+  username?: string;
+  displayUsername?: string;
+  email?: string;
+  emailVerified?: boolean;
+  isAdmin?: boolean;
+};
+
+export function useUpdateUser() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { id: string; email?: string; emailVerified?: boolean }) =>
+    mutationFn: (payload: UserUpdate) =>
       apiFetch("/api/admin/users", json("PUT", payload)),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["admin-users"] }); },
   });
@@ -91,14 +100,5 @@ export function useUpdateAppSettings() {
     mutationFn: (payload: { signupsEnabled: boolean }) =>
       apiFetch("/api/admin/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["admin-settings"] }); },
-  });
-}
-
-export function useUpdateDisplayName() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: { id: string; displayUsername: string }) =>
-      apiFetch("/api/admin/users", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["admin-users"] }); },
   });
 }
