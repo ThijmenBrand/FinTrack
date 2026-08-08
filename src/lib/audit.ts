@@ -1,6 +1,6 @@
 import { db } from "@/db/index";
 import { auditLog } from "@/db/schema";
-import { lt } from "drizzle-orm";
+import { and, eq, gte, lt, lte, ne, type SQL } from "drizzle-orm";
 
 export type AuditCategory = "auth" | "data" | "admin";
 
@@ -82,14 +82,43 @@ export function getRequestMeta(headers: Headers): {
 }
 
 /**
+ * Build the WHERE clause for audit-log list/export from query params.
+ * Shared by the list route and the CSV export so filters can't drift apart.
+ */
+export function buildAuditLogFilter(searchParams: URLSearchParams): SQL | undefined {
+  const userId = searchParams.get("userId");
+  const category = searchParams.get("category");
+  const action = searchParams.get("action");
+  const dateFrom = searchParams.get("dateFrom");
+  const dateTo = searchParams.get("dateTo");
+
+  const conditions: SQL[] = [];
+  if (userId) conditions.push(eq(auditLog.userId, userId));
+  if (category) conditions.push(eq(auditLog.category, category));
+  if (action) conditions.push(eq(auditLog.action, action));
+  if (dateFrom) conditions.push(gte(auditLog.createdAt, dateFrom));
+  if (dateTo) conditions.push(lte(auditLog.createdAt, dateTo + "T23:59:59.999Z"));
+  return conditions.length > 0 ? and(...conditions) : undefined;
+}
+
+/** Escape a value for one CSV cell (RFC 4180 quote-doubling). */
+export function toCsvCell(value: unknown): string {
+  const s = value === null || value === undefined ? "" : String(value);
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+/**
  * Delete audit log entries older than the specified number of days.
+ * `pot.allocate` rows are exempt: they double as the pots feature's allocation
+ * history (read by /api/pots/[id]/details). Move them to their own table if
+ * more actions become product data.
  */
 export async function cleanupOldAuditLogs(retentionDays: number = 90): Promise<number> {
   try {
     const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
     const result = await db
       .delete(auditLog)
-      .where(lt(auditLog.createdAt, cutoff));
+      .where(and(lt(auditLog.createdAt, cutoff), ne(auditLog.action, "pot.allocate")));
     return (result as unknown as { rowsAffected?: number }).rowsAffected || 0;
   } catch (err) {
     console.error("Audit log cleanup failed:", err);

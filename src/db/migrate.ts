@@ -1,6 +1,7 @@
 import { db } from "./index";
 import { sql } from "drizzle-orm";
 import crypto from "crypto";
+import { validatePassword } from "@/lib/validation";
 
 function hashPassword(password: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -64,13 +65,29 @@ export async function initializeDatabase() {
     const adminPassword = process.env.ADMIN_PASSWORD || "admin";
     const adminDisplayName = process.env.ADMIN_DISPLAY_NAME || "Admin";
 
+    // Never seed a guessable admin in production.
+    if (process.env.NODE_ENV === "production") {
+      const passwordError = process.env.ADMIN_PASSWORD
+        ? validatePassword(adminPassword)
+        : "ADMIN_PASSWORD is not set";
+      if (passwordError) {
+        throw new Error(
+          `Refusing to seed the admin user in production: ${passwordError}`,
+        );
+      }
+    } else if (!process.env.ADMIN_PASSWORD) {
+      console.warn(
+        'WARNING: seeding default admin with password "admin" (dev only — set ADMIN_PASSWORD).',
+      );
+    }
+
     adminUserId = crypto.randomUUID();
     const hashedPassword = await hashPassword(adminPassword);
     const now = Date.now();
 
     await db.run(sql`
       INSERT INTO "user" (id, name, email, email_verified, username, display_username, role, created_at, updated_at)
-      VALUES (${adminUserId}, ${adminDisplayName}, ${adminUsername + '@local'}, 0, ${adminUsername}, ${adminDisplayName}, 'admin', ${now}, ${now})
+      VALUES (${adminUserId}, ${adminDisplayName}, ${adminUsername + '@local'}, 1, ${adminUsername}, ${adminDisplayName}, 'admin', ${now}, ${now})
     `);
 
     await db.run(sql`
@@ -86,6 +103,13 @@ export async function initializeDatabase() {
   // every schema-declared table. Existing databases baselined onto 0000 may
   // still be missing columns that predate the baseline — repair those here
   // idempotently. Genuine data backfills also live here.
+
+  // Grandfather legacy synthetic-email accounts (username@local): they predate
+  // email verification and have no real mailbox, so requireEmailVerification
+  // must never lock them out. Idempotent.
+  await db.run(sql`
+    UPDATE "user" SET email_verified = 1 WHERE email LIKE '%@local' AND email_verified = 0
+  `);
 
   // hide_internal_transfers: added with the "drop Reserved feature" change.
   // Missing on any DB baselined before it (or where the old drizzle-kit push

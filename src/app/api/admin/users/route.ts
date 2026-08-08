@@ -33,6 +33,7 @@ export async function GET() {
     const result = await db.run(sql`
       SELECT
         u.id, u.username, u.name, u.display_username, u.role, u.created_at,
+        u.banned, u.ban_reason,
         (SELECT MAX(s.updated_at) FROM session s WHERE s.user_id = u.id) AS last_active,
         (SELECT COUNT(*) FROM accounts a WHERE a.user_id = u.id) AS account_count,
         (SELECT COUNT(*) FROM transactions t WHERE t.user_id = u.id) AS transaction_count,
@@ -54,6 +55,8 @@ export async function GET() {
         transactionCount: Number(row.transaction_count) || 0,
         hasPin: Number(row.has_pin) > 0,
         passkeyCount: Number(row.passkey_count) || 0,
+        banned: Number(row.banned) === 1,
+        banReason: (row.ban_reason as string) ?? null,
       }))
     );
   }, "Failed to fetch users");
@@ -94,7 +97,7 @@ export async function POST(request: NextRequest) {
     // check-then-insert races with concurrent creates.
     const inserted = await db.run(sql`
       INSERT INTO "user" (id, name, email, email_verified, username, display_username, role, created_at, updated_at)
-      SELECT ${id}, ${cleanDisplay}, ${cleanUsername + '@local'}, 0, ${cleanUsername}, ${cleanDisplay}, ${isAdmin ? 'admin' : 'user'}, ${now}, ${now}
+      SELECT ${id}, ${cleanDisplay}, ${cleanUsername + '@local'}, 1, ${cleanUsername}, ${cleanDisplay}, ${isAdmin ? 'admin' : 'user'}, ${now}, ${now}
       WHERE NOT EXISTS (SELECT 1 FROM "user" WHERE username = ${cleanUsername})
     `);
     if (Number(inserted.rowsAffected) === 0) {
@@ -134,7 +137,7 @@ export async function POST(request: NextRequest) {
 // PUT /api/admin/users — update user (reset password, change display name, toggle admin)
 export async function PUT(request: NextRequest) {
   return withAdmin(async (session) => {
-    const { id, password, displayUsername, isAdmin } = await request.json();
+    const { id, password, displayUsername, isAdmin, banned, banReason } = await request.json();
 
     if (!id) {
       return NextResponse.json(
@@ -169,10 +172,43 @@ export async function PUT(request: NextRequest) {
     }
 
     if (isAdmin !== undefined) {
+      // Prevent demoting yourself — guarantees at least one admin remains
+      if (id === session.userId) {
+        return NextResponse.json(
+          { error: "Cannot change your own role" },
+          { status: 400 }
+        );
+      }
       await db.run(
         sql`UPDATE "user" SET role = ${isAdmin ? 'admin' : 'user'}, updated_at = ${now} WHERE id = ${id}`
       );
       await logAdminAction(session.userId, "role_change", id, { newRole: isAdmin ? "admin" : "user" });
+    }
+
+    if (banned !== undefined) {
+      if (typeof banned !== "boolean") {
+        return NextResponse.json({ error: "banned must be a boolean" }, { status: 400 });
+      }
+      // Prevent banning yourself — combined with the self-delete and self-role
+      // guards, at least one working admin always remains.
+      if (id === session.userId) {
+        return NextResponse.json(
+          { error: "Cannot ban your own account" },
+          { status: 400 }
+        );
+      }
+      const reason = banned && typeof banReason === "string" && banReason.trim()
+        ? banReason.trim().slice(0, 500)
+        : null;
+      await db.run(
+        sql`UPDATE "user" SET banned = ${banned ? 1 : 0}, ban_reason = ${reason}, ban_expires = NULL, updated_at = ${now} WHERE id = ${id}`
+      );
+      if (banned) {
+        // Revoke open sessions immediately — the sign-in block alone would let
+        // an existing session live until it expires.
+        await db.run(sql`DELETE FROM session WHERE user_id = ${id}`);
+      }
+      await logAdminAction(session.userId, banned ? "user_ban" : "user_unban", id, reason ? { reason } : undefined);
     }
 
     return NextResponse.json({ success: true });

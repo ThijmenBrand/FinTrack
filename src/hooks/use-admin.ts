@@ -33,6 +33,31 @@ export function useResetPassword() {
   });
 }
 
+export function useSetBanned() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { id: string; banned: boolean; banReason?: string }) =>
+      apiFetch("/api/admin/users", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["admin-users"] }); },
+  });
+}
+
+export function useAppSettings() {
+  return useQuery({
+    queryKey: ["admin-settings"],
+    queryFn: () => apiFetch<{ signupsEnabled: boolean }>("/api/admin/settings"),
+  });
+}
+
+export function useUpdateAppSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { signupsEnabled: boolean }) =>
+      apiFetch("/api/admin/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["admin-settings"] }); },
+  });
+}
+
 export function useUpdateDisplayName() {
   const qc = useQueryClient();
   return useMutation({

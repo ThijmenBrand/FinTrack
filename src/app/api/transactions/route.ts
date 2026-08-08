@@ -50,7 +50,9 @@ export async function GET(request: NextRequest) {
     const conditions = [...scopeConditions];
     if (reimbursesExpenseId) {
       conditions.push(sql`${transactions.id} IN (
-        SELECT rl.reimbursement_id FROM reimbursement_links rl WHERE rl.expense_id = ${reimbursesExpenseId}
+        SELECT rl.reimbursement_id FROM reimbursement_links rl
+        JOIN transactions e ON e.id = rl.expense_id AND e.user_id = "transactions"."user_id"
+        WHERE rl.expense_id = ${reimbursesExpenseId}
       )`);
     }
     if (types.length) {
@@ -170,7 +172,9 @@ export async function GET(request: NextRequest) {
         // reimbursement covers, floored at 0 when over-reimbursed.
         effectiveAmount: sql<number>`-(${effectiveExpenseAmount()})`,
         reimbursementCount: sql<number>`(
-          SELECT COUNT(*) FROM reimbursement_links rl WHERE rl.expense_id = ${transactions.id}
+          SELECT COUNT(*) FROM reimbursement_links rl
+          JOIN transactions r ON r.id = rl.reimbursement_id AND r.user_id = "transactions"."user_id"
+          WHERE rl.expense_id = ${transactions.id}
         )`,
         // Pro-rata share too, so `amount - reimbursedTotal` reconciles with
         // `effectiveAmount` in the detail dialog.
@@ -183,7 +187,8 @@ export async function GET(request: NextRequest) {
         )`,
         groupId: transactions.groupId,
         groupName: sql<string | null>`(
-          SELECT g.name FROM transaction_groups g WHERE g.id = ${transactions.groupId}
+          SELECT g.name FROM transaction_groups g
+          WHERE g.id = ${transactions.groupId} AND g.user_id = "transactions"."user_id"
         )`,
         recurringTransactionId: transactions.recurringTransactionId,
         recurringDescription: sql<string | null>`(

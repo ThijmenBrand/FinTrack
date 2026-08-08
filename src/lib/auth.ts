@@ -11,6 +11,9 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import crypto from "crypto";
 import { logAuthEvent } from "@/lib/audit";
+import { sendVerificationEmail, sendPasswordResetEmail } from "@/lib/email";
+import { MIN_PASSWORD_LENGTH } from "@/lib/validation";
+import { seedCategoriesForUser } from "@/db/migrate";
 
 // ─── Password Hashing (scrypt — compatible with existing hashes) ────────────
 
@@ -72,11 +75,17 @@ export const auth = betterAuth({
   plugins: [username(), admin(), passkey({ rpName: "FinTrack" })],
   rateLimit: {
     enabled: true,
+    // In-memory limits reset on every serverless cold start; the database
+    // store makes them real on Vercel.
+    storage: "database",
     window: 60,
     max: 100,
     customRules: {
       "/sign-in/email": { window: 60, max: 5 },
+      "/sign-in/username": { window: 60, max: 5 },
+      "/sign-up/email": { window: 60, max: 5 },
       "/forget-password": { window: 60, max: 3 },
+      "/request-password-reset": { window: 60, max: 3 },
       "/reset-password": { window: 60, max: 5 },
     },
   },
@@ -88,6 +97,16 @@ export const auth = betterAuth({
     },
   },
   databaseHooks: {
+    user: {
+      create: {
+        after: async (user) => {
+          // Only self-signup goes through the adapter — the admin create route
+          // and the migrate seed insert with raw SQL and seed explicitly.
+          await seedCategoriesForUser(user.id);
+          logAuthEvent({ userId: user.id, action: "user_signup" });
+        },
+      },
+    },
     session: {
       create: {
         after: async (session) => {
@@ -107,9 +126,23 @@ export const auth = betterAuth({
       },
     },
   },
+  emailVerification: {
+    sendVerificationEmail: async ({ user, url }) => {
+      await sendVerificationEmail(user.email, url);
+    },
+    sendOnSignUp: true,
+    autoSignInAfterVerification: true,
+    expiresIn: 3600,
+  },
   emailAndPassword: {
     enabled: true,
-    signUp: { enabled: false },
+    // Signup availability is enforced at runtime in the /api/auth/[...all]
+    // route (backoffice-controlled toggle) — better-auth's own signup stays on.
+    requireEmailVerification: true,
+    minPasswordLength: MIN_PASSWORD_LENGTH,
+    sendResetPassword: async ({ user, url }) => {
+      await sendPasswordResetEmail(user.email, url);
+    },
     password: {
       hash: async (password: string) => hashPassword(password),
       verify: async (data: { hash: string; password: string }) =>
@@ -161,6 +194,29 @@ export async function requireAuth(): Promise<SessionData> {
       "",
     displayUsername: session.user.name || "",
     isAdmin: (session.user as Record<string, unknown>).role === "admin",
+  };
+}
+
+/**
+ * Require admin privileges for backoffice server components.
+ * Redirects to /backoffice/login if unauthenticated, / for non-admins.
+ */
+export async function requireBackofficeAdmin(): Promise<SessionData> {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session?.user?.id) {
+    redirect("/backoffice/login");
+  }
+  if ((session.user as Record<string, unknown>).role !== "admin") {
+    redirect("/");
+  }
+  return {
+    userId: session.user.id,
+    username:
+      ((session.user as Record<string, unknown>).username as string) ||
+      session.user.name ||
+      "",
+    displayUsername: session.user.name || "",
+    isAdmin: true,
   };
 }
 

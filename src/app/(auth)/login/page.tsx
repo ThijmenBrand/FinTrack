@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Landmark, ArrowLeft, Fingerprint } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { useRouter } from "next/navigation";
@@ -15,7 +16,20 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [hasWebAuthn, setHasWebAuthn] = useState(false);
   const [checkingMethods, setCheckingMethods] = useState(false);
+  const [signupsEnabled, setSignupsEnabled] = useState(false);
+  const [justVerified, setJustVerified] = useState(false);
   const router = useRouter();
+
+  useEffect(() => {
+    // window.location instead of useSearchParams to avoid a Suspense boundary
+    const verified =
+      new URLSearchParams(window.location.search).get("verified") === "1";
+    fetch("/api/signup-status")
+      .then((r) => r.json())
+      .then((d) => setSignupsEnabled(!!d.enabled))
+      .catch(() => {})
+      .finally(() => setJustVerified(verified));
+  }, []);
 
   async function handleUsernameContinue(e: React.FormEvent) {
     e.preventDefault();
@@ -119,6 +133,12 @@ export default function LoginPage() {
           </button>
         )}
 
+        {justVerified && (
+          <div className="mb-4 rounded-md border border-green-200 bg-green-50 p-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-900/20 dark:text-green-400">
+            Email verified — you can sign in now.
+          </div>
+        )}
+
         {/* Username Step */}
         {step === "username" && (
           <form onSubmit={handleUsernameContinue} className="space-y-4">
@@ -151,6 +171,15 @@ export default function LoginPage() {
             >
               {checkingMethods ? "Checking..." : "Continue"}
             </button>
+
+            {signupsEnabled && (
+              <p className="text-center text-sm text-muted-foreground">
+                Don&apos;t have an account?{" "}
+                <Link href="/signup" className="font-medium text-primary hover:underline">
+                  Sign up
+                </Link>
+              </p>
+            )}
           </form>
         )}
 
@@ -190,6 +219,15 @@ export default function LoginPage() {
             >
               {loading ? "Signing in..." : "Sign in"}
             </button>
+
+            <p className="text-center text-sm">
+              <Link
+                href="/forgot-password"
+                className="text-muted-foreground hover:text-foreground hover:underline"
+              >
+                Forgot password?
+              </Link>
+            </p>
 
             {hasWebAuthn && (
               <>

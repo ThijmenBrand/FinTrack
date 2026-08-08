@@ -1,9 +1,15 @@
+import { redirect } from "next/navigation";
 import { Sidebar } from "@/components/sidebar";
 import { BottomNav } from "@/components/bottom-nav";
 import { PwaInstallPrompt } from "@/components/pwa-install-prompt";
 import { ViewTransitions } from "@/components/view-transitions";
+import { requireAuth } from "@/lib/auth";
 
-export default function AppLayout({ children }: { children: React.ReactNode }) {
+export default async function AppLayout({ children }: { children: React.ReactNode }) {
+  // Server-side mirror of the proxy's role routing: admins are backoffice-only.
+  const session = await requireAuth();
+  if (session.isAdmin) redirect("/backoffice");
+
   return (
     <div className="flex h-screen overflow-hidden">
       <ViewTransitions />

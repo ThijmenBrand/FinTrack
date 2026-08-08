@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Shield, Trash2, KeyRound, Pencil, ChevronDown, ChevronUp } from "lucide-react";
+import { Shield, Trash2, KeyRound, Pencil, ChevronDown, ChevronUp, Ban } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { useDeleteUser, useResetPassword, useUpdateDisplayName } from "@/hooks/use-admin";
+import { useDeleteUser, useResetPassword, useUpdateDisplayName, useSetBanned } from "@/hooks/use-admin";
 import type { AdminUser } from "@/types/api";
 import { ApiError } from "@/lib/api";
 
@@ -23,6 +23,7 @@ export function UserRow({
   const deleteUser = useDeleteUser();
   const resetPw = useResetPassword();
   const updateDisplayName = useUpdateDisplayName();
+  const setBanned = useSetBanned();
 
   const [mode, setMode] = useState<Mode>("view");
   const [editDisplayName, setEditDisplayName] = useState("");
@@ -49,6 +50,20 @@ export function UserRow({
       setEditDisplayName("");
     } catch (err) {
       fail(err, "Failed to update display name");
+    }
+  }
+
+  async function handleToggleBan() {
+    try {
+      if (user.banned) {
+        await setBanned.mutateAsync({ id: user.id, banned: false });
+      } else {
+        const reason = prompt(`Ban "${user.username}"? Their sessions are revoked and sign-in is blocked.\n\nOptional reason:`);
+        if (reason === null) return; // cancelled
+        await setBanned.mutateAsync({ id: user.id, banned: true, banReason: reason || undefined });
+      }
+    } catch (err) {
+      fail(err, user.banned ? "Failed to unban user" : "Failed to ban user");
     }
   }
 
@@ -122,6 +137,15 @@ export function UserRow({
                     Admin
                   </span>
                 )}
+                {user.banned && (
+                  <span
+                    className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-500/20 dark:text-red-400"
+                    title={user.banReason || undefined}
+                  >
+                    <Ban className="h-3 w-3" />
+                    Banned
+                  </span>
+                )}
               </div>
             )}
             <p className="text-sm text-muted-foreground">
@@ -175,6 +199,13 @@ export function UserRow({
                 title="Reset password"
               >
                 <KeyRound className="h-4 w-4" />
+              </button>
+              <button
+                onClick={handleToggleBan}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md border text-muted-foreground hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
+                title={user.banned ? "Unban user" : "Ban user"}
+              >
+                <Ban className="h-4 w-4" />
               </button>
               <button
                 onClick={handleDelete}

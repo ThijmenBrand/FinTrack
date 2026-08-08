@@ -75,7 +75,7 @@ export async function detectTransfers(db: typeof defaultDb, userId: string) {
               categoryId: transferCategory.id,
               linkedTransactionId: credit.id,
             })
-            .where(eq(transactions.id, debit.id));
+            .where(and(eq(transactions.id, debit.id), eq(transactions.userId, userId)));
 
           await db
             .update(transactions)
@@ -84,7 +84,7 @@ export async function detectTransfers(db: typeof defaultDb, userId: string) {
               categoryId: transferCategory.id,
               linkedTransactionId: debit.id,
             })
-            .where(eq(transactions.id, credit.id));
+            .where(and(eq(transactions.id, credit.id), eq(transactions.userId, userId)));
 
           matchedPairs++;
           break; // Move to next debit

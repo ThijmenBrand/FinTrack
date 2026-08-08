@@ -1,6 +1,6 @@
 import { sqliteTable, text, integer, real, uniqueIndex, index } from "drizzle-orm/sqlite-core";
 import { relations, sql } from "drizzle-orm";
-export { user, session, account, verification, passkey, sessionRelations, accountRelations, passkeyRelations } from "./auth-schema";
+export { user, session, account, verification, passkey, rateLimit, userRelations, sessionRelations, accountRelations, passkeyRelations } from "./auth-schema";
 import { user, session, account, passkey } from "./auth-schema";
 
 // ─── User PIN ───────────────────────────────────────────────────────────────
@@ -426,6 +426,16 @@ export const auditLog = sqliteTable("audit_log", {
   index("idx_audit_log_category_created").on(table.category, table.createdAt),
   index("idx_audit_log_created").on(table.createdAt),
 ]);
+
+// ─── App Settings ────────────────────────────────────────────────────────
+// Global key-value settings toggled from the backoffice (e.g. signups_enabled)
+export const appSettings = sqliteTable("app_settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: text("updated_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
 
 // ─── Type Exports ────────────────────────────────────────────────────────────
 export type User = typeof user.$inferSelect;

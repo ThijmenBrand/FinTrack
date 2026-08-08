@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { auditLog } from "@/db/schema";
 import { user } from "@/db/auth-schema";
-import { eq, and, gte, lte, desc, sql, type SQL } from "drizzle-orm";
+import { eq, desc, sql } from "drizzle-orm";
 import { withAdmin } from "@/lib/auth";
-import { cleanupOldAuditLogs } from "@/lib/audit";
+import { buildAuditLogFilter, cleanupOldAuditLogs } from "@/lib/audit";
 
 // GET /api/admin/audit-logs — list audit logs with filtering and pagination
 export async function GET(request: NextRequest) {
@@ -12,21 +12,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const page = Math.max(1, Number(searchParams.get("page")) || 1);
     const limit = Math.min(200, Math.max(1, Number(searchParams.get("limit")) || 50));
-    const userId = searchParams.get("userId");
-    const category = searchParams.get("category");
-    const action = searchParams.get("action");
-    const dateFrom = searchParams.get("dateFrom");
-    const dateTo = searchParams.get("dateTo");
-
-    // Build WHERE conditions
-    const conditions: SQL[] = [];
-    if (userId) conditions.push(eq(auditLog.userId, userId));
-    if (category) conditions.push(eq(auditLog.category, category));
-    if (action) conditions.push(eq(auditLog.action, action));
-    if (dateFrom) conditions.push(gte(auditLog.createdAt, dateFrom));
-    if (dateTo) conditions.push(lte(auditLog.createdAt, dateTo + "T23:59:59.999Z"));
-
-    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+    const whereClause = buildAuditLogFilter(searchParams);
     const offset = (page - 1) * limit;
 
     // Get total count

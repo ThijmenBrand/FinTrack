@@ -201,6 +201,8 @@ export interface AdminUser {
   transactionCount: number;
   hasPin: boolean;
   passkeyCount: number;
+  banned: boolean;
+  banReason: string | null;
 }
 
 export interface RecurringTx {

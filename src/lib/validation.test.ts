@@ -9,8 +9,35 @@ import {
   isMatchType,
   validatePassword,
   validateName,
+  validateEmail,
   MAX_USERNAME_LENGTH,
+  MAX_EMAIL_LENGTH,
 } from "./validation";
+
+describe("validateEmail", () => {
+  it("accepts a normal email and trims whitespace", () => {
+    expect(validateEmail("user@example.com")).toBeNull();
+    expect(validateEmail("  user@example.com  ")).toBeNull();
+  });
+
+  it("rejects missing/invalid shapes", () => {
+    expect(validateEmail(undefined)).not.toBeNull();
+    expect(validateEmail("")).not.toBeNull();
+    expect(validateEmail("no-at-sign.com")).not.toBeNull();
+    expect(validateEmail("two@@example.com")).not.toBeNull();
+    expect(validateEmail("no-tld@example")).not.toBeNull();
+    expect(validateEmail("spaces in@example.com")).not.toBeNull();
+  });
+
+  it("rejects the reserved @local suffix", () => {
+    expect(validateEmail("admin@local")).not.toBeNull();
+  });
+
+  it("rejects overlong emails", () => {
+    const long = `${"a".repeat(MAX_EMAIL_LENGTH)}@example.com`;
+    expect(validateEmail(long)).not.toBeNull();
+  });
+});
 
 describe("isFiniteNumber", () => {
   it("accepts finite numbers", () => {

@@ -10,7 +10,6 @@ import {
   Sun,
   Moon,
   Heart,
-  Shield,
   LogOut,
   User,
   Settings,
@@ -93,8 +92,7 @@ export function Sidebar() {
               className={cn(
                 "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-sidebar-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 (pathname === "/profile" ||
-                  pathname.startsWith("/settings") ||
-                  pathname.startsWith("/admin")) &&
+                  pathname.startsWith("/settings")) &&
                   "bg-sidebar-accent"
               )}
             >
@@ -124,14 +122,6 @@ export function Sidebar() {
                   Settings
                 </Link>
               </DropdownMenuItem>
-              {user.isAdmin && (
-                <DropdownMenuItem asChild>
-                  <Link href="/admin" className="flex items-center gap-2">
-                    <Shield className="h-4 w-4" />
-                    Admin
-                  </Link>
-                </DropdownMenuItem>
-              )}
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onSelect={() => setTheme("light")}
