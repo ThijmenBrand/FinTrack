@@ -53,6 +53,30 @@ export function validatePassword(password: unknown): string | null {
   return null;
 }
 
+export const MAX_EMAIL_LENGTH = 254;
+
+/**
+ * Validate a signup email. Returns an error message or null when acceptable.
+ * Rejects the reserved `@local` suffix used by legacy synthetic accounts.
+ */
+export function validateEmail(input: unknown): string | null {
+  if (typeof input !== "string" || !input.trim()) {
+    return "Email is required";
+  }
+  const trimmed = input.trim();
+  if (trimmed.length > MAX_EMAIL_LENGTH) {
+    return `Email must be ${MAX_EMAIL_LENGTH} characters or fewer`;
+  }
+  if (
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed) ||
+    trimmed.endsWith("@local") ||
+    trimmed.endsWith("@local.test")
+  ) {
+    return "Enter a valid email address";
+  }
+  return null;
+}
+
 /** Trimmed, non-empty, length-capped username / display name. */
 export function validateName(input: unknown): { ok: true; value: string } | { ok: false; error: string } {
   if (typeof input !== "string" || !input.trim()) {

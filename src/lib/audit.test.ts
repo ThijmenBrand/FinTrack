@@ -4,7 +4,7 @@ import { setupTestDb } from "./test-db";
 // Must run before the lazy `@/db` proxy first connects (see test-db.ts).
 const testDb = await setupTestDb("audit");
 
-const { logAudit, logAuthEvent, logDataEvent, getRequestMeta, cleanupOldAuditLogs } =
+const { logAudit, logAuthEvent, logDataEvent, getRequestMeta, cleanupOldAuditLogs, toCsvCell } =
   await import("./audit");
 
 async function allRows() {
@@ -86,6 +86,37 @@ describe("cleanupOldAuditLogs", () => {
     const rows = await allRows();
     expect(rows).toHaveLength(1);
     expect(rows[0].action).toBe("fresh");
+  });
+
+  it("preserves old pot.allocate rows — they are the pots allocation history", async () => {
+    await testDb.reset();
+    const old = new Date(Date.now() - 100 * 24 * 60 * 60 * 1000).toISOString();
+    for (const [id, action] of [["old-alloc", "pot.allocate"], ["old-other", "x"]]) {
+      await testDb.client.execute({
+        sql: `INSERT INTO audit_log (id, category, action, created_at) VALUES (?, ?, ?, ?)`,
+        args: [id, "data", action, old],
+      });
+    }
+
+    expect(await cleanupOldAuditLogs(90)).toBe(1);
+    const rows = await allRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].action).toBe("pot.allocate");
+  });
+});
+
+describe("toCsvCell", () => {
+  it("passes plain values through and stringifies null/undefined to empty", () => {
+    expect(toCsvCell("plain")).toBe("plain");
+    expect(toCsvCell(42)).toBe("42");
+    expect(toCsvCell(null)).toBe("");
+    expect(toCsvCell(undefined)).toBe("");
+  });
+
+  it("quotes and escapes commas, quotes, and newlines", () => {
+    expect(toCsvCell("a,b")).toBe('"a,b"');
+    expect(toCsvCell('say "hi"')).toBe('"say ""hi"""');
+    expect(toCsvCell("line1\nline2")).toBe('"line1\nline2"');
   });
 });
 

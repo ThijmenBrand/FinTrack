@@ -6,14 +6,53 @@ import { account } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { headers } from "next/headers";
 import { logAuthEvent, getRequestMeta } from "@/lib/audit";
+import { getSignupsEnabled } from "@/lib/app-settings";
+import { validateEmail, validatePassword, validateName } from "@/lib/validation";
 
 const { GET: _GET, POST: _POST } = toNextJsHandler(auth);
 
-const BLOCKED_PATHS = ["/sign-up"];
+function isSignupPath(req: NextRequest): boolean {
+  return new URL(req.url).pathname.includes("/sign-up");
+}
 
-function isBlocked(req: NextRequest): boolean {
-  const url = new URL(req.url);
-  return BLOCKED_PATHS.some((p) => url.pathname.endsWith(p));
+/**
+ * Runtime signup gate (backoffice toggle, default off) plus server-side input
+ * validation that better-auth doesn't enforce (email shape, password policy,
+ * name length).
+ */
+async function handleSignUp(req: NextRequest) {
+  if (!(await getSignupsEnabled())) {
+    return NextResponse.json({ error: "Sign-up is disabled" }, { status: 403 });
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = await req.clone().json();
+  } catch {
+    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+  }
+
+  const emailError = validateEmail(body.email);
+  if (emailError) {
+    return NextResponse.json({ error: emailError }, { status: 400 });
+  }
+  const passwordError = validatePassword(body.password);
+  if (passwordError) {
+    return NextResponse.json({ error: passwordError }, { status: 400 });
+  }
+  for (const field of ["username", "name"] as const) {
+    if (body[field] !== undefined) {
+      const check = validateName(body[field]);
+      if (!check.ok) {
+        return NextResponse.json(
+          { error: `Invalid ${field}: ${check.error}` },
+          { status: 400 },
+        );
+      }
+    }
+  }
+
+  return _POST(req);
 }
 
 /**
@@ -76,21 +115,12 @@ async function handleDeletePasskey(req: NextRequest) {
 }
 
 export function GET(req: NextRequest) {
-  if (isBlocked(req)) {
-    return NextResponse.json(
-      { error: "Sign-up is disabled" },
-      { status: 403 },
-    );
-  }
   return _GET(req);
 }
 
 export async function POST(req: NextRequest) {
-  if (isBlocked(req)) {
-    return NextResponse.json(
-      { error: "Sign-up is disabled" },
-      { status: 403 },
-    );
+  if (isSignupPath(req)) {
+    return handleSignUp(req);
   }
 
   const url = new URL(req.url);
@@ -101,7 +131,10 @@ export async function POST(req: NextRequest) {
   const { ipAddress, userAgent } = getRequestMeta(req.headers);
 
   // Intercept sign-in attempts to log failures
-  if (url.pathname.endsWith("/sign-in/email")) {
+  if (
+    url.pathname.endsWith("/sign-in/email") ||
+    url.pathname.endsWith("/sign-in/username")
+  ) {
     const clonedReq = req.clone();
     const response = await _POST(req);
     if (!response.ok) {

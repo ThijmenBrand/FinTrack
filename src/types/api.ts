@@ -194,6 +194,8 @@ export interface AdminUser {
   id: string;
   username: string;
   displayUsername: string;
+  email: string;
+  emailVerified: boolean;
   isAdmin: boolean;
   createdAt: string;
   lastActive: string | null;
@@ -201,6 +203,19 @@ export interface AdminUser {
   transactionCount: number;
   hasPin: boolean;
   passkeyCount: number;
+  banned: boolean;
+  banReason: string | null;
+}
+
+export interface Invite {
+  id: string;
+  email: string;
+  displayName: string | null;
+  isAdmin: boolean;
+  status: "pending" | "accepted" | "expired" | "revoked";
+  expiresAt: string;
+  createdAt: string;
+  acceptedAt: string | null;
 }
 
 export interface RecurringTx {

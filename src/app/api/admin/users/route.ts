@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { sql } from "drizzle-orm";
 import { withAdmin, hashPassword } from "@/lib/auth";
-import { validatePassword, validateName } from "@/lib/validation";
-import { seedCategoriesForUser } from "@/db/migrate";
+import { validatePassword, validateName, validateEmail } from "@/lib/validation";
 import { logAudit, getRequestMeta } from "@/lib/audit";
 import { headers } from "next/headers";
 
@@ -33,6 +32,7 @@ export async function GET() {
     const result = await db.run(sql`
       SELECT
         u.id, u.username, u.name, u.display_username, u.role, u.created_at,
+        u.banned, u.ban_reason, u.email, u.email_verified,
         (SELECT MAX(s.updated_at) FROM session s WHERE s.user_id = u.id) AS last_active,
         (SELECT COUNT(*) FROM accounts a WHERE a.user_id = u.id) AS account_count,
         (SELECT COUNT(*) FROM transactions t WHERE t.user_id = u.id) AS transaction_count,
@@ -47,6 +47,8 @@ export async function GET() {
         id: row.id,
         username: row.username,
         displayUsername: row.display_username || row.name,
+        email: row.email,
+        emailVerified: Number(row.email_verified) === 1,
         isAdmin: row.role === "admin",
         createdAt: row.created_at,
         lastActive: row.last_active ?? null,
@@ -54,87 +56,21 @@ export async function GET() {
         transactionCount: Number(row.transaction_count) || 0,
         hasPin: Number(row.has_pin) > 0,
         passkeyCount: Number(row.passkey_count) || 0,
+        banned: Number(row.banned) === 1,
+        banReason: (row.ban_reason as string) ?? null,
       }))
     );
   }, "Failed to fetch users");
 }
 
-// POST /api/admin/users — create a new user
-export async function POST(request: NextRequest) {
-  return withAdmin(async (session) => {
-    const { username, password, displayUsername, isAdmin } = await request.json();
+// Accounts are created by invite only — see /api/admin/invites.
 
-    if (!username || !password || !displayUsername) {
-      return NextResponse.json(
-        { error: "username, password, and displayUsername are required" },
-        { status: 400 }
-      );
-    }
-
-    const usernameCheck = validateName(username);
-    if (!usernameCheck.ok) {
-      return NextResponse.json({ error: `Invalid username: ${usernameCheck.error}` }, { status: 400 });
-    }
-    const displayCheck = validateName(displayUsername);
-    if (!displayCheck.ok) {
-      return NextResponse.json({ error: `Invalid display name: ${displayCheck.error}` }, { status: 400 });
-    }
-    const passwordError = validatePassword(password);
-    if (passwordError) {
-      return NextResponse.json({ error: passwordError }, { status: 400 });
-    }
-    const cleanUsername = usernameCheck.value;
-    const cleanDisplay = displayCheck.value;
-
-    const id = crypto.randomUUID();
-    const hashedPassword = await hashPassword(password);
-    const now = Date.now();
-
-    // INSERT ... WHERE NOT EXISTS makes the uniqueness check atomic — a plain
-    // check-then-insert races with concurrent creates.
-    const inserted = await db.run(sql`
-      INSERT INTO "user" (id, name, email, email_verified, username, display_username, role, created_at, updated_at)
-      SELECT ${id}, ${cleanDisplay}, ${cleanUsername + '@local'}, 0, ${cleanUsername}, ${cleanDisplay}, ${isAdmin ? 'admin' : 'user'}, ${now}, ${now}
-      WHERE NOT EXISTS (SELECT 1 FROM "user" WHERE username = ${cleanUsername})
-    `);
-    if (Number(inserted.rowsAffected) === 0) {
-      return NextResponse.json(
-        { error: "Username already exists" },
-        { status: 409 }
-      );
-    }
-
-    // Create credential account
-    await db.run(sql`
-      INSERT INTO account (id, account_id, provider_id, user_id, password, created_at, updated_at)
-      VALUES (${crypto.randomUUID()}, ${id}, 'credential', ${id}, ${hashedPassword}, ${now}, ${now})
-    `);
-
-    // Seed default categories for the new user
-    await seedCategoriesForUser(id);
-
-    await logAdminAction(session.userId, "user_create", id, {
-      username: cleanUsername,
-      displayUsername: cleanDisplay,
-      isAdmin: !!isAdmin,
-    });
-
-    return NextResponse.json(
-      {
-        id,
-        username: cleanUsername,
-        displayUsername: cleanDisplay,
-        isAdmin: !!isAdmin,
-      },
-      { status: 201 }
-    );
-  }, "Failed to create user");
-}
-
-// PUT /api/admin/users — update user (reset password, change display name, toggle admin)
+// PUT /api/admin/users — update user (reset password, change display name or
+// email, toggle verified/admin, ban)
 export async function PUT(request: NextRequest) {
   return withAdmin(async (session) => {
-    const { id, password, displayUsername, isAdmin } = await request.json();
+    const { id, password, displayUsername, email, emailVerified, isAdmin, banned, banReason } =
+      await request.json();
 
     if (!id) {
       return NextResponse.json(
@@ -168,11 +104,73 @@ export async function PUT(request: NextRequest) {
       await logAdminAction(session.userId, "display_name_change", id, { displayUsername: displayCheck.value });
     }
 
+    if (email !== undefined) {
+      const emailError = validateEmail(email);
+      if (emailError) {
+        return NextResponse.json({ error: emailError }, { status: 400 });
+      }
+      const cleanEmail = (email as string).trim().toLowerCase();
+      // A new address is unproven, so verification drops until an admin (or a
+      // verification link) says otherwise. NOT EXISTS keeps the unique check atomic.
+      const updated = await db.run(sql`
+        UPDATE "user" SET email = ${cleanEmail}, email_verified = 0, updated_at = ${now}
+        WHERE id = ${id}
+          AND NOT EXISTS (SELECT 1 FROM "user" WHERE email = ${cleanEmail} AND id <> ${id})
+      `);
+      if (Number(updated.rowsAffected) === 0) {
+        return NextResponse.json({ error: "That email is already in use" }, { status: 409 });
+      }
+      await logAdminAction(session.userId, "email_change", id, { email: cleanEmail });
+    }
+
+    if (emailVerified !== undefined) {
+      if (typeof emailVerified !== "boolean") {
+        return NextResponse.json({ error: "emailVerified must be a boolean" }, { status: 400 });
+      }
+      await db.run(
+        sql`UPDATE "user" SET email_verified = ${emailVerified ? 1 : 0}, updated_at = ${now} WHERE id = ${id}`
+      );
+      await logAdminAction(session.userId, "email_verified_change", id, { emailVerified });
+    }
+
     if (isAdmin !== undefined) {
+      // Prevent demoting yourself — guarantees at least one admin remains
+      if (id === session.userId) {
+        return NextResponse.json(
+          { error: "Cannot change your own role" },
+          { status: 400 }
+        );
+      }
       await db.run(
         sql`UPDATE "user" SET role = ${isAdmin ? 'admin' : 'user'}, updated_at = ${now} WHERE id = ${id}`
       );
       await logAdminAction(session.userId, "role_change", id, { newRole: isAdmin ? "admin" : "user" });
+    }
+
+    if (banned !== undefined) {
+      if (typeof banned !== "boolean") {
+        return NextResponse.json({ error: "banned must be a boolean" }, { status: 400 });
+      }
+      // Prevent banning yourself — combined with the self-delete and self-role
+      // guards, at least one working admin always remains.
+      if (id === session.userId) {
+        return NextResponse.json(
+          { error: "Cannot ban your own account" },
+          { status: 400 }
+        );
+      }
+      const reason = banned && typeof banReason === "string" && banReason.trim()
+        ? banReason.trim().slice(0, 500)
+        : null;
+      await db.run(
+        sql`UPDATE "user" SET banned = ${banned ? 1 : 0}, ban_reason = ${reason}, ban_expires = NULL, updated_at = ${now} WHERE id = ${id}`
+      );
+      if (banned) {
+        // Revoke open sessions immediately — the sign-in block alone would let
+        // an existing session live until it expires.
+        await db.run(sql`DELETE FROM session WHERE user_id = ${id}`);
+      }
+      await logAdminAction(session.userId, banned ? "user_ban" : "user_unban", id, reason ? { reason } : undefined);
     }
 
     return NextResponse.json({ success: true });

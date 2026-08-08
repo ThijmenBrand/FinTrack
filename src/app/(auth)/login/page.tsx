@@ -1,23 +1,37 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Landmark, ArrowLeft, Fingerprint } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { useRouter } from "next/navigation";
 
-type LoginStep = "username" | "password";
+type LoginStep = "email" | "password";
 
 export default function LoginPage() {
-  const [step, setStep] = useState<LoginStep>("username");
-  const [username, setUsername] = useState("");
+  const [step, setStep] = useState<LoginStep>("email");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [hasWebAuthn, setHasWebAuthn] = useState(false);
   const [checkingMethods, setCheckingMethods] = useState(false);
+  const [signupsEnabled, setSignupsEnabled] = useState(false);
+  const [justVerified, setJustVerified] = useState(false);
   const router = useRouter();
 
-  async function handleUsernameContinue(e: React.FormEvent) {
+  useEffect(() => {
+    // window.location instead of useSearchParams to avoid a Suspense boundary
+    const verified =
+      new URLSearchParams(window.location.search).get("verified") === "1";
+    fetch("/api/signup-status")
+      .then((r) => r.json())
+      .then((d) => setSignupsEnabled(!!d.enabled))
+      .catch(() => {})
+      .finally(() => setJustVerified(verified));
+  }, []);
+
+  async function handleEmailContinue(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     setCheckingMethods(true);
@@ -43,8 +57,8 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const result = await authClient.signIn.username({
-        username,
+      const result = await authClient.signIn.email({
+        email: email.trim(),
         password,
       });
 
@@ -53,7 +67,8 @@ export default function LoginPage() {
         return;
       }
 
-      localStorage.setItem("lockscreen_username", username);
+      // ponytail: the lockscreen key predates email login — it holds an email now.
+      localStorage.setItem("lockscreen_username", email.trim());
       localStorage.setItem("lockscreen_last_active", String(Date.now()));
       router.push("/");
     } catch {
@@ -73,8 +88,8 @@ export default function LoginPage() {
         setError(String(result.error.message || "Biometric authentication failed"));
         return;
       }
-      if (username) {
-        localStorage.setItem("lockscreen_username", username);
+      if (email) {
+        localStorage.setItem("lockscreen_username", email.trim());
       }
       localStorage.setItem("lockscreen_last_active", String(Date.now()));
       router.push("/");
@@ -88,7 +103,7 @@ export default function LoginPage() {
   function goBack() {
     setError("");
     setPassword("");
-    setStep("username");
+    setStep("email");
   }
 
   return (
@@ -103,13 +118,13 @@ export default function LoginPage() {
             FinTrack
           </h1>
           <p className="text-sm text-muted-foreground">
-            {step === "username" && "Sign in to your account"}
+            {step === "email" && "Sign in to your account"}
             {step === "password" && "Enter your password"}
           </p>
         </div>
 
         {/* Back button */}
-        {step !== "username" && (
+        {step !== "email" && (
           <button
             onClick={goBack}
             className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
@@ -119,26 +134,32 @@ export default function LoginPage() {
           </button>
         )}
 
-        {/* Username Step */}
-        {step === "username" && (
-          <form onSubmit={handleUsernameContinue} className="space-y-4">
+        {justVerified && (
+          <div className="mb-4 rounded-md border border-green-200 bg-green-50 p-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-900/20 dark:text-green-400">
+            Email verified — you can sign in now.
+          </div>
+        )}
+
+        {/* Email Step */}
+        {step === "email" && (
+          <form onSubmit={handleEmailContinue} className="space-y-4">
             <div className="space-y-2">
               <label
-                htmlFor="username"
+                htmlFor="email"
                 className="text-sm font-medium leading-none text-foreground"
               >
-                Username
+                Email
               </label>
               <input
-                id="username"
-                type="text"
-                autoComplete="username"
+                id="email"
+                type="email"
+                autoComplete="email"
                 autoFocus
                 required
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                placeholder="Enter your username"
+                placeholder="you@example.com"
               />
             </div>
 
@@ -151,6 +172,15 @@ export default function LoginPage() {
             >
               {checkingMethods ? "Checking..." : "Continue"}
             </button>
+
+            {signupsEnabled && (
+              <p className="text-center text-sm text-muted-foreground">
+                Don&apos;t have an account?{" "}
+                <Link href="/signup" className="font-medium text-primary hover:underline">
+                  Sign up
+                </Link>
+              </p>
+            )}
           </form>
         )}
 
@@ -158,7 +188,7 @@ export default function LoginPage() {
         {step === "password" && (
           <form onSubmit={handlePasswordSubmit} className="space-y-4">
             <p className="text-xs text-muted-foreground text-center">
-              Signing in as <span className="font-medium text-foreground">{username}</span>
+              Signing in as <span className="font-medium text-foreground">{email}</span>
             </p>
 
             <div className="space-y-2">
@@ -190,6 +220,15 @@ export default function LoginPage() {
             >
               {loading ? "Signing in..." : "Sign in"}
             </button>
+
+            <p className="text-center text-sm">
+              <Link
+                href="/forgot-password"
+                className="text-muted-foreground hover:text-foreground hover:underline"
+              >
+                Forgot password?
+              </Link>
+            </p>
 
             {hasWebAuthn && (
               <>

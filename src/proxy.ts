@@ -6,15 +6,31 @@ import { validateCsrfOrigin } from "@/lib/csrf";
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 // Paths that do not require authentication
-const publicPaths = ["/api/auth/", "/sw.js", "/manifest.json"];
+const publicPaths = [
+  "/api/auth/",
+  "/api/signup-status",
+  "/sw.js",
+  "/manifest.json",
+  "/signup",
+  "/forgot-password",
+  "/reset-password",
+  "/invite",
+  "/api/invites/accept",
+];
 
-async function validateSession(request: NextRequest): Promise<boolean> {
+type Session = NonNullable<Awaited<ReturnType<typeof auth.api.getSession>>>;
+
+async function getValidSession(request: NextRequest): Promise<Session | null> {
   try {
     const session = await auth.api.getSession({ headers: request.headers });
-    return !!session?.session && !!session?.user;
+    return session?.session && session?.user ? session : null;
   } catch {
-    return false;
+    return null;
   }
+}
+
+function isAdminSession(session: Session): boolean {
+  return (session.user as Record<string, unknown>).role === "admin";
 }
 
 function clearAuthCookies(response: NextResponse): NextResponse {
@@ -29,6 +45,9 @@ function unauthorizedResponse(request: NextRequest): NextResponse {
   const { pathname } = request.nextUrl;
   if (pathname.startsWith("/api/")) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (pathname.startsWith("/backoffice")) {
+    return NextResponse.redirect(new URL("/backoffice/login", request.url));
   }
   return NextResponse.redirect(new URL("/login", request.url));
 }
@@ -50,14 +69,18 @@ export async function proxy(request: NextRequest) {
 
   const sessionToken = getSessionCookie(request.headers);
 
-  // Redirect authenticated users away from /login, but allow stale sessions through
-  if (pathname === "/login") {
+  // Redirect authenticated users away from the login pages (admins to the
+  // backoffice, everyone else to the app), but allow stale sessions through.
+  if (pathname === "/login" || pathname === "/backoffice/login") {
     if (!sessionToken) {
       return NextResponse.next();
     }
 
-    if (await validateSession(request)) {
-      return NextResponse.redirect(new URL("/", request.url));
+    const session = await getValidSession(request);
+    if (session) {
+      return NextResponse.redirect(
+        new URL(isAdminSession(session) ? "/backoffice" : "/", request.url),
+      );
     }
 
     return clearAuthCookies(NextResponse.next());
@@ -84,8 +107,23 @@ export async function proxy(request: NextRequest) {
     return unauthorizedResponse(request);
   }
 
-  if (!(await validateSession(request))) {
+  const session = await getValidSession(request);
+  if (!session) {
     return clearAuthCookies(unauthorizedResponse(request));
+  }
+
+  // Role-based page routing: admins live in /backoffice, regular users in the
+  // app. Finance /api/* is not role-blocked — withUser scopes all data by
+  // userId, and withAdmin gates the admin API.
+  if (!pathname.startsWith("/api/")) {
+    const admin = isAdminSession(session);
+    if (pathname.startsWith("/backoffice")) {
+      if (!admin) {
+        return NextResponse.redirect(new URL("/", request.url));
+      }
+    } else if (admin) {
+      return NextResponse.redirect(new URL("/backoffice", request.url));
+    }
   }
 
   return NextResponse.next();

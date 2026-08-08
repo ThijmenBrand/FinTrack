@@ -9,7 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { ScrollText, ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
+import { ScrollText, ChevronLeft, ChevronRight, Trash2, Download } from "lucide-react";
 import { useAuditLogs, useCleanupAuditLogs } from "@/hooks/use-audit-logs";
 import { useAdminUsers } from "@/hooks/use-admin";
 import type { AuditLogFilters, AuditLogEntry } from "@/types/api";
@@ -99,6 +99,21 @@ export default function AuditLogsPage() {
                 </CardDescription>
               </div>
             </div>
+            <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                const params = new URLSearchParams();
+                if (filters.category) params.set("category", filters.category);
+                if (filters.userId) params.set("userId", filters.userId);
+                if (filters.dateFrom) params.set("dateFrom", filters.dateFrom);
+                if (filters.dateTo) params.set("dateTo", filters.dateTo);
+                window.open(`/api/admin/audit-logs/export?${params}`, "_blank");
+              }}
+              className="flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+            >
+              <Download className="h-3.5 w-3.5" />
+              Export CSV
+            </button>
             <button
               onClick={() => {
                 if (confirm("Delete audit logs older than 90 days?")) {
@@ -111,6 +126,7 @@ export default function AuditLogsPage() {
               <Trash2 className="h-3.5 w-3.5" />
               Cleanup
             </button>
+            </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">

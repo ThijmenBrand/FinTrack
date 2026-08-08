@@ -321,7 +321,7 @@ export async function GET(request: NextRequest) {
           color: categories.color,
         })
         .from(categories)
-        .where(inArray(categories.id, breakdownCatIds));
+        .where(and(inArray(categories.id, breakdownCatIds), eq(categories.userId, userId)));
       for (const m of metas) {
         const entry = breakdownByCat.get(m.id);
         if (entry) {

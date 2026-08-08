@@ -431,7 +431,7 @@ export async function GET(request: NextRequest) {
               color: categories.color,
             })
             .from(categories)
-            .where(inArray(categories.id, unbudgetedCatIds))
+            .where(and(inArray(categories.id, unbudgetedCatIds), eq(categories.userId, userId)))
         : [];
     const unbudgetedCategoryMeta = new Map<
       string,

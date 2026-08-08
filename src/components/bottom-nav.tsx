@@ -8,7 +8,6 @@ import {
   Sun,
   Moon,
   Heart,
-  Shield,
   LogOut,
   Settings,
   User,
@@ -44,7 +43,6 @@ export function BottomNav() {
       item.href === "/" ? pathname === "/" : pathname.startsWith(item.href)
     ) ||
     pathname.startsWith("/settings") ||
-    pathname.startsWith("/admin") ||
     pathname === "/profile";
 
   return (
@@ -135,21 +133,6 @@ export function BottomNav() {
               <Settings className="h-5 w-5" />
               <span>Settings</span>
             </Link>
-            {user?.isAdmin && (
-              <Link
-                href="/admin"
-                onClick={() => setMoreOpen(false)}
-                className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium transition-colors min-h-[44px]",
-                  pathname.startsWith("/admin")
-                    ? "bg-primary/10 text-primary"
-                    : "text-foreground hover:bg-muted"
-                )}
-              >
-                <Shield className="h-5 w-5" />
-                <span>Admin</span>
-              </Link>
-            )}
             {user && (
               <Link
                 href="/profile"

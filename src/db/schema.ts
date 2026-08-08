@@ -1,6 +1,6 @@
 import { sqliteTable, text, integer, real, uniqueIndex, index } from "drizzle-orm/sqlite-core";
 import { relations, sql } from "drizzle-orm";
-export { user, session, account, verification, passkey, sessionRelations, accountRelations, passkeyRelations } from "./auth-schema";
+export { user, session, account, verification, passkey, rateLimit, userRelations, sessionRelations, accountRelations, passkeyRelations } from "./auth-schema";
 import { user, session, account, passkey } from "./auth-schema";
 
 // ─── User PIN ───────────────────────────────────────────────────────────────
@@ -426,6 +426,43 @@ export const auditLog = sqliteTable("audit_log", {
   index("idx_audit_log_category_created").on(table.category, table.createdAt),
   index("idx_audit_log_created").on(table.createdAt),
 ]);
+
+// ─── App Settings ────────────────────────────────────────────────────────
+// Global key-value settings toggled from the backoffice (e.g. signups_enabled)
+export const appSettings = sqliteTable("app_settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: text("updated_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
+// ─── Invites ─────────────────────────────────────────────────────────────
+// Invite-only onboarding. The recipient's link carries the raw token; only its
+// SHA-256 is stored, so a database leak hands out no usable invites.
+export const invites = sqliteTable(
+  "invites",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    email: text("email").notNull(),
+    tokenHash: text("token_hash").notNull().unique(),
+    role: text("role").notNull().default("user"),
+    displayName: text("display_name"),
+    invitedBy: text("invited_by").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    expiresAt: text("expires_at").notNull(),
+    acceptedAt: text("accepted_at"),
+    acceptedUserId: text("accepted_user_id"),
+    revokedAt: text("revoked_at"),
+    createdAt: text("created_at")
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+  },
+  (table) => [index("idx_invites_email").on(table.email)],
+);
 
 // ─── Type Exports ────────────────────────────────────────────────────────────
 export type User = typeof user.$inferSelect;
