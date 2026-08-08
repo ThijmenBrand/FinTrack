@@ -3,7 +3,7 @@ import { sql } from "drizzle-orm";
 import crypto from "crypto";
 import { validatePassword } from "@/lib/validation";
 
-function hashPassword(password: string): Promise<string> {
+export function hashPassword(password: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const salt = crypto.randomBytes(16).toString("hex");
     crypto.scrypt(password, salt, 64, (err, derivedKey) => {
@@ -87,7 +87,7 @@ export async function initializeDatabase() {
 
     await db.run(sql`
       INSERT INTO "user" (id, name, email, email_verified, username, display_username, role, created_at, updated_at)
-      VALUES (${adminUserId}, ${adminDisplayName}, ${adminUsername + '@local'}, 1, ${adminUsername}, ${adminDisplayName}, 'admin', ${now}, ${now})
+      VALUES (${adminUserId}, ${adminDisplayName}, ${adminUsername + '@local.test'}, 1, ${adminUsername}, ${adminDisplayName}, 'admin', ${now}, ${now})
     `);
 
     await db.run(sql`
@@ -104,11 +104,19 @@ export async function initializeDatabase() {
   // still be missing columns that predate the baseline — repair those here
   // idempotently. Genuine data backfills also live here.
 
-  // Grandfather legacy synthetic-email accounts (username@local): they predate
-  // email verification and have no real mailbox, so requireEmailVerification
-  // must never lock them out. Idempotent.
+  // Sign-in is by email now, and better-auth rejects `name@local` as malformed
+  // (no dot in the domain) — those accounts could not log in at all. Move them
+  // to the reserved .test TLD, which validates. Idempotent: the LIKE stops
+  // matching once rewritten.
   await db.run(sql`
-    UPDATE "user" SET email_verified = 1 WHERE email LIKE '%@local' AND email_verified = 0
+    UPDATE "user" SET email = email || '.test' WHERE email LIKE '%@local'
+  `);
+
+  // Grandfather legacy synthetic-email accounts (username@local.test): they
+  // predate email verification and have no real mailbox, so
+  // requireEmailVerification must never lock them out. Idempotent.
+  await db.run(sql`
+    UPDATE "user" SET email_verified = 1 WHERE email LIKE '%@local.test' AND email_verified = 0
   `);
 
   // hide_internal_transfers: added with the "drop Reserved feature" change.

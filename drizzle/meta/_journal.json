@@ -43,6 +43,13 @@
       "when": 1786186658510,
       "tag": "0005_dusty_cassandra_nova",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1786190888165,
+      "tag": "0006_outstanding_songbird",
+      "breakpoints": true
     }
   ]
 }

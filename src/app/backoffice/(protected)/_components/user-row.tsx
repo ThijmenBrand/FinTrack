@@ -3,11 +3,11 @@
 import { useState } from "react";
 import { Shield, Trash2, KeyRound, Pencil, ChevronDown, ChevronUp, Ban } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { useDeleteUser, useResetPassword, useUpdateDisplayName, useSetBanned } from "@/hooks/use-admin";
+import { useDeleteUser, useResetPassword, useUpdateDisplayName, useSetBanned, useUpdateUserEmail } from "@/hooks/use-admin";
 import type { AdminUser } from "@/types/api";
 import { ApiError } from "@/lib/api";
 
-type Mode = "view" | "editDisplay" | "resetPassword";
+type Mode = "view" | "editDisplay" | "editEmail" | "resetPassword";
 
 export function UserRow({
   user,
@@ -24,9 +24,11 @@ export function UserRow({
   const resetPw = useResetPassword();
   const updateDisplayName = useUpdateDisplayName();
   const setBanned = useSetBanned();
+  const updateEmail = useUpdateUserEmail();
 
   const [mode, setMode] = useState<Mode>("view");
   const [editDisplayName, setEditDisplayName] = useState("");
+  const [editEmail, setEditEmail] = useState("");
   const [resetPassword, setResetPassword] = useState("");
 
   function fail(err: unknown, fallback: string) {
@@ -50,6 +52,27 @@ export function UserRow({
       setEditDisplayName("");
     } catch (err) {
       fail(err, "Failed to update display name");
+    }
+  }
+
+  // Changing the address clears verification server-side — the admin re-confirms
+  // with the badge below, which is how legacy @local accounts get migrated.
+  async function handleUpdateEmail() {
+    if (!editEmail.trim()) return;
+    try {
+      await updateEmail.mutateAsync({ id: user.id, email: editEmail.trim() });
+      setMode("view");
+      setEditEmail("");
+    } catch (err) {
+      fail(err, "Failed to update email");
+    }
+  }
+
+  async function handleToggleVerified() {
+    try {
+      await updateEmail.mutateAsync({ id: user.id, emailVerified: !user.emailVerified });
+    } catch (err) {
+      fail(err, "Failed to update email verification");
     }
   }
 
@@ -148,10 +171,69 @@ export function UserRow({
                 )}
               </div>
             )}
-            <p className="text-sm text-muted-foreground">
-              @{user.username} &middot; Joined{" "}
-              {new Date(user.createdAt).toLocaleDateString()}
-            </p>
+            {mode === "editEmail" ? (
+              <div className="mt-1 flex items-center gap-2">
+                <Input
+                  type="email"
+                  value={editEmail}
+                  onChange={(e) => setEditEmail(e.target.value)}
+                  className="h-8 w-56"
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleUpdateEmail();
+                    if (e.key === "Escape") {
+                      setMode("view");
+                      setEditEmail("");
+                    }
+                  }}
+                />
+                <button
+                  onClick={handleUpdateEmail}
+                  className="h-8 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+                >
+                  Save
+                </button>
+                <button
+                  onClick={() => {
+                    setMode("view");
+                    setEditEmail("");
+                  }}
+                  className="h-8 rounded-md border px-3 text-xs font-medium hover:bg-muted"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
+                <span>{user.email}</span>
+                <button
+                  onClick={() => {
+                    setMode("editEmail");
+                    setEditEmail(user.email);
+                  }}
+                  className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+                  title="Change email"
+                >
+                  <Pencil className="h-3 w-3" />
+                </button>
+                <button
+                  onClick={handleToggleVerified}
+                  disabled={updateEmail.isPending}
+                  className={`rounded-full px-2 py-0.5 text-xs font-medium disabled:opacity-50 ${
+                    user.emailVerified
+                      ? "bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400"
+                      : "bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-400"
+                  }`}
+                  title={user.emailVerified ? "Mark unverified" : "Mark verified"}
+                >
+                  {user.emailVerified ? "Verified" : "Unverified"}
+                </button>
+                <span>
+                  &middot; @{user.username} &middot; Joined{" "}
+                  {new Date(user.createdAt).toLocaleDateString()}
+                </span>
+              </div>
+            )}
           </div>
         </div>
 

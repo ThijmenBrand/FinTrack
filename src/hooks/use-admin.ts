@@ -1,6 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
-import type { AdminUser } from "@/types/api";
+import type { AdminUser, Invite } from "@/types/api";
+
+const json = (method: string, payload: unknown): RequestInit => ({
+  method,
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(payload),
+});
 
 export function useAdminUsers() {
   return useQuery({
@@ -9,11 +15,41 @@ export function useAdminUsers() {
   });
 }
 
-export function useCreateUser() {
+export function useInvites() {
+  return useQuery({
+    queryKey: ["admin-invites"],
+    queryFn: () => apiFetch<Invite[]>("/api/admin/invites"),
+  });
+}
+
+function useInviteMutation<T>(mutationFn: (payload: T) => Promise<unknown>) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { username: string; password: string; displayUsername: string; isAdmin: boolean }) =>
-      apiFetch("/api/admin/users", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
+    mutationFn,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["admin-invites"] }); },
+  });
+}
+
+export function useCreateInvite() {
+  return useInviteMutation((payload: { email: string; displayName?: string; isAdmin: boolean }) =>
+    apiFetch("/api/admin/invites", json("POST", payload)));
+}
+
+export function useResendInvite() {
+  return useInviteMutation((id: string) =>
+    apiFetch("/api/admin/invites", json("PUT", { id })));
+}
+
+export function useRevokeInvite() {
+  return useInviteMutation((id: string) =>
+    apiFetch(`/api/admin/invites?id=${id}`, { method: "DELETE" }));
+}
+
+export function useUpdateUserEmail() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { id: string; email?: string; emailVerified?: boolean }) =>
+      apiFetch("/api/admin/users", json("PUT", payload)),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["admin-users"] }); },
   });
 }

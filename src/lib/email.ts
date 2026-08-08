@@ -1,11 +1,13 @@
 // Transactional email via Resend's HTTP API. This file is the provider seam —
 // swapping providers means rewriting only sendEmail().
 
+import { INVITE_TTL_DAYS } from "@/lib/invites";
+
 const RESEND_URL = "https://api.resend.com/emails";
 
 async function sendEmail(to: string, subject: string, html: string): Promise<void> {
-  // Legacy synthetic accounts (username@local) have no real mailbox.
-  if (to.endsWith("@local")) {
+  // Legacy synthetic accounts (username@local.test) have no real mailbox.
+  if (to.endsWith("@local") || to.endsWith("@local.test")) {
     console.log(`[email] skipped send to synthetic address ${to}`);
     return;
   }
@@ -38,6 +40,14 @@ async function sendEmail(to: string, subject: string, html: string): Promise<voi
   }
 }
 
+/** Inviter display names are user-controlled and land inside the HTML body. */
+function escapeHtml(value: string): string {
+  return value.replace(
+    /[&<>"]/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!,
+  );
+}
+
 function layout(heading: string, body: string, url: string, cta: string): string {
   return `<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">
   <h2 style="margin:0 0 12px">${heading}</h2>
@@ -56,6 +66,23 @@ export function sendVerificationEmail(to: string, url: string): Promise<void> {
       "Confirm your email address to finish setting up your FinTrack account. This link expires in 1 hour.",
       url,
       "Verify email",
+    ),
+  );
+}
+
+export function sendInviteEmail(
+  to: string,
+  url: string,
+  inviterName: string,
+): Promise<void> {
+  return sendEmail(
+    to,
+    "You're invited to FinTrack",
+    layout(
+      "You're invited to FinTrack",
+      `${escapeHtml(inviterName)} invited you to FinTrack. Pick a password to activate your account — this link expires in ${INVITE_TTL_DAYS} days.`,
+      url,
+      "Accept invite",
     ),
   );
 }

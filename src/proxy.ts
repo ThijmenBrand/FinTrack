@@ -14,6 +14,8 @@ const publicPaths = [
   "/signup",
   "/forgot-password",
   "/reset-password",
+  "/invite",
+  "/api/invites/accept",
 ];
 
 type Session = NonNullable<Awaited<ReturnType<typeof auth.api.getSession>>>;

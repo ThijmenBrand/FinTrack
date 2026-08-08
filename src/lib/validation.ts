@@ -67,7 +67,11 @@ export function validateEmail(input: unknown): string | null {
   if (trimmed.length > MAX_EMAIL_LENGTH) {
     return `Email must be ${MAX_EMAIL_LENGTH} characters or fewer`;
   }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed) || trimmed.endsWith("@local")) {
+  if (
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed) ||
+    trimmed.endsWith("@local") ||
+    trimmed.endsWith("@local.test")
+  ) {
     return "Enter a valid email address";
   }
   return null;

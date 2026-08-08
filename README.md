@@ -19,36 +19,73 @@ external services required to run it locally.
 
 ## Quick start
 
+Node 20+ and npm. Nothing else — no Docker, no external services.
+
 ```bash
-npm run setup     # installs deps, copies .env, pushes schema, seeds DB
+npm run setup     # deps, .env, database schema, a year of dummy data
 npm run dev       # http://localhost:3000
 ```
 
-Log in with **admin / admin** (change this — see Environment).
+Then log in:
 
-`setup` is idempotent-ish: it won't overwrite an existing `.env`. If you'd
-rather do it by hand:
+| User | Password | Goes to |
+|---|---|---|
+| `demo` | `demo` | the finance app, preloaded with 12 months of dummy data |
+| `admin` | `admin` | `/backoffice` — user management and the audit log |
+
+**Use `demo` for app work.** Admins are redirected to `/backoffice` and can't
+open the finance pages at all (`src/proxy.ts` enforces the split), so logging in
+as `admin` looks like the app is broken when it isn't.
+
+The local database is a SQLite file at `data/finance.db` (gitignored). `setup`
+is safe to re-run: it won't overwrite an existing `.env`, and it only seeds a
+database with no transactions in it (`npm run setup -- --seed` forces a reseed).
+
+By hand, if you prefer:
 
 ```bash
 npm install
 cp .env.example .env
-mkdir -p data
-npm run db:push      # create tables (drizzle-kit push)
-npm run db:init      # seed admin user + default categories
+npm run db:migrate   # create/upgrade tables + seed the admin user
+npm run db:seed      # create the demo user + dummy data
 npm run dev
 ```
 
-The local database is a SQLite file at `data/finance.db` (gitignored).
+## Dummy data
+
+`npm run db:seed` fills the database with a plausible year of Dutch banking:
+three accounts (checking, savings, joint), salary and fixed costs linked to
+recurring plans, everyday spending across all default categories, monthly
+internal transfers between accounts, category rules, budgets, three pots
+(two with savings targets), and a few reimbursed group dinners.
+
+```bash
+npm run db:seed                      # 12 months for "demo"
+npm run db:seed -- --months 3        # shorter history
+npm run db:seed -- --user alice --password hunter2   # a second user, created if missing
+npm run db:reset                     # delete the DB, migrate, reseed from scratch
+```
+
+It's deterministic — the same flags always produce the same numbers, so
+screenshots and bug reports line up. Re-running **wipes the target user's
+financial data first** so it never stacks up, and it refuses to run when
+`TURSO_DATABASE_URL` is set.
+
+> After `db:reset`, restart `npm run dev`. The dev server keeps a handle on the
+> old database file and will keep serving it (logins start failing) until it is.
 
 ## Environment
 
-Copy `.env.example` → `.env`. Variables:
+Copy `.env.example` → `.env`. Everything has a working local default, so an
+empty `.env` still runs.
 
 | Variable | Required | Notes |
 |---|---|---|
 | `BETTER_AUTH_SECRET` | prod | Session-signing secret, min 32 chars. A dev fallback is used if unset (with a warning); **required in production**. |
-| `BETTER_AUTH_URL` | yes | Base URL, e.g. `http://localhost:3000` or your prod domain. Used for auth callbacks. |
-| `ADMIN_USERNAME` / `ADMIN_PASSWORD` / `ADMIN_DISPLAY_NAME` | no | Seeded on first `db:init` only. Default `admin`/`admin`. |
+| `BETTER_AUTH_URL` | yes | Base URL, e.g. `http://localhost:3000` or your prod domain. Used for auth callbacks — and baked in at *build* time by `src/proxy.ts`. |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` / `ADMIN_DISPLAY_NAME` | no | Seeded on first `db:migrate` only, and only when the database has no users. Default `admin`/`admin`. |
+| `SEED_USERNAME` / `SEED_PASSWORD` | no | Defaults for `db:seed`'s target user. Default `demo`/`demo`. |
+| `RESEND_API_KEY` / `EMAIL_FROM` | prod | Signup verification and password-reset mail. Unset locally → mail contents are logged to the console instead. |
 | `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN` | prod | Leave **unset** for local (uses the SQLite file). Set **both** to use Turso. |
 
 The DB target is chosen at runtime: if `TURSO_DATABASE_URL` is set it uses
@@ -59,15 +96,31 @@ Turso, otherwise the local SQLite file. Same switch drives `drizzle.config.ts`.
 | Command | Does |
 |---|---|
 | `npm run dev` | Dev server |
-| `npm run build` | Prod build → `drizzle-kit push` → `db:init` (schema + seed run at build time) |
+| `npm run build` | Prod build, then applies migrations |
 | `npm start` | Serve the production build |
 | `npm test` | Run Vitest once (`test:watch` for watch mode) |
 | `npm run lint` | ESLint |
+| `npm run db:migrate` | Apply pending migrations + seed admin/categories (safe to re-run) |
+| `npm run db:generate` | Generate a new migration from `src/db/schema.ts` |
+| `npm run db:seed` | Dummy data for the demo user (see above) |
+| `npm run db:reset` | Delete the local DB, migrate, reseed |
 | `npm run db:studio` | Drizzle Studio (browse the DB) |
-| `npm run db:push` | Sync schema to the DB |
-| `npm run db:init` | Seed admin user + default categories (safe to re-run) |
+| `npm run db:init` | Seed/repair step only, without migrating |
+
+Schema changes are versioned: edit `src/db/schema.ts`, run `npm run db:generate`,
+commit the generated `drizzle/*.sql`, then `npm run db:migrate`. There is no
+`db:push` — pushing was dropped because it silently skips data-loss statements.
 
 `scripts/reset-password.ts` resets a user's password if you get locked out.
+
+## Troubleshooting
+
+| Symptom | Cause |
+|---|---|
+| Logged in, but every page bounces to `/backoffice` | You're on the `admin` account. Log in as `demo`. |
+| "Invalid username or password" for a user you just seeded | Dev server is holding the deleted database file. Restart it. |
+| Empty dashboard | Ran `db:migrate` but not `db:seed`, or you're logged in as a user with no data. |
+| `No such table` errors | Missing migrations — run `npm run db:migrate`. |
 
 ## Deploying
 
@@ -78,10 +131,14 @@ Designed for **Vercel + Turso**, but any Node host works.
 2. **Set env vars** on the host: `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`,
    `BETTER_AUTH_SECRET` (a real 32+ char secret), and `BETTER_AUTH_URL`
    (your production domain).
-3. **Deploy.** `npm run build` pushes the schema to Turso and seeds the admin
-   user automatically, so the DB is ready on first deploy. On Vercel,
+3. **Deploy.** `npm run build` applies pending migrations to Turso and seeds the
+   admin user automatically, so the DB is ready on first deploy. On Vercel,
    `BETTER_AUTH_URL` falls back to `VERCEL_PROJECT_PRODUCTION_URL` if unset.
 4. **Log in and change the admin password** immediately.
+
+Self-signup is off by default (`app_settings.signups_enabled`, toggled from the
+backoffice). Set `RESEND_API_KEY` + `EMAIL_FROM` before enabling it, or
+verification emails will fail.
 
 Security headers (HSTS, CSP, X-Frame-Options, etc.) are set in
 `next.config.ts` and apply to all routes.

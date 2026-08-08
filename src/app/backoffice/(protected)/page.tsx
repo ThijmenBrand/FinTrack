@@ -19,7 +19,8 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { ApiError } from "@/lib/api";
 import { UserRow } from "./_components/user-row";
-import { CreateUserForm } from "./_components/create-user-form";
+import { InviteUserForm } from "./_components/invite-user-form";
+import { InviteList } from "./_components/invite-list";
 
 function SignupToggleCard({ onError }: { onError: (msg: string) => void }) {
   const { data: settings } = useAppSettings();
@@ -96,7 +97,7 @@ export default function AdminPage() {
             className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90"
           >
             <UserPlus className="h-4 w-4" />
-            New User
+            Invite User
           </button>
         </div>
       </div>
@@ -107,7 +108,9 @@ export default function AdminPage() {
         </div>
       )}
 
-      {showForm && <CreateUserForm onClose={() => setShowForm(false)} onError={setError} />}
+      {showForm && <InviteUserForm onClose={() => setShowForm(false)} onError={setError} />}
+
+      <InviteList onError={setError} />
 
       <SignupToggleCard onError={setError} />
 

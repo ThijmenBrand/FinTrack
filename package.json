@@ -12,6 +12,8 @@
     "test:watch": "vitest",
     "db:init": "tsx scripts/db-init.ts",
     "db:migrate": "tsx scripts/migrate.ts",
+    "db:seed": "tsx scripts/seed.ts",
+    "db:reset": "rm -f data/finance.db && npm run db:migrate && npm run db:seed && echo '\\nDatabase reset. Restart the dev server if it is running.'",
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
     "setup": "bash scripts/setup.sh"

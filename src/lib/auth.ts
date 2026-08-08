@@ -59,7 +59,7 @@ function getSecret(): string {
   return secret;
 }
 
-function getBaseURL(): string {
+export function getBaseURL(): string {
   if (process.env.BETTER_AUTH_URL) return process.env.BETTER_AUTH_URL;
   if (process.env.VERCEL_PROJECT_PRODUCTION_URL)
     return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;

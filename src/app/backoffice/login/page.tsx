@@ -6,7 +6,7 @@ import { authClient } from "@/lib/auth-client";
 import { useRouter } from "next/navigation";
 
 export default function BackofficeLoginPage() {
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -18,7 +18,7 @@ export default function BackofficeLoginPage() {
     setLoading(true);
 
     try {
-      const result = await authClient.signIn.username({ username, password });
+      const result = await authClient.signIn.email({ email: email.trim(), password });
       if (result.error) {
         setError(result.error.message || "Login failed");
         return;
@@ -50,21 +50,21 @@ export default function BackofficeLoginPage() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <label
-                htmlFor="username"
+                htmlFor="email"
                 className="text-sm font-medium leading-none text-foreground"
               >
-                Username
+                Email
               </label>
               <input
-                id="username"
-                type="text"
-                autoComplete="username"
+                id="email"
+                type="email"
+                autoComplete="email"
                 autoFocus
                 required
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                placeholder="Enter your username"
+                placeholder="you@example.com"
               />
             </div>
 

@@ -437,6 +437,33 @@ export const appSettings = sqliteTable("app_settings", {
     .$defaultFn(() => new Date().toISOString()),
 });
 
+// ─── Invites ─────────────────────────────────────────────────────────────
+// Invite-only onboarding. The recipient's link carries the raw token; only its
+// SHA-256 is stored, so a database leak hands out no usable invites.
+export const invites = sqliteTable(
+  "invites",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    email: text("email").notNull(),
+    tokenHash: text("token_hash").notNull().unique(),
+    role: text("role").notNull().default("user"),
+    displayName: text("display_name"),
+    invitedBy: text("invited_by").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    expiresAt: text("expires_at").notNull(),
+    acceptedAt: text("accepted_at"),
+    acceptedUserId: text("accepted_user_id"),
+    revokedAt: text("revoked_at"),
+    createdAt: text("created_at")
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+  },
+  (table) => [index("idx_invites_email").on(table.email)],
+);
+
 // ─── Type Exports ────────────────────────────────────────────────────────────
 export type User = typeof user.$inferSelect;
 export type NewUser = typeof user.$inferInsert;
