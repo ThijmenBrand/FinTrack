@@ -6,7 +6,13 @@ const testDb = await setupTestDb("dashboard-budget");
 
 const { getBudgetOverview } = await import("@/app/(app)/_lib/dashboard-queries");
 const { db } = await import("@/db");
-const { transactions, transactionGroups, categories, budgets } = await import(
+const {
+  transactions,
+  transactionGroups,
+  categories,
+  budgets,
+  recurringTransactions,
+} = await import(
   "@/db/schema"
 );
 
@@ -75,6 +81,34 @@ describe("getBudgetOverview — pot spending follows the pot's category", () => 
     expect(r.unbudgetedItems.map((i) => [i.categoryName, i.spent])).toEqual([
       ["Drinks", 601],
     ]);
+  });
+
+  it("does not mark a recurring-expense category as unbudgeted", async () => {
+    await db.insert(categories).values({
+      id: "c-rent",
+      userId: USER,
+      name: "Rent",
+    });
+    await db.insert(recurringTransactions).values({
+      id: "r-rent",
+      userId: USER,
+      accountId: "acct-1",
+      description: "Rent",
+      amount: -1000,
+      type: "expense",
+      categoryId: "c-rent",
+      frequency: "monthly",
+      startDate: "2025-01-01",
+    });
+    await expense(-1000, { categoryId: "c-rent" });
+
+    const r = await getBudgetOverview(USER, 1);
+
+    // Fixed costs are the budget for recurring-expense categories. They are
+    // listed separately on the Budgets page and therefore aren't eligible for
+    // a second manual allocation.
+    expect(r.unbudgetedItems).toEqual([]);
+    expect(r.totalBudgeted).toBe(1000);
   });
 
   it("keeps pots without a category in an Into-pots bucket", async () => {

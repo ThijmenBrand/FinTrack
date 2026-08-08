@@ -269,6 +269,7 @@ export const getBudgetOverview = cache(async (
 
       db
         .select({
+          categoryId: recurringTransactions.categoryId,
           amount: recurringTransactions.amount,
           frequency: recurringTransactions.frequency,
         })
@@ -419,7 +420,13 @@ export const getBudgetOverview = cache(async (
 
   // The gap between the headline and the bars: spending in categories with no
   // budget (incl. uncategorized), plus pots that have no category of their own.
+  // A category with an active recurring expense is already budgeted as a fixed
+  // cost. The Budgets page keeps those out of manual allocations, so treating
+  // them as unbudgeted here made the dashboard contradict that page.
   const budgetedCategoryIds = new Set(allBudgets.map((b) => b.categoryId));
+  for (const fixedCost of recurringExpenses) {
+    if (fixedCost.categoryId) budgetedCategoryIds.add(fixedCost.categoryId);
+  }
   const unbudgetedItems = mergeUnbudgeted(
     monthByCategory.map((r) => ({
       categoryId: r.categoryId,

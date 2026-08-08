@@ -15,6 +15,7 @@ import { ProfileCard } from "./_components/profile-card";
 import { PasswordCard } from "./_components/password-card";
 import { PinCard } from "./_components/pin-card";
 import { PasskeyCard } from "./_components/passkey-card";
+import { TwoFactorCard } from "./_components/two-factor-card";
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -45,6 +46,7 @@ export default function ProfilePage() {
       </div>
 
       <ProfileCard profile={profile} />
+      <TwoFactorCard enabled={profile.twoFactorEnabled} />
       <PasswordCard />
       <PinCard />
       <PasskeyCard />

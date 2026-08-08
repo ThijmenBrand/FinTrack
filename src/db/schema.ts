@@ -1,6 +1,19 @@
 import { sqliteTable, text, integer, real, uniqueIndex, index } from "drizzle-orm/sqlite-core";
 import { relations, sql } from "drizzle-orm";
-export { user, session, account, verification, passkey, rateLimit, userRelations, sessionRelations, accountRelations, passkeyRelations } from "./auth-schema";
+export {
+  user,
+  session,
+  account,
+  verification,
+  passkey,
+  rateLimit,
+  twoFactor,
+  userRelations,
+  sessionRelations,
+  accountRelations,
+  passkeyRelations,
+  twoFactorRelations,
+} from "./auth-schema";
 import { user, session, account, passkey } from "./auth-schema";
 
 // ─── User PIN ───────────────────────────────────────────────────────────────
