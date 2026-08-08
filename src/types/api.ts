@@ -196,7 +196,9 @@ export interface AdminUser {
   displayUsername: string;
   email: string;
   emailVerified: boolean;
+  role: "admin" | "user";
   isAdmin: boolean;
+  isCurrentUser: boolean;
   createdAt: string;
   lastActive: string | null;
   accountCount: number;

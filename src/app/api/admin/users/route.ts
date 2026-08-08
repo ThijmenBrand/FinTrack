@@ -28,7 +28,7 @@ async function logAdminAction(
 
 // GET /api/admin/users — list all users
 export async function GET() {
-  return withAdmin(async () => {
+  return withAdmin(async (session) => {
     const result = await db.run(sql`
       SELECT
         u.id, u.username, u.name, u.display_username, u.role, u.created_at,
@@ -49,7 +49,9 @@ export async function GET() {
         displayUsername: row.display_username || row.name,
         email: row.email,
         emailVerified: Number(row.email_verified) === 1,
+        role: row.role === "admin" ? "admin" : "user",
         isAdmin: row.role === "admin",
+        isCurrentUser: row.id === session.userId,
         createdAt: row.created_at,
         lastActive: row.last_active ?? null,
         accountCount: Number(row.account_count) || 0,
@@ -69,7 +71,7 @@ export async function GET() {
 // email, toggle verified/admin, ban)
 export async function PUT(request: NextRequest) {
   return withAdmin(async (session) => {
-    const { id, password, displayUsername, email, emailVerified, isAdmin, banned, banReason } =
+    const { id, password, displayUsername, username, email, emailVerified, isAdmin, banned, banReason } =
       await request.json();
 
     if (!id) {
@@ -104,6 +106,22 @@ export async function PUT(request: NextRequest) {
       await logAdminAction(session.userId, "display_name_change", id, { displayUsername: displayCheck.value });
     }
 
+    if (username !== undefined) {
+      const usernameCheck = validateName(username);
+      if (!usernameCheck.ok) {
+        return NextResponse.json({ error: `Invalid username: ${usernameCheck.error}` }, { status: 400 });
+      }
+      const updated = await db.run(sql`
+        UPDATE "user" SET username = ${usernameCheck.value}, updated_at = ${now}
+        WHERE id = ${id}
+          AND NOT EXISTS (SELECT 1 FROM "user" WHERE username = ${usernameCheck.value} AND id <> ${id})
+      `);
+      if (Number(updated.rowsAffected) === 0) {
+        return NextResponse.json({ error: "That username is already in use" }, { status: 409 });
+      }
+      await logAdminAction(session.userId, "username_change", id, { username: usernameCheck.value });
+    }
+
     if (email !== undefined) {
       const emailError = validateEmail(email);
       if (emailError) {
@@ -134,6 +152,9 @@ export async function PUT(request: NextRequest) {
     }
 
     if (isAdmin !== undefined) {
+      if (typeof isAdmin !== "boolean") {
+        return NextResponse.json({ error: "isAdmin must be a boolean" }, { status: 400 });
+      }
       // Prevent demoting yourself — guarantees at least one admin remains
       if (id === session.userId) {
         return NextResponse.json(
