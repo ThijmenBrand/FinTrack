@@ -37,6 +37,31 @@ export const userPin = sqliteTable("user_pin", {
     .$defaultFn(() => new Date().toISOString()),
 });
 
+// ─── Budget Plans ────────────────────────────────────────────────────────────
+// A named budget: owns a set of accounts (accounts.budgetId, exclusive) and a
+// set of per-category allocations (budgets.budgetId). Exactly one plan per
+// user is the "main" budget shown on the dashboard — enforced by a partial
+// unique index.
+export const budgetPlans = sqliteTable("budget_plans", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  isMain: integer("is_main", { mode: "boolean" }).notNull().default(false),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_budget_plans_user").on(table.userId),
+  uniqueIndex("idx_budget_plans_user_main")
+    .on(table.userId)
+    .where(sql`is_main = 1`),
+]);
+
 // ─── Bank Accounts ──────────────────────────────────────────────────────────
 // Represents a bank account (checking, savings, joint, etc.)
 export const accounts = sqliteTable("accounts", {
@@ -55,6 +80,9 @@ export const accounts = sqliteTable("accounts", {
   currency: text("currency").notNull().default("EUR"),
   initialBalance: real("initial_balance").notNull().default(0),
   sortOrder: integer("sort_order").notNull().default(0),
+  // The budget plan this account's spending counts toward. Exclusive: an
+  // account belongs to at most one plan. Null = not in any budget.
+  budgetId: text("budget_id").references(() => budgetPlans.id, { onDelete: "set null" }),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
@@ -163,6 +191,9 @@ export const budgets = sqliteTable("budgets", {
     .primaryKey()
     .$defaultFn(() => crypto.randomUUID()),
   userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  // The plan this allocation belongs to. Nullable only for pre-plan legacy
+  // rows; the 0009 backfill attaches every row to the user's Main plan.
+  budgetId: text("budget_id").references(() => budgetPlans.id, { onDelete: "cascade" }),
   categoryId: text("category_id")
     .notNull()
     .references(() => categories.id, { onDelete: "cascade" }),
@@ -180,6 +211,7 @@ export const budgets = sqliteTable("budgets", {
 }, (table) => [
   index("idx_budgets_user_active").on(table.userId, table.isActive),
   index("idx_budgets_user_status").on(table.userId, table.status),
+  index("idx_budgets_plan").on(table.budgetId),
 ]);
 
 // ─── User Preferences ────────────────────────────────────────────────────────
@@ -202,6 +234,9 @@ export const userPreferences = sqliteTable("user_preferences", {
   defaultAccountId: text("default_account_id").references(() => accounts.id, { onDelete: "set null" }),
   // When on, internal transfers are hidden from the transactions list by default.
   hideInternalTransfers: integer("hide_internal_transfers", { mode: "boolean" }).notNull().default(false),
+  // When on, per-budget views count internal transfers whose counterpart
+  // account lives in a different budget plan as expense/income (envelope-style).
+  countCrossBudgetTransfers: integer("count_cross_budget_transfers", { mode: "boolean" }).notNull().default(false),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
@@ -333,9 +368,19 @@ export const usersRelations = relations(user, ({ many }) => ({
 
 export const accountsRelations = relations(accounts, ({ one, many }) => ({
   user: one(user, { fields: [accounts.userId], references: [user.id] }),
+  budgetPlan: one(budgetPlans, {
+    fields: [accounts.budgetId],
+    references: [budgetPlans.id],
+  }),
   transactions: many(transactions),
   recurringTransactions: many(recurringTransactions),
   importBatches: many(importBatches),
+}));
+
+export const budgetPlansRelations = relations(budgetPlans, ({ one, many }) => ({
+  user: one(user, { fields: [budgetPlans.userId], references: [user.id] }),
+  accounts: many(accounts),
+  budgets: many(budgets),
 }));
 
 export const transactionsRelations = relations(transactions, ({ one }) => ({
@@ -375,6 +420,10 @@ export const categoryRulesRelations = relations(categoryRules, ({ one }) => ({
 
 export const budgetsRelations = relations(budgets, ({ one }) => ({
   user: one(user, { fields: [budgets.userId], references: [user.id] }),
+  plan: one(budgetPlans, {
+    fields: [budgets.budgetId],
+    references: [budgetPlans.id],
+  }),
   category: one(categories, {
     fields: [budgets.categoryId],
     references: [categories.id],
@@ -490,6 +539,8 @@ export type CategoryRule = typeof categoryRules.$inferSelect;
 export type NewCategoryRule = typeof categoryRules.$inferInsert;
 export type Budget = typeof budgets.$inferSelect;
 export type NewBudget = typeof budgets.$inferInsert;
+export type BudgetPlan = typeof budgetPlans.$inferSelect;
+export type NewBudgetPlan = typeof budgetPlans.$inferInsert;
 export type RecurringTransaction = typeof recurringTransactions.$inferSelect;
 export type NewRecurringTransaction = typeof recurringTransactions.$inferInsert;
 export type ImportBatch = typeof importBatches.$inferSelect;

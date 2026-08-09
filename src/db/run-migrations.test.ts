@@ -90,6 +90,11 @@ describe("run-migrations pipeline", () => {
     await client.execute("DROP TABLE invites");
     await client.execute("DROP TABLE twoFactor");
     await client.execute("ALTER TABLE user DROP COLUMN two_factor_enabled");
+    await client.execute("DROP INDEX idx_budgets_plan");
+    await client.execute("ALTER TABLE budgets DROP COLUMN budget_id");
+    await client.execute("ALTER TABLE accounts DROP COLUMN budget_id");
+    await client.execute("ALTER TABLE user_preferences DROP COLUMN count_cross_budget_transfers");
+    await client.execute("DROP TABLE budget_plans");
     expect(await columnNames("user_preferences")).not.toContain("hide_internal_transfers");
 
     // Must not error on the existing tables (no "table already exists").
@@ -111,5 +116,9 @@ describe("run-migrations pipeline", () => {
     expect(await tableNames()).toContain("twoFactor");
     expect(await columnNames("user")).toContain("two_factor_enabled");
     expect(await columnNames("user_preferences")).toContain("hide_internal_transfers");
+    expect(await tableNames()).toContain("budget_plans");
+    expect(await columnNames("accounts")).toContain("budget_id");
+    expect(await columnNames("budgets")).toContain("budget_id");
+    expect(await columnNames("user_preferences")).toContain("count_cross_budget_transfers");
   });
 });
