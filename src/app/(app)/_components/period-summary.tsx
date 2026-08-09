@@ -146,6 +146,7 @@ export async function PeriodSummary({
                 <span className="text-xs text-muted-foreground tabular-nums">
                   spent {formatCurrency(budget.totalBudgetSpent)} of{" "}
                   {formatCurrency(budget.totalBudgeted)} · {pct}%
+                  {budget.plan && <> · {budget.plan.name} budget</>}
                 </span>
               </div>
               <BudgetBar

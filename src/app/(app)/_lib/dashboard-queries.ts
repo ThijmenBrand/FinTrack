@@ -2,13 +2,15 @@ import { cache } from "react";
 import { db } from "@/db";
 import {
   accounts,
+  budgetPlans,
   transactions,
   budgets,
   categories,
   recurringTransactions,
   transactionGroups,
 } from "@/db/schema";
-import { eq, and, gte, lte, sql, sum, inArray, isNotNull } from "drizzle-orm";
+import { eq, and, asc, gte, lte, sql, sum, inArray, isNotNull } from "drizzle-orm";
+import { accountScopeFilter, resolveBudgetPlan } from "@/lib/budget-plan";
 import { getPaySchedule, paydaysBetween, type PaySchedule } from "@/lib/pay-schedule";
 import { getMonthMoneyMath, toMonthly } from "@/lib/month-money";
 import { classifyOnTrack } from "@/lib/on-track";
@@ -101,6 +103,24 @@ export const getScopeAccountRows = cache(async (userId: string) =>
     .where(eq(accounts.userId, userId)),
 );
 
+/** The user's main budget plan with its account ids. Cached per render pass. */
+export const getMainPlan = cache(async (userId: string) =>
+  resolveBudgetPlan(userId, null),
+);
+
+/** All budget plans, oldest first — drives the budget card's switcher. */
+export const getUserPlans = cache(async (userId: string) =>
+  db
+    .select({
+      id: budgetPlans.id,
+      name: budgetPlans.name,
+      isMain: budgetPlans.isMain,
+    })
+    .from(budgetPlans)
+    .where(eq(budgetPlans.userId, userId))
+    .orderBy(asc(budgetPlans.createdAt)),
+);
+
 /**
  * Expand the scoped accounts to the set whose activity should count toward
  * "your" spending: the scoped accounts themselves, plus any account that
@@ -167,7 +187,9 @@ async function getPotSpendByCategory(
   userId: string,
   from: string,
   to: string,
+  scopeAccountIds?: string[],
 ): Promise<CategorySpend[]> {
+  const scope = accountScopeFilter(scopeAccountIds);
   const rows = await db
     .select({
       categoryId: transactionGroups.categoryId,
@@ -185,6 +207,7 @@ async function getPotSpendByCategory(
         sql`${transactions.type} != 'internal_transfer'`,
         gte(transactions.date, from),
         lte(transactions.date, to),
+        ...(scope ? [scope] : []),
       ),
     )
     .groupBy(transactionGroups.id, transactionGroups.categoryId);
@@ -240,9 +263,23 @@ function mergeUnbudgeted(
 export const getBudgetOverview = cache(async (
   userId: string,
   startDay: number = 1,
+  planId?: string,
 ) => {
-  // Budgets are envelope-style and span all of a user's spending, so they
-  // intentionally ignore the dashboard's defaultAccountId scoping.
+  // Scoped to one budget plan: its allocations and its accounts' spending.
+  // No explicit planId → the main plan (what the dashboard shows). Users
+  // without plans fall back to the legacy unscoped view.
+  const plan =
+    planId === undefined
+      ? await getMainPlan(userId)
+      : await resolveBudgetPlan(userId, planId);
+  const scopeAccountIds = plan ? plan.accountIds : undefined;
+  const txScope = accountScopeFilter(scopeAccountIds);
+  const recurringScope =
+    scopeAccountIds === undefined
+      ? undefined
+      : scopeAccountIds.length > 0
+        ? inArray(recurringTransactions.accountId, scopeAccountIds)
+        : sql`1=0`;
   const { monthStart, monthEnd, monthProgress } = getDateRanges(startDay);
 
   const [allBudgets, recurringExpenses, monthByCategory, monthPotSpend] =
@@ -264,6 +301,7 @@ export const getBudgetOverview = cache(async (
             eq(budgets.isActive, true),
             eq(budgets.status, "active"),
             eq(budgets.userId, userId),
+            ...(plan ? [eq(budgets.budgetId, plan.id)] : []),
           ),
         ),
 
@@ -279,6 +317,7 @@ export const getBudgetOverview = cache(async (
             eq(recurringTransactions.type, "expense"),
             eq(recurringTransactions.isActive, true),
             eq(recurringTransactions.userId, userId),
+            ...(recurringScope ? [recurringScope] : []),
           ),
         ),
 
@@ -302,11 +341,12 @@ export const getBudgetOverview = cache(async (
             sql`${transactions.groupId} IS NULL`,
             gte(transactions.date, monthStart),
             lte(transactions.date, monthEnd),
+            ...(txScope ? [txScope] : []),
           ),
         )
         .groupBy(transactions.categoryId),
 
-      getPotSpendByCategory(userId, monthStart, monthEnd),
+      getPotSpendByCategory(userId, monthStart, monthEnd, scopeAccountIds),
     ]);
 
   // Per-budgeted-category spending — drives the per-category chips.
@@ -359,10 +399,11 @@ export const getBudgetOverview = cache(async (
                 sql`${transactions.groupId} IS NULL`,
                 gte(transactions.date, from),
                 lte(transactions.date, to),
+                ...(txScope ? [txScope] : []),
               )
             )
             .groupBy(transactions.categoryId),
-          getPotSpendByCategory(userId, from, to),
+          getPotSpendByCategory(userId, from, to, scopeAccountIds),
         ]);
         for (const r of results) {
           if (r.categoryId) {
@@ -440,6 +481,7 @@ export const getBudgetOverview = cache(async (
   );
 
   return {
+    plan: plan ? { id: plan.id, name: plan.name, isMain: plan.isMain } : null,
     budgetItems,
     unbudgetedItems,
     unbudgetedTotal: unbudgetedItems.reduce((s, r) => s + r.spent, 0),
@@ -448,6 +490,8 @@ export const getBudgetOverview = cache(async (
     monthProgress,
   };
 });
+
+export type BudgetOverview = Awaited<ReturnType<typeof getBudgetOverview>>;
 
 export const getAccountBalances = cache(async (userId: string) => {
   const accountBalanceRows = await db
@@ -896,45 +940,80 @@ export async function getSavingTowardSpikes(
   });
 }
 
-export async function getTopCategories(
-  userId: string,
-  startDay: number = 1,
-  scopeAccountIds?: string[],
-) {
+/**
+ * Top spending categories across ALL accounts this period, each with a
+ * per-budget split (via the transaction's account) so a shared category shows
+ * which budget the money actually left.
+ */
+export async function getTopCategories(userId: string, startDay: number = 1) {
   const { monthStart, monthEnd } = getDateRanges(startDay);
-  const accountIds = await getFundedAccountIds(userId, scopeAccountIds, monthStart, monthEnd);
-  const accountFilter = accountIds && accountIds.length > 0
-    ? inArray(transactions.accountId, accountIds)
-    : sql`1=1`;
 
-  const topCats = await db
-    .select({
-      categoryId: categories.id,
-      categoryName: categories.name,
-      categoryColor: categories.color,
-      total: sql<number>`sum(${effectiveExpenseAmount()})`,
-    })
-    .from(transactions)
-    .leftJoin(categories, eq(transactions.categoryId, categories.id))
-    .where(
-      and(
-        eq(transactions.userId, userId),
-        eq(transactions.type, "expense"),
-        sql`COALESCE(${categories.name}, '') <> 'Internal Transfer'`,
-        sql`${transactions.groupId} IS NULL`,
-        gte(transactions.date, monthStart),
-        lte(transactions.date, monthEnd),
-        accountFilter,
+  const [rows, plans] = await Promise.all([
+    db
+      .select({
+        categoryId: categories.id,
+        categoryName: categories.name,
+        categoryColor: categories.color,
+        budgetId: accounts.budgetId,
+        total: sql<number>`sum(${effectiveExpenseAmount()})`,
+      })
+      .from(transactions)
+      .leftJoin(categories, eq(transactions.categoryId, categories.id))
+      .leftJoin(accounts, eq(transactions.accountId, accounts.id))
+      .where(
+        and(
+          eq(transactions.userId, userId),
+          eq(transactions.type, "expense"),
+          sql`COALESCE(${categories.name}, '') <> 'Internal Transfer'`,
+          sql`${transactions.groupId} IS NULL`,
+          gte(transactions.date, monthStart),
+          lte(transactions.date, monthEnd),
+        ),
       )
-    )
-    .groupBy(transactions.categoryId, categories.id)
-    .orderBy(sql`sum(abs(${transactions.amount})) DESC`)
-    .limit(5);
+      .groupBy(transactions.categoryId, categories.id, accounts.budgetId),
+    getUserPlans(userId),
+  ]);
 
-  return topCats.map((c) => ({
-    categoryId: c.categoryId,
-    name: c.categoryName || "Uncategorized",
-    color: c.categoryColor || "#94a3b8",
-    total: c.total,
-  }));
+  const planNameById = new Map(plans.map((p) => [p.id, p.name]));
+  const byCategory = new Map<
+    string,
+    {
+      categoryId: string | null;
+      name: string;
+      color: string;
+      total: number;
+      byBudget: Map<string, number>;
+    }
+  >();
+  for (const r of rows) {
+    const key = r.categoryId ?? "";
+    const entry = byCategory.get(key) ?? {
+      categoryId: r.categoryId,
+      name: r.categoryName || "Uncategorized",
+      color: r.categoryColor || "#94a3b8",
+      total: 0,
+      byBudget: new Map<string, number>(),
+    };
+    const amount = Number(r.total) || 0;
+    entry.total += amount;
+    const budgetLabel = (r.budgetId && planNameById.get(r.budgetId)) || "No budget";
+    entry.byBudget.set(budgetLabel, (entry.byBudget.get(budgetLabel) ?? 0) + amount);
+    byCategory.set(key, entry);
+  }
+
+  return {
+    planCount: plans.length,
+    categories: Array.from(byCategory.values())
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 5)
+      .map((c) => ({
+        categoryId: c.categoryId,
+        name: c.name,
+        color: c.color,
+        total: c.total,
+        byBudget: Array.from(c.byBudget.entries())
+          .map(([budgetName, total]) => ({ budgetName, total }))
+          .sort((a, b) => b.total - a.total),
+      })),
+  };
 }

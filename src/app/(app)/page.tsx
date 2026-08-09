@@ -13,7 +13,7 @@ import {
   PeriodSummary,
   PeriodSummarySkeleton,
 } from "./_components/period-summary";
-import { getScopeAccountRows } from "./_lib/dashboard-queries";
+import { getMainPlan, getScopeAccountRows } from "./_lib/dashboard-queries";
 import { defaultScopeAccountIds } from "@/lib/account-scope";
 import {
   BudgetCategories,
@@ -66,13 +66,18 @@ export default async function DashboardPage() {
   const userId = session.userId;
   // The account query doesn't depend on prefs, so don't wait on them serially —
   // against a remote DB each round trip here delays every card below.
-  const [prefs, scopeRows] = await Promise.all([
+  const [prefs, scopeRows, mainPlan] = await Promise.all([
     getUserPreferences(userId),
     getScopeAccountRows(userId),
+    getMainPlan(userId),
   ]);
   const startDay = prefs.financialMonthStartDay;
   // Everyday money only: all checking accounts (see defaultScopeAccountIds).
+  // Drives the Earned/Spent/Net tiles.
   const accountIds = defaultScopeAccountIds(scopeRows, prefs.defaultAccountId);
+  // Free-to-spend math follows the main budget's accounts; without plans it
+  // falls back to the same all-checking scope.
+  const mainPlanAccountIds = mainPlan ? mainPlan.accountIds : accountIds;
 
   return (
     <div className="space-y-4">
@@ -97,15 +102,11 @@ export default async function DashboardPage() {
             <ComingUpThisMonthCard
               userId={userId}
               startDay={startDay}
-              accountIds={accountIds}
+              accountIds={mainPlanAccountIds}
             />
           </Suspense>
           <Suspense fallback={<TopSpendingCardSkeleton />}>
-            <TopSpendingCard
-              userId={userId}
-              startDay={startDay}
-              accountIds={accountIds}
-            />
+            <TopSpendingCard userId={userId} startDay={startDay} />
           </Suspense>
           <Suspense fallback={<SavingTowardCardSkeleton />}>
             <SavingTowardCard userId={userId} startDay={startDay} />
