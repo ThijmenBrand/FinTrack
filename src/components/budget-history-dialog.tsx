@@ -35,11 +35,13 @@ function formatDate(dateStr: string) {
 
 interface BudgetHistoryDialogProps {
   allocation: Allocation | null;
+  /** Plan whose budget line and account scope the history reflects. */
+  budgetId?: string;
   onOpenChange: (open: boolean) => void;
 }
 
-export function BudgetHistoryDialog({ allocation, onOpenChange }: BudgetHistoryDialogProps) {
-  const { data: history, isLoading: loading } = useBudgetHistory(allocation?.categoryId ?? null, !!allocation);
+export function BudgetHistoryDialog({ allocation, budgetId, onOpenChange }: BudgetHistoryDialogProps) {
+  const { data: history, isLoading: loading } = useBudgetHistory(allocation?.categoryId ?? null, !!allocation, budgetId);
   const [expandedMonth, setExpandedMonth] = useState<string | null>(null);
   const [monthTransactions, setMonthTransactions] = useState<Record<string, Transaction[]>>({});
   const [loadingMonth, setLoadingMonth] = useState<string | null>(null);

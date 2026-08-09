@@ -11,13 +11,15 @@ import {
   useAcceptBudgetSuggestions,
   useRejectBudgetSuggestions,
 } from "@/hooks/use-budgets";
+import { useBudgetPlans } from "@/hooks/use-budget-plans";
+import { useAccounts } from "@/hooks/use-accounts";
 import { useCategories } from "@/hooks/use-categories";
 import { usePreferences } from "@/hooks/use-preferences";
 import {
   formatFinancialMonthLabel,
   getFinancialMonthRange,
 } from "@/lib/financial-month";
-import type { Allocation, BudgetSuggestion } from "@/types/api";
+import type { Allocation, BudgetPlanData, BudgetSuggestion } from "@/types/api";
 import {
   Card,
   CardContent,
@@ -60,6 +62,8 @@ import { RegenerateConfirmDialog } from "./_components/regenerate-confirm-dialog
 import { CategoryProgressRow } from "./_components/category-progress-row";
 import { UsageTotal, UsageBar } from "./_components/usage-summary";
 import { byUrgency } from "./_components/budget-row";
+import { BudgetPlanTabs } from "./_components/budget-plan-tabs";
+import { BudgetPlanDialog } from "./_components/budget-plan-dialog";
 
 const MONTH_OFFSETS = [0, 1, 2, 3] as const;
 type MonthOffset = (typeof MONTH_OFFSETS)[number];
@@ -135,6 +139,21 @@ export default function BudgetsPage() {
   const { data: prefs } = usePreferences();
   const startDay = prefs?.financialMonthStartDay ?? 1;
 
+  // Which plan the page shows. Null until the user picks one → main plan.
+  const { data: plansData } = useBudgetPlans();
+  const plans = plansData?.plans ?? [];
+  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
+  const activePlan =
+    plans.find((p) => p.id === selectedPlanId) ??
+    plans.find((p) => p.isMain) ??
+    plans[0] ??
+    null;
+  const activePlanId = activePlan?.id;
+
+  const { data: accountsData } = useAccounts();
+  const [planDialogOpen, setPlanDialogOpen] = useState(false);
+  const [editingPlan, setEditingPlan] = useState<BudgetPlanData | null>(null);
+
   const { dateFrom, dateTo, monthOptions } = useMemo(() => {
     const now = new Date();
     const options = MONTH_OFFSETS.map((offset) => {
@@ -160,6 +179,7 @@ export default function BudgetsPage() {
   const { data: data = null, isLoading: loading } = useBudgets({
     dateFrom,
     dateTo,
+    budgetId: activePlanId,
     noScale: true,
   });
   const { data: categoriesData } = useCategories();
@@ -184,7 +204,7 @@ export default function BudgetsPage() {
   };
 
   const runGenerate = async () => {
-    const result = await generateBudgets.mutateAsync({});
+    const result = await generateBudgets.mutateAsync({ budgetId: activePlanId });
     if (result.suggestions.length > 0) {
       setSuggestionsDialogOpen(true);
     }
@@ -262,6 +282,23 @@ export default function BudgetsPage() {
 
   return (
     <div className="space-y-6">
+      {/* Which budget the page is about. Everything below follows this tab. */}
+      {plansData && (
+        <BudgetPlanTabs
+          plans={plans}
+          activeId={activePlanId}
+          onSelect={setSelectedPlanId}
+          onEdit={(p) => {
+            setEditingPlan(p);
+            setPlanDialogOpen(true);
+          }}
+          onCreate={() => {
+            setEditingPlan(null);
+            setPlanDialogOpen(true);
+          }}
+        />
+      )}
+
       {/* Suggestion banner */}
       {isCurrentMonth && hasSuggestions && (
         <Card className="border-blue-200 bg-blue-50/40 dark:border-blue-900/60 dark:bg-blue-950/20">
@@ -340,7 +377,9 @@ export default function BudgetsPage() {
                   <ArrowRight className="h-3.5 w-3.5" />
                 </Link>
               </p>
-              <h1 className="text-2xl font-bold tracking-tight">Budget</h1>
+              <h1 className="text-2xl font-bold tracking-tight">
+                {activePlan ? activePlan.name : "Budget"}
+              </h1>
               {/* Every "avg /mo" below is computed from this date onward. Saying
                   so once here beats repeating it on each row. */}
               {data.statsCutoff && (
@@ -400,7 +439,9 @@ export default function BudgetsPage() {
                   categoryAverages={data.categoryAverages}
                   unallocated={data.unallocated}
                   onCreate={(categoryId, amount) =>
-                    createBudget.mutateAsync({ categoryId, amount }).then(() => {})
+                    createBudget
+                      .mutateAsync({ categoryId, amount, budgetId: activePlanId })
+                      .then(() => {})
                   }
                   onUpdate={(id, amount) =>
                     updateBudget.mutateAsync({ id, amount }).then(() => {})
@@ -662,9 +703,20 @@ export default function BudgetsPage() {
 
       <BudgetHistoryDialog
         allocation={historyAlloc}
+        budgetId={activePlanId}
         onOpenChange={(open) => {
           if (!open) setHistoryAlloc(null);
         }}
+      />
+
+      <BudgetPlanDialog
+        key={editingPlan?.id ?? "new"}
+        open={planDialogOpen}
+        onOpenChange={setPlanDialogOpen}
+        plan={editingPlan}
+        plans={plans}
+        accounts={accountsData ?? []}
+        onSaved={(planId) => setSelectedPlanId(planId)}
       />
 
       <BudgetSuggestionsDialog

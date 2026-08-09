@@ -9,6 +9,8 @@ export interface Account {
   initialBalance: number;
   currentBalance: number;
   transactionTotal: number;
+  /** The budget plan this account belongs to; null = not in any budget. */
+  budgetId: string | null;
   createdAt: string;
   updatedAt: string;
 }
