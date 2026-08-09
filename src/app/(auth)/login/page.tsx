@@ -67,6 +67,13 @@ export default function LoginPage() {
         return;
       }
 
+      // No session yet when a second factor is owed — the two-factor client
+      // plugin is already navigating to /two-factor, and pushing "/" here would
+      // race it and land on the login page again.
+      if ((result.data as { twoFactorRedirect?: boolean } | null)?.twoFactorRedirect) {
+        return;
+      }
+
       // ponytail: the lockscreen key predates email login — it holds an email now.
       localStorage.setItem("lockscreen_username", email.trim());
       localStorage.setItem("lockscreen_last_active", String(Date.now()));

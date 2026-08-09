@@ -23,6 +23,12 @@ export default function BackofficeLoginPage() {
         setError(result.error.message || "Login failed");
         return;
       }
+      // No session yet when a second factor is owed — the two-factor client
+      // plugin is already navigating to /two-factor, and pushing /backoffice
+      // here would race it and bounce back to this page.
+      if ((result.data as { twoFactorRedirect?: boolean } | null)?.twoFactorRedirect) {
+        return;
+      }
       router.push("/backoffice");
     } catch {
       setError("Something went wrong. Please try again.");

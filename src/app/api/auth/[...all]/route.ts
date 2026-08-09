@@ -8,11 +8,23 @@ import { headers } from "next/headers";
 import { logAuthEvent, getRequestMeta } from "@/lib/audit";
 import { getSignupsEnabled } from "@/lib/app-settings";
 import { validateEmail, validatePassword, validateName } from "@/lib/validation";
+import { routePath, twoFactorEscapeHatch } from "@/lib/auth-route-guards";
 
 const { GET: _GET, POST: _POST } = toNextJsHandler(auth);
 
 function isSignupPath(req: NextRequest): boolean {
   return new URL(req.url).pathname.includes("/sign-up");
+}
+
+/** Shaped like a Better Auth error so `result.error.message` reaches the client. */
+function adminTwoFactorLocked() {
+  return NextResponse.json(
+    {
+      message: "Administrators must keep two-factor authentication enabled",
+      code: "ADMIN_TWO_FACTOR_REQUIRED",
+    },
+    { status: 403 },
+  );
 }
 
 /**
@@ -123,30 +135,49 @@ export async function POST(req: NextRequest) {
     return handleSignUp(req);
   }
 
-  const url = new URL(req.url);
-  if (url.pathname.endsWith("/passkey/delete-passkey")) {
+  const path = routePath(req.url);
+  if (path.endsWith("/passkey/delete-passkey")) {
     return handleDeletePasskey(req);
   }
 
   // An administrator may never remove the factor that protects access to the
-  // backoffice. This guard lives in front of Better Auth's endpoint so it also
+  // backoffice. This guard sits in front of Better Auth's endpoints so it also
   // applies to direct API calls, not just the settings UI.
-  if (url.pathname.endsWith("/two-factor/disable")) {
+  const escapeHatch = twoFactorEscapeHatch(
+    path,
+    path.endsWith("/admin/update-user")
+      ? await req.clone().json().catch(() => null)
+      : null,
+  );
+  if (escapeHatch === "update-user") {
+    return adminTwoFactorLocked();
+  }
+  if (escapeHatch === "disable") {
     const session = await auth.api.getSession({ headers: await headers() });
     if ((session?.user as Record<string, unknown> | undefined)?.role === "admin") {
-      return NextResponse.json(
-        { error: "Administrators must keep two-factor authentication enabled" },
-        { status: 403 },
-      );
+      return adminTwoFactorLocked();
     }
   }
 
   const { ipAddress, userAgent } = getRequestMeta(req.headers);
 
+  // A 2FA prompt is the second half of a login, so log its outcome like the
+  // first — otherwise code-guessing against /two-factor/* leaves no trace.
+  if (path.includes("/two-factor/verify-")) {
+    const response = await _POST(req);
+    logAuthEvent({
+      userId: null,
+      action: response.ok ? "two_factor_success" : "two_factor_failure",
+      ipAddress,
+      userAgent,
+    });
+    return response;
+  }
+
   // Intercept sign-in attempts to log failures
   if (
-    url.pathname.endsWith("/sign-in/email") ||
-    url.pathname.endsWith("/sign-in/username")
+    path.endsWith("/sign-in/email") ||
+    path.endsWith("/sign-in/username")
   ) {
     const clonedReq = req.clone();
     const response = await _POST(req);
@@ -166,7 +197,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Log passkey authentication
-  if (url.pathname.endsWith("/passkey/authenticate")) {
+  if (path.endsWith("/passkey/authenticate")) {
     const response = await _POST(req);
     logAuthEvent({
       userId: null,
@@ -178,7 +209,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Log logout
-  if (url.pathname.endsWith("/sign-out")) {
+  if (path.endsWith("/sign-out")) {
     const session = await auth.api.getSession({ headers: await headers() });
     logAuthEvent({
       userId: session?.user?.id || null,
