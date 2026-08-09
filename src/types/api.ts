@@ -337,6 +337,15 @@ export interface BudgetData {
   month: { from: string; to: string; label: string };
 }
 
+/** A named budget: owns accounts (exclusive) and per-category allocations. */
+export interface BudgetPlanData {
+  id: string;
+  name: string;
+  isMain: boolean;
+  createdAt: string;
+  accounts: { id: string; name: string; type: string }[];
+}
+
 export interface UserPreferencesData {
   autoBudgetEnabled: boolean;
   autoBudgetIntervalMonths: number;

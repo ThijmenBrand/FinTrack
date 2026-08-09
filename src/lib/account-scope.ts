@@ -1,3 +1,6 @@
+/** Account types whose spending a budget plan can own. */
+export const BUDGETABLE_ACCOUNT_TYPES = ["checking", "joint"] as const;
+
 /**
  * The accounts the dashboard and Insights default to: everyday money, i.e.
  * every checking account. Falls back to the user's single default-account
