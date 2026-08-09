@@ -15,8 +15,10 @@ import { useUpdateProfile } from "@/hooks/use-profile";
 import { ApiError } from "@/lib/api";
 import type { Profile } from "@/types/api";
 import { FormMessage, type FormMessageState } from "./form-message";
+import { useI18n } from "@/lib/i18n/client";
 
 export function ProfileCard({ profile }: { profile: Profile }) {
+  const { t } = useI18n();
   const router = useRouter();
   const updateProfile = useUpdateProfile();
 
@@ -36,13 +38,13 @@ export function ProfileCard({ profile }: { profile: Profile }) {
     setSaving(true);
     try {
       await updateProfile.mutateAsync({ displayUsername, username });
-      setProfileMsg({ type: "success", text: "Profile updated successfully" });
+      setProfileMsg({ type: "success", text: t("profile.updated") });
       router.refresh();
     } catch (err) {
       if (err instanceof ApiError) {
         setProfileMsg({ type: "error", text: err.message });
       } else {
-        setProfileMsg({ type: "error", text: "Failed to update profile" });
+        setProfileMsg({ type: "error", text: t("profile.updateFailed") });
       }
     } finally {
       setSaving(false);
@@ -57,8 +59,8 @@ export function ProfileCard({ profile }: { profile: Profile }) {
             <User className="h-5 w-5 text-primary" />
           </div>
           <div>
-            <CardTitle>Personal Information</CardTitle>
-            <CardDescription>Update your display name and username</CardDescription>
+            <CardTitle>{t("profile.personalInfo")}</CardTitle>
+            <CardDescription>{t("profile.personalInfoHint")}</CardDescription>
           </div>
         </div>
       </CardHeader>
@@ -66,7 +68,7 @@ export function ProfileCard({ profile }: { profile: Profile }) {
         <form onSubmit={handleProfileSave} className="space-y-4">
           <div className="space-y-2">
             <label htmlFor="displayUsername" className="text-sm font-medium">
-              Display Name
+              {t("profile.displayName")}
             </label>
             <Input
               id="displayUsername"
@@ -78,7 +80,7 @@ export function ProfileCard({ profile }: { profile: Profile }) {
           </div>
           <div className="space-y-2">
             <label htmlFor="username" className="text-sm font-medium">
-              Username
+              {t("profile.username")}
             </label>
             <Input
               id="username"
@@ -99,7 +101,7 @@ export function ProfileCard({ profile }: { profile: Profile }) {
             ) : (
               <Save className="h-4 w-4" />
             )}
-            Save Changes
+            {t("profile.saveChanges")}
           </button>
         </form>
       </CardContent>

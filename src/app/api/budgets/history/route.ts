@@ -5,9 +5,11 @@ import { eq, and, sql } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { effectiveExpenseAmount, potSpentAmount } from "@/lib/reimbursement-sql";
 import { accountScopeFilter, resolveBudgetPlan } from "@/lib/budget-plan";
+import { getI18n } from "@/lib/i18n/server";
 
 export async function GET(request: NextRequest) {
   return withUser(async (userId) => {
+    const { intlLocale } = await getI18n();
     const { searchParams } = new URL(request.url);
     const categoryId = searchParams.get("categoryId");
     const budgetIdParam = searchParams.get("budgetId");
@@ -134,7 +136,7 @@ export async function GET(request: NextRequest) {
       // Parse month for label
       const [year, monthNum] = row.month.split("-");
       const monthDate = new Date(parseInt(year), parseInt(monthNum) - 1, 1);
-      const label = monthDate.toLocaleDateString("en-US", {
+      const label = monthDate.toLocaleDateString(intlLocale, {
         month: "long",
         year: "numeric",
       });

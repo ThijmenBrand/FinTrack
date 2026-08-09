@@ -55,7 +55,7 @@ export function useDeleteBudgetPlan() {
   const invalidate = useInvalidatePlans();
   return useMutation({
     mutationFn: (id: string) =>
-      apiFetch(`/api/budget-plans?id=${id}`, { method: "DELETE" }),
+      apiFetch(`/api/budget-plans?id=${encodeURIComponent(id)}`, { method: "DELETE" }),
     onSuccess: invalidate,
   });
 }

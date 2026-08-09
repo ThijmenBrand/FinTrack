@@ -14,16 +14,9 @@ import { PotSaldoGraph, type SaldoPoint } from "@/components/pot-saldo-graph";
 import { SpikeProgress } from "@/components/spike-progress";
 import { PlainAmount } from "@/components/plain-amount";
 import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
-import { formatCurrency as fc, toIsoDate } from "@/lib/utils";
+import { toIsoDate } from "@/lib/utils";
 import type { PotDetails } from "@/types/api";
-
-function formatLongDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
+import { useI18n } from "@/lib/i18n/client";
 
 interface PotDetailContentProps {
   data: PotDetails;
@@ -46,6 +39,7 @@ export function PotDetailContent({
   onArchive,
   archiving,
 }: PotDetailContentProps) {
+  const { t, plural, formatCurrency: fc, formatDate: formatLongDate } = useI18n();
   const { pot, spike, allocations, transactions } = data;
   const isSpike = spike != null && pot.targetAmount != null && pot.targetDate;
   const isFullyFunded =
@@ -95,8 +89,17 @@ export function PotDetailContent({
   const todayIso = toIsoDate(new Date());
 
   const description = isSpike
-    ? `${fc(pot.fundedAmount)} of ${fc(pot.targetAmount!)} by ${formatLongDate(pot.targetDate!)}`
-    : `${transactions.length} transaction${transactions.length === 1 ? "" : "s"} · ${fc(pot.netAmount)} net`;
+    ? t("pots.detail.spikeDescription", {
+        funded: fc(pot.fundedAmount),
+        target: fc(pot.targetAmount!),
+        date: formatLongDate(pot.targetDate!),
+      })
+    : plural(
+        transactions.length,
+        "pots.detail.plainDescription.one",
+        "pots.detail.plainDescription.other",
+        { net: fc(pot.netAmount) },
+      );
 
   return (
     <>
@@ -127,7 +130,7 @@ export function PotDetailContent({
             onClick={onEdit}
           >
             <Pencil className="h-4 w-4" />
-            <span className="sr-only">Edit pot</span>
+            <span className="sr-only">{t("pots.detail.editPot")}</span>
           </Button>
         </div>
       </DialogHeader>
@@ -145,16 +148,18 @@ export function PotDetailContent({
             meta={
               <p className="text-xs text-muted-foreground">
                 {spike!.daysUntil === 0
-                  ? "today"
+                  ? t("date.today")
                   : spike!.daysUntil === 1
-                    ? "tomorrow"
-                    : `in ${spike!.daysUntil} days`}{" "}
+                    ? t("date.tomorrow")
+                    : t("date.inDays", { count: spike!.daysUntil })}{" "}
                 ·{" "}
                 {spike!.paydaysRemaining === 0
-                  ? "no paydays before"
-                  : spike!.paydaysRemaining === 1
-                    ? "1 payday before"
-                    : `${spike!.paydaysRemaining} paydays before`}
+                  ? t("pots.detail.noPaydaysBefore")
+                  : plural(
+                      spike!.paydaysRemaining,
+                      "pots.detail.paydaysBefore.one",
+                      "pots.detail.paydaysBefore.other",
+                    )}
               </p>
             }
           />
@@ -173,9 +178,9 @@ export function PotDetailContent({
             <div className="flex-1 min-w-0">
               {isFullyFunded ? (
                 <>
-                  <p className="text-sm font-semibold">Fully funded</p>
+                  <p className="text-sm font-semibold">{t("pots.detail.fullyFunded")}</p>
                   <p className="text-xs text-muted-foreground">
-                    Add more for buffer, or remove some if you over-allocated.
+                    {t("pots.detail.fullyFundedHint")}
                   </p>
                 </>
               ) : (
@@ -184,12 +189,16 @@ export function PotDetailContent({
                     <span className="font-semibold">
                       {fc(spike!.suggestedAllocation)}
                     </span>{" "}
-                    suggested this payday
+                    {t("pots.detail.suggestedThisPayday")}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {spike!.paydaysRemaining === 0
-                      ? "No paydays before the event — allocate the remainder now"
-                      : `${spike!.paydaysRemaining} payday${spike!.paydaysRemaining === 1 ? "" : "s"} before the event`}
+                      ? t("pots.detail.noPaydaysHint")
+                      : plural(
+                          spike!.paydaysRemaining,
+                          "pots.detail.paydaysBeforeEvent.one",
+                          "pots.detail.paydaysBeforeEvent.other",
+                        )}
                   </p>
                 </>
               )}
@@ -198,7 +207,7 @@ export function PotDetailContent({
               onClick={onAllocate}
               variant={isFullyFunded ? "outline" : "default"}
             >
-              {isFullyFunded ? "Adjust" : "Allocate"}
+              {isFullyFunded ? t("pots.detail.adjust") : t("dashboard.allocate")}
             </Button>
           </div>
         )}
@@ -207,7 +216,7 @@ export function PotDetailContent({
         <section className="space-y-2">
           <h3 className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
             <CalendarClock className="h-3.5 w-3.5" />
-            Saldo over time
+            {t("pots.detail.saldoOverTime")}
           </h3>
           <PotSaldoGraph
             series={saldoSeries}
@@ -215,7 +224,7 @@ export function PotDetailContent({
             target={pot.targetAmount ?? null}
             today={todayIso}
             lineColor={pot.categoryColor || undefined}
-            ariaLabel={`Saldo for ${pot.name}`}
+            ariaLabel={t("pots.detail.saldoAria", { name: pot.name })}
           />
         </section>
 
@@ -223,11 +232,11 @@ export function PotDetailContent({
         {isSpike && (
           <section className="space-y-2">
             <h3 className="text-sm font-medium text-muted-foreground">
-              Allocation history
+              {t("pots.detail.allocationHistory")}
             </h3>
             {allocations.length === 0 ? (
               <p className="text-sm text-muted-foreground italic">
-                No allocations yet — set one aside on payday.
+                {t("pots.detail.noAllocations")}
               </p>
             ) : (
               <div className="rounded-lg border divide-y">
@@ -265,7 +274,7 @@ export function PotDetailContent({
         <section className="space-y-2">
           <div className="flex items-baseline justify-between gap-3">
             <h3 className="text-sm font-medium text-muted-foreground">
-              Linked transactions
+              {t("pots.detail.linkedTransactions")}
             </h3>
             {isSpike && transactions.length > 0 && (
               <span
@@ -277,14 +286,15 @@ export function PotDetailContent({
                       : "text-red-600 dark:text-red-400"
                 }`}
               >
-                {pot.netAmount >= 0 ? "+" : ""}
-                {fc(pot.netAmount)} net
+                {t("pots.detail.netSuffix", {
+                  amount: `${pot.netAmount >= 0 ? "+" : ""}${fc(pot.netAmount)}`,
+                })}
               </span>
             )}
           </div>
           {transactions.length === 0 ? (
             <p className="text-sm text-muted-foreground italic">
-              No transactions linked yet.
+              {t("pots.detail.noLinked")}
             </p>
           ) : (
             <div className="rounded-lg border divide-y">
@@ -315,12 +325,13 @@ export function PotDetailContent({
                 </div>
               ))}
               <p className="text-xs text-muted-foreground px-3 py-2">
-                {transactions.length > 20 && `Showing 20 of ${transactions.length}. `}
+                {transactions.length > 20 &&
+                  `${t("pots.detail.showingOf", { total: transactions.length })} `}
                 <Link
                   href={`/transactions?pot=${pot.id}`}
                   className="text-primary hover:underline"
                 >
-                  View the full list on the transactions page
+                  {t("pots.detail.viewFullList")}
                 </Link>
                 .
               </p>
@@ -334,21 +345,21 @@ export function PotDetailContent({
             {pot.archivedAt ? (
               <>
                 <ArchiveRestore className="h-4 w-4" />
-                Unarchive
+                {t("pots.detail.unarchive")}
               </>
             ) : (
               <>
                 <Archive className="h-4 w-4" />
-                Archive
+                {t("pots.detail.archive")}
               </>
             )}
           </Button>
           <ConfirmDeleteButton
             variant="text"
-            label="Delete pot"
+            label={t("pots.detail.deletePot")}
             onConfirm={onDelete}
             pending={deleting}
-            message="Delete this pot? Linked transactions will be unlinked but kept."
+            message={t("pots.detail.deleteConfirm")}
           />
         </div>
       </div>

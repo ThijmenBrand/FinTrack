@@ -7,8 +7,10 @@ import { useSession } from "@/lib/auth-client";
 import { useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "@/lib/api";
 import { PinInput } from "@/components/pin-input";
+import { useI18n } from "@/lib/i18n/client";
 
 export function PinSetupScreen() {
+  const { t } = useI18n();
   const { data: session, isPending: sessionLoading } = useSession();
   const { data: pinStatus, isPending: pinLoading, isError: pinError } = useHasPin();
   const initialSetup = useInitialSetupPin();
@@ -50,7 +52,7 @@ export function PinSetupScreen() {
     setError("");
 
     if (pin.length < 4) {
-      setError("PIN must be at least 4 digits");
+      setError(t("pinSetup.tooShort"));
       return;
     }
 
@@ -62,7 +64,7 @@ export function PinSetupScreen() {
     setError("");
 
     if (pin !== confirmPin) {
-      setError("PINs do not match. Please try again.");
+      setError(t("pinSetup.mismatch"));
       setConfirmPin("");
       return;
     }
@@ -79,7 +81,7 @@ export function PinSetupScreen() {
         queryClient.invalidateQueries({ queryKey: ["pin-status"] });
         return;
       }
-      setError(err instanceof Error ? err.message : "Failed to set PIN");
+      setError(err instanceof Error ? err.message : t("pinSetup.failed"));
       setPin("");
       setConfirmPin("");
       setStep("enter");
@@ -111,16 +113,16 @@ export function PinSetupScreen() {
             </div>
             <div className="space-y-1.5">
               <h1 className="text-xl font-semibold tracking-tight text-foreground">
-                FinTrack
+                {t("nav.appShortName")}
               </h1>
               <div className="flex items-center justify-center gap-1.5 text-sm text-muted-foreground">
                 <ShieldCheck className="h-4 w-4" />
-                Set up your PIN
+                {t("pinSetup.title")}
               </div>
               <p className="mx-auto max-w-[250px] text-xs text-muted-foreground">
                 {step === "enter"
-                  ? "Choose a 4-6 digit PIN to quickly and securely access the app."
-                  : "Enter your PIN again to confirm."}
+                  ? t("pinSetup.enterHint")
+                  : t("pinSetup.confirmHint")}
               </p>
             </div>
           </div>
@@ -130,7 +132,7 @@ export function PinSetupScreen() {
             <form onSubmit={handleEnterPin} className="space-y-4">
               <PinInput
                 id="setupPin"
-                label="New PIN"
+                label={t("pinSetup.newPin")}
                 value={pin}
                 onChange={setPin}
                 inputRef={pinInputRef}
@@ -148,7 +150,7 @@ export function PinSetupScreen() {
                 disabled={pin.length < 4}
                 className="inline-flex h-11 w-full items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground shadow-sm transition-[background-color,transform] hover:bg-primary/90 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card disabled:pointer-events-none disabled:opacity-50"
               >
-                Continue
+                {t("auth.continue")}
               </button>
             </form>
           )}
@@ -158,7 +160,7 @@ export function PinSetupScreen() {
             <form onSubmit={handleConfirmPin} className="space-y-4">
               <PinInput
                 id="confirmPin"
-                label="Confirm PIN"
+                label={t("pinSetup.confirmPin")}
                 value={confirmPin}
                 onChange={setConfirmPin}
                 inputRef={confirmInputRef}
@@ -177,14 +179,14 @@ export function PinSetupScreen() {
                   onClick={handleBack}
                   className="inline-flex h-11 flex-1 items-center justify-center rounded-lg border border-input bg-background px-4 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  Back
+                  {t("auth.back")}
                 </button>
                 <button
                   type="submit"
                   disabled={loading || confirmPin.length < 4}
                   className="inline-flex h-11 flex-1 items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground shadow-sm transition-[background-color,transform] hover:bg-primary/90 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
                 >
-                  {loading ? "Setting up…" : "Set PIN"}
+                  {loading ? t("pinSetup.settingUp") : t("pinSetup.setPin")}
                 </button>
               </div>
             </form>

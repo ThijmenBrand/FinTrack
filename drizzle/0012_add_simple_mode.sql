@@ -1,0 +1,1 @@
+ALTER TABLE `user_preferences` ADD `simple_mode` integer DEFAULT false NOT NULL;

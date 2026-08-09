@@ -24,12 +24,14 @@ import { Zap } from "lucide-react";
 import { useCreateCategoryRule } from "@/hooks/use-categories";
 import type { CategoryWithDetails } from "@/types/api";
 import { MATCH_TYPES } from "./match-types";
+import { useI18n } from "@/lib/i18n/client";
 
 interface RuleDialogProps {
   categories: CategoryWithDetails[];
 }
 
 export function RuleDialog({ categories }: RuleDialogProps) {
+  const { t, plural } = useI18n();
   const createRule = useCreateCategoryRule();
 
   const [open, setOpen] = useState(false);
@@ -55,10 +57,14 @@ export function RuleDialog({ categories }: RuleDialogProps) {
     });
     if (data.applied && data.applied > 0) {
       setResult(
-        `Rule created and applied to ${data.applied} existing transaction${data.applied !== 1 ? "s" : ""}`
+        plural(
+          data.applied,
+          "categories.rule.appliedResult.one",
+          "categories.rule.appliedResult.other",
+        ),
       );
     } else {
-      setResult("Rule created. It will apply to future CSV imports.");
+      setResult(t("categories.rule.futureResult"));
     }
   };
 
@@ -73,27 +79,25 @@ export function RuleDialog({ categories }: RuleDialogProps) {
       <DialogTrigger asChild>
         <Button variant="outline">
           <Zap className="sm:mr-2 h-4 w-4" />
-          <span className="hidden sm:inline">Add Rule</span>
+          <span className="hidden sm:inline">{t("categories.rule.add")}</span>
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Create Categorization Rule</DialogTitle>
-          <DialogDescription>
-            Automatically categorize transactions matching a pattern.
-          </DialogDescription>
+          <DialogTitle>{t("categories.rule.title")}</DialogTitle>
+          <DialogDescription>{t("categories.rule.description")}</DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">
           <div className="grid gap-2">
-            <Label>Pattern to match</Label>
+            <Label>{t("categories.rule.patternLabel")}</Label>
             <Input
-              placeholder='e.g. "Albert Heijn", "PayPal", "ASML"'
+              placeholder={t("categories.rule.patternPlaceholder")}
               value={pattern}
               onChange={(e) => setPattern(e.target.value)}
             />
           </div>
           <div className="grid gap-2">
-            <Label>Match type</Label>
+            <Label>{t("categories.rule.matchTypeLabel")}</Label>
             <Select value={matchType} onValueChange={setMatchType}>
               <SelectTrigger>
                 <SelectValue />
@@ -101,17 +105,17 @@ export function RuleDialog({ categories }: RuleDialogProps) {
               <SelectContent>
                 {MATCH_TYPES.map((m) => (
                   <SelectItem key={m.value} value={m.value}>
-                    {m.label}
+                    {t(m.labelKey)}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
           <div className="grid gap-2">
-            <Label>Assign to category</Label>
+            <Label>{t("categories.rule.categoryLabel")}</Label>
             <Select value={categoryId} onValueChange={setCategoryId}>
               <SelectTrigger>
-                <SelectValue placeholder="Select a category..." />
+                <SelectValue placeholder={t("categories.rule.categoryPlaceholder")} />
               </SelectTrigger>
               <SelectContent>
                 {categories.map((cat) => (
@@ -138,11 +142,11 @@ export function RuleDialog({ categories }: RuleDialogProps) {
               reset();
             }}
           >
-            {result ? "Close" : "Cancel"}
+            {result ? t("common.close") : t("common.cancel")}
           </Button>
           {!result && (
             <Button onClick={handleSubmit} disabled={!pattern || !categoryId}>
-              Create Rule
+              {t("categories.rule.create")}
             </Button>
           )}
         </DialogFooter>

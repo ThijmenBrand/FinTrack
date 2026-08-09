@@ -1,6 +1,9 @@
+"use client";
+
 import { Card, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ROW_GRID, CELL_BAR, CELL_AMOUNT, CELL_DELTA } from "./budget-row";
+import { useI18n } from "@/lib/i18n/client";
 
 function RowSkeleton() {
   return (
@@ -22,6 +25,7 @@ function RowSkeleton() {
  * card, same row grid, fixed-costs card collapsed like its default state.
  */
 export function BudgetsSkeleton() {
+  const { t } = useI18n();
   return (
     <div className="space-y-6">
       <Card className="py-6">
@@ -31,7 +35,7 @@ export function BudgetsSkeleton() {
           <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
             <div className="min-w-0 space-y-2">
               <Skeleton className="h-4 w-56 max-w-full" />
-              <h1 className="text-2xl font-bold tracking-tight">Budget</h1>
+              <h1 className="text-2xl font-bold tracking-tight">{t("budgets.fallbackTitle")}</h1>
             </div>
             <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
               <Skeleton className="h-9 w-full sm:w-[160px]" />

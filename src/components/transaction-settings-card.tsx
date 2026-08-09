@@ -9,8 +9,10 @@ import {
 } from "@/components/ui/card";
 import { ArrowLeftRight, Loader2 } from "lucide-react";
 import { usePreferences, useUpdatePreferences } from "@/hooks/use-preferences";
+import { useI18n } from "@/lib/i18n/client";
 
 export function TransactionSettingsCard() {
+  const { t } = useI18n();
   const { data, isLoading } = usePreferences();
   const update = useUpdatePreferences();
 
@@ -25,10 +27,8 @@ export function TransactionSettingsCard() {
             <ArrowLeftRight className="h-5 w-5 text-primary" />
           </div>
           <div>
-            <CardTitle>Transactions</CardTitle>
-            <CardDescription>
-              Control what shows up in your transactions list by default.
-            </CardDescription>
+            <CardTitle>{t("settings.transactions.title")}</CardTitle>
+            <CardDescription>{t("settings.transactions.description")}</CardDescription>
           </div>
         </div>
       </CardHeader>
@@ -36,15 +36,17 @@ export function TransactionSettingsCard() {
         {isLoading ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Loading…
+            {t("common.loading")}
           </div>
         ) : (
           <div className="space-y-3">
             <label className="flex cursor-pointer items-start justify-between gap-3 rounded-md border p-3">
               <div>
-                <div className="text-sm font-medium">Hide internal transfers</div>
+                <div className="text-sm font-medium">
+                  {t("settings.transactions.hideInternal")}
+                </div>
                 <div className="text-xs text-muted-foreground">
-                  When on, transfers between your own accounts are hidden from the transactions list.
+                  {t("settings.transactions.hideInternalHint")}
                 </div>
               </div>
               <input
@@ -60,13 +62,10 @@ export function TransactionSettingsCard() {
             <label className="flex cursor-pointer items-start justify-between gap-3 rounded-md border p-3">
               <div>
                 <div className="text-sm font-medium">
-                  Count transfers between budgets
+                  {t("settings.transactions.countCrossBudget")}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  When on, a transfer from one budget&apos;s account to
-                  another&apos;s counts as spending in the sending budget and
-                  income in the receiving one, in each budget&apos;s Insights
-                  totals. Off keeps them excluded everywhere, like today.
+                  {t("settings.transactions.countCrossBudgetHint")}
                 </div>
               </div>
               <input

@@ -1,3 +1,4 @@
+import { getI18nFor } from "@/lib/i18n/translate";
 import { describe, expect, it } from "vitest";
 import { daysLeftIn, elapsedDays, formatRangeLabel } from "./period";
 
@@ -35,12 +36,12 @@ describe("daysLeftIn", () => {
 
 describe("formatRangeLabel", () => {
   it("labels an unbounded range", () => {
-    expect(formatRangeLabel("", "")).toBe("All time");
+    expect(formatRangeLabel(getI18nFor("en"), "", "")).toBe("All time");
   });
 
   it("year lives on the end date only", () => {
-    expect(formatRangeLabel("2026-07-07", "2026-08-06")).toBe(
-      "Jul 7 – Aug 6, 2026",
+    expect(formatRangeLabel(getI18nFor("en"), "2026-07-07", "2026-08-06")).toBe(
+      "7 Jul – 6 Aug 2026",
     );
   });
 });

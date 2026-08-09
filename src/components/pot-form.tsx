@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { Category } from "@/types/api";
+import { useI18n } from "@/lib/i18n/client";
 
 /** Sentinel value for the edit dialog's explicit "No category" option. */
 export const NO_CATEGORY = "__none__";
@@ -67,13 +68,14 @@ export function PotForm({
   spikeHint,
   onEnterSubmit,
 }: PotFormProps) {
+  const { t } = useI18n();
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        <Label htmlFor={`${idPrefix}-name`}>Name</Label>
+        <Label htmlFor={`${idPrefix}-name`}>{t("common.name")}</Label>
         <Input
           id={`${idPrefix}-name`}
-          placeholder="e.g. Weekend trip Amsterdam"
+          placeholder={t("pots.form.namePlaceholder")}
           value={name}
           onChange={(e) => onNameChange(e.target.value)}
           autoFocus
@@ -84,10 +86,10 @@ export function PotForm({
       </div>
 
       <div className="space-y-2">
-        <Label>Category</Label>
+        <Label>{t("common.category")}</Label>
         <Select value={categoryId} onValueChange={onCategoryChange}>
           <SelectTrigger>
-            <SelectValue placeholder="Select category (optional)" />
+            <SelectValue placeholder={t("pots.form.categoryPlaceholder")} />
           </SelectTrigger>
           <SelectContent>
             {noCategoryOption}
@@ -117,7 +119,7 @@ export function PotForm({
         />
         <div className="space-y-1">
           <Label htmlFor={`${idPrefix}-has-target`} className="cursor-pointer">
-            Plan for a spike
+            {t("pots.form.planSpike")}
           </Label>
           <p className="text-xs text-muted-foreground">{spikeHint}</p>
         </div>
@@ -126,7 +128,9 @@ export function PotForm({
       {hasTarget && (
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-2">
-            <Label htmlFor={`${idPrefix}-target-amount`}>Target amount (€)</Label>
+            <Label htmlFor={`${idPrefix}-target-amount`}>
+              {t("pots.form.targetAmount")}
+            </Label>
             <Input
               id={`${idPrefix}-target-amount`}
               type="number"
@@ -138,7 +142,7 @@ export function PotForm({
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor={`${idPrefix}-target-date`}>Target date</Label>
+            <Label htmlFor={`${idPrefix}-target-date`}>{t("pots.form.targetDate")}</Label>
             <Input
               id={`${idPrefix}-target-date`}
               type="date"

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withUser } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
-import { regenerateBudgetSuggestions } from "@/lib/auto-budget";
+import { explainEmptyGenerate, regenerateBudgetSuggestions } from "@/lib/auto-budget";
 import { getUserPreferences, markAutoBudgetChecked } from "@/lib/preferences";
 import { resolveBudgetPlan } from "@/lib/budget-plan";
 
@@ -34,6 +34,10 @@ export async function POST(request: NextRequest) {
         budgetId: plan?.id ?? null,
       },
     });
-    return NextResponse.json({ suggestions });
+    const emptyReason =
+      suggestions.length === 0
+        ? await explainEmptyGenerate(userId, prefs.autoBudgetLookbackMonths, plan)
+        : null;
+    return NextResponse.json({ suggestions, emptyReason });
   }, "Failed to generate budget suggestions");
 }

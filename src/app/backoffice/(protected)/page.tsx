@@ -21,19 +21,18 @@ import { ApiError } from "@/lib/api";
 import { UserRow } from "./_components/user-row";
 import { InviteUserForm } from "./_components/invite-user-form";
 import { InviteList } from "./_components/invite-list";
+import { useI18n } from "@/lib/i18n/client";
 
 function SignupToggleCard({ onError }: { onError: (msg: string) => void }) {
+  const { t } = useI18n();
   const { data: settings } = useAppSettings();
   const updateSettings = useUpdateAppSettings();
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Sign-ups</CardTitle>
-        <CardDescription>
-          When enabled, anyone can create an account with a verified email
-          address.
-        </CardDescription>
+        <CardTitle>{t("backoffice.signupsTitle")}</CardTitle>
+        <CardDescription>{t("backoffice.signupsDescription")}</CardDescription>
       </CardHeader>
       <CardContent>
         <label className="flex w-fit cursor-pointer items-center gap-2 text-sm font-medium">
@@ -43,11 +42,11 @@ function SignupToggleCard({ onError }: { onError: (msg: string) => void }) {
             onCheckedChange={(checked) =>
               updateSettings.mutate(
                 { signupsEnabled: checked === true },
-                { onError: (e) => onError(e.message || "Failed to update settings") },
+                { onError: (e) => onError(e.message || t("backoffice.settingsFailed")) },
               )
             }
           />
-          Allow public sign-ups
+          {t("backoffice.allowSignups")}
         </label>
       </CardContent>
     </Card>
@@ -55,6 +54,7 @@ function SignupToggleCard({ onError }: { onError: (msg: string) => void }) {
 }
 
 export default function AdminPage() {
+  const { t, plural } = useI18n();
   const router = useRouter();
   const { data: users = [], isLoading, error: fetchError } = useAdminUsers();
 
@@ -70,7 +70,7 @@ export default function AdminPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <p className="text-muted-foreground">Loading...</p>
+        <p className="text-muted-foreground">{t("auth.loading")}</p>
       </div>
     );
   }
@@ -79,10 +79,10 @@ export default function AdminPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">User Management</h1>
-          <p className="text-muted-foreground">
-            Create and manage user accounts
-          </p>
+          <h1 className="text-2xl font-bold tracking-tight">
+            {t("backoffice.userManagement")}
+          </h1>
+          <p className="text-muted-foreground">{t("backoffice.userManagementHint")}</p>
         </div>
         <div className="flex items-center gap-2">
           <Link
@@ -90,14 +90,14 @@ export default function AdminPage() {
             className="inline-flex items-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-sm hover:bg-accent hover:text-accent-foreground"
           >
             <ScrollText className="h-4 w-4" />
-            Audit Logs
+            {t("backoffice.auditLogs")}
           </Link>
           <button
             onClick={() => setShowForm(!showForm)}
             className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90"
           >
             <UserPlus className="h-4 w-4" />
-            Invite User
+            {t("backoffice.inviteUser")}
           </button>
         </div>
       </div>
@@ -117,9 +117,9 @@ export default function AdminPage() {
       {/* User list */}
       <Card>
         <CardHeader>
-          <CardTitle>Users</CardTitle>
+          <CardTitle>{t("backoffice.users")}</CardTitle>
           <CardDescription>
-            {users.length} user{users.length !== 1 ? "s" : ""} registered
+            {plural(users.length, "backoffice.usersRegistered.one", "backoffice.usersRegistered.other")}
           </CardDescription>
         </CardHeader>
         <CardContent>

@@ -9,6 +9,7 @@ import {
 } from "@/db/schema";
 import { eq, and, gte, lte, sql, inArray } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
+import { getI18n } from "@/lib/i18n/server";
 import { logDataEvent } from "@/lib/audit";
 import { effectiveExpenseAmount, potSpentAmount } from "@/lib/reimbursement-sql";
 import { isRegenerationDue } from "@/lib/auto-budget";
@@ -21,7 +22,7 @@ import { accountScopeFilter, resolveBudgetPlan } from "@/lib/budget-plan";
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const AVG_DAYS_PER_MONTH = 30.4375;
 
-function rangeLabel(from: string, to: string): string {
+function rangeLabel(from: string, to: string, intlLocale: string): string {
   const fromDate = new Date(from + "T00:00:00");
   const toDate = new Date(to + "T00:00:00");
   const sameYear = fromDate.getFullYear() === toDate.getFullYear();
@@ -34,7 +35,7 @@ function rangeLabel(from: string, to: string): string {
     toDate.getDate() ===
       new Date(toDate.getFullYear(), toDate.getMonth() + 1, 0).getDate()
   ) {
-    return fromDate.toLocaleDateString("en-US", {
+    return fromDate.toLocaleDateString(intlLocale, {
       month: "long",
       year: "numeric",
     });
@@ -44,8 +45,8 @@ function rangeLabel(from: string, to: string): string {
     month: "short",
     day: "numeric",
   };
-  const fromStr = fromDate.toLocaleDateString("en-US", monthFmt);
-  const toStr = toDate.toLocaleDateString("en-US", {
+  const fromStr = fromDate.toLocaleDateString(intlLocale, monthFmt);
+  const toStr = toDate.toLocaleDateString(intlLocale, {
     ...monthFmt,
     year: "numeric",
   });
@@ -64,6 +65,7 @@ function rangeLabel(from: string, to: string): string {
  */
 export async function GET(request: NextRequest) {
   return withUser(async (userId) => {
+    const { intlLocale } = await getI18n();
     const { searchParams } = new URL(request.url);
     const dateFromParam = searchParams.get("dateFrom");
     const dateToParam = searchParams.get("dateTo");
@@ -549,7 +551,7 @@ export async function GET(request: NextRequest) {
       month: {
         from,
         to,
-        label: rangeLabel(from, to),
+        label: rangeLabel(from, to, intlLocale),
       },
     });
   }, "Failed to fetch budget");

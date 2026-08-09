@@ -15,6 +15,7 @@ const TEST_DB_PATH = path.join(
 process.env.TURSO_DATABASE_URL = `file:${TEST_DB_PATH}`;
 
 import {
+  explainEmptyGenerate,
   isRegenerationDue,
   regenerateBudgetSuggestions,
   roundUpToFive,
@@ -553,4 +554,28 @@ describe("regenerateBudgetSuggestions", () => {
     });
     expect(suggestions).toHaveLength(0);
   });
+
+  // Same DB fixture, so these live inside this describe.
+  it("blames the missing accounts when a plan owns none", async () => {
+    await insertCategory("cat-x", "X");
+    await insertTransaction({ date: pastMonthDate(1), amount: -80, categoryId: "cat-x" });
+    const reason = await explainEmptyGenerate(TEST_USER_ID, 3, {
+      id: "plan-empty",
+      name: "Empty",
+      isMain: false,
+      accountIds: [],
+    });
+    expect(reason).toBe("no-accounts");
+  });
+
+  it("reports no history when the lookback window is empty", async () => {
+    expect(await explainEmptyGenerate(TEST_USER_ID, 3)).toBe("no-history");
+  });
+
+  it("reports up-to-date when history exists but produced no suggestions", async () => {
+    await insertCategory("cat-y", "Y");
+    await insertTransaction({ date: pastMonthDate(1), amount: -80, categoryId: "cat-y" });
+    expect(await explainEmptyGenerate(TEST_USER_ID, 3)).toBe("up-to-date");
+  });
 });
+

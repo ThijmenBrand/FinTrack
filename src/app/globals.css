@@ -231,8 +231,17 @@
   animation: pin-shake 0.4s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
 }
 
+/* Simple-mode insights: the bars fill in left-to-right on arrival. */
+@keyframes bar-wipe {
+  from { clip-path: inset(0 100% 0 0); }
+}
+.animate-bar-wipe {
+  animation: bar-wipe 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .animate-pin-shake {
+  .animate-pin-shake,
+  .animate-bar-wipe {
     animation: none;
   }
   ::view-transition-old(root),

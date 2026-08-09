@@ -12,8 +12,8 @@ import {
 import { CategorizePopover } from "@/components/categorize-popover";
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog";
 import { useTransactions } from "@/hooks/use-transactions";
-import { formatCurrency } from "@/lib/utils";
 import type { CategoryWithDetails, Transaction } from "@/types/api";
+import { useI18n } from "@/lib/i18n/client";
 
 const LIMIT = 20;
 
@@ -22,6 +22,7 @@ interface UncategorizedTransactionsProps {
 }
 
 export function UncategorizedTransactions({ categories }: UncategorizedTransactionsProps) {
+  const { t, formatCurrency } = useI18n();
   const [page, setPage] = useState(1);
   const [expanded, setExpanded] = useState(false);
   const [selected, setSelected] = useState<Transaction | null>(null);
@@ -50,7 +51,9 @@ export function UncategorizedTransactions({ categories }: UncategorizedTransacti
           <ChevronRight className="h-4 w-4 text-muted-foreground" />
         )}
         <AlertCircle className="h-4 w-4 text-amber-500" />
-        <h2 className="text-lg font-semibold">Uncategorized Transactions ({total})</h2>
+        <h2 className="text-lg font-semibold">
+          {t("categories.uncategorized.heading", { count: total })}
+        </h2>
       </div>
 
       {expanded && (
@@ -114,8 +117,11 @@ export function UncategorizedTransactions({ categories }: UncategorizedTransacti
                 {total > LIMIT && (
                   <div className="flex items-center justify-between border-t px-4 py-2.5">
                     <p className="text-xs text-muted-foreground">
-                      Showing {(page - 1) * LIMIT + 1}–
-                      {Math.min(page * LIMIT, total)} of {total}
+                      {t("categories.uncategorized.showing", {
+                        from: (page - 1) * LIMIT + 1,
+                        to: Math.min(page * LIMIT, total),
+                        total,
+                      })}
                     </p>
                     <div className="flex gap-1">
                       <Button
@@ -124,7 +130,7 @@ export function UncategorizedTransactions({ categories }: UncategorizedTransacti
                         disabled={page === 1}
                         onClick={() => setPage(page - 1)}
                       >
-                        Previous
+                        {t("common.previous")}
                       </Button>
                       <Button
                         variant="outline"
@@ -132,7 +138,7 @@ export function UncategorizedTransactions({ categories }: UncategorizedTransacti
                         disabled={page * LIMIT >= total}
                         onClick={() => setPage(page + 1)}
                       >
-                        Next
+                        {t("common.next")}
                       </Button>
                     </div>
                   </div>

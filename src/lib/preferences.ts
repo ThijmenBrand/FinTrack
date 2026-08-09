@@ -1,6 +1,7 @@
 import { db } from "@/db";
 import { userPreferences, type UserPreferences } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { DEFAULT_LOCALE, isLocale, type Locale } from "@/lib/i18n";
 
 export interface AutoBudgetPreferences {
   autoBudgetEnabled: boolean;
@@ -11,6 +12,8 @@ export interface AutoBudgetPreferences {
   defaultAccountId: string | null;
   hideInternalTransfers: boolean;
   countCrossBudgetTransfers: boolean;
+  locale: Locale;
+  simpleMode: boolean;
 }
 
 const DEFAULTS: AutoBudgetPreferences = {
@@ -22,6 +25,8 @@ const DEFAULTS: AutoBudgetPreferences = {
   defaultAccountId: null,
   hideInternalTransfers: false,
   countCrossBudgetTransfers: false,
+  locale: DEFAULT_LOCALE,
+  simpleMode: false,
 };
 
 function toAutoBudget(row: UserPreferences): AutoBudgetPreferences {
@@ -34,6 +39,8 @@ function toAutoBudget(row: UserPreferences): AutoBudgetPreferences {
     defaultAccountId: row.defaultAccountId ?? null,
     hideInternalTransfers: row.hideInternalTransfers,
     countCrossBudgetTransfers: row.countCrossBudgetTransfers,
+    locale: isLocale(row.locale) ? row.locale : DEFAULT_LOCALE,
+    simpleMode: row.simpleMode,
   };
 }
 
@@ -95,6 +102,10 @@ export async function updateUserPreferences(
   if (patch.countCrossBudgetTransfers !== undefined) {
     updates.countCrossBudgetTransfers = patch.countCrossBudgetTransfers;
   }
+  if (patch.locale !== undefined && isLocale(patch.locale)) {
+    updates.locale = patch.locale;
+  }
+  if (patch.simpleMode !== undefined) updates.simpleMode = patch.simpleMode;
   await db.update(userPreferences).set(updates).where(eq(userPreferences.userId, userId));
   return getUserPreferences(userId);
 }

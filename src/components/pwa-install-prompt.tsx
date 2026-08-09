@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Download, Share, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useI18n } from "@/lib/i18n/client";
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -44,6 +45,7 @@ function wasDismissedRecently() {
 }
 
 export function PwaInstallPrompt() {
+  const { t } = useI18n();
   const [installEvent, setInstallEvent] = useState<BeforeInstallPromptEvent | null>(null);
   const [showIos, setShowIos] = useState(false);
 
@@ -87,21 +89,19 @@ export function PwaInstallPrompt() {
             <Download className="h-5 w-5" />
           </div>
           <div className="flex-1">
-            <p className="text-sm font-semibold">Install FinTrack</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Add to your home screen for one-tap access.
-            </p>
+            <p className="text-sm font-semibold">{t("pwa.install")}</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">{t("pwa.installHint")}</p>
             <div className="mt-3 flex gap-2">
               <Button size="sm" onClick={handleInstall}>
-                Install
+                {t("pwa.installButton")}
               </Button>
               <Button size="sm" variant="ghost" onClick={dismiss}>
-                Not now
+                {t("pwa.notNow")}
               </Button>
             </div>
           </div>
           <button
-            aria-label="Dismiss"
+            aria-label={t("pwa.dismiss")}
             className="text-muted-foreground transition-colors hover:text-foreground"
             onClick={dismiss}
           >
@@ -121,7 +121,7 @@ export function PwaInstallPrompt() {
             <Share className="h-5 w-5" />
           </div>
           <div className="flex-1">
-            <p className="text-sm font-semibold">Install FinTrack</p>
+            <p className="text-sm font-semibold">{t("pwa.install")}</p>
             {inSafari ? (
               <ol className="mt-2 space-y-1.5 text-xs text-muted-foreground">
                 <li className="flex items-center gap-2">
@@ -129,12 +129,12 @@ export function PwaInstallPrompt() {
                     1
                   </span>
                   <span className="flex items-center gap-1">
-                    Tap
+                    {t("pwa.iosStep1")}
                     <Share
                       aria-hidden
                       className="inline h-3.5 w-3.5 text-primary motion-safe:animate-pulse"
                     />
-                    <span className="font-medium text-foreground">Share</span>
+                    <span className="font-medium text-foreground">{t("pwa.iosShare")}</span>
                   </span>
                 </li>
                 <li className="flex items-center gap-2">
@@ -142,22 +142,24 @@ export function PwaInstallPrompt() {
                     2
                   </span>
                   <span className="flex items-center gap-1">
-                    Choose
+                    {t("pwa.iosStep2")}
                     <Plus aria-hidden className="inline h-3.5 w-3.5 text-primary" />
-                    <span className="font-medium text-foreground">Add to Home Screen</span>
+                    <span className="font-medium text-foreground">{t("pwa.iosAddToHome")}</span>
                   </span>
                 </li>
               </ol>
             ) : (
               <p className="mt-0.5 text-xs text-muted-foreground">
-                Open this page in <span className="font-medium text-foreground">Safari</span>, then
-                tap <Share className="inline h-3 w-3 align-text-bottom" /> Share →{" "}
-                <Plus className="inline h-3 w-3 align-text-bottom" /> Add to Home Screen.
+                {t("pwa.iosSafariPrefix")}{" "}
+                <span className="font-medium text-foreground">Safari</span>,{" "}
+                {t("pwa.iosSafariSuffix")}{" "}
+                <Share className="inline h-3 w-3 align-text-bottom" /> {t("pwa.iosShare")} →{" "}
+                <Plus className="inline h-3 w-3 align-text-bottom" /> {t("pwa.iosAddToHome")}.
               </p>
             )}
           </div>
           <button
-            aria-label="Dismiss"
+            aria-label={t("pwa.dismiss")}
             className="text-muted-foreground transition-colors hover:text-foreground"
             onClick={dismiss}
           >

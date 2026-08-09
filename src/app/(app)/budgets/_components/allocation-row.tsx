@@ -4,7 +4,8 @@ import { useState } from "react";
 import type { Allocation } from "@/types/api";
 import { Button } from "@/components/ui/button";
 import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
-import { formatCurrency } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n/client";
+import type { MessageKey } from "@/lib/i18n/translate";
 import { Pencil } from "lucide-react";
 import {
   ROW_GRID,
@@ -18,15 +19,15 @@ const TONE = {
     bar: "#ef4444",
     text: "text-red-600 dark:text-red-400",
     badge: "border-red-500/40 text-red-600 dark:text-red-400",
-    label: "over",
+    labelKey: "budgets.row.over" as MessageKey,
   },
   warning: {
     bar: "#f59e0b",
     text: "text-amber-600 dark:text-amber-400",
     badge: "border-amber-500/40 text-amber-600 dark:text-amber-400",
-    label: "tight",
+    labelKey: "budgets.row.tight" as MessageKey,
   },
-  ok: { bar: "", text: "text-muted-foreground", badge: "", label: "" },
+  ok: { bar: "", text: "text-muted-foreground", badge: "", labelKey: null },
 } as const;
 
 interface AllocationRowProps {
@@ -47,6 +48,7 @@ export function AllocationRow({
   onEdit,
   onDelete,
 }: AllocationRowProps) {
+  const { t, formatCurrency } = useI18n();
   const [open, setOpen] = useState(false);
   const tone = TONE[alloc.status];
   const untouched = alloc.spent === 0;
@@ -71,11 +73,11 @@ export function AllocationRow({
           <span className="truncate text-sm font-medium">
             {alloc.categoryName}
           </span>
-          {tone.label && (
+          {tone.labelKey && (
             <span
               className={`shrink-0 rounded-full border px-1.5 py-px text-[10px] font-semibold ${tone.badge}`}
             >
-              {tone.label}
+              {t(tone.labelKey)}
             </span>
           )}
         </span>
@@ -109,8 +111,10 @@ export function AllocationRow({
           className={`whitespace-nowrap text-xs tabular-nums ${tone.text} ${CELL_DELTA}`}
         >
           {alloc.status === "exceeded"
-            ? `${formatCurrency(alloc.spent - alloc.amount)} over`
-            : `${formatCurrency(alloc.remaining)} left`}
+            ? t("budgets.row.overAmount", {
+                amount: formatCurrency(alloc.spent - alloc.amount),
+              })
+            : t("budgets.row.leftAmount", { amount: formatCurrency(alloc.remaining) })}
         </span>
       </button>
 
@@ -118,16 +122,19 @@ export function AllocationRow({
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-4 pb-3 pl-9 text-xs text-muted-foreground">
           {alloc.avgMonthly > 0 && (
             <span>
-              avg {formatCurrency(alloc.avgMonthly)}/mo · {alloc.avgMonths} mo
+              {t("budgets.row.avgPerMonth", {
+                amount: formatCurrency(alloc.avgMonthly),
+                months: alloc.avgMonths,
+              })}
             </span>
           )}
-          <span>{Math.round(alloc.percentage)}% of budget used</span>
+          <span>{t("budgets.row.pctUsed", { pct: Math.round(alloc.percentage) })}</span>
           <button
             type="button"
             onClick={onHistory}
             className="text-primary hover:underline"
           >
-            Full history →
+            {t("budgets.row.fullHistory")}
           </button>
           {!readOnly && (
             <span className="ml-auto flex items-center gap-0.5">
@@ -136,7 +143,7 @@ export function AllocationRow({
                 size="icon"
                 className="h-7 w-7"
                 onClick={onEdit}
-                aria-label="Edit"
+                aria-label={t("common.edit")}
               >
                 <Pencil className="h-3.5 w-3.5" />
               </Button>

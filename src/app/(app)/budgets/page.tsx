@@ -20,6 +20,7 @@ import {
   getFinancialMonthRange,
 } from "@/lib/financial-month";
 import type { Allocation, BudgetPlanData, BudgetSuggestion } from "@/types/api";
+import type { EmptyGenerateReason } from "@/lib/auto-budget";
 import {
   Card,
   CardContent,
@@ -44,6 +45,7 @@ import {
   ChevronRight,
   ArrowRight,
   Info,
+  X,
 } from "lucide-react";
 import {
   Popover,
@@ -52,8 +54,8 @@ import {
 } from "@/components/ui/popover";
 import { BudgetHistoryDialog } from "@/components/budget-history-dialog";
 import { BudgetSuggestionsDialog } from "@/components/budget-suggestions-dialog";
-import { formatCurrency } from "@/lib/utils";
-import { formatResetDate } from "@/lib/stat-reset-marks";
+import { useI18n } from "@/lib/i18n/client";
+import type { I18n } from "@/lib/i18n/translate";
 import { AllocationRow } from "./_components/allocation-row";
 import { SuggestionRow } from "./_components/suggestion-row";
 import { AllocationDialog } from "./_components/allocation-dialog";
@@ -64,6 +66,7 @@ import { UsageTotal, UsageBar } from "./_components/usage-summary";
 import { byUrgency } from "./_components/budget-row";
 import { BudgetPlanTabs } from "./_components/budget-plan-tabs";
 import { BudgetPlanDialog } from "./_components/budget-plan-dialog";
+import { SimpleHero } from "./_components/simple-hero";
 
 const MONTH_OFFSETS = [0, 1, 2, 3] as const;
 type MonthOffset = (typeof MONTH_OFFSETS)[number];
@@ -89,16 +92,17 @@ function getFinancialMonthForOffset(
 
 // ponytail: kept hand-rolled — Intl.RelativeTimeFormat would change the
 // output (its month bucketing differs from this days/30 approximation).
-function formatRelative(iso: string | null): string {
-  if (!iso) return "never";
+function formatRelative(i18n: I18n, iso: string | null): string {
+  const { t, plural } = i18n;
+  if (!iso) return t("budgets.relative.never");
   const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "never";
+  if (Number.isNaN(date.getTime())) return t("budgets.relative.never");
   const days = Math.floor((Date.now() - date.getTime()) / (1000 * 60 * 60 * 24));
-  if (days <= 0) return "today";
-  if (days === 1) return "yesterday";
-  if (days < 30) return `${days} days ago`;
+  if (days <= 0) return t("budgets.relative.today");
+  if (days === 1) return t("budgets.relative.yesterday");
+  if (days < 30) return t("budgets.relative.daysAgo", { count: days });
   const months = Math.floor(days / 30);
-  return months === 1 ? "1 month ago" : `${months} months ago`;
+  return plural(months, "budgets.relative.monthsAgo.one", "budgets.relative.monthsAgo.other");
 }
 
 /** One cell of the ledger's stat strip. */
@@ -132,12 +136,89 @@ function Stat({
   );
 }
 
+/**
+ * Explains an empty "generate from history" run, with the one action that
+ * would make the next run work. Sits under the header, next to the button
+ * that produced it.
+ */
+function EmptyGenerateNotice({
+  reason,
+  onLinkAccounts,
+  onDismiss,
+  i18n,
+}: {
+  reason: EmptyGenerateReason;
+  /** Opens the plan dialog — the only place accounts get attached to a plan. */
+  onLinkAccounts?: () => void;
+  onDismiss: () => void;
+  i18n: I18n;
+}) {
+  const { t } = i18n;
+  const COPY = {
+    "no-accounts": {
+      title: t("budgets.empty.noAccounts.title"),
+      body: t("budgets.empty.noAccounts.body"),
+    },
+    "no-history": {
+      title: t("budgets.empty.noHistory.title"),
+      body: t("budgets.empty.noHistory.body"),
+    },
+    "up-to-date": {
+      title: t("budgets.empty.upToDate.title"),
+      body: t("budgets.empty.upToDate.body"),
+    },
+  }[reason];
+
+  const linkClass = "font-medium underline underline-offset-2";
+  const action =
+    reason === "no-accounts" && onLinkAccounts ? (
+      <button type="button" onClick={onLinkAccounts} className={linkClass}>
+        {t("budgets.empty.linkAccounts")}
+      </button>
+    ) : reason === "no-history" ? (
+      <Link href="/transactions" className={linkClass}>
+        {t("budgets.empty.linkImport")}
+      </Link>
+    ) : null;
+
+  return (
+    <div
+      role="status"
+      className="flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 dark:border-amber-800 dark:bg-amber-950"
+    >
+      <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
+      <div className="min-w-0 flex-1 space-y-0.5">
+        <p className="text-sm font-medium text-amber-950 dark:text-amber-50">
+          {COPY.title}
+        </p>
+        <p className="text-xs text-amber-900 dark:text-amber-200">
+          {COPY.body}
+          {action && <> {action}</>}
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={onDismiss}
+        aria-label={t("budgets.empty.dismiss")}
+        className="shrink-0 rounded p-0.5 text-amber-700 hover:bg-amber-200 dark:text-amber-300 dark:hover:bg-amber-900"
+      >
+        <X className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
 export default function BudgetsPage() {
+  const i18n = useI18n();
+  const { t, plural, formatCurrency, formatDate, intlLocale } = i18n;
   const [monthOffset, setMonthOffset] = useState<MonthOffset>(0);
   const isCurrentMonth = monthOffset === 0;
 
   const { data: prefs } = usePreferences();
   const startDay = prefs?.financialMonthStartDay ?? 1;
+  // Simple mode: main plan only, no suggestion machinery, no planning stats —
+  // just the allocation list and the month picker.
+  const simple = prefs?.simpleMode ?? false;
 
   // Which plan the page shows. Null until the user picks one → main plan.
   const { data: plansData } = useBudgetPlans();
@@ -154,7 +235,7 @@ export default function BudgetsPage() {
   const [planDialogOpen, setPlanDialogOpen] = useState(false);
   const [editingPlan, setEditingPlan] = useState<BudgetPlanData | null>(null);
 
-  const { dateFrom, dateTo, monthOptions } = useMemo(() => {
+  const { dateFrom, dateTo, monthOptions, daysLeft } = useMemo(() => {
     const now = new Date();
     const options = MONTH_OFFSETS.map((offset) => {
       const { from, to, reference } = getFinancialMonthForOffset(
@@ -163,9 +244,9 @@ export default function BudgetsPage() {
         offset,
       );
       let label: string;
-      if (offset === 0) label = "This month";
-      else if (offset === 1) label = "Last month";
-      else label = formatFinancialMonthLabel(reference, startDay);
+      if (offset === 0) label = t("budgets.thisMonth");
+      else if (offset === 1) label = t("budgets.lastMonth");
+      else label = formatFinancialMonthLabel(reference, startDay, intlLocale);
       return { offset, label, from, to };
     });
     const selected = options[monthOffset];
@@ -173,8 +254,19 @@ export default function BudgetsPage() {
       dateFrom: selected.from,
       dateTo: selected.to,
       monthOptions: options,
+      // Countdown for simple mode's hero; past months don't get one.
+      daysLeft:
+        monthOffset === 0
+          ? Math.max(
+              0,
+              Math.ceil(
+                (new Date(selected.to + "T23:59:59").getTime() - now.getTime()) /
+                  86400000,
+              ),
+            )
+          : null,
     };
-  }, [monthOffset, startDay]);
+  }, [monthOffset, startDay, t, intlLocale]);
 
   const { data: data = null, isLoading: loading } = useBudgets({
     dateFrom,
@@ -197,6 +289,9 @@ export default function BudgetsPage() {
   const [suggestionsDialogOpen, setSuggestionsDialogOpen] = useState(false);
   const [fixedCostsOpen, setFixedCostsOpen] = useState(false);
   const [regenerateConfirmOpen, setRegenerateConfirmOpen] = useState(false);
+  // Why the last generate run came back empty. Without this the button just
+  // does nothing and the user is left guessing.
+  const [emptyReason, setEmptyReason] = useState<EmptyGenerateReason | null>(null);
 
   const openEdit = (alloc: Allocation) => {
     setEditingAlloc(alloc);
@@ -204,9 +299,12 @@ export default function BudgetsPage() {
   };
 
   const runGenerate = async () => {
+    setEmptyReason(null);
     const result = await generateBudgets.mutateAsync({ budgetId: activePlanId });
     if (result.suggestions.length > 0) {
       setSuggestionsDialogOpen(true);
+    } else {
+      setEmptyReason(result.emptyReason ?? "no-history");
     }
   };
 
@@ -277,30 +375,40 @@ export default function BudgetsPage() {
 
   const hasSuggestions = data.suggestions.length > 0;
   const showRegenBanner =
-    isCurrentMonth && data.automation.regenerationDue && !hasSuggestions;
+    isCurrentMonth && data.automation.regenerationDue && !hasSuggestions && !simple;
   const allocationsCount = data.allocations.length;
 
   return (
     <div className="space-y-6">
-      {/* Which budget the page is about. Everything below follows this tab. */}
-      {plansData && (
+      {/* Which budget the page is about. Everything below follows this tab.
+          Simple mode keeps the switcher (a second budget is useless if you
+          can't reach it) but drops the create/edit controls. */}
+      {plansData && (!simple || plans.length > 1) && (
         <BudgetPlanTabs
           plans={plans}
           activeId={activePlanId}
           onSelect={setSelectedPlanId}
-          onEdit={(p) => {
-            setEditingPlan(p);
-            setPlanDialogOpen(true);
-          }}
-          onCreate={() => {
-            setEditingPlan(null);
-            setPlanDialogOpen(true);
-          }}
+          onEdit={
+            simple
+              ? undefined
+              : (p) => {
+                  setEditingPlan(p);
+                  setPlanDialogOpen(true);
+                }
+          }
+          onCreate={
+            simple
+              ? undefined
+              : () => {
+                  setEditingPlan(null);
+                  setPlanDialogOpen(true);
+                }
+          }
         />
       )}
 
       {/* Suggestion banner */}
-      {isCurrentMonth && hasSuggestions && (
+      {isCurrentMonth && hasSuggestions && !simple && (
         <Card className="border-blue-200 bg-blue-50/40 dark:border-blue-900/60 dark:bg-blue-950/20">
           <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
             <div className="flex items-start gap-3">
@@ -309,12 +417,18 @@ export default function BudgetsPage() {
               </div>
               <div>
                 <p className="text-sm font-medium">
-                  {data.suggestions.length} budget suggestion
-                  {data.suggestions.length === 1 ? "" : "s"} ready to review
+                  {plural(
+                    data.suggestions.length,
+                    "budgets.suggestionsReady.one",
+                    "budgets.suggestionsReady.other",
+                  )}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Based on the last {data.automation.lookbackMonths} month
-                  {data.automation.lookbackMonths === 1 ? "" : "s"} of spending. Nothing changes until you accept.
+                  {plural(
+                    data.automation.lookbackMonths,
+                    "budgets.suggestionsBasis.one",
+                    "budgets.suggestionsBasis.other",
+                  )}
                 </p>
               </div>
             </div>
@@ -326,10 +440,10 @@ export default function BudgetsPage() {
                 }
                 disabled={rejectSuggestions.isPending}
               >
-                Dismiss all
+                {t("budgets.dismissAll")}
               </Button>
               <Button onClick={() => setSuggestionsDialogOpen(true)}>
-                Review &amp; apply
+                {t("budgets.reviewApply")}
               </Button>
             </div>
           </CardContent>
@@ -345,17 +459,20 @@ export default function BudgetsPage() {
                 <Sparkles className="h-4 w-4" />
               </div>
               <div>
-                <p className="text-sm font-medium">Time to refresh your budgets?</p>
+                <p className="text-sm font-medium">{t("budgets.refreshTitle")}</p>
                 <p className="text-xs text-muted-foreground">
-                  Last checked {formatRelative(data.automation.lastCheckAt)}. We&apos;ll suggest
-                  amounts based on the last {data.automation.lookbackMonths} month
-                  {data.automation.lookbackMonths === 1 ? "" : "s"}; you decide what to apply.
+                  {plural(
+                    data.automation.lookbackMonths,
+                    "budgets.refreshBody.one",
+                    "budgets.refreshBody.other",
+                    { when: formatRelative(i18n, data.automation.lastCheckAt) },
+                  )}
                 </p>
               </div>
             </div>
             <Button onClick={handleGenerate} disabled={generateBudgets.isPending}>
               {generateBudgets.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Generate suggestions
+              {t("budgets.generateSuggestions")}
             </Button>
           </CardContent>
         </Card>
@@ -373,24 +490,23 @@ export default function BudgetsPage() {
                   href="/settings/recurring"
                   className="inline-flex items-center gap-1 text-primary hover:underline"
                 >
-                  View recurring
+                  {t("budgets.viewRecurring")}
                   <ArrowRight className="h-3.5 w-3.5" />
                 </Link>
               </p>
               <h1 className="text-2xl font-bold tracking-tight">
-                {activePlan ? activePlan.name : "Budget"}
+                {activePlan ? activePlan.name : t("budgets.fallbackTitle")}
               </h1>
               {/* Every "avg /mo" below is computed from this date onward. Saying
                   so once here beats repeating it on each row. */}
               {data.statsCutoff && (
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Averages count from your statistics reset on{" "}
-                  {formatResetDate(data.statsCutoff)}.{" "}
+                  {t("budgets.averagesFrom", { date: formatDate(data.statsCutoff) })}{" "}
                   <Link
                     href="/settings/general"
                     className="text-primary hover:underline"
                   >
-                    Change
+                    {t("budgets.change")}
                   </Link>
                 </p>
               )}
@@ -411,19 +527,22 @@ export default function BudgetsPage() {
                   ))}
                 </SelectContent>
               </Select>
-              {isCurrentMonth && (
+              {isCurrentMonth && !simple && (
                 <Button
                   variant="outline"
                   className="flex-1 sm:flex-none"
                   onClick={handleGenerate}
                   disabled={generateBudgets.isPending || !data.automation.enabled}
+                  title={
+                    data.automation.enabled ? undefined : t("budgets.generateDisabled")
+                  }
                 >
                   {generateBudgets.isPending ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : (
                     <Sparkles className="mr-2 h-4 w-4" />
                   )}
-                  {hasSuggestions ? "Regenerate" : "Generate from history"}
+                  {hasSuggestions ? t("budgets.regenerate") : t("budgets.generateFromHistory")}
                 </Button>
               )}
               {isCurrentMonth && (
@@ -451,45 +570,59 @@ export default function BudgetsPage() {
             </div>
           </div>
 
+          {emptyReason && (
+            <EmptyGenerateNotice
+              reason={emptyReason}
+              i18n={i18n}
+              onLinkAccounts={
+                activePlan
+                  ? () => {
+                      setEmptyReason(null);
+                      setEditingPlan(activePlan);
+                      setPlanDialogOpen(true);
+                    }
+                  : undefined
+              }
+              onDismiss={() => setEmptyReason(null)}
+            />
+          )}
+
+          {/* Simple mode swaps the five-stat strip for one friendly readout. */}
+          {simple && allocLimit > 0 && (
+            <SimpleHero spent={allocSpent} limit={allocLimit} daysLeft={daysLeft} />
+          )}
+
           {/* Stat strip — the plan, without the donut */}
+          {!simple && (
           <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 lg:grid-cols-5">
-            <Stat label="Income" value={formatCurrency(data.monthlyIncome)} />
+            <Stat label={t("budgets.stat.income")} value={formatCurrency(data.monthlyIncome)} />
             <Stat
-              label="Fixed"
+              label={t("budgets.stat.fixed")}
               value={formatCurrency(data.totalFixedCosts)}
               tone="text-muted-foreground"
             />
             <Stat
-              label="Allocated"
+              label={t("budgets.stat.allocated")}
               value={formatCurrency(data.totalAllocated)}
               tone="text-primary"
             />
             <Stat
               label={
                 <>
-                  {data.unallocated < 0 ? "Over-allocated" : "Unallocated"}
+                  {data.unallocated < 0
+                    ? t("budgets.stat.overAllocated")
+                    : t("budgets.stat.unallocated")}
                   <Popover>
                     <PopoverTrigger
-                      aria-label="What do these numbers show?"
+                      aria-label={t("budgets.info.label")}
                       className="text-muted-foreground transition-colors hover:text-foreground"
                     >
                       <Info className="h-3.5 w-3.5" />
                     </PopoverTrigger>
                     <PopoverContent align="start" className="w-80 space-y-2 text-sm">
-                      <p className="font-medium">Planning view</p>
-                      <p className="text-muted-foreground">
-                        These numbers are based on your{" "}
-                        <span className="font-medium text-foreground">recurring income plan</span>,
-                        not actual transactions. Unallocated = recurring income &minus; fixed costs &minus;
-                        allocated; it&apos;s the slice of your monthly plan you haven&apos;t assigned to a
-                        bucket yet.
-                      </p>
-                      <p className="text-muted-foreground">
-                        This is different from the dashboard&apos;s{" "}
-                        <span className="font-medium text-foreground">Free to spend</span>, which uses
-                        actual income and actual spending to show what&apos;s left in your wallet right
-                        now.
-                      </p>
+                      <p className="font-medium">{t("budgets.info.title")}</p>
+                      <p className="text-muted-foreground">{t("budgets.info.body1")}</p>
+                      <p className="text-muted-foreground">{t("budgets.info.body2")}</p>
                     </PopoverContent>
                   </Popover>
                 </>
@@ -502,14 +635,16 @@ export default function BudgetsPage() {
               }
             />
             <Stat
-              label="Planned to spend"
+              label={t("budgets.stat.plannedToSpend")}
               value={formatCurrency(totalPlanned)}
-              note={`· ~${formatCurrency(perDay)}/day`}
+              note={t("budgets.stat.perDayNote", { amount: formatCurrency(perDay) })}
               className="col-span-2 sm:col-span-1"
             />
           </dl>
+          )}
 
           {/* Split bar + legend */}
+          {!simple && (
           <div>
             <div className="flex h-2 overflow-hidden rounded-full bg-muted">
               <div className="bg-slate-400" style={{ width: `${fixedPct}%` }} />
@@ -518,26 +653,29 @@ export default function BudgetsPage() {
             <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
               <span className="flex items-center gap-1.5">
                 <span className="h-2 w-2 rounded-sm bg-slate-400" aria-hidden="true" />
-                Fixed {Math.round(fixedPct)}%
+                {t("budgets.legend.fixed", { pct: Math.round(fixedPct) })}
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="h-2 w-2 rounded-sm bg-primary" aria-hidden="true" />
-                Allocated {Math.round(allocPct)}%
+                {t("budgets.legend.allocated", { pct: Math.round(allocPct) })}
               </span>
               <span className="flex items-center gap-1.5">
                 <span
                   className="h-2 w-2 rounded-sm bg-muted ring-1 ring-border"
                   aria-hidden="true"
                 />
-                Unallocated {Math.round(unallocPct)}%
+                {t("budgets.legend.unallocated", { pct: Math.round(unallocPct) })}
               </span>
             </div>
           </div>
+          )}
 
           {data.unallocated < 0 && (
-            <div className="flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/30 dark:text-red-400">
+            <div className="flex items-center gap-2 rounded-lg border border-red-300 bg-red-100 px-3 py-2 text-sm font-medium text-red-900 dark:border-red-800 dark:bg-red-950 dark:text-red-100">
               <AlertTriangle className="h-4 w-4 shrink-0" />
-              You&apos;ve over-allocated by {formatCurrency(Math.abs(data.unallocated))}.
+              {t("budgets.overAllocatedBy", {
+                amount: formatCurrency(Math.abs(data.unallocated)),
+              })}
             </div>
           )}
         </div>
@@ -545,32 +683,40 @@ export default function BudgetsPage() {
         <div className="mt-6 border-t pt-4">
           <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-4 pb-1 sm:px-7">
             <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Spending allocations &middot; {allocationsCount}
+              {t("budgets.allocationsHeading", { count: allocationsCount })}
             </span>
             <span className="text-xs text-muted-foreground tabular-nums">
               {allocationsCount > 0 && (
                 <>
-                  {formatCurrency(allocSpent)} of {formatCurrency(allocLimit)} spent
-                  &middot;{" "}
+                  {t("budgets.allocationsSpent", {
+                    spent: formatCurrency(allocSpent),
+                    limit: formatCurrency(allocLimit),
+                  })}
+                  &nbsp;&middot;{" "}
                 </>
               )}
-              sorted by urgency &middot; click a row for details
+              {t("budgets.allocationsHint")}
             </span>
           </div>
 
           {allocationsCount === 0 ? (
             <div className="flex flex-col items-center justify-center px-6 py-10 text-center">
-              <Coins className="mb-3 h-10 w-10 text-muted-foreground/30" />
+              {simple ? (
+                <span className="mb-3 text-4xl" aria-hidden="true">
+                  🪴
+                </span>
+              ) : (
+                <Coins className="mb-3 h-10 w-10 text-muted-foreground/30" />
+              )}
               <p className="max-w-sm text-sm text-muted-foreground">
-                No allocations yet. Use{" "}
-                <span className="font-medium text-foreground">Generate from history</span> to
-                let the system propose budgets based on your past spending, or add one manually.
+                {simple ? t("budgets.emptySimple") : t("budgets.emptyFull")}
               </p>
             </div>
           ) : (
             <ul className="divide-y sm:px-3">
               {/* Suggestion rows on top with inline accept/reject */}
               {isCurrentMonth &&
+                !simple &&
                 data.suggestions.map((s) => (
                   <SuggestionRow
                     key={s.id}
@@ -612,10 +758,13 @@ export default function BudgetsPage() {
               />
               <Lock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               <div className="min-w-0">
-                <CardTitle className="text-base">Fixed Costs</CardTitle>
+                <CardTitle className="text-base">{t("budgets.fixedCostsTitle")}</CardTitle>
                 <CardDescription>
-                  {data.fixedCosts.length} recurring categor
-                  {data.fixedCosts.length === 1 ? "y" : "ies"}
+                  {plural(
+                    data.fixedCosts.length,
+                    "budgets.fixedCostsCount.one",
+                    "budgets.fixedCostsCount.other",
+                  )}
                 </CardDescription>
               </div>
             </div>
@@ -623,7 +772,7 @@ export default function BudgetsPage() {
               <UsageTotal
                 spent={fixedSpent}
                 limit={fixedLimit}
-                remainingLabel="due"
+                remainingLabel={t("budgets.due")}
               />
             )}
           </button>
@@ -632,11 +781,11 @@ export default function BudgetsPage() {
           )}
           {fixedCostsOpen && (
             <CardDescription className="pt-1 text-xs">
-              Auto-populated from recurring expenses. Manage them on the{" "}
+              {t("budgets.fixedCostsHintPrefix")}{" "}
               <Link href="/settings/recurring" className="text-primary hover:underline">
-                Recurring
-              </Link>{" "}
-              page.
+                {t("settings.tabs.recurring")}
+              </Link>
+              {t("budgets.fixedCostsHintSuffix")}
             </CardDescription>
           )}
         </CardHeader>
@@ -644,7 +793,7 @@ export default function BudgetsPage() {
           <CardContent id="fixed-costs-list" className="px-0 sm:px-3">
             {data.fixedCosts.length === 0 ? (
               <p className="py-4 text-center text-sm text-muted-foreground">
-                No recurring expenses set up yet.
+                {t("budgets.noRecurringYet")}
               </p>
             ) : (
               <ul className="divide-y border-t">
@@ -686,10 +835,10 @@ export default function BudgetsPage() {
                           }
                         >
                           {over
-                            ? `${formatCurrency(-outstanding)} over`
+                            ? t("budgets.overAmount", { amount: formatCurrency(-outstanding) })
                             : settled
-                              ? "paid"
-                              : `${formatCurrency(outstanding)} due`}
+                              ? t("budgets.paid")
+                              : t("budgets.dueAmount", { amount: formatCurrency(outstanding) })}
                         </span>
                       }
                     />

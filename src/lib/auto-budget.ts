@@ -197,6 +197,40 @@ export async function regenerateBudgetSuggestions(
   return suggestions;
 }
 
+/** Why a generate run produced nothing. */
+export type EmptyGenerateReason = "no-accounts" | "no-history" | "up-to-date";
+
+/**
+ * Explain an empty suggestion run so the UI can tell the user what to fix.
+ * Only called when `regenerateBudgetSuggestions` returned nothing, so the one
+ * extra query costs nothing on the happy path.
+ */
+export async function explainEmptyGenerate(
+  userId: string,
+  lookbackMonths: number,
+  plan?: ResolvedBudgetPlan | null,
+): Promise<EmptyGenerateReason> {
+  if (plan && plan.accountIds.length === 0) return "no-accounts";
+
+  const window = getLookbackWindow(lookbackMonths);
+  const from = clampFrom(window.from, await getStatsCutoff(userId))!;
+  const [row] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(transactions)
+    .where(
+      and(
+        eq(transactions.userId, userId),
+        eq(transactions.type, "expense"),
+        sql`${transactions.groupId} IS NULL`,
+        sql`${transactions.categoryId} IS NOT NULL`,
+        gte(transactions.date, from),
+        lte(transactions.date, window.to),
+        ...(plan ? [inArray(transactions.accountId, plan.accountIds)] : []),
+      ),
+    );
+  return (row?.count ?? 0) > 0 ? "up-to-date" : "no-history";
+}
+
 /**
  * Determine whether a regeneration prompt should be shown based on how long
  * ago the last check was relative to the configured cadence (in months).

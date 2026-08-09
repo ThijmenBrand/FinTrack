@@ -237,6 +237,11 @@ export const userPreferences = sqliteTable("user_preferences", {
   // When on, per-budget views count internal transfers whose counterpart
   // account lives in a different budget plan as expense/income (envelope-style).
   countCrossBudgetTransfers: integer("count_cross_budget_transfers", { mode: "boolean" }).notNull().default(false),
+  // UI language. One of the codes in LOCALES (src/lib/i18n) — "en" | "nl".
+  locale: text("locale").notNull().default("en"),
+  // Simple mode: dashboard, budgets and insights hide advanced features
+  // (budget plans, suggestions, deep-dive charts) behind this one switch.
+  simpleMode: integer("simple_mode", { mode: "boolean" }).notNull().default(false),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),

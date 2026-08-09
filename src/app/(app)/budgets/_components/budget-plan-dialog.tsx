@@ -21,6 +21,7 @@ import {
 } from "@/hooks/use-budget-plans";
 import { BUDGETABLE_ACCOUNT_TYPES } from "@/lib/account-scope";
 import type { Account, BudgetPlanData } from "@/types/api";
+import { useI18n } from "@/lib/i18n/client";
 
 interface BudgetPlanDialogProps {
   open: boolean;
@@ -45,6 +46,7 @@ export function BudgetPlanDialog({
   accounts,
   onSaved,
 }: BudgetPlanDialogProps) {
+  const { t } = useI18n();
   const createPlan = useCreateBudgetPlan();
   const updatePlan = useUpdateBudgetPlan();
   const deletePlan = useDeleteBudgetPlan();
@@ -92,7 +94,7 @@ export function BudgetPlanDialog({
       }
       onOpenChange(false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong");
+      setError(e instanceof Error ? e.message : t("common.somethingWentWrong"));
     }
   };
 
@@ -108,7 +110,7 @@ export function BudgetPlanDialog({
       onSaved?.(null);
       onOpenChange(false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong");
+      setError(e instanceof Error ? e.message : t("common.somethingWentWrong"));
     }
   };
 
@@ -116,32 +118,32 @@ export function BudgetPlanDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{plan ? `Edit ${plan.name}` : "New budget"}</DialogTitle>
-          <DialogDescription>
-            A budget tracks the spending of its accounts with its own category
-            limits.
-          </DialogDescription>
+          <DialogTitle>
+            {plan
+              ? t("budgets.plan.editTitle", { name: plan.name })
+              : t("budgets.plan.newTitle")}
+          </DialogTitle>
+          <DialogDescription>{t("budgets.plan.description")}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="plan-name">Name</Label>
+            <Label htmlFor="plan-name">{t("common.name")}</Label>
             <Input
               id="plan-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Joint household"
+              placeholder={t("budgets.plan.namePlaceholder")}
               maxLength={60}
               autoFocus
             />
           </div>
 
           <div className="space-y-2">
-            <Label>Accounts</Label>
+            <Label>{t("budgets.plan.accountsLabel")}</Label>
             {budgetableAccounts.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                No checking or joint accounts yet — add one under Settings →
-                Accounts first.
+                {t("budgets.plan.noAccounts")}
               </p>
             ) : (
               <ul className="max-h-56 space-y-1 overflow-y-auto rounded-md border p-2">
@@ -162,12 +164,12 @@ export function BudgetPlanDialog({
                         <span className="min-w-0 flex-1 truncate">{acc.name}</span>
                         {otherPlanName && selectedIds.includes(acc.id) && (
                           <span className="shrink-0 text-xs text-amber-600 dark:text-amber-400">
-                            moves from {otherPlanName}
+                            {t("budgets.plan.movesFrom", { name: otherPlanName })}
                           </span>
                         )}
                         {otherPlanName && !selectedIds.includes(acc.id) && (
                           <span className="shrink-0 text-xs text-muted-foreground">
-                            in {otherPlanName}
+                            {t("budgets.plan.currentlyIn", { name: otherPlanName })}
                           </span>
                         )}
                       </label>
@@ -177,8 +179,7 @@ export function BudgetPlanDialog({
               </ul>
             )}
             <p className="text-xs text-muted-foreground">
-              An account belongs to one budget — picking it here moves it out of
-              its current one.
+              {t("budgets.plan.exclusiveHint")}
             </p>
           </div>
 
@@ -190,13 +191,12 @@ export function BudgetPlanDialog({
                 checked={makeMain}
                 onCheckedChange={(checked) => setMakeMain(checked === true)}
               />
-              Main budget — shown on the dashboard
+              {t("budgets.plan.makeMain")}
             </label>
           )}
           {plan?.isMain && (
             <p className="text-xs text-muted-foreground">
-              This is your main budget (shown on the dashboard). To change that,
-              make another budget main.
+              {t("budgets.plan.isMainHint")}
             </p>
           )}
 
@@ -219,7 +219,7 @@ export function BudgetPlanDialog({
               {deletePlan.isPending && (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               )}
-              {confirmingDelete ? "Delete budget and its limits?" : "Delete"}
+              {confirmingDelete ? t("budgets.plan.confirmDelete") : t("common.delete")}
             </Button>
           ) : (
             <span />
@@ -232,7 +232,7 @@ export function BudgetPlanDialog({
             {(createPlan.isPending || updatePlan.isPending) && (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             )}
-            {plan ? "Save changes" : "Create budget"}
+            {plan ? t("budgets.plan.saveChanges") : t("budgets.plan.create")}
           </Button>
         </DialogFooter>
       </DialogContent>

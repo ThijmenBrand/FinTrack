@@ -3,7 +3,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getBudgetOverview, getMonthSummary } from "../_lib/dashboard-queries";
 import { getFinancialMonthRange } from "@/lib/financial-month";
-import { formatCurrency } from "@/lib/utils";
+import { getI18n } from "@/lib/i18n/server";
+import type { I18n } from "@/lib/i18n/translate";
 
 /**
  * Spent-against-budget on a single linear scale. When you overspend the bar
@@ -11,7 +12,7 @@ import { formatCurrency } from "@/lib/utils";
  * did, so the tick marks where the budget ran out and the red tail shows by
  * how much.
  */
-function BudgetBar({ spent, budgeted }: { spent: number; budgeted: number }) {
+function BudgetBar({ spent, budgeted, t }: { spent: number; budgeted: number; t: I18n["t"] }) {
   const over = spent > budgeted;
   const scale = Math.max(spent, budgeted);
   const limitPct = (budgeted / scale) * 100;
@@ -25,7 +26,7 @@ function BudgetBar({ spent, budgeted }: { spent: number; budgeted: number }) {
         aria-valuemin={0}
         aria-valuemax={Math.round(budgeted)}
         aria-valuenow={Math.round(spent)}
-        aria-label="Spent of total budget"
+        aria-label={t("dashboard.spentOfTotal")}
       >
         <div className="absolute inset-0 overflow-hidden rounded-full">
           <div
@@ -55,7 +56,7 @@ function BudgetBar({ spent, budgeted }: { spent: number; budgeted: number }) {
           className="mt-1 text-[11px] text-muted-foreground"
           style={{ marginLeft: `max(0px, calc(${limitPct}% - 30px))` }}
         >
-          budget limit
+          {t("dashboard.budgetLimit")}
         </div>
       )}
     </div>
@@ -101,9 +102,10 @@ export async function PeriodSummary({
   startDay?: number;
   accountIds?: string[];
 }) {
-  const [budget, summary] = await Promise.all([
+  const [budget, summary, { t, formatCurrency }] = await Promise.all([
     getBudgetOverview(userId, startDay),
     getMonthSummary(userId, startDay, accountIds),
+    getI18n(),
   ]);
 
   const period = getFinancialMonthRange(new Date(), startDay);
@@ -141,17 +143,23 @@ export async function PeriodSummary({
                   }`}
                 >
                   {formatCurrency(Math.abs(left))}{" "}
-                  {over ? "over budget" : "left to spend"}
+                  {over ? t("dashboard.overBudget") : t("dashboard.leftToSpend")}
                 </span>
                 <span className="text-xs text-muted-foreground tabular-nums">
-                  spent {formatCurrency(budget.totalBudgetSpent)} of{" "}
-                  {formatCurrency(budget.totalBudgeted)} · {pct}%
-                  {budget.plan && <> · {budget.plan.name} budget</>}
+                  {t("dashboard.spentOfWithPct", {
+                    spent: formatCurrency(budget.totalBudgetSpent),
+                    total: formatCurrency(budget.totalBudgeted),
+                    pct,
+                  })}
+                  {budget.plan && (
+                    <> · {t("dashboard.planBudgetSuffix", { name: budget.plan.name })}</>
+                  )}
                 </span>
               </div>
               <BudgetBar
                 spent={budget.totalBudgetSpent}
                 budgeted={budget.totalBudgeted}
+                t={t}
               />
             </>
           ) : (
@@ -160,11 +168,11 @@ export async function PeriodSummary({
                 {formatCurrency(summary.monthExpenses)}
               </p>
               <p className="mt-1 text-sm text-muted-foreground">
-                spent this period ·{" "}
+                {t("dashboard.spentThisPeriod")}{" "}
                 <Link href="/budgets" className="text-primary hover:underline">
-                  set budgets
+                  {t("dashboard.setBudgets")}
                 </Link>{" "}
-                to see what&apos;s left
+                {t("dashboard.toSeeWhatsLeft")}
               </p>
             </>
           )}
@@ -174,18 +182,18 @@ export async function PeriodSummary({
             instead of spilling out of their track. */}
         <div className="flex gap-4 border-t pt-4 sm:gap-8 lg:shrink-0 lg:border-0 lg:pt-0">
           <Stat
-            label="Earned"
+            label={t("dashboard.earned")}
             value={formatCurrency(summary.monthIncome)}
             valueClass="text-emerald-600 dark:text-emerald-400"
             href={txHref("income")}
           />
           <Stat
-            label="Spent"
+            label={t("dashboard.spent")}
             value={formatCurrency(summary.monthExpenses)}
             href={txHref("expense")}
           />
           <Stat
-            label="Net"
+            label={t("dashboard.net")}
             value={formatCurrency(net)}
             valueClass={
               net >= 0

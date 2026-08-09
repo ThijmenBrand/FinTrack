@@ -3,8 +3,8 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PotSaldoGraph } from "@/components/pot-saldo-graph";
 import { CheckCircle2, Info } from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
 import type { ForecastData } from "@/types/api";
+import { useI18n } from "@/lib/i18n/client";
 import { endOfMonth, todayIso } from "./dates";
 
 /**
@@ -13,6 +13,7 @@ import { endOfMonth, todayIso } from "./dates";
  * "forecast chart" that was a list of numbers.
  */
 export function CashFlowCard({ forecast }: { forecast: ForecastData }) {
+  const { t, formatCurrency } = useI18n();
   const { monthlyNet, monthlyRecurringIncome, monthlyRecurringExpenses } = forecast;
   const positive = monthlyNet >= 0;
   const netTone = positive
@@ -37,20 +38,21 @@ export function CashFlowCard({ forecast }: { forecast: ForecastData }) {
       <CardHeader className="pb-4">
         <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
           <div className="min-w-0">
-            <CardTitle className="text-base">Cash flow</CardTitle>
-            <CardDescription>
-              Projected balance from your recurring plans and planned pot spending
-            </CardDescription>
+            <CardTitle className="text-base">{t("recurring.cashFlow.title")}</CardTitle>
+            <CardDescription>{t("recurring.cashFlow.description")}</CardDescription>
           </div>
           <div className="ml-auto shrink-0 text-right tabular-nums">
             <div className={`whitespace-nowrap text-2xl font-semibold leading-none ${netTone}`}>
               {positive ? "+" : "−"}
               {formatCurrency(Math.abs(monthlyNet))}
-              <span className="text-sm font-normal text-muted-foreground"> /mo</span>
+              <span className="text-sm font-normal text-muted-foreground">
+                {" "}
+                {t("recurring.perMonthShort")}
+              </span>
             </div>
             <div className="mt-1.5 whitespace-nowrap text-xs text-muted-foreground">
-              {formatCurrency(monthlyRecurringIncome)} in ·{" "}
-              {formatCurrency(monthlyRecurringExpenses)} out
+              {t("recurring.cashFlow.in", { amount: formatCurrency(monthlyRecurringIncome) })} ·{" "}
+              {t("recurring.cashFlow.out", { amount: formatCurrency(monthlyRecurringExpenses) })}
             </div>
           </div>
         </div>
@@ -62,18 +64,21 @@ export function CashFlowCard({ forecast }: { forecast: ForecastData }) {
             twice as tall as anything next to it. */}
         <div className="grid gap-5 lg:grid-cols-[1.5fr_1fr] lg:items-start">
           <PotSaldoGraph
-            lines={[{ points, label: "Balance" }]}
+            lines={[{ points, label: t("recurring.cashFlow.balanceLine") }]}
             showPoints
             height={216}
-            ariaLabel={`Projected balance, ${formatCurrency(forecast.currentBalance)} today to ${formatCurrency(points[points.length - 1].value)} at the end of the forecast`}
+            ariaLabel={t("recurring.cashFlow.chartLabel", {
+              from: formatCurrency(forecast.currentBalance),
+              to: formatCurrency(points[points.length - 1].value),
+            })}
           />
 
           <div className="overflow-hidden rounded-md border">
             <div className="grid grid-cols-[minmax(0,1fr)_repeat(3,minmax(3.5rem,auto))] gap-x-2 border-b bg-muted/40 px-3 py-1.5 text-right text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              <span className="text-left">Month</span>
-              <span>In</span>
-              <span>Out</span>
-              <span>Balance</span>
+              <span className="text-left">{t("recurring.cashFlow.colMonth")}</span>
+              <span>{t("recurring.cashFlow.colIn")}</span>
+              <span>{t("recurring.cashFlow.colOut")}</span>
+              <span>{t("recurring.cashFlow.colBalance")}</span>
             </div>
             {forecast.monthlyForecast.map((m) => (
               <div
@@ -96,7 +101,7 @@ export function CashFlowCard({ forecast }: { forecast: ForecastData }) {
             ))}
             {lowest < 0 && (
               <div className="border-t bg-red-500/5 px-3 py-1.5 text-right text-xs text-red-600 dark:text-red-400">
-                Dips to {formatCurrency(lowest, "EUR", 0)}
+                {t("recurring.cashFlow.dipsTo", { amount: formatCurrency(lowest, "EUR", 0) })}
               </div>
             )}
           </div>

@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import type { BudgetData, BudgetSuggestion, HistoryData, Transaction } from "@/types/api";
+import type { EmptyGenerateReason } from "@/lib/auto-budget";
 
 export function useBudgets(opts?: {
   dateFrom?: string;
@@ -58,10 +59,11 @@ export function useDeleteBudget() {
 export function useBudgetHistory(categoryId: string | null, enabled: boolean, budgetId?: string) {
   return useQuery({
     queryKey: ["budget-history", categoryId, budgetId ?? ""],
-    queryFn: () =>
-      apiFetch<HistoryData>(
-        `/api/budgets/history?categoryId=${categoryId}${budgetId ? `&budgetId=${budgetId}` : ""}`,
-      ),
+    queryFn: () => {
+      const params = new URLSearchParams({ categoryId: categoryId ?? "" });
+      if (budgetId) params.set("budgetId", budgetId);
+      return apiFetch<HistoryData>(`/api/budgets/history?${params}`);
+    },
     enabled: !!categoryId && enabled,
     staleTime: 60 * 1000,
   });
@@ -71,7 +73,10 @@ export function useGenerateBudgets() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (payload?: { budgetId?: string }) =>
-      apiFetch<{ suggestions: BudgetSuggestion[] }>("/api/budgets/generate", {
+      apiFetch<{
+        suggestions: BudgetSuggestion[];
+        emptyReason: EmptyGenerateReason | null;
+      }>("/api/budgets/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload ?? {}),

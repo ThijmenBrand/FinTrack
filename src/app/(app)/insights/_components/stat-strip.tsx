@@ -1,7 +1,7 @@
 "use client";
 
 import { Card, CardContent } from "@/components/ui/card";
-import { formatCurrency } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n/client";
 
 // Small "▲ €123 vs last month" line under a stat. `upIsGood`: income/net up =
 // emerald, expenses up = red. Near-zero deltas render as "≈ same as …".
@@ -14,10 +14,11 @@ export function DeltaLine({
   label: string;
   upIsGood: boolean;
 }) {
+  const { t, formatCurrency } = useI18n();
   if (Math.abs(delta) < 0.5) {
     return (
       <span className="text-muted-foreground">
-        ≈ same as {label.replace(/^vs /, "")}
+        {t("insights.stat.sameAs", { label })}
       </span>
     );
   }
@@ -103,6 +104,7 @@ export function StatStrip({
   onIncomeClick,
   onExpensesClick,
 }: StatStripProps) {
+  const { t, formatCurrency } = useI18n();
   const showDeltas = previous !== null && deltaLabel !== null;
   const savingsRate = income > 0 ? (net / income) * 100 : null;
   const perWeek = elapsedDays > 0 ? (expenses / elapsedDays) * 7 : null;
@@ -111,7 +113,7 @@ export function StatStrip({
     <Card>
       <CardContent className="grid grid-cols-3 gap-x-6 gap-y-4 py-4 md:grid-cols-5">
         <Stat
-          label="Income"
+          label={t("insights.stat.income")}
           value={formatCurrency(income)}
           onClick={onIncomeClick}
           sub={
@@ -122,15 +124,20 @@ export function StatStrip({
                   label={deltaLabel}
                   upIsGood
                 />
-                <span className="text-muted-foreground"> · {txCount} tx</span>
+                <span className="text-muted-foreground">
+                  {" · "}
+                  {t("insights.stat.txCount", { count: txCount })}
+                </span>
               </>
             ) : (
-              <span className="text-muted-foreground">{txCount} tx</span>
+              <span className="text-muted-foreground">
+                {t("insights.stat.txCount", { count: txCount })}
+              </span>
             )
           }
         />
         <Stat
-          label="Expenses"
+          label={t("insights.stat.expenses")}
           value={formatCurrency(expenses)}
           onClick={onExpensesClick}
           sub={
@@ -144,7 +151,7 @@ export function StatStrip({
           }
         />
         <Stat
-          label="Net"
+          label={t("insights.stat.net")}
           value={`${net >= 0 ? "+" : ""}${formatCurrency(net)}`}
           valueClass={
             net >= 0
@@ -162,18 +169,20 @@ export function StatStrip({
           }
         />
         <Stat
-          label="Savings rate"
+          label={t("insights.stat.savingsRate")}
           value={savingsRate === null ? "—" : `${savingsRate.toFixed(1)}%`}
           sub={
             <span className="text-muted-foreground">
-              {savingsRate === null ? "no income in range" : "of income kept"}
+              {savingsRate === null
+                ? t("insights.stat.noIncome")
+                : t("insights.stat.ofIncomeKept")}
             </span>
           }
         />
         <Stat
-          label="Avg per week"
+          label={t("insights.stat.avgPerWeek")}
           value={perWeek === null ? "—" : formatCurrency(perWeek)}
-          sub={<span className="text-muted-foreground">spending pace</span>}
+          sub={<span className="text-muted-foreground">{t("insights.stat.spendingPace")}</span>}
         />
       </CardContent>
     </Card>

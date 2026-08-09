@@ -3,38 +3,40 @@
 import { useState } from "react";
 import { X } from "lucide-react";
 import { LUCIDE_ICON_MAP, LUCIDE_ICON_SECTIONS } from "@/components/category-icon";
+import { useI18n } from "@/lib/i18n/client";
+import type { MessageKey } from "@/lib/i18n/translate";
 
-const EMOJI_SECTIONS = [
+const EMOJI_SECTIONS: { labelKey: MessageKey; emojis: string[] }[] = [
   {
-    label: "Food & Drink",
+    labelKey: "iconPicker.foodDrink",
     emojis: ["🛒", "🍕", "🍔", "☕", "🍺", "🍷", "🥗", "🍽️", "🧁"],
   },
   {
-    label: "Transport",
+    labelKey: "iconPicker.transport",
     emojis: ["🚗", "🚌", "🚲", "✈️", "⛽", "🚕", "🚆", "🚶"],
   },
   {
-    label: "Home & Utilities",
+    labelKey: "iconPicker.homeUtilities",
     emojis: ["🏠", "💡", "🔧", "🧹", "📱", "💻", "📦", "🔌"],
   },
   {
-    label: "Money & Work",
+    labelKey: "iconPicker.moneyWork",
     emojis: ["💰", "💳", "🏦", "💵", "📈", "💼", "🧾", "💸"],
   },
   {
-    label: "Health & Fitness",
+    labelKey: "iconPicker.healthFitness",
     emojis: ["❤️", "💊", "🏥", "🏋️", "🧘"],
   },
   {
-    label: "Entertainment",
+    labelKey: "iconPicker.entertainment",
     emojis: ["🎬", "🎮", "🎵", "📚", "🎭", "🎯", "🎨"],
   },
   {
-    label: "Shopping & Personal",
+    labelKey: "iconPicker.shoppingPersonal",
     emojis: ["👕", "🛍️", "💇", "🎁", "✂️", "👟"],
   },
   {
-    label: "Other",
+    labelKey: "iconPicker.other",
     emojis: ["📌", "🔄", "❓", "⭐", "🏷️", "📎", "🗂️"],
   },
 ];
@@ -45,6 +47,7 @@ interface IconPickerProps {
 }
 
 export function EmojiPicker({ value, onSelect }: IconPickerProps) {
+  const { t } = useI18n();
   const [tab, setTab] = useState<"emoji" | "icon">(
     value && value.codePointAt(0)! <= 255 ? "icon" : "emoji"
   );
@@ -60,7 +63,7 @@ export function EmojiPicker({ value, onSelect }: IconPickerProps) {
             }`}
             onClick={() => setTab("emoji")}
           >
-            Emoji
+            {t("iconPicker.emoji")}
           </button>
           <button
             type="button"
@@ -69,7 +72,7 @@ export function EmojiPicker({ value, onSelect }: IconPickerProps) {
             }`}
             onClick={() => setTab("icon")}
           >
-            Icons
+            {t("iconPicker.icons")}
           </button>
         </div>
         {value && (
@@ -79,7 +82,7 @@ export function EmojiPicker({ value, onSelect }: IconPickerProps) {
             onClick={() => onSelect(null)}
           >
             <X className="h-3 w-3" />
-            Clear
+            {t("common.clear")}
           </button>
         )}
       </div>
@@ -87,8 +90,8 @@ export function EmojiPicker({ value, onSelect }: IconPickerProps) {
       {tab === "emoji" ? (
         <>
           {EMOJI_SECTIONS.map((section) => (
-            <div key={section.label}>
-              <p className="text-xs text-muted-foreground mb-1.5">{section.label}</p>
+            <div key={section.labelKey}>
+              <p className="text-xs text-muted-foreground mb-1.5">{t(section.labelKey)}</p>
               <div className="flex flex-wrap gap-1">
                 {section.emojis.map((emoji) => (
                   <button
@@ -109,8 +112,8 @@ export function EmojiPicker({ value, onSelect }: IconPickerProps) {
       ) : (
         <>
           {LUCIDE_ICON_SECTIONS.map((section) => (
-            <div key={section.label}>
-              <p className="text-xs text-muted-foreground mb-1.5">{section.label}</p>
+            <div key={section.labelKey}>
+              <p className="text-xs text-muted-foreground mb-1.5">{t(section.labelKey)}</p>
               <div className="flex flex-wrap gap-1">
                 {section.icons.map((iconName) => {
                   const IconComp = LUCIDE_ICON_MAP[iconName];

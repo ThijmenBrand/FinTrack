@@ -8,8 +8,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { useI18n } from "@/lib/i18n/client";
+import type { I18n } from "@/lib/i18n/translate";
 import { useInsights } from "@/hooks/use-insights";
-import { formatCurrency, toIsoDate } from "@/lib/utils";
+import { toIsoDate } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const CHART_HEIGHT = 200;
@@ -38,9 +40,9 @@ function niceMax(max: number): number {
   return nice * exp;
 }
 
-function monthLabel(month: string): string {
+function monthLabel(i18n: I18n, month: string): string {
   const [y, m] = month.split("-").map(Number);
-  return new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "short" });
+  return i18n.formatMonthShort(new Date(y, m - 1, 1));
 }
 
 interface BudgetVsActualProps {
@@ -61,6 +63,8 @@ export function BudgetVsActual({
   budgetId,
   monthlyBudget,
 }: BudgetVsActualProps) {
+  const i18n = useI18n();
+  const { t, formatCurrency } = i18n;
   const now = new Date();
   const from = toIsoDate(new Date(now.getFullYear(), now.getMonth() - 11, 1));
   const to = toIsoDate(new Date(now.getFullYear(), now.getMonth() + 1, 0));
@@ -81,11 +85,12 @@ export function BudgetVsActual({
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle>Budget vs. actual</CardTitle>
+        <CardTitle>{t("insights.vsActual.title")}</CardTitle>
         <CardDescription>
-          Monthly spending on {planName}&apos;s accounts, last 12 months. The
-          dashed line is today&apos;s budget ({formatCurrency(monthlyBudget)}
-          /month), so past months are read against the current plan.
+          {t("insights.vsActual.description", {
+            name: planName,
+            amount: formatCurrency(monthlyBudget),
+          })}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -93,7 +98,7 @@ export function BudgetVsActual({
           <Skeleton className="h-[200px] w-full" />
         ) : months.length === 0 ? (
           <p className="py-12 text-center text-sm text-muted-foreground">
-            No spending on these accounts yet.
+            {t("insights.vsActual.empty")}
           </p>
         ) : (
           <div className="flex gap-2">
@@ -103,19 +108,19 @@ export function BudgetVsActual({
               style={{ height: CHART_HEIGHT }}
               aria-hidden="true"
             >
-              {ticks.map((t) => (
-                <span key={t}>{formatTick(t)}</span>
+              {ticks.map((tick) => (
+                <span key={tick}>{formatTick(tick)}</span>
               ))}
             </div>
             <div className="min-w-0 flex-1">
               <div className="relative" style={{ height: CHART_HEIGHT }}>
                 {/* Gridlines */}
-                {ticks.map((t) => (
+                {ticks.map((tick) => (
                   <div
-                    key={t}
+                    key={tick}
                     className="absolute inset-x-0 border-t border-border/50"
                     style={{
-                      bottom: `${maxValue > 0 ? (t / maxValue) * 100 : 0}%`,
+                      bottom: `${maxValue > 0 ? (tick / maxValue) * 100 : 0}%`,
                     }}
                     aria-hidden="true"
                   />
@@ -127,7 +132,7 @@ export function BudgetVsActual({
                     style={{ bottom: `${budgetPct}%` }}
                   >
                     <span className="absolute right-0 -top-4 rounded bg-background/80 px-1 text-[10px] font-medium text-foreground">
-                      budget
+                      {t("insights.vsActual.budgetLine")}
                     </span>
                   </div>
                 )}
@@ -164,7 +169,7 @@ export function BudgetVsActual({
                         {isHovered && (
                           <div className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 -translate-x-1/2 whitespace-nowrap rounded-md border bg-popover px-2 py-1 text-xs shadow-md">
                             <span className="font-medium">
-                              {monthLabel(m.month)}
+                              {monthLabel(i18n, m.month)}
                             </span>{" "}
                             <span className="tabular-nums">
                               {formatCurrency(m.expenses)}
@@ -178,8 +183,12 @@ export function BudgetVsActual({
                                 }`}
                               >
                                 {over
-                                  ? `${formatCurrency(m.expenses - monthlyBudget)} over`
-                                  : `${formatCurrency(monthlyBudget - m.expenses)} under`}
+                                  ? t("insights.vsActual.over", {
+                                      amount: formatCurrency(m.expenses - monthlyBudget),
+                                    })
+                                  : t("insights.vsActual.under", {
+                                      amount: formatCurrency(monthlyBudget - m.expenses),
+                                    })}
                               </span>
                             )}
                           </div>
@@ -193,7 +202,7 @@ export function BudgetVsActual({
               <div className="mt-1 flex gap-[2px] text-[10px] text-muted-foreground">
                 {months.map((m) => (
                   <span key={m.month} className="flex-1 truncate text-center">
-                    {monthLabel(m.month)}
+                    {monthLabel(i18n, m.month)}
                   </span>
                 ))}
               </div>

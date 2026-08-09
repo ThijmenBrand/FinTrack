@@ -4,13 +4,15 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Pencil, Plus, Star } from "lucide-react";
 import type { BudgetPlanData } from "@/types/api";
+import { useI18n } from "@/lib/i18n/client";
 
 interface BudgetPlanTabsProps {
   plans: BudgetPlanData[];
   activeId?: string;
   onSelect: (planId: string) => void;
-  onEdit: (plan: BudgetPlanData) => void;
-  onCreate: () => void;
+  /** Omitted in simple mode — switching stays, plan management doesn't. */
+  onEdit?: (plan: BudgetPlanData) => void;
+  onCreate?: () => void;
 }
 
 /**
@@ -24,6 +26,7 @@ export function BudgetPlanTabs({
   onEdit,
   onCreate,
 }: BudgetPlanTabsProps) {
+  const { t } = useI18n();
   const active = plans.find((p) => p.id === activeId);
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -35,7 +38,7 @@ export function BudgetPlanTabs({
                 {p.isMain && (
                   <Star
                     className="h-3 w-3 fill-current text-amber-500"
-                    aria-label="Main budget"
+                    aria-label={t("dashboard.budgetCard.mainBudgetStar")}
                   />
                 )}
                 {p.name}
@@ -44,26 +47,28 @@ export function BudgetPlanTabs({
           </TabsList>
         </Tabs>
       )}
-      {active && (
+      {active && onEdit && (
         <Button
           variant="ghost"
           size="sm"
           className="text-muted-foreground"
           onClick={() => onEdit(active)}
-          aria-label={`Edit ${active.name}`}
+          aria-label={t("budgets.tabs.editPlan", { name: active.name })}
         >
           <Pencil className="h-3.5 w-3.5" />
         </Button>
       )}
-      <Button
-        variant="ghost"
-        size="sm"
-        className="text-muted-foreground"
-        onClick={onCreate}
-      >
-        <Plus className="mr-1 h-3.5 w-3.5" />
-        New budget
-      </Button>
+      {onCreate && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-muted-foreground"
+          onClick={onCreate}
+        >
+          <Plus className="mr-1 h-3.5 w-3.5" />
+          {t("budgets.tabs.newBudget")}
+        </Button>
+      )}
     </div>
   );
 }

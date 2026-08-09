@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiFetch } from "@/lib/api";
-import { formatCurrency } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n/client";
 import type { BudgetOverview } from "@/app/(app)/_lib/dashboard-queries";
 import type { BudgetPlanData } from "@/types/api";
 
@@ -27,11 +27,14 @@ interface BudgetComparisonStripProps {
  * data — the page's date preset filters transactions, not budget standing.
  */
 export function BudgetComparisonStrip({ plans, onSelect }: BudgetComparisonStripProps) {
+  const { t, formatCurrency } = useI18n();
   const results = useQueries({
     queries: plans.map((p) => ({
       queryKey: ["dashboard-budget-overview", p.id],
       queryFn: () =>
-        apiFetch<BudgetOverview>(`/api/dashboard/budget-overview?budgetId=${p.id}`),
+        apiFetch<BudgetOverview>(
+          `/api/dashboard/budget-overview?budgetId=${encodeURIComponent(p.id)}`,
+        ),
       staleTime: 60 * 1000,
     })),
   });
@@ -41,11 +44,8 @@ export function BudgetComparisonStrip({ plans, onSelect }: BudgetComparisonStrip
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle>Budgets this period</CardTitle>
-        <CardDescription>
-          Spent against each budget&apos;s total (fixed costs + allocations) for
-          the current period. Click one for its full analysis.
-        </CardDescription>
+        <CardTitle>{t("insights.compare.title")}</CardTitle>
+        <CardDescription>{t("insights.compare.description")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-1">
         {plans.map((plan, i) => {
@@ -73,7 +73,7 @@ export function BudgetComparisonStrip({ plans, onSelect }: BudgetComparisonStrip
                 {plan.isMain && (
                   <Star
                     className="h-3 w-3 shrink-0 fill-current text-amber-500"
-                    aria-label="Main budget"
+                    aria-label={t("dashboard.budgetCard.mainBudgetStar")}
                   />
                 )}
               </span>
@@ -117,7 +117,7 @@ export function BudgetComparisonStrip({ plans, onSelect }: BudgetComparisonStrip
                     / {formatCurrency(budgeted)} · {pct}%
                   </>
                 ) : (
-                  <>{formatCurrency(spent)} spent · no budget set</>
+                  <>{t("insights.compare.noBudgetSet", { amount: formatCurrency(spent) })}</>
                 )}
               </span>
             </button>

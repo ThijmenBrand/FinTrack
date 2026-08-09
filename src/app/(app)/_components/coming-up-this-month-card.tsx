@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { CalendarClock } from "lucide-react";
 import { getMonthMoneyView } from "../_lib/dashboard-queries";
 import { ComingUpThisMonthList } from "./coming-up-this-month-list";
+import { getI18n } from "@/lib/i18n/server";
 
 export async function ComingUpThisMonthCard({
   userId,
@@ -19,22 +20,34 @@ export async function ComingUpThisMonthCard({
   startDay?: number;
   accountIds?: string[];
 }) {
-  const money = await getMonthMoneyView(userId, startDay, accountIds);
+  const [money, { t, plural }] = await Promise.all([
+    getMonthMoneyView(userId, startDay, accountIds),
+    getI18n(),
+  ]);
 
   if (money.thisMonthSpikes.length === 0) return null;
-
-  const periodCopy = startDay === 1 ? "the month" : "this period";
 
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <CalendarClock className="h-4 w-4 text-primary" />
-          {startDay === 1 ? "Coming up this month" : "Coming up this period"}
+          {startDay === 1
+            ? t("dashboard.comingUp.titleMonth")
+            : t("dashboard.comingUp.titlePeriod")}
         </CardTitle>
         <CardDescription>
-          {money.thisMonthSpikes.length} planned event
-          {money.thisMonthSpikes.length === 1 ? "" : "s"} between now and the end of {periodCopy}
+          {startDay === 1
+            ? plural(
+                money.thisMonthSpikes.length,
+                "dashboard.comingUp.countMonth.one",
+                "dashboard.comingUp.countMonth.other",
+              )
+            : plural(
+                money.thisMonthSpikes.length,
+                "dashboard.comingUp.countPeriod.one",
+                "dashboard.comingUp.countPeriod.other",
+              )}
         </CardDescription>
       </CardHeader>
       <CardContent>

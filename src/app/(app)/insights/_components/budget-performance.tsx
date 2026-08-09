@@ -9,8 +9,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { ArrowRight } from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
 import type { BudgetData } from "@/types/api";
+import { useI18n } from "@/lib/i18n/client";
 
 function daysLeftInMonth(toDate: string): number {
   const end = new Date(toDate + "T23:59:59");
@@ -31,6 +31,7 @@ interface BudgetPerformanceProps {
 }
 
 export function BudgetPerformance({ data, accountLabel }: BudgetPerformanceProps) {
+  const { t, plural, formatCurrency } = useI18n();
   if (!data) return null;
 
   const hasAnyBudget =
@@ -79,13 +80,21 @@ export function BudgetPerformance({ data, accountLabel }: BudgetPerformanceProps
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div>
-            <CardTitle className="text-base">Budget Performance</CardTitle>
+            <CardTitle className="text-base">{t("insights.perf.title")}</CardTitle>
             <CardDescription>
               {data.month.label}
               {!pastRange && (
-                <> · {daysLeft} day{daysLeft === 1 ? "" : "s"} left</>
+                <>
+                  {" · "}
+                  {plural(daysLeft, "insights.daysLeft.one", "insights.daysLeft.other")}
+                </>
               )}
-              {accountLabel && <> · spending from {accountLabel}</>}
+              {accountLabel && (
+                <>
+                  {" · "}
+                  {t("insights.perf.spendingFrom", { label: accountLabel })}
+                </>
+              )}
             </CardDescription>
           </div>
         </div>
@@ -101,11 +110,13 @@ export function BudgetPerformance({ data, accountLabel }: BudgetPerformanceProps
             }`}
           >
             {formatCurrency(Math.abs(remaining))}{" "}
-            {isOver ? "over budget" : "under budget"}
+            {isOver ? t("insights.perf.overBudget") : t("insights.perf.underBudget")}
           </span>
           <span className="text-sm text-muted-foreground tabular-nums">
-            spent {formatCurrency(totalSpentThisMonth)} of{" "}
-            {formatCurrency(totalBudget)}
+            {t("insights.perf.spentOf", {
+              spent: formatCurrency(totalSpentThisMonth),
+              total: formatCurrency(totalBudget),
+            })}
             {totalBudget > 0 && ` · ${pctOfBudget}%`}
           </span>
         </div>
@@ -117,46 +128,54 @@ export function BudgetPerformance({ data, accountLabel }: BudgetPerformanceProps
               <div
                 className="h-full bg-emerald-500 transition-all duration-500"
                 style={{ width: `${withinPct}%` }}
-                title={`Within budget: ${formatCurrency(withinBudget)}`}
+                title={t("insights.perf.withinTitle", { amount: formatCurrency(withinBudget) })}
               />
             )}
             {overPct > 0 && (
               <div
                 className="h-full bg-amber-500 transition-all duration-500"
                 style={{ width: `${overPct}%` }}
-                title={`Over budget on tracked categories: ${formatCurrency(overBudgetOnTracked)}`}
+                title={t("insights.perf.overTrackedTitle", {
+                  amount: formatCurrency(overBudgetOnTracked),
+                })}
               />
             )}
             {unbudgetedPct > 0 && (
               <div
                 className="h-full bg-red-500 transition-all duration-500"
                 style={{ width: `${unbudgetedPct}%` }}
-                title={`Unbudgeted spending: ${formatCurrency(unbudgetedTotal)}`}
+                title={t("insights.perf.unbudgetedTitle", {
+                  amount: formatCurrency(unbudgetedTotal),
+                })}
               />
             )}
             {budgetMarkerPct < 100 && totalSpentThisMonth > totalBudget && (
               <div
                 className="absolute top-0 bottom-0 w-0.5 bg-foreground/70"
                 style={{ left: `${budgetMarkerPct}%` }}
-                title={`Budget limit: ${formatCurrency(totalBudget)}`}
+                title={t("insights.perf.limitTitle", { amount: formatCurrency(totalBudget) })}
               />
             )}
           </div>
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
             <span className="flex items-center gap-1.5">
               <span className="h-2 w-2 rounded-sm bg-emerald-500" />
-              Within budget {formatCurrency(withinBudget)}
+              {t("insights.perf.withinLegend", { amount: formatCurrency(withinBudget) })}
             </span>
             {overBudgetOnTracked > 0 && (
               <span className="flex items-center gap-1.5">
                 <span className="h-2 w-2 rounded-sm bg-amber-500" />
-                Over on tracked {formatCurrency(overBudgetOnTracked)}
+                {t("insights.perf.overLegend", {
+                  amount: formatCurrency(overBudgetOnTracked),
+                })}
               </span>
             )}
             {unbudgetedTotal > 0 && (
               <span className="flex items-center gap-1.5">
                 <span className="h-2 w-2 rounded-sm bg-red-500" />
-                Unbudgeted {formatCurrency(unbudgetedTotal)}
+                {t("insights.perf.unbudgetedLegend", {
+                  amount: formatCurrency(unbudgetedTotal),
+                })}
               </span>
             )}
             {/* The per-category detail lives in "Where your money went", which
@@ -166,7 +185,9 @@ export function BudgetPerformance({ data, accountLabel }: BudgetPerformanceProps
                 href="/budgets"
                 className="inline-flex items-center gap-1 text-primary hover:underline sm:ml-auto"
               >
-                Set budget for {biggestUnbudgeted.categoryName}
+                {t("insights.perf.setBudgetFor", {
+                  name: biggestUnbudgeted.categoryName ?? "",
+                })}
                 <ArrowRight className="h-3.5 w-3.5" />
               </Link>
             )}

@@ -57,9 +57,35 @@ type Bucket = { accountId: string; categoryId: string | null; total: number };
  * stayed put — closes each in-scope account's bar as "From balance" / "Left in
  * account".
  */
+/** Aggregate node names the graph invents — supplied translated by the caller. */
+export interface MoneyFlowLabels {
+  account: string;
+  otherAccount: string;
+  uncategorizedIncome: string;
+  otherIncome: string;
+  uncategorized: string;
+  otherSpending: string;
+  reimbursements: string;
+  leftInAccount: string;
+  fromBalance: string;
+}
+
+const DEFAULT_FLOW_LABELS: MoneyFlowLabels = {
+  account: "Account",
+  otherAccount: "Other account",
+  uncategorizedIncome: "Uncategorized income",
+  otherIncome: "Other income",
+  uncategorized: "Uncategorized",
+  otherSpending: "Other spending",
+  reimbursements: "Reimbursements",
+  leftInAccount: "Left in account",
+  fromBalance: "From balance",
+};
+
 export async function buildMoneyFlow(
   userId: string,
   range: { dateFrom?: string | null; dateTo?: string | null; accountIds?: string[] },
+  labels: MoneyFlowLabels = DEFAULT_FLOW_LABELS,
 ): Promise<MoneyFlowData> {
   const accountIds = range.accountIds ?? [];
 
@@ -270,7 +296,7 @@ export async function buildMoneyFlow(
   const accountNode = (id: string | null) =>
     addNode({
       id: `acct:${id ?? "external"}`,
-      name: id ? acctName.get(id) ?? "Account" : "Other account",
+      name: id ? acctName.get(id) ?? labels.account : labels.otherAccount,
       kind: "account",
       color: (id && acctColor.get(id)) || OTHER_COLOR,
     });
@@ -282,13 +308,13 @@ export async function buildMoneyFlow(
     const source = keptSources.has(key)
       ? addNode({
           id: `in:${key}`,
-          name: meta?.name ?? "Uncategorized income",
+          name: meta?.name ?? labels.uncategorizedIncome,
           kind: "income",
           color: meta?.color ?? OTHER_COLOR,
         })
       : addNode({
           id: "in:other",
-          name: "Other income",
+          name: labels.otherIncome,
           kind: "income",
           color: OTHER_COLOR,
         });
@@ -302,13 +328,13 @@ export async function buildMoneyFlow(
     const target = keptCategories.has(key)
       ? addNode({
           id: `cat:${key}`,
-          name: meta?.name ?? "Uncategorized",
+          name: meta?.name ?? labels.uncategorized,
           kind: "category",
           color: meta?.color ?? OTHER_COLOR,
         })
       : addNode({
           id: "cat:other",
-          name: "Other spending",
+          name: labels.otherSpending,
           kind: "category",
           color: OTHER_COLOR,
         });
@@ -325,7 +351,7 @@ export async function buildMoneyFlow(
     addLink(
       addNode({
         id: "in:__reimb",
-        name: "Reimbursements",
+        name: labels.reimbursements,
         kind: "income",
         color: OTHER_COLOR,
       }),
@@ -430,7 +456,7 @@ export async function buildMoneyFlow(
         node.id,
         addNode({
           id: "cat:__left",
-          name: "Left in account",
+          name: labels.leftInAccount,
           kind: "category",
           color: OTHER_COLOR,
         }),
@@ -440,7 +466,7 @@ export async function buildMoneyFlow(
       addLink(
         addNode({
           id: "in:__balance",
-          name: "From balance",
+          name: labels.fromBalance,
           kind: "income",
           color: OTHER_COLOR,
         }),

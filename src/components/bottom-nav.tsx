@@ -26,8 +26,10 @@ import {
   SECONDARY_NAV as moreItems,
   useSessionUser,
 } from "@/components/nav-shared";
+import { useI18n } from "@/lib/i18n/client";
 
 export function BottomNav() {
+  const { t } = useI18n();
   const pathname = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -59,7 +61,7 @@ export function BottomNav() {
                 : pathname.startsWith(item.href);
             return (
               <Link
-                key={item.name}
+                key={item.href}
                 href={item.href}
                 className={cn(
                   "flex flex-1 flex-col items-center justify-center gap-0.5 min-w-0 min-h-[44px] transition-colors",
@@ -70,7 +72,7 @@ export function BottomNav() {
               >
                 <item.icon className="h-5 w-5" />
                 <span className="text-[10px] font-medium leading-none">
-                  {item.name}
+                  {t(item.labelKey)}
                 </span>
               </Link>
             );
@@ -83,7 +85,9 @@ export function BottomNav() {
             )}
           >
             <MoreHorizontal className="h-5 w-5" />
-            <span className="text-[10px] font-medium leading-none">More</span>
+            <span className="text-[10px] font-medium leading-none">
+              {t("nav.more")}
+            </span>
           </button>
         </div>
       </nav>
@@ -91,9 +95,9 @@ export function BottomNav() {
       <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
         <SheetContent>
           <SheetHeader>
-            <SheetTitle>More</SheetTitle>
+            <SheetTitle>{t("nav.more")}</SheetTitle>
             <SheetDescription className="sr-only">
-              Additional navigation options
+              {t("nav.moreDescription")}
             </SheetDescription>
           </SheetHeader>
           <div className="px-6 pb-8 pt-2 space-y-1">
@@ -104,7 +108,7 @@ export function BottomNav() {
                   : pathname.startsWith(item.href);
               return (
                 <Link
-                  key={item.name}
+                  key={item.href}
                   href={item.href}
                   onClick={() => setMoreOpen(false)}
                   className={cn(
@@ -115,7 +119,7 @@ export function BottomNav() {
                   )}
                 >
                   <item.icon className="h-5 w-5" />
-                  <span>{item.name}</span>
+                  <span>{t(item.labelKey)}</span>
                 </Link>
               );
             })}
@@ -131,7 +135,7 @@ export function BottomNav() {
               )}
             >
               <Settings className="h-5 w-5" />
-              <span>Settings</span>
+              <span>{t("nav.settings")}</span>
             </Link>
             {user && (
               <Link
@@ -145,7 +149,7 @@ export function BottomNav() {
                 )}
               >
                 <User className="h-5 w-5" />
-                <span>Profile</span>
+                <span>{t("nav.profile")}</span>
               </Link>
             )}
             <div className="border-t my-3" />
@@ -183,12 +187,12 @@ export function BottomNav() {
               )}
               <span>
                 {!mounted
-                  ? "Theme"
+                  ? t("theme.label")
                   : theme === "pink"
-                    ? "Pink Mode"
+                    ? t("theme.pinkMode")
                     : theme === "dark"
-                      ? "Dark Mode"
-                      : "Light Mode"}
+                      ? t("theme.darkMode")
+                      : t("theme.lightMode")}
               </span>
             </button>
             <button
@@ -196,7 +200,7 @@ export function BottomNav() {
               className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium text-foreground hover:bg-muted transition-colors min-h-[44px]"
             >
               <LogOut className="h-5 w-5" />
-              <span>Sign Out</span>
+              <span>{t("nav.logout")}</span>
             </button>
           </div>
         </SheetContent>

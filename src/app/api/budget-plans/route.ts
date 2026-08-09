@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { accounts, budgetPlans, budgets } from "@/db/schema";
-import { eq, and, asc, inArray, notInArray } from "drizzle-orm";
+import { eq, and, asc, inArray, isNull, notInArray } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
 import { BUDGETABLE_ACCOUNT_TYPES } from "@/lib/account-scope";
@@ -129,6 +129,17 @@ export async function POST(request: NextRequest) {
     if (accountError) {
       await db.delete(budgetPlans).where(eq(budgetPlans.id, id));
       return NextResponse.json({ error: accountError }, { status: 400 });
+    }
+
+    // The first plan adopts the user's pre-plan allocations. Users created
+    // after migration 0009 have no plan, so their budgets carry budget_id
+    // NULL — without this they'd vanish the moment a plan exists, since every
+    // plan-scoped view filters on budget_id and nothing can reattach them.
+    if (existing.length === 0) {
+      await db
+        .update(budgets)
+        .set({ budgetId: id })
+        .where(and(eq(budgets.userId, userId), isNull(budgets.budgetId)));
     }
 
     logDataEvent({

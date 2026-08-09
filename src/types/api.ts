@@ -1,3 +1,5 @@
+import type { Locale } from "@/lib/i18n";
+
 export interface Account {
   id: string;
   name: string;
@@ -360,6 +362,10 @@ export interface UserPreferencesData {
   hideInternalTransfers: boolean;
   /** Envelope-style: count transfers between budgets as spending/income in per-budget views. */
   countCrossBudgetTransfers: boolean;
+  /** UI language — see LOCALES in @/lib/i18n. */
+  locale: Locale;
+  /** Simple mode: hide advanced features on dashboard, budgets and insights. */
+  simpleMode: boolean;
 }
 
 /** A dated line in the sand after which averages start counting again. */

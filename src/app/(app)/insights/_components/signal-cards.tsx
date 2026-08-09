@@ -1,7 +1,7 @@
 "use client";
 
 import type { BudgetData, InsightsData } from "@/types/api";
-import { formatCurrency } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n/client";
 
 const TONES = {
   red: {
@@ -56,6 +56,7 @@ export function SignalCards({
   totalExpenses,
   onCategoryClick,
 }: SignalCardsProps) {
+  const { t, plural, formatCurrency } = useI18n();
   const signals: Signal[] = [];
 
   // 1. Where the total budget stands, and how much runway is left.
@@ -63,15 +64,18 @@ export function SignalCards({
     const pct = Math.round((budget.totalSpentThisMonth / budget.totalBudget) * 100);
     const diff = budget.totalSpentThisMonth - budget.totalBudget;
     const left = daysLeft(budget.month.to);
-    const leftLabel = left > 0 ? `, ${left} day${left === 1 ? "" : "s"} left` : "";
+    const leftLabel =
+      left > 0
+        ? plural(left, "insights.signal.daysLeftSuffix.one", "insights.signal.daysLeftSuffix.other")
+        : "";
     signals.push({
       key: "budget",
       tone: pct >= 100 ? "red" : pct >= 80 ? "amber" : "accent",
-      title: `${pct}% of budget spent`,
+      title: t("insights.signal.budgetSpent", { pct }),
       detail:
         diff > 0
-          ? `${formatCurrency(diff)} over${leftLabel}`
-          : `${formatCurrency(-diff)} left${leftLabel}`,
+          ? t("insights.signal.overBy", { amount: formatCurrency(diff), suffix: leftLabel })
+          : t("insights.signal.leftBy", { amount: formatCurrency(-diff), suffix: leftLabel }),
     });
   }
 
@@ -86,8 +90,13 @@ export function SignalCards({
     signals.push({
       key: "unbudgeted",
       tone: "amber",
-      title: `${topUnbudgeted.categoryName} has no budget`,
-      detail: `${formatCurrency(topUnbudgeted.spent)} untracked${txCount ? ` · ${txCount} tx` : ""}`,
+      title: t("insights.signal.noBudget", { name: topUnbudgeted.categoryName }),
+      detail: txCount
+        ? t("insights.signal.untrackedWithTx", {
+            amount: formatCurrency(topUnbudgeted.spent),
+            count: txCount,
+          })
+        : t("insights.signal.untracked", { amount: formatCurrency(topUnbudgeted.spent) }),
       onClick: () => onCategoryClick(topUnbudgeted.categoryId),
     });
   }
@@ -102,8 +111,11 @@ export function SignalCards({
       signals.push({
         key: "new",
         tone: "amber",
-        title: "New this month",
-        detail: `${fresh.categoryName} · +${formatCurrency(fresh.total)}`,
+        title: t("insights.signal.newThisMonth"),
+        detail: t("insights.signal.newDetail", {
+          name: fresh.categoryName ?? "",
+          amount: formatCurrency(fresh.total),
+        }),
         onClick: () => onCategoryClick(fresh.categoryId),
       });
     }
@@ -122,12 +134,19 @@ export function SignalCards({
       const singles = data.topMerchants
         .slice(0, count)
         .every((m) => m.count === 1);
-      const noun = singles ? "purchases" : "merchants";
       signals.push({
         key: "concentration",
         tone: "accent",
-        title: `${count} ${noun} = ${Math.round((running / totalExpenses) * 100)}% of spend`,
-        detail: `${formatCurrency(running)} in the top ${count}`,
+        title: t(
+          singles
+            ? "insights.signal.concentrationPurchases"
+            : "insights.signal.concentrationMerchants",
+          { count, pct: Math.round((running / totalExpenses) * 100) },
+        ),
+        detail: t("insights.signal.concentrationDetail", {
+          amount: formatCurrency(running),
+          count,
+        }),
       });
     }
   }

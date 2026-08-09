@@ -27,6 +27,7 @@ import { CategoryDialog } from "./_components/category-dialog";
 import { RuleDialog } from "./_components/rule-dialog";
 import { UncategorizedTransactions } from "./_components/uncategorized-transactions";
 import { CategoryRow } from "./_components/category-row";
+import { useI18n } from "@/lib/i18n/client";
 
 function SortableCategoryRow({
   category,
@@ -39,6 +40,7 @@ function SortableCategoryRow({
   categories: CategoryWithDetails[];
   onEdit: (category: CategoryWithDetails) => void;
 }) {
+  const { t } = useI18n();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: category.id });
 
@@ -60,7 +62,7 @@ function SortableCategoryRow({
         dragHandle={
           <button
             className="cursor-grab active:cursor-grabbing touch-none text-muted-foreground/50 focus-visible:ring-2 focus-visible:ring-ring rounded"
-            aria-label={`Reorder ${category.name}`}
+            aria-label={t("categories.reorderLabel", { name: category.name })}
             onClick={(e) => e.stopPropagation()}
             {...attributes}
             {...listeners}
@@ -74,6 +76,7 @@ function SortableCategoryRow({
 }
 
 export default function CategoriesPage() {
+  const { t } = useI18n();
   const { data: categories = [], isLoading: loading } = useCategories();
   const { data: rules = [] } = useCategoryRules();
   const reapplyRules = useReapplyCategoryRules();
@@ -150,10 +153,8 @@ export default function CategoriesPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Categories</h1>
-          <p className="text-muted-foreground">
-            Manage spending categories and auto-categorization rules.
-          </p>
+          <h1 className="text-3xl font-bold tracking-tight">{t("categories.title")}</h1>
+          <p className="text-muted-foreground">{t("categories.subtitle")}</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={handleReapplyRules} disabled={reapplyRules.isPending}>
@@ -163,13 +164,13 @@ export default function CategoriesPage() {
               <RefreshCw className="sm:mr-2 h-4 w-4" />
             )}
             <span className="hidden sm:inline">
-              {reapplyRules.isPending ? "Recalculating..." : "Recalculate All"}
+              {reapplyRules.isPending ? t("categories.recalculating") : t("categories.recalculate")}
             </span>
           </Button>
           <RuleDialog categories={categories} />
           <Button onClick={openCreateCategory}>
             <Plus className="sm:mr-2 h-4 w-4" />
-            <span className="hidden sm:inline">Add Category</span>
+            <span className="hidden sm:inline">{t("categories.add")}</span>
           </Button>
         </div>
       </div>
@@ -186,16 +187,21 @@ export default function CategoriesPage() {
           <div className="flex items-start sm:items-center gap-2 text-sm">
             <RefreshCw className="h-4 w-4 text-blue-500 dark:text-blue-400" />
             <span>
-              Recalculated: <strong>{reapplyResult.transactionsCategorized}</strong> of{" "}
-              <strong>{reapplyResult.totalTransactions}</strong> transactions categorized.
+              {t("categories.recalcResult", {
+                done: reapplyResult.transactionsCategorized,
+                total: reapplyResult.totalTransactions,
+              })}
               {reapplyResult.uncategorized > 0 && (
                 <span className="text-muted-foreground">
                   {" "}
-                  {reapplyResult.uncategorized} remaining without a matching rule.
+                  {t("categories.recalcRemaining", { count: reapplyResult.uncategorized })}
                 </span>
               )}
               {reapplyResult.uncategorized === 0 && (
-                <span className="text-green-600 dark:text-green-400"> All transactions matched.</span>
+                <span className="text-green-600 dark:text-green-400">
+                  {" "}
+                  {t("categories.recalcAllMatched")}
+                </span>
               )}
             </span>
           </div>
@@ -214,7 +220,9 @@ export default function CategoriesPage() {
 
       {/* Categories with Grouped Rules */}
       <div className="space-y-3">
-        <h2 className="text-lg font-semibold">Categories ({categories.length})</h2>
+        <h2 className="text-lg font-semibold">
+          {t("categories.heading", { count: categories.length })}
+        </h2>
         {loading ? (
           <div className="space-y-3">
             {[1, 2, 3].map((i) => (

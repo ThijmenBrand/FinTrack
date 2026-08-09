@@ -6,8 +6,10 @@ import { KeyRound } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
 import { MIN_PASSWORD_LENGTH } from "@/lib/validation";
+import { useI18n } from "@/lib/i18n/client";
 
 function ResetPasswordForm() {
+  const { t } = useI18n();
   const searchParams = useSearchParams();
   const router = useRouter();
   const token = searchParams.get("token");
@@ -24,7 +26,7 @@ function ResetPasswordForm() {
       return;
     }
     if (!token) {
-      setError("Invalid or missing reset token");
+      setError(t("auth.resetInvalidToken"));
       return;
     }
 
@@ -35,12 +37,12 @@ function ResetPasswordForm() {
         token,
       });
       if (result.error) {
-        setError(result.error.message || "Password reset failed");
+        setError(result.error.message || t("auth.resetFailed"));
         return;
       }
       router.push("/login");
     } catch {
-      setError("Something went wrong. Please try again.");
+      setError(t("auth.genericError"));
     } finally {
       setLoading(false);
     }
@@ -54,31 +56,28 @@ function ResetPasswordForm() {
             <KeyRound className="h-6 w-6" />
           </div>
           <h1 className="text-xl font-semibold tracking-tight text-foreground">
-            Reset password
+            {t("auth.resetTitle")}
           </h1>
-          <p className="text-sm text-muted-foreground">
-            Choose a new password
-          </p>
+          <p className="text-sm text-muted-foreground">{t("auth.resetSubtitle")}</p>
         </div>
 
         {!token ? (
           <div className="space-y-4 text-center">
             <p className="text-sm text-muted-foreground">
-              This reset link is invalid or has expired. Request a new one from
-              the forgot-password page.
+              {t("auth.resetInvalid")}
             </p>
             <Link
               href="/forgot-password"
               className="inline-flex h-10 w-full items-center justify-center rounded-md border border-input bg-background px-4 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground"
             >
-              Request new link
+              {t("auth.requestNewLink")}
             </Link>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <label htmlFor="password" className="text-sm font-medium leading-none text-foreground">
-                New password
+                {t("auth.newPassword")}
               </label>
               <input
                 id="password"
@@ -90,7 +89,7 @@ function ResetPasswordForm() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
+                placeholder={t("auth.passwordMinChars", { count: MIN_PASSWORD_LENGTH })}
               />
             </div>
 
@@ -101,7 +100,7 @@ function ResetPasswordForm() {
               disabled={loading}
               className="inline-flex h-10 w-full items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
             >
-              {loading ? "Resetting..." : "Reset password"}
+              {loading ? t("auth.resetting") : t("auth.resetPassword")}
             </button>
           </form>
         )}

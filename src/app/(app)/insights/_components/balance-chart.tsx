@@ -10,8 +10,9 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { BalanceTimelineData, StatResetData } from "@/types/api";
 import { Loader2 } from "lucide-react";
-import { formatCurrency, toIsoDate } from "@/lib/utils";
-import { formatResetDate } from "@/lib/stat-reset-marks";
+import { toIsoDate } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n/client";
+import type { I18n } from "@/lib/i18n/translate";
 
 function formatCurrencyShort(amount: number) {
   const abs = Math.abs(amount);
@@ -20,19 +21,12 @@ function formatCurrencyShort(amount: number) {
   return `€${amount.toFixed(0)}`;
 }
 
-function formatDate(iso: string) {
-  return new Date(iso + "T00:00:00").toLocaleDateString("en-US", {
+function formatFullDate(i18n: I18n, iso: string) {
+  return new Intl.DateTimeFormat(i18n.intlLocale, {
     month: "short",
     day: "numeric",
     year: "numeric",
-  });
-}
-
-function formatAxisDate(iso: string) {
-  return new Date(iso + "T00:00:00").toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-  });
+  }).format(new Date(iso + "T00:00:00"));
 }
 
 interface Point {
@@ -81,6 +75,8 @@ export function rangeViewStart(dates: string[], days: number | null): number {
 }
 
 export function BalanceChart({ data, isLoading, accountLabel, resets }: Props) {
+  const i18n = useI18n();
+  const { t, formatCurrency, formatDayMonth } = i18n;
   const gradId = useId();
   const clipId = useId();
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -141,7 +137,7 @@ export function BalanceChart({ data, isLoading, accountLabel, resets }: Props) {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between flex-wrap gap-2">
-            <CardTitle className="text-base">Balance over time</CardTitle>
+            <CardTitle className="text-base">{t("insights.balance.title")}</CardTitle>
             <span className="text-sm text-muted-foreground">{accountLabel}</span>
           </div>
         </CardHeader>
@@ -154,7 +150,7 @@ export function BalanceChart({ data, isLoading, accountLabel, resets }: Props) {
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             ) : (
               <p className="text-sm text-muted-foreground">
-                No balance data available.
+                {t("insights.balance.noData")}
               </p>
             )}
           </div>
@@ -370,11 +366,13 @@ export function BalanceChart({ data, isLoading, accountLabel, resets }: Props) {
       <CardHeader>
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div>
-            <CardTitle className="text-base">Balance over time</CardTitle>
+            <CardTitle className="text-base">{t("insights.balance.title")}</CardTitle>
             <p className="text-xs text-muted-foreground mt-1">{accountLabel}</p>
           </div>
           <div className="text-right">
-            <p className="text-xs text-muted-foreground">Current balance</p>
+            <p className="text-xs text-muted-foreground">
+              {t("insights.balance.currentBalance")}
+            </p>
             <p className="text-lg font-semibold">
               {formatCurrency(data!.currentBalance)}
             </p>
@@ -387,7 +385,7 @@ export function BalanceChart({ data, isLoading, accountLabel, resets }: Props) {
           <TabsList className="h-8">
             {RANGES.map((r) => (
               <TabsTrigger key={r.key} value={r.key} className="px-2.5 text-xs">
-                {r.key}
+                {r.key === "All" ? t("insights.balance.rangeAll") : r.key}
               </TabsTrigger>
             ))}
           </TabsList>
@@ -459,7 +457,7 @@ export function BalanceChart({ data, isLoading, accountLabel, resets }: Props) {
                   className="fill-muted-foreground"
                   fontSize={fontSize}
                 >
-                  {formatAxisDate(points[i].date)}
+                  {formatDayMonth(points[i].date)}
                 </text>
               );
             })}
@@ -511,8 +509,10 @@ export function BalanceChart({ data, isLoading, accountLabel, resets }: Props) {
                     }
                     fontSize="10"
                   >
-                    {r.isActive ? "Counting from " : "Reset "}
-                    {formatResetDate(r.date)}
+                    {r.isActive
+                      ? t("insights.reset.countingFrom")
+                      : t("insights.reset.reset")}
+                    {formatFullDate(i18n, r.date)}
                   </text>
                 </g>
               ))}
@@ -549,13 +549,15 @@ export function BalanceChart({ data, isLoading, accountLabel, resets }: Props) {
                 maxWidth: "180px",
               }}
             >
-              <div className="font-medium">{formatDate(hover.date)}</div>
+              <div className="font-medium">{formatFullDate(i18n, hover.date)}</div>
               <div className="flex items-center gap-1.5">
                 <span
                   className="h-1.5 w-1.5 rounded-full"
                   style={{ backgroundColor: colorHist }}
                 />
-                <span className="text-muted-foreground">Balance</span>
+                <span className="text-muted-foreground">
+                  {t("insights.balance.balanceLabel")}
+                </span>
                 <span className="ml-auto font-semibold">
                   {formatCurrency(hover.balance)}
                 </span>
@@ -569,14 +571,14 @@ export function BalanceChart({ data, isLoading, accountLabel, resets }: Props) {
                 <button
                   type="button"
                   onClick={() => selectRange("All")}
-                  aria-label="Reset chart zoom"
+                  aria-label={t("insights.balance.resetZoom")}
                   className="pointer-events-auto rounded-md border bg-background/90 px-2 py-1 text-[10px] font-medium text-muted-foreground shadow-sm backdrop-blur transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  Reset
+                  {t("insights.balance.resetShort")}
                 </button>
               ) : (
                 <span className="rounded-full bg-muted/70 px-2 py-0.5 text-[10px] text-muted-foreground">
-                  Pinch to zoom
+                  {t("insights.balance.pinchToZoom")}
                 </span>
               )}
             </div>

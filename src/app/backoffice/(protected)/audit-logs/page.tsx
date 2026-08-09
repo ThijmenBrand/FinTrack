@@ -14,6 +14,7 @@ import { useAuditLogs, useCleanupAuditLogs } from "@/hooks/use-audit-logs";
 import { useAdminUsers } from "@/hooks/use-admin";
 import type { AuditLogFilters, AuditLogEntry } from "@/types/api";
 import { ApiError } from "@/lib/api";
+import { useI18n } from "@/lib/i18n/client";
 
 const CATEGORY_COLORS: Record<string, string> = {
   auth: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
@@ -23,17 +24,6 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 function formatAction(action: string): string {
   return action.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-function formatDate(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }
 
 function DetailsCell({ details }: { details: Record<string, unknown> | null }) {
@@ -67,6 +57,7 @@ function DetailsCell({ details }: { details: Record<string, unknown> | null }) {
 }
 
 export default function AuditLogsPage() {
+  const { t, formatDateTime: formatDate } = useI18n();
   const router = useRouter();
   const [filters, setFilters] = useState<AuditLogFilters>({
     page: 1,
@@ -93,10 +84,8 @@ export default function AuditLogsPage() {
             <div className="flex items-center gap-3">
               <ScrollText className="h-6 w-6 text-primary" />
               <div>
-                <CardTitle>Audit Logs</CardTitle>
-                <CardDescription>
-                  Security events, data changes, and admin actions
-                </CardDescription>
+                <CardTitle>{t("backoffice.auditTitle")}</CardTitle>
+                <CardDescription>{t("backoffice.auditDescription")}</CardDescription>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -112,11 +101,11 @@ export default function AuditLogsPage() {
               className="flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
             >
               <Download className="h-3.5 w-3.5" />
-              Export CSV
+              {t("backoffice.auditExport")}
             </button>
             <button
               onClick={() => {
-                if (confirm("Delete audit logs older than 90 days?")) {
+                if (confirm(t("backoffice.auditConfirmPrune"))) {
                   cleanup.mutate();
                 }
               }}
@@ -124,7 +113,7 @@ export default function AuditLogsPage() {
               className="flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
             >
               <Trash2 className="h-3.5 w-3.5" />
-              Cleanup
+              {t("backoffice.auditCleanup")}
             </button>
             </div>
           </div>
@@ -135,10 +124,10 @@ export default function AuditLogsPage() {
             {/* Category tabs */}
             <div className="flex rounded-lg border overflow-hidden">
               {[
-                { label: "All", value: "" },
-                { label: "Auth", value: "auth" },
-                { label: "Data", value: "data" },
-                { label: "Admin", value: "admin" },
+                { label: t("backoffice.auditAll"), value: "" },
+                { label: t("backoffice.auditAuth"), value: "auth" },
+                { label: t("backoffice.auditData"), value: "data" },
+                { label: t("backoffice.auditAdmin"), value: "admin" },
               ].map((tab) => (
                 <button
                   key={tab.value}
@@ -172,7 +161,7 @@ export default function AuditLogsPage() {
               }
               className="rounded-lg border bg-background px-3 py-1.5 text-sm"
             >
-              <option value="">All users</option>
+              <option value="">{t("backoffice.auditAllUsers")}</option>
               {users.map((u) => (
                 <option key={u.id} value={u.id}>
                   {u.displayUsername || u.username}
@@ -192,7 +181,7 @@ export default function AuditLogsPage() {
                 }))
               }
               className="rounded-lg border bg-background px-3 py-1.5 text-sm"
-              placeholder="From"
+              placeholder={t("backoffice.auditFrom")}
             />
             <input
               type="date"
@@ -205,31 +194,31 @@ export default function AuditLogsPage() {
                 }))
               }
               className="rounded-lg border bg-background px-3 py-1.5 text-sm"
-              placeholder="To"
+              placeholder={t("backoffice.auditTo")}
             />
           </div>
 
           {/* Table */}
           {isLoading ? (
             <div className="py-12 text-center text-muted-foreground">
-              Loading audit logs...
+              {t("backoffice.auditLoading")}
             </div>
           ) : logs.length === 0 ? (
             <div className="py-12 text-center text-muted-foreground">
-              No audit logs found
+              {t("backoffice.auditEmpty")}
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b text-left text-muted-foreground">
-                    <th className="pb-2 pr-4 font-medium">Time</th>
-                    <th className="pb-2 pr-4 font-medium">User</th>
-                    <th className="pb-2 pr-4 font-medium">Category</th>
-                    <th className="pb-2 pr-4 font-medium">Action</th>
-                    <th className="pb-2 pr-4 font-medium">Target</th>
-                    <th className="pb-2 pr-4 font-medium">Details</th>
-                    <th className="pb-2 font-medium">IP</th>
+                    <th className="pb-2 pr-4 font-medium">{t("backoffice.auditColTime")}</th>
+                    <th className="pb-2 pr-4 font-medium">{t("backoffice.auditColUser")}</th>
+                    <th className="pb-2 pr-4 font-medium">{t("backoffice.auditColCategory")}</th>
+                    <th className="pb-2 pr-4 font-medium">{t("backoffice.auditColAction")}</th>
+                    <th className="pb-2 pr-4 font-medium">{t("backoffice.auditColTarget")}</th>
+                    <th className="pb-2 pr-4 font-medium">{t("backoffice.auditColDetails")}</th>
+                    <th className="pb-2 font-medium">{t("backoffice.auditColIp")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -243,7 +232,9 @@ export default function AuditLogsPage() {
                       </td>
                       <td className="py-2.5 pr-4 whitespace-nowrap">
                         {log.displayUsername || log.username || (
-                          <span className="text-muted-foreground italic">unknown</span>
+                          <span className="text-muted-foreground italic">
+                            {t("backoffice.auditUnknownUser")}
+                          </span>
                         )}
                       </td>
                       <td className="py-2.5 pr-4">
@@ -280,7 +271,11 @@ export default function AuditLogsPage() {
           {pagination && pagination.totalPages > 1 && (
             <div className="flex items-center justify-between pt-2">
               <span className="text-sm text-muted-foreground">
-                Page {pagination.page} of {pagination.totalPages} ({pagination.total} total)
+                {t("backoffice.auditPageOf", {
+                  page: pagination.page,
+                  total: pagination.totalPages,
+                  count: pagination.total,
+                })}
               </span>
               <div className="flex gap-2">
                 <button
@@ -291,7 +286,7 @@ export default function AuditLogsPage() {
                   className="flex items-center gap-1 rounded-lg border px-3 py-1.5 text-sm hover:bg-accent disabled:opacity-50"
                 >
                   <ChevronLeft className="h-3.5 w-3.5" />
-                  Previous
+                  {t("common.previous")}
                 </button>
                 <button
                   onClick={() =>
@@ -300,7 +295,7 @@ export default function AuditLogsPage() {
                   disabled={pagination.page >= pagination.totalPages}
                   className="flex items-center gap-1 rounded-lg border px-3 py-1.5 text-sm hover:bg-accent disabled:opacity-50"
                 >
-                  Next
+                  {t("common.next")}
                   <ChevronRight className="h-3.5 w-3.5" />
                 </button>
               </div>

@@ -34,6 +34,7 @@ import {
 import { useCategorizeTransaction, useUpdateTransactionNotes } from "@/hooks/use-transactions";
 import { MAX_NOTE_LENGTH, sanitizeNote } from "@/lib/validation";
 import type { Transaction, Category } from "@/types/api";
+import { useI18n } from "@/lib/i18n/client";
 
 export interface ContextMenuState {
   x: number;
@@ -67,6 +68,7 @@ export function TransactionContextMenu({
   onFilterByCategory,
   onFilterByName,
 }: TransactionContextMenuProps) {
+  const { t } = useI18n();
   const categorize = useCategorizeTransaction();
   const tx = menu?.tx;
 
@@ -82,24 +84,24 @@ export function TransactionContextMenu({
         <DropdownMenuContent align="start" sideOffset={0} className="w-52">
           <DropdownMenuItem onSelect={() => onAddNote(tx)}>
             <StickyNote />
-            {tx.notes ? "Edit note" : "Add note"}
+            {tx.notes ? t("tx.menu.editNote") : t("tx.menu.addNote")}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => onFilterByName(tx)}>
             <Search />
-            Filter by name & description
+            {t("tx.menu.filterByName")}
           </DropdownMenuItem>
           {tx.categoryId && (
             <DropdownMenuItem onSelect={() => onFilterByCategory(tx)}>
               <Filter />
-              Filter by category
+              {t("tx.menu.filterByCategory")}
             </DropdownMenuItem>
           )}
           <DropdownMenuSeparator />
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>
               <Tag />
-              Change category
+              {t("tx.menu.changeCategory")}
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent className="max-h-72 overflow-y-auto">
               {categories.map((c) => (
@@ -121,7 +123,7 @@ export function TransactionContextMenu({
                   <DropdownMenuItem
                     onSelect={() => categorize.mutate({ transactionId: tx.id, categoryId: null })}
                   >
-                    Remove category
+                    {t("tx.menu.removeCategory")}
                   </DropdownMenuItem>
                 </>
               )}
@@ -130,18 +132,20 @@ export function TransactionContextMenu({
           {!tx.groupId ? (
             <DropdownMenuItem onSelect={() => onAddToPot(tx)}>
               <Package />
-              Add to pot
+              {t("tx.row.addToPot")}
             </DropdownMenuItem>
           ) : (
             <DropdownMenuItem onSelect={() => onRemoveFromPot(tx)}>
               <Minus />
-              Remove from pot
+              {t("tx.row.removeFromPot")}
             </DropdownMenuItem>
           )}
           {(tx.type === "income" || tx.type === "reimbursement") && (
             <DropdownMenuItem onSelect={() => onReimburse(tx)}>
               <Receipt />
-              {tx.type === "reimbursement" ? "Link to expenses" : "Mark as reimbursement"}
+              {tx.type === "reimbursement"
+                ? t("tx.row.linkToExpenses")
+                : t("tx.row.markReimbursement")}
             </DropdownMenuItem>
           )}
           <DropdownMenuSeparator />
@@ -150,7 +154,7 @@ export function TransactionContextMenu({
             onSelect={() => onDelete(tx)}
           >
             <Trash2 />
-            Delete transaction
+            {t("tx.row.deleteTransaction")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       )}
@@ -165,6 +169,7 @@ interface TransactionNoteDialogProps {
 
 /** Minimal note editor dialog, opened from the context menu. */
 export function TransactionNoteDialog({ tx, onClose }: TransactionNoteDialogProps) {
+  const { t } = useI18n();
   const [draft, setDraft] = useState(tx.notes ?? "");
   const updateNotes = useUpdateTransactionNotes();
 
@@ -184,7 +189,7 @@ export function TransactionNoteDialog({ tx, onClose }: TransactionNoteDialogProp
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="truncate">
-            Note — {tx.name || tx.description}
+            {t("tx.note.title", { name: tx.name || tx.description })}
           </DialogTitle>
         </DialogHeader>
         <Textarea
@@ -199,11 +204,13 @@ export function TransactionNoteDialog({ tx, onClose }: TransactionNoteDialogProp
           }}
           maxLength={MAX_NOTE_LENGTH}
           rows={3}
-          placeholder="Add a note…"
+          placeholder={t("tx.note.placeholder")}
         />
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={save}>Save</Button>
+          <Button variant="outline" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+          <Button onClick={save}>{t("common.save")}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

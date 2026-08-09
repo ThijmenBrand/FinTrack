@@ -4,9 +4,9 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useReimburseTransaction } from "@/hooks/use-transactions";
-import { formatCurrency, formatDate } from "@/lib/utils";
 import { PickerDialog } from "@/components/picker-dialog";
 import { PickerRow } from "@/components/picker-row";
+import { useI18n } from "@/lib/i18n/client";
 
 interface ExpenseTransaction {
   id: string;
@@ -48,6 +48,7 @@ export function ReimbursementPicker({
   onSelect,
   localExpenses = [],
 }: ReimbursementPickerProps) {
+  const { t, formatCurrency, formatDate } = useI18n();
   const [linkingId, setLinkingId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -143,25 +144,26 @@ export function ReimbursementPicker({
     <PickerDialog
       open={open}
       onOpenChange={onOpenChange}
-      title="Mark as Reimbursement"
-      description={
-        <>
-          Select the expense that &quot;{transactionDescription}&quot; ({formatCurrency(transactionAmount)}) reimburses.
-        </>
-      }
+      title={t("reimburse.title")}
+      description={t("reimburse.description", {
+        description: transactionDescription,
+        amount: formatCurrency(transactionAmount),
+      })}
       search={search}
       onSearchChange={setSearch}
-      searchPlaceholder="Search expenses..."
+      searchPlaceholder={t("reimburse.searchPlaceholder")}
       loading={loading}
       isEmpty={expenses.length === 0 && localMatches.length === 0}
-      emptyMessage={debouncedSearch ? "No matching expenses found." : "No recent expenses in this account."}
+      emptyMessage={
+        debouncedSearch ? t("reimburse.noMatching") : t("reimburse.noRecent")
+      }
     >
       {localMatches.length > 0 && (
-        <p className="text-xs font-medium text-muted-foreground px-1 pt-1">From this import</p>
+        <p className="text-xs font-medium text-muted-foreground px-1 pt-1">{t("reimburse.fromThisImport")}</p>
       )}
       {localMatches.map(renderExpenseRow)}
       {expenses.length > 0 && localMatches.length > 0 && (
-        <p className="text-xs font-medium text-muted-foreground px-1 pt-2">Already recorded</p>
+        <p className="text-xs font-medium text-muted-foreground px-1 pt-2">{t("reimburse.alreadyRecorded")}</p>
       )}
       {expenses.map(renderExpenseRow)}
     </PickerDialog>

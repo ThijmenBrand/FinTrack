@@ -1,3 +1,4 @@
+import { getI18n } from "@/lib/i18n/server";
 import { cache } from "react";
 import { db } from "@/db";
 import {
@@ -212,6 +213,7 @@ async function getPotSpendByCategory(
     )
     .groupBy(transactionGroups.id, transactionGroups.categoryId);
 
+  const { t } = await getI18n();
   const byCategory = new Map<string, CategorySpend>();
   for (const r of rows) {
     const key = r.categoryId ?? "";
@@ -222,7 +224,7 @@ async function getPotSpendByCategory(
     }
     byCategory.set(key, {
       categoryId: r.categoryId,
-      categoryName: r.categoryId ? r.categoryName : "Into pots",
+      categoryName: r.categoryId ? r.categoryName : t("dashboard.intoPots"),
       categoryColor: r.categoryColor,
       categoryIcon: r.categoryId ? r.categoryIcon : "PiggyBank",
       spent: Number(r.total) || 0,
@@ -974,6 +976,7 @@ export async function getTopCategories(userId: string, startDay: number = 1) {
     getUserPlans(userId),
   ]);
 
+  const { t } = await getI18n();
   const planNameById = new Map(plans.map((p) => [p.id, p.name]));
   const byCategory = new Map<
     string,
@@ -989,14 +992,14 @@ export async function getTopCategories(userId: string, startDay: number = 1) {
     const key = r.categoryId ?? "";
     const entry = byCategory.get(key) ?? {
       categoryId: r.categoryId,
-      name: r.categoryName || "Uncategorized",
+      name: r.categoryName || t("common.uncategorized"),
       color: r.categoryColor || "#94a3b8",
       total: 0,
       byBudget: new Map<string, number>(),
     };
     const amount = Number(r.total) || 0;
     entry.total += amount;
-    const budgetLabel = (r.budgetId && planNameById.get(r.budgetId)) || "No budget";
+    const budgetLabel = (r.budgetId && planNameById.get(r.budgetId)) || t("dashboard.noBudget");
     entry.byBudget.set(budgetLabel, (entry.byBudget.get(budgetLabel) ?? 0) + amount);
     byCategory.set(key, entry);
   }

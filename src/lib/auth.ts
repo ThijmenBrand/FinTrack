@@ -93,6 +93,13 @@ export const auth = betterAuth({
       "/forget-password": { window: 60, max: 3 },
       "/request-password-reset": { window: 60, max: 3 },
       "/reset-password": { window: 60, max: 5 },
+      // A TOTP code is 6 digits and stays valid for ~30s. Without a rule of
+      // its own the verify endpoints fall back to the global 100/min, which
+      // is enough attempts to be worth trying — these are the second factor,
+      // so the password is already assumed known.
+      "/two-factor/verify-totp": { window: 60, max: 5 },
+      "/two-factor/verify-otp": { window: 60, max: 5 },
+      "/two-factor/verify-backup-code": { window: 60, max: 5 },
     },
   },
   session: {

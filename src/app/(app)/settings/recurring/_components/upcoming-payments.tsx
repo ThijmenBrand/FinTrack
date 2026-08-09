@@ -2,20 +2,18 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CalendarClock } from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
 import type { ForecastData } from "@/types/api";
-import { formatDayMonth, relativeDay } from "./dates";
+import { relativeDay } from "./dates";
+import { useI18n } from "@/lib/i18n/client";
+import type { I18n } from "@/lib/i18n/translate";
 
-const MONTH_LABELS = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December",
-];
-
-function monthLabel(iso: string): string {
+/** "August", or "August 2027" once the year stops being the obvious one. */
+function monthLabel(i18n: I18n, iso: string): string {
   const [y, m] = iso.slice(0, 10).split("-").map(Number);
-  const now = new Date();
-  const label = MONTH_LABELS[m - 1];
-  return y === now.getFullYear() ? label : `${label} ${y}`;
+  const date = new Date(y, m - 1, 1);
+  return y === new Date().getFullYear()
+    ? new Intl.DateTimeFormat(i18n.intlLocale, { month: "long" }).format(date)
+    : i18n.formatMonthYear(date);
 }
 
 export function UpcomingPayments({
@@ -23,14 +21,16 @@ export function UpcomingPayments({
 }: {
   payments: ForecastData["upcomingPayments"];
 }) {
+  const i18n = useI18n();
+  const { t, plural, formatCurrency, formatDayMonth } = i18n;
   return (
     <Card>
       <CardHeader className="pb-4">
-        <CardTitle className="text-base">Upcoming</CardTitle>
+        <CardTitle className="text-base">{t("recurring.upcomingTitle")}</CardTitle>
         <CardDescription>
           {payments.length === 0
-            ? "Nothing scheduled"
-            : `Next ${payments.length} payment${payments.length === 1 ? "" : "s"}`}
+            ? t("recurring.nothingScheduled")
+            : plural(payments.length, "recurring.nextPayments.one", "recurring.nextPayments.other")}
         </CardDescription>
       </CardHeader>
       <CardContent className="px-0 sm:px-6">
@@ -38,8 +38,7 @@ export function UpcomingPayments({
           <div className="flex flex-col items-center px-6 py-10 text-center">
             <CalendarClock className="mb-3 h-9 w-9 text-muted-foreground/30" />
             <p className="max-w-xs text-sm text-muted-foreground">
-              Nothing scheduled in the forecast window. Active recurring plans and pots with a
-              target date show up here.
+              {t("recurring.upcomingEmpty")}
             </p>
           </div>
         ) : (
@@ -48,14 +47,14 @@ export function UpcomingPayments({
               // A month heading appears the first time a month shows up —
               // read off the previous row rather than a running variable.
               const newMonth = p.date.slice(0, 7) !== payments[i - 1]?.date.slice(0, 7);
-              const soon = relativeDay(p.date);
+              const soon = relativeDay(t, p.date);
               const isIncome = p.type === "income";
 
               return (
                 <li key={i}>
                   {newMonth && (
                     <div className="bg-muted/40 px-4 py-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      {monthLabel(p.date)}
+                      {monthLabel(i18n, p.date)}
                     </div>
                   )}
                   <div className="flex items-center gap-3 px-4 py-2.5">

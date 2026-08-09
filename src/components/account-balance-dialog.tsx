@@ -19,17 +19,19 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { BankLogo } from "@/components/bank-logo";
 import { PotSaldoGraph } from "@/components/pot-saldo-graph";
 import { useBalanceTimeline } from "@/hooks/use-insights";
-import { formatCurrency, toIsoDate } from "@/lib/utils";
+import { toIsoDate } from "@/lib/utils";
 import type { Account } from "@/types/api";
+import { useI18n } from "@/lib/i18n/client";
+import type { MessageKey } from "@/lib/i18n/translate";
 
 // ponytail: fixed month presets, no "all time" — the API walks day by day, so an
 // unbounded start would build thousands of points. Add a custom range if asked.
-const RANGES = [
-  { value: "1", label: "Last month" },
-  { value: "3", label: "Last 3 months" },
-  { value: "6", label: "Last 6 months" },
-  { value: "12", label: "Last year" },
-  { value: "24", label: "Last 2 years" },
+const RANGES: { value: string; labelKey: MessageKey }[] = [
+  { value: "1", labelKey: "accountBalance.range1" },
+  { value: "3", labelKey: "accountBalance.range3" },
+  { value: "6", labelKey: "accountBalance.range6" },
+  { value: "12", labelKey: "accountBalance.range12" },
+  { value: "24", labelKey: "accountBalance.range24" },
 ];
 
 function monthsAgo(n: number): string {
@@ -39,6 +41,7 @@ function monthsAgo(n: number): string {
 }
 
 function Body({ account }: { account: Account }) {
+  const { t, formatCurrency } = useI18n();
   const [months, setMonths] = useState("6");
   const { data, isLoading } = useBalanceTimeline({
     accountId: account.id,
@@ -59,7 +62,7 @@ function Body({ account }: { account: Account }) {
           <div className="min-w-0 text-left">
             <DialogTitle className="truncate">{account.name}</DialogTitle>
             <DialogDescription>
-              {account.bankName || "No bank"}
+              {account.bankName || t("accounts.noBank")}
             </DialogDescription>
           </div>
         </div>
@@ -67,7 +70,7 @@ function Body({ account }: { account: Account }) {
 
       <div className="flex items-end justify-between gap-4">
         <div>
-          <p className="text-xs text-muted-foreground">Current balance</p>
+          <p className="text-xs text-muted-foreground">{t("accountBalance.currentBalance")}</p>
           <p className="text-2xl font-bold tabular-nums tracking-tight">
             {formatCurrency(account.currentBalance, account.currency)}
           </p>
@@ -79,19 +82,20 @@ function Body({ account }: { account: Account }) {
                   : "text-red-500 dark:text-red-400"
               }`}
             >
-              {change >= 0 ? "+" : ""}
-              {formatCurrency(change, account.currency)} over this range
+              {t("accountBalance.overRange", {
+                amount: `${change >= 0 ? "+" : ""}${formatCurrency(change, account.currency)}`,
+              })}
             </p>
           )}
         </div>
         <Select value={months} onValueChange={setMonths}>
-          <SelectTrigger className="w-[160px]" aria-label="Time range">
+          <SelectTrigger className="w-[160px]" aria-label={t("accountBalance.timeRange")}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             {RANGES.map((r) => (
               <SelectItem key={r.value} value={r.value}>
-                {r.label}
+                {t(r.labelKey)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -104,8 +108,8 @@ function Body({ account }: { account: Account }) {
         <PotSaldoGraph
           series={series}
           showPoints={false}
-          ariaLabel={`Balance over time for ${account.name}`}
-          emptyMessage="No transactions in this range."
+          ariaLabel={t("accountBalance.chartAria", { name: account.name })}
+          emptyMessage={t("accountBalance.empty")}
         />
       )}
     </>

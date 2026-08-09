@@ -81,6 +81,8 @@ describe("run-migrations pipeline", () => {
     // post-baseline migrations applied, and a column missing.
     await client.execute("DROP TABLE __drizzle_migrations");
     await client.execute("ALTER TABLE user_preferences DROP COLUMN hide_internal_transfers");
+    await client.execute("ALTER TABLE user_preferences DROP COLUMN locale");
+    await client.execute("ALTER TABLE user_preferences DROP COLUMN simple_mode");
     await client.execute("ALTER TABLE transaction_groups DROP COLUMN archived_at");
     await client.execute("ALTER TABLE accounts DROP COLUMN bank");
     await client.execute("ALTER TABLE categories DROP COLUMN sort_order");
@@ -97,9 +99,9 @@ describe("run-migrations pipeline", () => {
     await client.execute("DROP TABLE budget_plans");
     expect(await columnNames("user_preferences")).not.toContain("hide_internal_transfers");
 
-    // Pre-0009 data for the backfill: a checking and a savings account plus a
-    // budget row. 0009 must create a Main plan owning the checking account and
-    // the budget row, and leave savings unassigned.
+    // Pre-0009 data for the backfill: checking, joint and savings accounts
+    // plus a budget row. 0009 must create a Main plan owning the two budgetable
+    // accounts and the budget row, and leave savings unassigned.
     const [{ id: seededUserId }] = (
       await client.execute('SELECT id FROM "user" LIMIT 1')
     ).rows as unknown as { id: string }[];
@@ -107,8 +109,13 @@ describe("run-migrations pipeline", () => {
     await client.execute({
       sql: `INSERT INTO accounts (id, user_id, name, type, currency, initial_balance, sort_order, created_at, updated_at)
             VALUES ('mig-check', ?, 'Checking', 'checking', 'EUR', 0, 0, ?, ?),
-                   ('mig-save', ?, 'Savings', 'savings', 'EUR', 0, 1, ?, ?)`,
-      args: [seededUserId, nowIso, nowIso, seededUserId, nowIso, nowIso],
+                   ('mig-joint', ?, 'Joint', 'joint', 'EUR', 0, 1, ?, ?),
+                   ('mig-save', ?, 'Savings', 'savings', 'EUR', 0, 2, ?, ?)`,
+      args: [
+        seededUserId, nowIso, nowIso,
+        seededUserId, nowIso, nowIso,
+        seededUserId, nowIso, nowIso,
+      ],
     });
     await client.execute({
       sql: `INSERT INTO categories (id, user_id, name, created_at) VALUES ('mig-cat', ?, 'Migration Test Cat', ?)`,
@@ -123,8 +130,8 @@ describe("run-migrations pipeline", () => {
     // Must not error on the existing tables (no "table already exists").
     await expect(runMigrations()).resolves.not.toThrow();
 
-    // 0009 backfill: one Main plan per user with data, checking attached,
-    // savings not, and the legacy budget row adopted into the plan.
+    // 0009 backfill: one Main plan per user with data, the budgetable accounts
+    // attached, savings not, and the legacy budget row adopted into the plan.
     const plansRows = (
       await client.execute({
         sql: "SELECT id, name, is_main FROM budget_plans WHERE user_id = ?",
@@ -136,10 +143,13 @@ describe("run-migrations pipeline", () => {
     expect(Number(plansRows[0].is_main)).toBe(1);
     const acctRows = (
       await client.execute(
-        "SELECT id, budget_id FROM accounts WHERE id IN ('mig-check', 'mig-save')",
+        "SELECT id, budget_id FROM accounts WHERE id IN ('mig-check', 'mig-joint', 'mig-save')",
       )
     ).rows as unknown as { id: string; budget_id: string | null }[];
     expect(acctRows.find((r) => r.id === "mig-check")?.budget_id).toBe(plansRows[0].id);
+    // Joint accounts are budgetable (BUDGETABLE_ACCOUNT_TYPES) — leaving them
+    // out gave joint-only users an empty Main plan reading €0 spent.
+    expect(acctRows.find((r) => r.id === "mig-joint")?.budget_id).toBe(plansRows[0].id);
     expect(acctRows.find((r) => r.id === "mig-save")?.budget_id).toBeNull();
     const budgetRow = (
       await client.execute("SELECT budget_id FROM budgets WHERE id = 'mig-budget'")

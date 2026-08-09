@@ -15,6 +15,7 @@ import { Loader2 } from "lucide-react";
 import { useUpdatePot } from "@/hooks/use-pots";
 import { PotForm, isPotTargetValid, NO_CATEGORY } from "@/components/pot-form";
 import type { Category, Pot } from "@/types/api";
+import { useI18n } from "@/lib/i18n/client";
 
 interface EditPotDialogProps {
   open: boolean;
@@ -31,6 +32,7 @@ export function EditPotDialog({
   pot,
   onSaved,
 }: EditPotDialogProps) {
+  const { t, formatCurrency } = useI18n();
   const [name, setName] = useState("");
   const [categoryId, setCategoryId] = useState<string>(NO_CATEGORY);
   const [hasTarget, setHasTarget] = useState(false);
@@ -82,10 +84,8 @@ export function EditPotDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Edit Pot</DialogTitle>
-          <DialogDescription>
-            Rename, recategorise, or set a target so this pot becomes a planned spike.
-          </DialogDescription>
+          <DialogTitle>{t("pots.edit.title")}</DialogTitle>
+          <DialogDescription>{t("pots.edit.description")}</DialogDescription>
         </DialogHeader>
 
         <PotForm
@@ -103,23 +103,25 @@ export function EditPotDialog({
           onTargetDateChange={setTargetDate}
           noCategoryOption={
             <SelectItem value={NO_CATEGORY}>
-              <span className="text-muted-foreground">No category</span>
+              <span className="text-muted-foreground">{t("pots.edit.noCategory")}</span>
             </SelectItem>
           }
-          spikeHint="Clearing this resets the funded amount."
+          spikeHint={t("pots.edit.spikeHint")}
           onEnterSubmit={handleSave}
         />
 
         {pot && pot.targetAmount != null && hasTarget && (
           <p className="text-xs text-muted-foreground">
-            Funded so far: €{(pot.fundedAmount ?? 0).toFixed(2)} / €
-            {pot.targetAmount.toFixed(2)}
+            {t("pots.edit.fundedSoFar", {
+              funded: formatCurrency(pot.fundedAmount ?? 0),
+              target: formatCurrency(pot.targetAmount),
+            })}
           </p>
         )}
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button
             onClick={handleSave}
@@ -128,7 +130,7 @@ export function EditPotDialog({
             {updatePot.isPending && (
               <Loader2 className="h-4 w-4 animate-spin mr-2" />
             )}
-            Save changes
+            {t("pots.edit.saveChanges")}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { formatCurrency } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n/client";
 
 export interface SaldoPoint {
   date: string; // YYYY-MM-DD or ISO
@@ -57,11 +58,12 @@ export function PotSaldoGraph({
   target,
   today,
   lineColor,
-  ariaLabel = "Saldo over time",
+  ariaLabel,
   showPoints = true,
-  emptyMessage = "Not enough data yet — start allocating or link a transaction.",
+  emptyMessage,
   height = 220,
 }: PotSaldoGraphProps) {
+  const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
   const [hoverX, setHoverX] = useState<number | null>(null);
   const [width, setWidth] = useState(640);
@@ -147,7 +149,7 @@ export function PotSaldoGraph({
         style={{ height }}
         className="w-full flex items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground"
       >
-        {emptyMessage}
+        {emptyMessage ?? t("saldoGraph.emptyDefault")}
       </div>
     );
   }
@@ -184,7 +186,7 @@ export function PotSaldoGraph({
         width={width}
         height={height}
         role="img"
-        aria-label={ariaLabel}
+        aria-label={ariaLabel ?? t("saldoGraph.ariaDefault")}
         className="select-none w-full"
       >
         {/* Y grid lines + labels */}

@@ -14,6 +14,7 @@ import {
   ChevronDown,
   Check,
 } from "lucide-react";
+import { useI18n } from "@/lib/i18n/client";
 
 /** Sort direction indicator, shared by the sortable column headers and the dropdown. */
 export function SortArrow({
@@ -34,6 +35,7 @@ export function SortArrow({
 
 export function HeaderFilterDropdown({
   label,
+  allLabel,
   options,
   value,
   onChange,
@@ -44,6 +46,8 @@ export function HeaderFilterDropdown({
   onSort,
 }: {
   label: string;
+  /** "All accounts" etc — passed in because it can't be built from `label`. */
+  allLabel: string;
   options: { value: string; label: string; color?: string | null }[];
   // string = single-select; string[] = multi-select (empty array means "all").
   // In multi mode onChange("all") clears; onChange(optValue) toggles that value.
@@ -55,6 +59,7 @@ export function HeaderFilterDropdown({
   sortOrder?: "asc" | "desc";
   onSort?: (col: string) => void;
 }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [filterText, setFilterText] = useState("");
   const multiple = Array.isArray(value);
@@ -96,7 +101,7 @@ export function HeaderFilterDropdown({
         <PopoverContent align="start" className="w-56 p-0">
           <div className="p-2 border-b">
             <Input
-              placeholder={`Filter ${label.toLowerCase()}...`}
+              placeholder={t("tx.table.filterPlaceholder", { what: label.toLowerCase() })}
               value={filterText}
               onChange={(e) => setFilterText(e.target.value)}
               className="h-7 text-xs"
@@ -113,7 +118,7 @@ export function HeaderFilterDropdown({
               <span className="w-4 h-4 flex items-center justify-center">
                 {!isFiltered && <Check className="h-3 w-3" />}
               </span>
-              All {label}s
+              {allLabel}
             </button>
             {filtered.map((opt) => (
               <button
@@ -136,7 +141,9 @@ export function HeaderFilterDropdown({
               </button>
             ))}
             {filtered.length === 0 && (
-              <p className="text-xs text-muted-foreground px-2 py-3 text-center">No matches</p>
+              <p className="text-xs text-muted-foreground px-2 py-3 text-center">
+                {t("tx.table.noMatches")}
+              </p>
             )}
           </div>
         </PopoverContent>

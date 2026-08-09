@@ -3,16 +3,17 @@
 import { Button } from "@/components/ui/button";
 import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
 import { Pause, Pencil, Play } from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
 import { toMonthly } from "@/lib/recurring";
 import type { RecurringTx } from "@/types/api";
-import { formatDayMonth, relativeDay } from "./dates";
+import { relativeDay } from "./dates";
+import { useI18n } from "@/lib/i18n/client";
+import type { MessageKey } from "@/lib/i18n/translate";
 
-export const FREQ_LABELS: Record<string, string> = {
-  weekly: "Weekly",
-  biweekly: "Bi-weekly",
-  monthly: "Monthly",
-  yearly: "Yearly",
+export const FREQ_LABEL_KEYS: Record<string, MessageKey> = {
+  weekly: "recurring.freq.weekly",
+  biweekly: "recurring.freq.biweekly",
+  monthly: "recurring.freq.monthly",
+  yearly: "recurring.freq.yearly",
 };
 
 // One column template for every row in the list. The trailing tracks are fixed
@@ -39,9 +40,10 @@ export function RecurringItem({
   onDelete: (id: string) => void;
   onToggle: (item: RecurringTx) => void;
 }) {
+  const { t, formatCurrency, formatDayMonth } = useI18n();
   const isIncome = item.type === "income";
   const monthly = toMonthly(item.amount, item.frequency);
-  const soon = item.nextOccurrence ? relativeDay(item.nextOccurrence) : null;
+  const soon = item.nextOccurrence ? relativeDay(t, item.nextOccurrence) : null;
 
   return (
     <li className={`group transition-colors hover:bg-muted/50 ${ROW_GRID}`}>
@@ -59,17 +61,17 @@ export function RecurringItem({
           </span>
           {!item.isActive && (
             <span className="shrink-0 rounded border px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-              Paused
+              {t("recurring.paused")}
             </span>
           )}
         </div>
         {/* Frequency and next date first: on a phone the line has room for
             little else, and the trailing detail is what can safely truncate. */}
         <div className="truncate text-xs text-muted-foreground">
-          {FREQ_LABELS[item.frequency] ?? item.frequency}
+          {FREQ_LABEL_KEYS[item.frequency] ? t(FREQ_LABEL_KEYS[item.frequency]) : item.frequency}
           {item.nextOccurrence && (
             <>
-              {" · next "}
+              {` · ${t("recurring.next")} `}
               <span className="text-foreground/70">{formatDayMonth(item.nextOccurrence)}</span>
               {soon && <span className="hidden sm:inline"> ({soon})</span>}
             </>
@@ -98,7 +100,8 @@ export function RecurringItem({
             with the monthly total in the section header above it. */}
         {item.frequency !== "monthly" && (
           <div className="whitespace-nowrap text-xs text-muted-foreground">
-            ≈ {formatCurrency(monthly)}/mo
+            ≈ {formatCurrency(monthly)}
+            {t("recurring.perMonthShort")}
           </div>
         )}
       </div>
@@ -113,8 +116,12 @@ export function RecurringItem({
           size="icon"
           className="h-7 w-7"
           onClick={() => onToggle(item)}
-          aria-label={item.isActive ? `Pause ${item.description}` : `Resume ${item.description}`}
-          title={item.isActive ? "Pause" : "Resume"}
+          aria-label={
+            item.isActive
+              ? t("recurring.pauseLabel", { name: item.description })
+              : t("recurring.resumeLabel", { name: item.description })
+          }
+          title={item.isActive ? t("recurring.pause") : t("recurring.resume")}
         >
           {item.isActive ? (
             <Pause className="h-3.5 w-3.5" />
@@ -127,13 +134,13 @@ export function RecurringItem({
           size="icon"
           className="h-7 w-7"
           onClick={() => onEdit(item)}
-          aria-label={`Edit ${item.description}`}
+          aria-label={t("recurring.editLabel", { name: item.description })}
         >
           <Pencil className="h-3.5 w-3.5" />
         </Button>
         <ConfirmDeleteButton
           onConfirm={() => onDelete(item.id)}
-          label={`Delete ${item.description}`}
+          label={t("recurring.deleteLabel", { name: item.description })}
         />
       </div>
     </li>

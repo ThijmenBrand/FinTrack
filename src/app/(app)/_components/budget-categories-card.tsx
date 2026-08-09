@@ -21,8 +21,15 @@ import {
 import { TransactionsFilterLink } from "@/components/transactions-filter-link";
 import { apiFetch } from "@/lib/api";
 import { getFinancialMonthRange } from "@/lib/financial-month";
-import { formatCurrency } from "@/lib/utils";
 import type { BudgetOverview } from "../_lib/dashboard-queries";
+import { useI18n } from "@/lib/i18n/client";
+import type { MessageKey } from "@/lib/i18n/translate";
+
+const PERIOD_LABEL_KEYS: Record<string, MessageKey> = {
+  weekly: "budgets.period.weekly",
+  monthly: "budgets.period.monthly",
+  yearly: "budgets.period.yearly",
+};
 
 // Mobile stacks each row onto two lines — name · delta, then bar · spent/budget.
 // The trailing columns are fixed widths on desktop so the bars line up instead
@@ -52,6 +59,7 @@ export function BudgetCategoriesCard({
   plans,
   startDay,
 }: BudgetCategoriesCardProps) {
+  const { t, formatCurrency } = useI18n();
   const initialPlanId = initialData.plan?.id ?? null;
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(initialPlanId);
   const viewingOther = selectedPlanId !== null && selectedPlanId !== initialPlanId;
@@ -60,7 +68,7 @@ export function BudgetCategoriesCard({
     queryKey: ["dashboard-budget-overview", selectedPlanId],
     queryFn: () =>
       apiFetch<BudgetOverview>(
-        `/api/dashboard/budget-overview?budgetId=${selectedPlanId}`,
+        `/api/dashboard/budget-overview?budgetId=${encodeURIComponent(selectedPlanId ?? "")}`,
       ),
     enabled: viewingOther,
   });
@@ -83,7 +91,7 @@ export function BudgetCategoriesCard({
     >
       <SelectTrigger
         className="h-7 w-auto gap-1.5 border-none bg-transparent px-2 text-sm font-medium shadow-none hover:bg-muted/60"
-        aria-label="Budget shown in this card"
+        aria-label={t("dashboard.budgetCard.switcherLabel")}
       >
         <SelectValue />
       </SelectTrigger>
@@ -95,7 +103,7 @@ export function BudgetCategoriesCard({
               {p.isMain && (
                 <Star
                   className="h-3 w-3 fill-current text-amber-500"
-                  aria-label="Main budget"
+                  aria-label={t("dashboard.budgetCard.mainBudgetStar")}
                 />
               )}
             </span>
@@ -106,7 +114,12 @@ export function BudgetCategoriesCard({
   );
 
   const planLabel = selectedPlan
-    ? `${selectedPlan.name}${selectedPlan.isMain ? " · main budget" : " budget"}`
+    ? t(
+        selectedPlan.isMain
+          ? "dashboard.budgetCard.planMain"
+          : "dashboard.budgetCard.planOther",
+        { name: selectedPlan.name },
+      )
     : null;
 
   if (!data || (viewingOther && switching)) {
@@ -115,14 +128,15 @@ export function BudgetCategoriesCard({
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <CardTitle>Left per category</CardTitle>
+              <CardTitle>{t("dashboard.budgetCard.title")}</CardTitle>
               {switcher}
             </div>
             <Link
               href="/budgets"
               className="text-xs text-primary hover:underline flex items-center gap-0.5"
             >
-              Manage <ArrowRight className="h-3 w-3" aria-hidden="true" />
+              {t("dashboard.budgetCard.manage")}{" "}
+              <ArrowRight className="h-3 w-3" aria-hidden="true" />
             </Link>
           </div>
         </CardHeader>
@@ -145,7 +159,7 @@ export function BudgetCategoriesCard({
         <CardHeader>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <CardTitle>Budgets</CardTitle>
+              <CardTitle>{t("dashboard.budgetCard.emptyTitle")}</CardTitle>
               {switcher}
             </div>
           </div>
@@ -154,25 +168,15 @@ export function BudgetCategoriesCard({
           <div className="flex flex-col items-center justify-center py-8 text-center">
             <PiggyBank className="h-10 w-10 text-muted-foreground/30 mb-3" />
             <p className="text-sm text-muted-foreground max-w-sm">
-              {selectedPlan ? (
-                <>
-                  No category budgets in {selectedPlan.name} yet. Give each
-                  spending category a budget and this card shows exactly how
-                  much you have left.
-                </>
-              ) : (
-                <>
-                  Give each spending category a budget and this card shows
-                  exactly how much you have left for groceries, dining out, and
-                  the rest.
-                </>
-              )}
+              {selectedPlan
+                ? t("dashboard.budgetCard.emptyPlan", { name: selectedPlan.name })
+                : t("dashboard.budgetCard.emptyGeneric")}
             </p>
             <Link
               href="/budgets"
               className="mt-3 text-sm text-primary hover:underline"
             >
-              Set up budgets
+              {t("dashboard.budgetCard.setUp")}
             </Link>
           </div>
         </CardContent>
@@ -185,19 +189,20 @@ export function BudgetCategoriesCard({
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <CardTitle>Left per category</CardTitle>
+            <CardTitle>{t("dashboard.budgetCard.title")}</CardTitle>
             {switcher}
           </div>
           <Link
             href="/budgets"
             className="text-xs text-primary hover:underline flex items-center gap-0.5"
           >
-            Manage <ArrowRight className="h-3 w-3" aria-hidden="true" />
+            {t("dashboard.budgetCard.manage")}{" "}
+            <ArrowRight className="h-3 w-3" aria-hidden="true" />
           </Link>
         </div>
         <CardDescription>
           {planLabel && <>{planLabel} &middot; </>}
-          The tick on each bar is today, {pacePct}% through the period
+          {t("dashboard.budgetCard.paceHint", { pct: pacePct })}
         </CardDescription>
       </CardHeader>
       <CardContent className="px-2 pb-3">
@@ -215,13 +220,15 @@ export function BudgetCategoriesCard({
               <>
                 <div className="flex min-w-0 items-center gap-2">
                   <span className="truncate text-sm font-medium">
-                    {item.categoryName || "Uncategorized"}
+                    {item.categoryName || t("common.uncategorized")}
                   </span>
                   {/* Non-monthly budgets run on their own clock, so the
                       period tick below doesn't apply to them — say so. */}
                   {item.period !== "monthly" && (
                     <span className="shrink-0 rounded-full border px-1.5 text-[10px] font-semibold text-muted-foreground">
-                      {item.period}
+                      {PERIOD_LABEL_KEYS[item.period]
+                        ? t(PERIOD_LABEL_KEYS[item.period])
+                        : item.period}
                     </span>
                   )}
                 </div>
@@ -232,7 +239,10 @@ export function BudgetCategoriesCard({
                     aria-valuenow={Math.min(item.percentage, 100)}
                     aria-valuemin={0}
                     aria-valuemax={100}
-                    aria-label={`${item.categoryName ?? "Category"}: ${item.percentage}% of budget used`}
+                    aria-label={t("dashboard.budgetCard.progressLabel", {
+                      name: item.categoryName ?? t("common.category"),
+                      pct: item.percentage,
+                    })}
                   >
                     <div
                       className={`h-full rounded-full transition-all duration-500 ${barClass}`}
@@ -257,8 +267,8 @@ export function BudgetCategoriesCard({
                   }`}
                 >
                   {over
-                    ? `${formatCurrency(-left)} over`
-                    : `${formatCurrency(left)} left`}
+                    ? t("dashboard.budgetCard.overAmount", { amount: formatCurrency(-left) })
+                    : t("dashboard.budgetCard.leftAmount", { amount: formatCurrency(left) })}
                 </span>
                 <span className="col-start-2 row-start-2 text-right text-xs text-muted-foreground tabular-nums sm:col-start-4 sm:row-start-1">
                   {formatCurrency(item.spent)} / {formatCurrency(item.limit)}
@@ -288,14 +298,14 @@ export function BudgetCategoriesCard({
           <div className="mt-3 border-t pt-3">
             <div className="flex items-baseline justify-between gap-2 px-4">
               <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                Not budgeted
+                {t("dashboard.budgetCard.notBudgeted")}
               </span>
               <span className="text-sm font-semibold tabular-nums">
                 {formatCurrency(data.unbudgetedTotal)}
               </span>
             </div>
             <p className="px-4 pb-1 text-xs text-muted-foreground">
-              Counted in the total above, but not in any budget
+              {t("dashboard.budgetCard.notBudgetedHint")}
             </p>
             {/* Two columns: these are bare name/amount pairs, so a single
                 column would leave half the card empty on desktop. */}
@@ -304,7 +314,7 @@ export function BudgetCategoriesCard({
                 const row = (
                   <>
                     <span className="truncate text-sm">
-                      {item.categoryName || "Uncategorized"}
+                      {item.categoryName || t("common.uncategorized")}
                     </span>
                     <span className="shrink-0 text-sm tabular-nums">
                       {formatCurrency(item.spent)}
@@ -334,7 +344,7 @@ export function BudgetCategoriesCard({
               href="/budgets"
               className="mt-1 inline-flex items-center gap-0.5 px-4 text-xs text-primary hover:underline"
             >
-              Set budgets for these{" "}
+              {t("dashboard.budgetCard.setBudgetsForThese")}{" "}
               <ArrowRight className="h-3 w-3" aria-hidden="true" />
             </Link>
           </div>

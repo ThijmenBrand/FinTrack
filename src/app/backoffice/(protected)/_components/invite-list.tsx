@@ -11,6 +11,15 @@ import { Send, X, Shield } from "lucide-react";
 import { useInvites, useResendInvite, useRevokeInvite } from "@/hooks/use-admin";
 import { ApiError } from "@/lib/api";
 import type { Invite } from "@/types/api";
+import { useI18n } from "@/lib/i18n/client";
+import type { MessageKey } from "@/lib/i18n/translate";
+
+const INVITE_STATUS_KEYS: Record<string, MessageKey> = {
+  pending: "backoffice.inviteStatus.pending",
+  accepted: "backoffice.inviteStatus.accepted",
+  expired: "backoffice.inviteStatus.expired",
+  revoked: "backoffice.inviteStatus.revoked",
+};
 
 const badgeClass: Record<Invite["status"], string> = {
   pending: "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400",
@@ -20,6 +29,7 @@ const badgeClass: Record<Invite["status"], string> = {
 };
 
 export function InviteList({ onError }: { onError: (message: string) => void }) {
+  const { t, formatDate } = useI18n();
   const { data: invites = [] } = useInvites();
   const resend = useResendInvite();
   const revoke = useRevokeInvite();
@@ -37,7 +47,7 @@ export function InviteList({ onError }: { onError: (message: string) => void }) 
     try {
       await resend.mutateAsync(invite.id);
     } catch (err) {
-      fail(err, "Failed to resend invite");
+      fail(err, t("backoffice.resendFailed"));
     }
   }
 
@@ -47,16 +57,18 @@ export function InviteList({ onError }: { onError: (message: string) => void }) 
     try {
       await revoke.mutateAsync(invite.id);
     } catch (err) {
-      fail(err, "Failed to revoke invite");
+      fail(err, t("backoffice.revokeFailed"));
     }
   }
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Invites</CardTitle>
+        <CardTitle>{t("backoffice.invitesTitle")}</CardTitle>
         <CardDescription>
-          {open.filter((i) => i.status === "pending").length} waiting to be accepted
+          {t("backoffice.invitesWaiting", {
+            count: open.filter((i) => i.status === "pending").length,
+          })}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -70,21 +82,21 @@ export function InviteList({ onError }: { onError: (message: string) => void }) 
                 <div className="flex items-center gap-2">
                   <p className="truncate font-medium">{invite.email}</p>
                   <span
-                    className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${badgeClass[invite.status]}`}
+                    className={`rounded-full px-2 py-0.5 text-xs font-medium ${badgeClass[invite.status]}`}
                   >
-                    {invite.status}
+                    {t(INVITE_STATUS_KEYS[invite.status])}
                   </span>
                   {invite.isAdmin && (
                     <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-500/20 dark:text-amber-400">
                       <Shield className="h-3 w-3" />
-                      Admin
+                      {t("backoffice.admin")}
                     </span>
                   )}
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  Invited {new Date(invite.createdAt).toLocaleDateString()}
+                  {t("backoffice.invitedOn", { date: formatDate(invite.createdAt) })}
                   {invite.status === "pending" &&
-                    ` · expires ${new Date(invite.expiresAt).toLocaleDateString()}`}
+                    ` ${t("backoffice.expiresOn", { date: formatDate(invite.expiresAt) })}`}
                 </p>
               </div>
 
@@ -94,10 +106,10 @@ export function InviteList({ onError }: { onError: (message: string) => void }) 
                     onClick={() => handleResend(invite)}
                     disabled={resend.isPending}
                     className="inline-flex h-8 items-center gap-1.5 rounded-md border px-3 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
-                    title="Send a fresh link — the old one stops working"
+                    title={t("backoffice.resendTitle")}
                   >
                     <Send className="h-3.5 w-3.5" />
-                    Resend
+                    {t("backoffice.resend")}
                   </button>
                 )}
                 {invite.status === "pending" && (
@@ -105,7 +117,7 @@ export function InviteList({ onError }: { onError: (message: string) => void }) 
                     onClick={() => handleRevoke(invite)}
                     disabled={revoke.isPending}
                     className="inline-flex h-8 w-8 items-center justify-center rounded-md border text-muted-foreground hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:hover:bg-red-900/20 dark:hover:text-red-400"
-                    title="Revoke invite"
+                    title={t("backoffice.revoke")}
                   >
                     <X className="h-4 w-4" />
                   </button>

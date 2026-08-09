@@ -14,7 +14,16 @@ import {
   getAccountBalances,
   getAccountBalanceSeries,
 } from "../_lib/dashboard-queries";
-import { formatCurrency } from "@/lib/utils";
+import { getI18n } from "@/lib/i18n/server";
+import type { MessageKey } from "@/lib/i18n/translate";
+
+const TYPE_LABEL_KEYS: Record<string, MessageKey> = {
+  checking: "accounts.type.checking",
+  savings: "accounts.type.savings",
+  joint: "accounts.type.joint",
+  credit: "accounts.type.credit",
+  other: "accounts.type.other",
+};
 
 const LINE_COLORS = [
   "#3b82f6",
@@ -26,9 +35,10 @@ const LINE_COLORS = [
 ];
 
 export async function AccountsCard({ userId }: { userId: string }) {
-  const [accountBalances, series] = await Promise.all([
+  const [accountBalances, series, { t, plural, formatCurrency }] = await Promise.all([
     getAccountBalances(userId),
     getAccountBalanceSeries(userId),
+    getI18n(),
   ]);
   const totalBalance = accountBalances.reduce(
     (acc, a) => acc + a.currentBalance,
@@ -44,14 +54,17 @@ export async function AccountsCard({ userId }: { userId: string }) {
     <Card>
       <CardHeader>
         <div className="flex items-baseline justify-between gap-2">
-          <CardTitle>Accounts</CardTitle>
+          <CardTitle>{t("dashboard.accounts.title")}</CardTitle>
           <span className="text-sm font-semibold tabular-nums">
             {formatCurrency(totalBalance)}
           </span>
         </div>
         <CardDescription>
-          Total across {accountBalances.length} account
-          {accountBalances.length !== 1 ? "s" : ""}
+          {plural(
+            accountBalances.length,
+            "dashboard.accounts.total.one",
+            "dashboard.accounts.total.other",
+          )}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -59,7 +72,7 @@ export async function AccountsCard({ userId }: { userId: string }) {
           <div className="flex flex-col items-center justify-center py-12 text-center">
             <Landmark className="h-12 w-12 text-muted-foreground/30 mb-4" />
             <p className="text-sm text-muted-foreground">
-              No accounts yet. Add one on the Accounts page.
+              {t("dashboard.accounts.empty")}
             </p>
           </div>
         ) : (
@@ -73,8 +86,8 @@ export async function AccountsCard({ userId }: { userId: string }) {
               }))}
               showPoints={false}
               height={180}
-              ariaLabel="Balance over the last 6 months per account"
-              emptyMessage="No balance history yet."
+              ariaLabel={t("dashboard.accounts.chartLabel")}
+              emptyMessage={t("dashboard.accounts.noHistory")}
             />
             <div className="space-y-2">
             {accountBalances.map((account) => (
@@ -93,8 +106,8 @@ export async function AccountsCard({ userId }: { userId: string }) {
                     <p className="font-medium text-sm truncate">
                       {account.name}
                     </p>
-                    <p className="text-xs capitalize text-muted-foreground truncate">
-                      {account.type}
+                    <p className="text-xs text-muted-foreground truncate">
+                      {t(TYPE_LABEL_KEYS[account.type] ?? "accounts.type.other")}
                       {account.bankName ? ` \u00b7 ${account.bankName}` : ""}
                     </p>
                   </div>

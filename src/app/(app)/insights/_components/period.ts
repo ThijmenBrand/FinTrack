@@ -1,3 +1,5 @@
+import type { I18n } from "@/lib/i18n/translate";
+
 // Date maths for the insights header and the spending pace. Every date here is
 // a plain YYYY-MM-DD string; `new Date(iso)` would read those as UTC midnight
 // and render a day early west of UTC, so they're parsed as local midnight.
@@ -7,17 +9,14 @@ const toIso = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 /** "Jul 7 – Aug 6, 2026". Empty bounds (All Time) have no range to state. */
-export function formatRangeLabel(from: string, to: string): string {
-  if (!from || !to) return "All time";
-  const f = localDate(from).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-  });
-  const t = localDate(to).toLocaleDateString("en-US", {
+export function formatRangeLabel(i18n: I18n, from: string, to: string): string {
+  if (!from || !to) return i18n.t("insights.allTimeLabel");
+  const f = i18n.formatDayMonth(localDate(from));
+  const t = new Intl.DateTimeFormat(i18n.intlLocale, {
     month: "short",
     day: "numeric",
     year: "numeric",
-  });
+  }).format(localDate(to));
   return `${f} – ${t}`;
 }
 

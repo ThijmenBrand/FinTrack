@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { HeaderFilterDropdown, SortArrow } from "./header-filter-dropdown";
 import type { Pagination } from "@/types/api";
+import { useI18n } from "@/lib/i18n/client";
 
 type Option = { value: string; label: string; color?: string | null };
 
@@ -79,12 +80,13 @@ export function TransactionsTable({
   onTypeChange,
   renderRows,
 }: TransactionsTableProps) {
+  const { t, plural } = useI18n();
   return (
     <div className="overflow-hidden rounded-xl border bg-card text-card-foreground shadow-sm">
       {/* Toolbar */}
       <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
         <h2 className="text-sm font-medium">
-          {pagination.total} transaction{pagination.total !== 1 ? "s" : ""}
+          {plural(pagination.total, "common.transactions.one", "common.transactions.other")}
         </h2>
         <div className="flex items-center gap-3">
           <Select
@@ -97,10 +99,11 @@ export function TransactionsTable({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="10">10 rows</SelectItem>
-            <SelectItem value="25">25 rows</SelectItem>
-            <SelectItem value="50">50 rows</SelectItem>
-            <SelectItem value="100">100 rows</SelectItem>
+            {[10, 25, 50, 100].map((n) => (
+              <SelectItem key={n} value={String(n)}>
+                {t("tx.table.rows", { count: n })}
+              </SelectItem>
+            ))}
           </SelectContent>
           </Select>
         </div>
@@ -116,21 +119,21 @@ export function TransactionsTable({
         <div className="flex flex-col items-center justify-center px-4 py-16">
           <FileSpreadsheet className="h-16 w-16 text-muted-foreground/30 mb-4" />
             <h3 className="text-lg font-medium text-muted-foreground mb-1">
-              No transactions found
+              {t("tx.table.emptyTitle")}
             </h3>
             <p className="text-sm text-muted-foreground mb-4">
               {hasActiveFilters
-                ? "Try adjusting your filters."
-                : "Import a CSV bank statement to get started."}
+                ? t("tx.table.emptyFiltered")
+                : t("tx.table.emptyImport")}
             </p>
             {hasActiveFilters ? (
             <Button variant="outline" onClick={onClearFilters}>
-              Clear Filters
+              {t("tx.table.clearFilters")}
             </Button>
           ) : (
             <Button onClick={onUpload}>
               <Upload className="mr-2 h-4 w-4" />
-              Import CSV
+              {t("tx.importCsv")}
             </Button>
           )}
         </div>
@@ -150,7 +153,7 @@ export function TransactionsTable({
                       <Checkbox
                         checked={allSelected}
                         onCheckedChange={onToggleSelectAll}
-                        aria-label="Select all on page"
+                        aria-label={t("tx.table.selectAll")}
                       />
                     </TableHead>
                     <TableHead
@@ -158,7 +161,7 @@ export function TransactionsTable({
                       onClick={() => onSort("date")}
                     >
                       <span className="flex items-center">
-                        Date
+                        {t("common.date")}
                         <SortArrow active={sortBy === "date"} order={sortOrder} />
                       </span>
                     </TableHead>
@@ -167,13 +170,14 @@ export function TransactionsTable({
                       onClick={() => onSort("description")}
                     >
                       <span className="flex items-center">
-                        Description
+                        {t("common.description")}
                         <SortArrow active={sortBy === "description"} order={sortOrder} />
                       </span>
                     </TableHead>
                     <TableHead className="select-none hidden sm:table-cell">
                       <HeaderFilterDropdown
-                        label="Account"
+                        label={t("common.account")}
+                        allLabel={t("tx.table.allAccounts")}
                         options={accountOptions}
                         value={accountFilter}
                         onChange={onAccountChange}
@@ -181,7 +185,8 @@ export function TransactionsTable({
                     </TableHead>
                     <TableHead className="select-none">
                       <HeaderFilterDropdown
-                        label="Category"
+                        label={t("common.category")}
+                        allLabel={t("tx.table.allCategories")}
                         options={categoryOptions}
                         value={categoryFilter}
                         onChange={onCategoryChange}
@@ -189,7 +194,8 @@ export function TransactionsTable({
                     </TableHead>
                     <TableHead className="select-none hidden sm:table-cell">
                       <HeaderFilterDropdown
-                        label="Type"
+                        label={t("common.type")}
+                        allLabel={t("tx.table.allTypes")}
                         options={typeOptions}
                         value={typeFilter}
                         onChange={onTypeChange}
@@ -200,7 +206,7 @@ export function TransactionsTable({
                       onClick={() => onSort("amount")}
                     >
                       <span className="flex items-center justify-end">
-                        Amount
+                        {t("common.amount")}
                         <SortArrow active={sortBy === "amount"} order={sortOrder} />
                       </span>
                     </TableHead>
@@ -219,9 +225,11 @@ export function TransactionsTable({
             {/* Pagination */}
             <div className="flex flex-col sm:flex-row items-center justify-between gap-2 border-t px-4 py-3">
               <p className="text-xs sm:text-sm text-muted-foreground">
-                Showing {(pagination.page - 1) * pagination.limit + 1}–
-                {Math.min(pagination.page * pagination.limit, pagination.total)}{" "}
-                of {pagination.total}
+                {t("tx.table.showing", {
+                  from: (pagination.page - 1) * pagination.limit + 1,
+                  to: Math.min(pagination.page * pagination.limit, pagination.total),
+                  total: pagination.total,
+                })}
               </p>
               <div className="flex items-center gap-2">
                 <Button
@@ -231,10 +239,13 @@ export function TransactionsTable({
                   onClick={() => setPagination((p) => ({ ...p, page: p.page - 1 }))}
                 >
                   <ChevronLeft className="h-4 w-4" />
-                  <span className="hidden sm:inline">Previous</span>
+                  <span className="hidden sm:inline">{t("common.previous")}</span>
                 </Button>
                 <span className="text-xs sm:text-sm text-muted-foreground px-2">
-                  Page {pagination.page} of {pagination.totalPages}
+                  {t("tx.table.pageOf", {
+                    page: pagination.page,
+                    total: pagination.totalPages,
+                  })}
                 </span>
                 <Button
                   variant="outline"
@@ -242,7 +253,7 @@ export function TransactionsTable({
                   disabled={pagination.page >= pagination.totalPages}
                   onClick={() => setPagination((p) => ({ ...p, page: p.page + 1 }))}
                 >
-                  <span className="hidden sm:inline">Next</span>
+                  <span className="hidden sm:inline">{t("common.next")}</span>
                   <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>

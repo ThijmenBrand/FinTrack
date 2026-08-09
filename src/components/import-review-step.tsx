@@ -23,6 +23,7 @@ import {
 } from "@/components/import-transaction-row";
 import { ReimbursementPicker } from "@/components/reimbursement-picker";
 import type { PreviewTransaction } from "@/lib/csv-utils";
+import { useI18n } from "@/lib/i18n/client";
 
 interface PendingRule {
   pattern: string;
@@ -84,6 +85,7 @@ export function ImportReviewStep({
   onBack,
   onConfirm,
 }: ImportReviewStepProps) {
+  const { t, plural } = useI18n();
   const [transactions, setTransactions] = useState(initialTransactions);
   const [pendingRules, setPendingRules] = useState<PendingRule[]>([]);
   const [batchBanner, setBatchBanner] = useState<BatchApplyBanner | null>(null);
@@ -131,7 +133,7 @@ export function ImportReviewStep({
           triggerTxId: tempId,
           pattern,
           categoryId,
-          categoryName: cat?.name || "Unknown",
+          categoryName: cat?.name || t("csvReview.unknownCategory"),
           matchCount: similar.length,
           matchIds: similar.map((s) => s.tempId),
           createRule: true,
@@ -141,7 +143,7 @@ export function ImportReviewStep({
         setBatchBanner(null);
       }
     },
-    [transactions, categories]
+    [transactions, categories, t]
   );
 
   const handleBatchApply = useCallback(() => {
@@ -318,17 +320,17 @@ export function ImportReviewStep({
                   return next;
                 });
               }}
-              aria-label="Select all"
+              aria-label={t("csvReview.selectAll")}
               className="shrink-0"
             />
-            <span className="shrink-0 sm:w-16">Date</span>
-            <span className="flex-1">Description</span>
-            <span className="text-right shrink-0 sm:w-24">Amount</span>
+            <span className="shrink-0 sm:w-16">{t("csvReview.colDate")}</span>
+            <span className="flex-1">{t("csvReview.colDescription")}</span>
+            <span className="text-right shrink-0 sm:w-24">{t("csvReview.colAmount")}</span>
             {/* Spacers matching the per-row note / pot / reimbursement buttons */}
             <span className="w-7 shrink-0" />
             {pots.length > 0 && <span className="w-7 shrink-0" />}
             <span className="w-7 shrink-0" />
-            <span className="w-44 shrink-0 hidden sm:block">Category</span>
+            <span className="w-44 shrink-0 hidden sm:block">{t("csvReview.colCategory")}</span>
           </div>
 
           {visible.map((tx) => (
@@ -353,20 +355,16 @@ export function ImportReviewStep({
                     <div className="flex-1 space-y-2">
                       <div className="flex items-start sm:items-center justify-between gap-2 flex-wrap">
                         <p className="text-sm">
-                          Apply{" "}
-                          <span className="font-semibold">
-                            {batchBanner.categoryName}
-                          </span>{" "}
-                          to{" "}
-                          <span className="font-semibold">
-                            {batchBanner.matchCount}
-                          </span>{" "}
-                          similar transaction
-                          {batchBanner.matchCount !== 1 ? "s" : ""}?
+                          {plural(
+                            batchBanner.matchCount,
+                            "csvReview.batchApply.one",
+                            "csvReview.batchApply.other",
+                            { category: batchBanner.categoryName },
+                          )}
                         </p>
                         <div className="flex items-center gap-1.5 shrink-0">
                           <Button size="sm" className="h-7" onClick={handleBatchApply}>
-                            Apply
+                            {t("csvReview.apply")}
                           </Button>
                           <Button
                             variant="ghost"
@@ -396,7 +394,7 @@ export function ImportReviewStep({
                             htmlFor="batch-create-rule"
                             className="text-xs font-medium cursor-pointer"
                           >
-                            Create rule for future imports
+                            {t("csvReview.createRule")}
                           </Label>
                           {batchBanner.createRule && (
                             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
@@ -423,11 +421,11 @@ export function ImportReviewStep({
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  <SelectItem value="contains">Contains</SelectItem>
+                                  <SelectItem value="contains">{t("categories.match.contains")}</SelectItem>
                                   <SelectItem value="starts_with">
-                                    Starts with
+                                    {t("categories.match.startsWith")}
                                   </SelectItem>
-                                  <SelectItem value="exact">Exact match</SelectItem>
+                                  <SelectItem value="exact">{t("categories.match.exact")}</SelectItem>
                                 </SelectContent>
                               </Select>
                             </div>
@@ -465,15 +463,16 @@ export function ImportReviewStep({
         <div className="flex items-center gap-2 text-sm">
           <CheckCircle2 className="h-4 w-4 text-emerald-500 dark:text-emerald-400" />
           <span>
-            <span className="font-semibold">{categorizedCount}</span> categorized
+            <span className="font-semibold">{categorizedCount}</span>{" "}
+            {t("csvReview.categorized")}
           </span>
         </div>
         {uncategorizedCount > 0 && (
           <div className="flex items-center gap-2 text-sm">
             <AlertCircle className="h-4 w-4 text-amber-500 dark:text-amber-400" />
             <span>
-              <span className="font-semibold">{uncategorizedCount}</span> need
-              attention
+              <span className="font-semibold">{uncategorizedCount}</span>{" "}
+              {t("csvReview.needAttention")}
             </span>
           </div>
         )}
@@ -481,13 +480,13 @@ export function ImportReviewStep({
           <div className="text-xs text-muted-foreground ml-auto">
             {[
               duplicates > 0 &&
-                `${duplicates} duplicate${duplicates !== 1 ? "s" : ""} already imported`,
+                plural(duplicates, "csvReview.duplicates.one", "csvReview.duplicates.other"),
               feesApplied > 0 &&
-                `${feesApplied} fee${feesApplied !== 1 ? "s" : ""} folded into the amount`,
+                plural(feesApplied, "csvReview.fees.one", "csvReview.fees.other"),
               pending > 0 &&
-                `${pending} pending row${pending !== 1 ? "s" : ""} left out (not settled yet)`,
+                plural(pending, "csvReview.pending.one", "csvReview.pending.other"),
               skipped > 0 &&
-                `${skipped} row${skipped !== 1 ? "s" : ""} skipped (invalid data)`,
+                plural(skipped, "csvReview.skipped.one", "csvReview.skipped.other"),
             ]
               .filter(Boolean)
               .join(" · ")}
@@ -499,13 +498,13 @@ export function ImportReviewStep({
       {selectedIds.size > 0 && (
         <div className="flex items-center gap-2 flex-wrap rounded-lg border border-primary/20 bg-primary/5 px-3 py-2">
           <span className="text-sm font-medium">
-            {selectedIds.size} selected
+            {t("csvReview.selectedCount", { count: selectedIds.size })}
           </span>
           <Select value="" onValueChange={handleBulkCategory}>
             <SelectTrigger className="h-8 w-52 text-xs">
               <span className="flex items-center gap-1.5 text-muted-foreground">
                 <Tag className="h-3 w-3" />
-                <span>Set category...</span>
+                <span>{t("csvReview.setCategory")}</span>
               </span>
             </SelectTrigger>
             <SelectContent>
@@ -529,7 +528,7 @@ export function ImportReviewStep({
             onClick={() => setSelectedIds(new Set())}
           >
             <X className="mr-1 h-3 w-3" />
-            Clear
+            {t("common.clear")}
           </Button>
         </div>
       )}
@@ -538,8 +537,11 @@ export function ImportReviewStep({
       {pendingRules.length > 0 && (
         <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-2.5">
           <p className="text-xs font-medium text-primary mb-1.5">
-            {pendingRules.length} new rule{pendingRules.length !== 1 ? "s" : ""}{" "}
-            will be created on import:
+            {plural(
+              pendingRules.length,
+              "csvReview.pendingRules.one",
+              "csvReview.pendingRules.other",
+            )}
           </p>
           <div className="flex flex-wrap gap-1.5">
             {pendingRules.map((rule, i) => {
@@ -572,10 +574,10 @@ export function ImportReviewStep({
       <Tabs defaultValue={uncategorizedCount > 0 ? "attention" : "all"}>
         <TabsList>
           <TabsTrigger value="attention" disabled={uncategorizedCount === 0}>
-            Needs Attention ({uncategorizedCount})
+            {t("csvReview.tabAttention", { count: uncategorizedCount })}
           </TabsTrigger>
           <TabsTrigger value="all">
-            All ({transactions.length})
+            {t("csvReview.tabAll", { count: transactions.length })}
           </TabsTrigger>
         </TabsList>
 
@@ -583,9 +585,9 @@ export function ImportReviewStep({
           {uncategorizedCount === 0 ? (
             <div className="flex flex-col items-center justify-center py-8 text-center">
               <CheckCircle2 className="h-10 w-10 text-emerald-500 dark:text-emerald-400 mb-2" />
-              <p className="text-sm font-medium">All transactions categorized</p>
+              <p className="text-sm font-medium">{t("csvReview.allCategorized")}</p>
               <p className="text-xs text-muted-foreground mt-1">
-                Switch to the &quot;All&quot; tab to review everything.
+                {t("csvReview.switchToAll")}
               </p>
             </div>
           ) : (
@@ -603,7 +605,7 @@ export function ImportReviewStep({
         <div className="flex items-start gap-2 rounded-lg border border-red-300 dark:border-red-900/60 bg-red-50 dark:bg-red-950/30 px-3 py-2 text-sm text-red-700 dark:text-red-300">
           <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
           <div className="min-w-0 break-words">
-            <p className="font-medium">Import failed</p>
+            <p className="font-medium">{t("csvReview.importFailed")}</p>
             <p className="opacity-90">{error}</p>
           </div>
         </div>
@@ -628,14 +630,17 @@ export function ImportReviewStep({
       {/* Footer */}
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between pt-2">
         <Button variant="outline" onClick={onBack}>
-          Back
+          {t("auth.back")}
         </Button>
         <Button onClick={handleConfirm}>
-          Import {transactions.length} transaction
-          {transactions.length !== 1 ? "s" : ""}
+          {plural(
+            transactions.length,
+            "csvReview.importCount.one",
+            "csvReview.importCount.other",
+          )}
           {uncategorizedCount > 0 && (
             <span className="ml-1 opacity-75 hidden sm:inline">
-              ({uncategorizedCount} uncategorized)
+              {t("csvReview.uncategorizedSuffix", { count: uncategorizedCount })}
             </span>
           )}
         </Button>

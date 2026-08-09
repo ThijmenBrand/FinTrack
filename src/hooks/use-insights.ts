@@ -56,6 +56,7 @@ export function useBalanceTimeline(params: {
   accountId?: string;
   dateFrom?: string;
   dateTo?: string;
+  enabled?: boolean;
 }) {
   const searchParams = new URLSearchParams();
   if (params.accountId) searchParams.set("accountId", params.accountId);
@@ -67,5 +68,6 @@ export function useBalanceTimeline(params: {
     queryFn: () =>
       apiFetch<BalanceTimelineData>(`/api/insights/balance?${searchParams}`),
     staleTime: 2 * 60 * 1000,
+    enabled: params.enabled ?? true,
   });
 }

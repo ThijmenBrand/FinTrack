@@ -171,6 +171,8 @@ export async function setupTestDb(name: string): Promise<TestDb> {
       default_account_id TEXT,
       hide_internal_transfers INTEGER NOT NULL DEFAULT 0,
       count_cross_budget_transfers INTEGER NOT NULL DEFAULT 0,
+      locale TEXT NOT NULL DEFAULT 'en',
+      simple_mode INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )`,

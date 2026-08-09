@@ -12,6 +12,7 @@ import { Tag, Check } from "lucide-react";
 import { CategorySelect, NO_CATEGORY_VALUE } from "@/components/category-select";
 import { useUpdatePot } from "@/hooks/use-pots";
 import type { Category } from "@/types/api";
+import { useI18n } from "@/lib/i18n/client";
 
 interface PotCategoryPopoverProps {
   potId: string;
@@ -30,6 +31,7 @@ export function PotCategoryPopover({
   currentCategoryColor,
   categories,
 }: PotCategoryPopoverProps) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>(
     currentCategoryId ?? NO_CATEGORY_VALUE,
@@ -76,7 +78,7 @@ export function PotCategoryPopover({
           ) : (
             <span className="text-muted-foreground flex items-center gap-1">
               <Tag className="h-3 w-3" />
-              Categorize
+              {t("categorize.trigger")}
             </span>
           )}
         </button>
@@ -84,12 +86,12 @@ export function PotCategoryPopover({
       <PopoverContent className="w-72" align="start">
         <div className="space-y-4">
           <div>
-            <h4 className="font-medium text-sm mb-1">Pot Category</h4>
+            <h4 className="font-medium text-sm mb-1">{t("potCategory.title")}</h4>
             <p className="text-xs text-muted-foreground break-words">{potName}</p>
           </div>
 
           <div className="space-y-2">
-            <Label className="text-xs">Category</Label>
+            <Label className="text-xs">{t("common.category")}</Label>
             <CategorySelect
               value={selectedCategoryId}
               onValueChange={setSelectedCategoryId}
@@ -100,14 +102,14 @@ export function PotCategoryPopover({
 
           <div className="flex justify-end gap-2">
             <Button variant="outline" size="sm" onClick={() => setOpen(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               size="sm"
               onClick={handleSave}
               disabled={updatePot.isPending || !isDirty}
             >
-              {updatePot.isPending ? "Saving..." : "Save"}
+              {updatePot.isPending ? t("categorize.saving") : t("common.save")}
               {!updatePot.isPending && <Check className="ml-1 h-3 w-3" />}
             </Button>
           </div>
