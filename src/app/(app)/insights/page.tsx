@@ -285,6 +285,7 @@ export default function InsightsPage() {
     dateFrom,
     dateTo,
     accountId: accountIdParam,
+    budgetId: selectedPlan?.id,
     prevDateFrom: prevRange?.from,
     prevDateTo: prevRange?.to,
   });
@@ -570,7 +571,7 @@ export default function InsightsPage() {
       {selectedPlan && (
         <BudgetVsActual
           planName={selectedPlan.name}
-          accountId={accountIdParam}
+          budgetId={selectedPlan.id}
           monthlyBudget={planMonthlyData?.totalBudget ?? 0}
         />
       )}

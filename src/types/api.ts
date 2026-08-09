@@ -358,6 +358,8 @@ export interface UserPreferencesData {
   financialMonthStartDay: number;
   defaultAccountId: string | null;
   hideInternalTransfers: boolean;
+  /** Envelope-style: count transfers between budgets as spending/income in per-budget views. */
+  countCrossBudgetTransfers: boolean;
 }
 
 /** A dated line in the sand after which averages start counting again. */

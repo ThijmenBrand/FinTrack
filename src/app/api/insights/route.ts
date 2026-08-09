@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { transactions, categories, transactionGroups } from "@/db/schema";
-import { eq, and, gte, lte, sql, inArray, type SQL } from "drizzle-orm";
+import { eq, and, gte, lte, sql, inArray, notInArray, type SQL } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { effectiveExpenseAmount, potSpentAmount } from "@/lib/reimbursement-sql";
 import { getStatsCutoff, isBeforeCutoff } from "@/lib/stat-reset";
 import { trendWindow } from "@/lib/trend-window";
+import { resolveBudgetPlan } from "@/lib/budget-plan";
+import { getUserPreferences } from "@/lib/preferences";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 /** Months of history the monthly bars always cover, current month included. */
@@ -29,29 +31,67 @@ export async function GET(request: NextRequest) {
     const dateTo = searchParams.get("dateTo");
     const prevDateFrom = searchParams.get("prevDateFrom");
     const prevDateTo = searchParams.get("prevDateTo");
+    // A budget-plan view: scope to the plan's accounts (overriding accountId)
+    // and optionally count cross-budget transfers as spending/income.
+    const budgetIdParam = searchParams.get("budgetId");
+    const plan = budgetIdParam
+      ? await resolveBudgetPlan(userId, budgetIdParam)
+      : null;
+    if (budgetIdParam && !plan) {
+      return NextResponse.json({ error: "Budget not found" }, { status: 404 });
+    }
+
     // accountId may be a comma-separated list of account ids
-    const accountIds =
-      searchParams.get("accountId")?.split(",").filter(Boolean) ?? [];
+    const accountIds = plan
+      ? plan.accountIds
+      : searchParams.get("accountId")?.split(",").filter(Boolean) ?? [];
+    // A plan with no accounts matches nothing rather than everything.
+    const emptyPlanScope = plan !== null && accountIds.length === 0;
+
+    // Envelope-style option: inside a budget view, a transfer whose linked
+    // counterpart sits on an account OUTSIDE the plan is money leaving (or
+    // entering) this budget. Only linked transfers qualify — an unlinked
+    // internal_transfer has no known counterpart, so it stays excluded.
+    const prefs = plan ? await getUserPreferences(userId) : null;
+    const countCrossTransfers =
+      !!plan && !!prefs?.countCrossBudgetTransfers && accountIds.length > 0;
+    const crossOut = countCrossTransfers
+      ? sql`(${transactions.type} = 'internal_transfer' AND ${transactions.amount} < 0 AND EXISTS (
+          SELECT 1 FROM transactions t2 WHERE t2.id = ${transactions.linkedTransactionId}
+            AND t2.user_id = ${userId}
+            AND ${notInArray(sql`t2.account_id`, accountIds)}
+        ))`
+      : sql`0`;
+    const crossIn = countCrossTransfers
+      ? sql`(${transactions.type} = 'internal_transfer' AND ${transactions.amount} > 0 AND EXISTS (
+          SELECT 1 FROM transactions t2 WHERE t2.id = ${transactions.linkedTransactionId}
+            AND t2.user_id = ${userId}
+            AND ${notInArray(sql`t2.account_id`, accountIds)}
+        ))`
+      : sql`0`;
 
     const buildConditions = (from: string | null, to: string | null) => {
       const conds: SQL[] = [eq(transactions.userId, userId)];
       if (from) conds.push(gte(transactions.date, from));
       if (to) conds.push(lte(transactions.date, to));
-      if (accountIds.length > 0)
+      if (emptyPlanScope) conds.push(sql`1=0`);
+      else if (accountIds.length > 0)
         conds.push(inArray(transactions.accountId, accountIds));
       return conds;
     };
 
     // Direct (ungrouped) income/expense totals for a range. txCount only
     // counts real money movement (income/expense), not reimbursements etc.
+    // Qualifying cross-budget transfers count into the totals; the category
+    // breakdown deliberately ignores them (they have no category).
     const directSummary = async (conds: SQL[]) => {
       const [row] = await db
         .select({
-          totalIncome: sql<number>`sum(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END)`,
+          totalIncome: sql<number>`sum(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} WHEN ${crossIn} THEN ${transactions.amount} ELSE 0 END)`,
           totalExpenses: sql<number>`sum(CASE WHEN ${transactions.type} = 'expense' THEN (
             ${effectiveExpenseAmount()}
-          ) ELSE 0 END)`,
-          txCount: sql<number>`count(CASE WHEN ${transactions.type} IN ('income', 'expense') THEN 1 END)`,
+          ) WHEN ${crossOut} THEN -${transactions.amount} ELSE 0 END)`,
+          txCount: sql<number>`count(CASE WHEN ${transactions.type} IN ('income', 'expense') OR ${crossIn} OR ${crossOut} THEN 1 END)`,
         })
         .from(transactions)
         .where(and(sql`${transactions.groupId} IS NULL`, ...conds));
@@ -130,10 +170,10 @@ export async function GET(request: NextRequest) {
       db
         .select({
           date: transactions.date,
-          income: sql<number>`sum(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END)`,
+          income: sql<number>`sum(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} WHEN ${crossIn} THEN ${transactions.amount} ELSE 0 END)`,
           expenses: sql<number>`sum(CASE WHEN ${transactions.type} = 'expense' THEN (
             ${effectiveExpenseAmount()}
-          ) ELSE 0 END)`,
+          ) WHEN ${crossOut} THEN -${transactions.amount} ELSE 0 END)`,
         })
         .from(transactions)
         .where(and(sql`${transactions.groupId} IS NULL`, ...seriesConditions))

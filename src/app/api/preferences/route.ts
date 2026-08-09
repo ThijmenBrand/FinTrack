@@ -21,6 +21,7 @@ export async function PUT(request: NextRequest) {
     const patch: Record<string, unknown> = {};
     if (typeof body?.autoBudgetEnabled === "boolean") patch.autoBudgetEnabled = body.autoBudgetEnabled;
     if (typeof body?.hideInternalTransfers === "boolean") patch.hideInternalTransfers = body.hideInternalTransfers;
+    if (typeof body?.countCrossBudgetTransfers === "boolean") patch.countCrossBudgetTransfers = body.countCrossBudgetTransfers;
     if (isFiniteNumber(body?.autoBudgetIntervalMonths)) patch.autoBudgetIntervalMonths = body.autoBudgetIntervalMonths;
     if (isFiniteNumber(body?.autoBudgetLookbackMonths)) patch.autoBudgetLookbackMonths = body.autoBudgetLookbackMonths;
     if (isFiniteNumber(body?.financialMonthStartDay)) patch.financialMonthStartDay = body.financialMonthStartDay;

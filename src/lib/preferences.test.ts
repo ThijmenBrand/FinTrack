@@ -27,6 +27,7 @@ describe("user preferences", () => {
       financialMonthStartDay: 1,
       defaultAccountId: null,
       hideInternalTransfers: false,
+      countCrossBudgetTransfers: false,
     });
   });
 

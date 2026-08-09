@@ -45,8 +45,8 @@ function monthLabel(month: string): string {
 
 interface BudgetVsActualProps {
   planName: string;
-  /** Comma-separated account ids of the plan; undefined = no accounts. */
-  accountId?: string;
+  /** The plan whose accounts (and transfer rules) scope the series. */
+  budgetId: string;
   /** The plan's current monthly budget (fixed costs + allocations). */
   monthlyBudget: number;
 }
@@ -58,13 +58,13 @@ interface BudgetVsActualProps {
  */
 export function BudgetVsActual({
   planName,
-  accountId,
+  budgetId,
   monthlyBudget,
 }: BudgetVsActualProps) {
   const now = new Date();
   const from = toIsoDate(new Date(now.getFullYear(), now.getMonth() - 11, 1));
   const to = toIsoDate(new Date(now.getFullYear(), now.getMonth() + 1, 0));
-  const { data, isLoading } = useInsights({ dateFrom: from, dateTo: to, accountId });
+  const { data, isLoading } = useInsights({ dateFrom: from, dateTo: to, budgetId });
   const [hovered, setHovered] = useState<string | null>(null);
 
   const months = data?.monthlyTotals ?? [];

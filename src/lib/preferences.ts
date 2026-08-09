@@ -10,6 +10,7 @@ export interface AutoBudgetPreferences {
   financialMonthStartDay: number;
   defaultAccountId: string | null;
   hideInternalTransfers: boolean;
+  countCrossBudgetTransfers: boolean;
 }
 
 const DEFAULTS: AutoBudgetPreferences = {
@@ -20,6 +21,7 @@ const DEFAULTS: AutoBudgetPreferences = {
   financialMonthStartDay: 1,
   defaultAccountId: null,
   hideInternalTransfers: false,
+  countCrossBudgetTransfers: false,
 };
 
 function toAutoBudget(row: UserPreferences): AutoBudgetPreferences {
@@ -31,6 +33,7 @@ function toAutoBudget(row: UserPreferences): AutoBudgetPreferences {
     financialMonthStartDay: row.financialMonthStartDay,
     defaultAccountId: row.defaultAccountId ?? null,
     hideInternalTransfers: row.hideInternalTransfers,
+    countCrossBudgetTransfers: row.countCrossBudgetTransfers,
   };
 }
 
@@ -88,6 +91,9 @@ export async function updateUserPreferences(
   }
   if (patch.hideInternalTransfers !== undefined) {
     updates.hideInternalTransfers = patch.hideInternalTransfers;
+  }
+  if (patch.countCrossBudgetTransfers !== undefined) {
+    updates.countCrossBudgetTransfers = patch.countCrossBudgetTransfers;
   }
   await db.update(userPreferences).set(updates).where(eq(userPreferences.userId, userId));
   return getUserPreferences(userId);
