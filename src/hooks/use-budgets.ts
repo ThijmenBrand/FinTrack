@@ -8,6 +8,7 @@ export function useBudgets(opts?: {
   accountId?: string;
   budgetId?: string;
   noScale?: boolean;
+  enabled?: boolean;
 }) {
   const dateFrom = opts?.dateFrom || "";
   const dateTo = opts?.dateTo || "";
@@ -24,6 +25,7 @@ export function useBudgets(opts?: {
   return useQuery({
     queryKey: ["budgets", { dateFrom, dateTo, accountId, budgetId, noScale }],
     queryFn: () => apiFetch<BudgetData>(qs ? `/api/budgets?${qs}` : "/api/budgets"),
+    enabled: opts?.enabled ?? true,
   });
 }
 

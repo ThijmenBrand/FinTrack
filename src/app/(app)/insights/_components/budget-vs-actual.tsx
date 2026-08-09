@@ -1,0 +1,206 @@
+"use client";
+
+import { useState } from "react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { useInsights } from "@/hooks/use-insights";
+import { formatCurrency, toIsoDate } from "@/lib/utils";
+import { Skeleton } from "@/components/ui/skeleton";
+
+const CHART_HEIGHT = 200;
+const TICK_COUNT = 4;
+
+function formatTick(amount: number) {
+  if (amount === 0) return "€0";
+  if (Math.abs(amount) >= 1000) {
+    const k = amount / 1000;
+    return `€${k % 1 === 0 ? k.toFixed(0) : k.toFixed(1)}k`;
+  }
+  return `€${Math.round(amount)}`;
+}
+
+// Round up to a "nice" number for an axis upper bound.
+function niceMax(max: number): number {
+  if (max <= 0) return 100;
+  const exp = Math.pow(10, Math.floor(Math.log10(max)));
+  const f = max / exp;
+  let nice: number;
+  if (f <= 1) nice = 1;
+  else if (f <= 2) nice = 2;
+  else if (f <= 2.5) nice = 2.5;
+  else if (f <= 5) nice = 5;
+  else nice = 10;
+  return nice * exp;
+}
+
+function monthLabel(month: string): string {
+  const [y, m] = month.split("-").map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "short" });
+}
+
+interface BudgetVsActualProps {
+  planName: string;
+  /** Comma-separated account ids of the plan; undefined = no accounts. */
+  accountId?: string;
+  /** The plan's current monthly budget (fixed costs + allocations). */
+  monthlyBudget: number;
+}
+
+/**
+ * Monthly spending of the plan's accounts against its current total budget.
+ * Fixed 12-month window on purpose — the page's date preset would reduce this
+ * to a single bar most of the time.
+ */
+export function BudgetVsActual({
+  planName,
+  accountId,
+  monthlyBudget,
+}: BudgetVsActualProps) {
+  const now = new Date();
+  const from = toIsoDate(new Date(now.getFullYear(), now.getMonth() - 11, 1));
+  const to = toIsoDate(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+  const { data, isLoading } = useInsights({ dateFrom: from, dateTo: to, accountId });
+  const [hovered, setHovered] = useState<string | null>(null);
+
+  const months = data?.monthlyTotals ?? [];
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+
+  const maxValue = niceMax(
+    Math.max(monthlyBudget, ...months.map((m) => m.expenses)),
+  );
+  const ticks = Array.from({ length: TICK_COUNT + 1 }, (_, i) =>
+    Math.round((maxValue / TICK_COUNT) * i),
+  ).reverse();
+  const budgetPct = maxValue > 0 ? (monthlyBudget / maxValue) * 100 : 0;
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle>Budget vs. actual</CardTitle>
+        <CardDescription>
+          Monthly spending on {planName}&apos;s accounts, last 12 months. The
+          dashed line is today&apos;s budget ({formatCurrency(monthlyBudget)}
+          /month), so past months are read against the current plan.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading || !data ? (
+          <Skeleton className="h-[200px] w-full" />
+        ) : months.length === 0 ? (
+          <p className="py-12 text-center text-sm text-muted-foreground">
+            No spending on these accounts yet.
+          </p>
+        ) : (
+          <div className="flex gap-2">
+            {/* Y axis */}
+            <div
+              className="flex flex-col justify-between text-right text-[10px] text-muted-foreground tabular-nums"
+              style={{ height: CHART_HEIGHT }}
+              aria-hidden="true"
+            >
+              {ticks.map((t) => (
+                <span key={t}>{formatTick(t)}</span>
+              ))}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="relative" style={{ height: CHART_HEIGHT }}>
+                {/* Gridlines */}
+                {ticks.map((t) => (
+                  <div
+                    key={t}
+                    className="absolute inset-x-0 border-t border-border/50"
+                    style={{
+                      bottom: `${maxValue > 0 ? (t / maxValue) * 100 : 0}%`,
+                    }}
+                    aria-hidden="true"
+                  />
+                ))}
+                {/* Budget reference line, direct-labeled */}
+                {monthlyBudget > 0 && (
+                  <div
+                    className="absolute inset-x-0 z-10 border-t-2 border-dashed border-foreground/60"
+                    style={{ bottom: `${budgetPct}%` }}
+                  >
+                    <span className="absolute right-0 -top-4 rounded bg-background/80 px-1 text-[10px] font-medium text-foreground">
+                      budget
+                    </span>
+                  </div>
+                )}
+                {/* Bars */}
+                <div className="absolute inset-0 flex items-end gap-[2px]">
+                  {months.map((m) => {
+                    const over = monthlyBudget > 0 && m.expenses > monthlyBudget;
+                    const pct =
+                      maxValue > 0 ? (m.expenses / maxValue) * 100 : 0;
+                    const isHovered = hovered === m.month;
+                    const isCurrent = m.month === currentMonth;
+                    return (
+                      <div
+                        key={m.month}
+                        className="group relative flex-1"
+                        style={{ height: "100%" }}
+                        onMouseEnter={() => setHovered(m.month)}
+                        onMouseLeave={() => setHovered(null)}
+                      >
+                        <div
+                          className={`absolute inset-x-0 bottom-0 rounded-t-[4px] transition-colors ${
+                            over
+                              ? isHovered
+                                ? "bg-red-600"
+                                : "bg-red-500/80"
+                              : isHovered
+                                ? "bg-primary"
+                                : isCurrent
+                                  ? "bg-primary/60"
+                                  : "bg-primary/80"
+                          }`}
+                          style={{ height: `${pct}%` }}
+                        />
+                        {isHovered && (
+                          <div className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 -translate-x-1/2 whitespace-nowrap rounded-md border bg-popover px-2 py-1 text-xs shadow-md">
+                            <span className="font-medium">
+                              {monthLabel(m.month)}
+                            </span>{" "}
+                            <span className="tabular-nums">
+                              {formatCurrency(m.expenses)}
+                            </span>
+                            {monthlyBudget > 0 && (
+                              <span
+                                className={`ml-1 tabular-nums ${
+                                  over
+                                    ? "text-red-600 dark:text-red-400"
+                                    : "text-muted-foreground"
+                                }`}
+                              >
+                                {over
+                                  ? `${formatCurrency(m.expenses - monthlyBudget)} over`
+                                  : `${formatCurrency(monthlyBudget - m.expenses)} under`}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              {/* X labels */}
+              <div className="mt-1 flex gap-[2px] text-[10px] text-muted-foreground">
+                {months.map((m) => (
+                  <span key={m.month} className="flex-1 truncate text-center">
+                    {monthLabel(m.month)}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}

@@ -11,22 +11,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Calendar, ChevronDown, Landmark, Loader2 } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Calendar, Loader2, Star } from "lucide-react";
 import {
   useInsights,
   useBalanceTimeline,
   useMoneyFlow,
 } from "@/hooks/use-insights";
-import { useAccounts } from "@/hooks/use-accounts";
 import { useBudgets } from "@/hooks/use-budgets";
+import { useBudgetPlans } from "@/hooks/use-budget-plans";
 import { usePreferences } from "@/hooks/use-preferences";
 import { useStatResets } from "@/hooks/use-stat-resets";
 import { formatResetDate } from "@/lib/stat-reset-marks";
@@ -43,8 +36,9 @@ import { TopSpending } from "./_components/top-spending";
 import { CategoryBreakdownCard } from "./_components/category-breakdown-card";
 import { MoneyFlow } from "./_components/money-flow";
 import { daysLeftIn, elapsedDays, formatRangeLabel } from "./_components/period";
+import { BudgetVsActual } from "./_components/budget-vs-actual";
+import { BudgetComparisonStrip } from "./_components/budget-comparison-strip";
 import { toIsoDate } from "@/lib/utils";
-import { defaultScopeAccountIds } from "@/lib/account-scope";
 
 type PresetKey = "this_month" | "last_month" | "this_year" | "last_3_months" | "all" | "custom";
 
@@ -202,21 +196,14 @@ const ordinal = (n: number): string => {
   return `${n}${s[(v - 20) % 10] ?? s[v] ?? s[0]}`;
 };
 
-// Saved account selection (per device). Empty array = all accounts.
-// Bumped to v2 so a saved single-account selection doesn't shadow the new
-// checking-accounts default.
-const ACCOUNTS_STORAGE_KEY = "insights-account-selection-v2";
+// Saved budget-tab selection (per device): "overall" or a plan id. Replaces
+// the pre-plans account selection.
+const BUDGET_STORAGE_KEY = "insights-budget-selection-v1";
+const OVERALL = "overall";
 
-function loadSavedAccountIds(): string[] | null {
+function loadSavedBudgetSelection(): string | null {
   if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(ACCOUNTS_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter((v) => typeof v === "string") : null;
-  } catch {
-    return null;
-  }
+  return window.localStorage.getItem(BUDGET_STORAGE_KEY);
 }
 
 export default function InsightsPage() {
@@ -234,34 +221,36 @@ export default function InsightsPage() {
   const [customDateTo, setCustomDateTo] = useState<string>(
     () => searchParams.get("dateTo") || "",
   );
-  // Empty array = all accounts. Init precedence: URL > saved selection > prefs default.
-  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>(() => {
-    const param = searchParams.get("account");
-    if (param !== null) return param.split(",").filter(Boolean);
-    return loadSavedAccountIds() ?? [];
+  // Which view: "overall" or a budget plan id. Init precedence: URL > saved
+  // selection > main plan (applied once plans load).
+  const [selectedBudget, setSelectedBudget] = useState<string | null>(() => {
+    return searchParams.get("budget") ?? loadSavedBudgetSelection();
   });
 
-  const { data: accountsData } = useAccounts();
+  const { data: plansData } = useBudgetPlans();
+  const plans = plansData?.plans ?? [];
 
-  // Apply the default account scope (the checking accounts, same as the
-  // dashboard) on first load when neither the URL nor a saved selection pinned
-  // one. After this runs once, the user is in control — even switching to
-  // "All accounts" must not get overridden by the default.
-  const hadInitialSelection = useRef(
-    searchParams.get("account") !== null || loadSavedAccountIds() !== null,
-  );
-  const defaultApplied = useRef(false);
+  // Default to the main budget on first load when nothing pinned a view, and
+  // recover to it when a saved/linked plan id no longer exists (deleted plan).
   useEffect(() => {
-    if (defaultApplied.current) return;
-    if (!prefs || !accountsData) return;
-    defaultApplied.current = true;
-    if (hadInitialSelection.current) return;
-    const scope = defaultScopeAccountIds(accountsData, prefs.defaultAccountId);
-    if (scope.length > 0) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- One-shot sync from async-loaded prefs/accounts; can't derive during render because user must still be able to override.
-      setSelectedAccountIds(scope);
-    }
-  }, [prefs, accountsData]);
+    if (!plansData) return;
+    const known =
+      selectedBudget === OVERALL ||
+      (selectedBudget !== null && plans.some((p) => p.id === selectedBudget));
+    if (known) return;
+    const main = plans.find((p) => p.isMain) ?? plans[0];
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- One-shot sync from async-loaded plans; user must still be able to override afterwards.
+    setSelectedBudget(main ? main.id : OVERALL);
+  }, [plansData, plans, selectedBudget]);
+
+  const selectedPlan =
+    selectedBudget !== null && selectedBudget !== OVERALL
+      ? plans.find((p) => p.id === selectedBudget) ?? null
+      : null;
+  // The view's transaction scope: a plan's accounts, or everything on Overall.
+  const selectedAccountIds = selectedPlan
+    ? selectedPlan.accounts.map((a) => a.id)
+    : [];
 
   // Non-custom presets are derived; custom uses user-controlled state.
   const computedRange = preset === "custom" ? null : getPresetRange(preset, startDay);
@@ -269,39 +258,25 @@ export default function InsightsPage() {
   const dateTo = computedRange ? computedRange.to : customDateTo;
 
   // Sync filter state back into the URL so a back-nav restores the same view,
-  // and save the account selection so the next visit starts from it.
+  // and save the budget selection so the next visit starts from it.
   useEffect(() => {
     const params = new URLSearchParams();
     if (preset !== "this_month") params.set("preset", preset);
-    if (selectedAccountIds.length > 0)
-      params.set("account", selectedAccountIds.join(","));
+    if (selectedBudget !== null) params.set("budget", selectedBudget);
     if (preset === "custom") {
       if (customDateFrom) params.set("dateFrom", customDateFrom);
       if (customDateTo) params.set("dateTo", customDateTo);
     }
     const qs = params.toString();
     router.replace(qs ? `/insights?${qs}` : "/insights", { scroll: false });
-    window.localStorage.setItem(
-      ACCOUNTS_STORAGE_KEY,
-      JSON.stringify(selectedAccountIds),
-    );
-  }, [preset, selectedAccountIds, customDateFrom, customDateTo, router]);
+    if (selectedBudget !== null) {
+      window.localStorage.setItem(BUDGET_STORAGE_KEY, selectedBudget);
+    }
+  }, [preset, selectedBudget, customDateFrom, customDateTo, router]);
 
   const accountIdParam =
     selectedAccountIds.length > 0 ? selectedAccountIds.join(",") : undefined;
-  const accountLabel =
-    selectedAccountIds.length === 0
-      ? "All accounts"
-      : selectedAccountIds.length === 1
-        ? accountsData?.find((a) => a.id === selectedAccountIds[0])?.name ??
-          "1 account"
-        : `${selectedAccountIds.length} accounts`;
-
-  const toggleAccount = (id: string, checked: boolean) => {
-    setSelectedAccountIds((prev) =>
-      checked ? [...prev, id] : prev.filter((v) => v !== id),
-    );
-  };
+  const accountLabel = selectedPlan ? `${selectedPlan.name} accounts` : "All accounts";
 
   const prevRange = getPreviousRange(preset, startDay, dateFrom, dateTo);
   const deltaLabel = DELTA_LABELS[preset];
@@ -325,18 +300,26 @@ export default function InsightsPage() {
   const { data: balanceData, isLoading: balanceLoading } = useBalanceTimeline({
     accountId: accountIdParam,
   });
-  // Budget caps are envelope-style (PR #33) and span all accounts, but the
-  // spend side respects the page's account filter so every card reflects the
-  // same selection. Disable the API's day-based scaling when the range is a
-  // single financial month (matches the Budgets page) so the budget total
-  // isn't pro-rated below its monthly value.
+  // Budget caps and spend both follow the selected plan (the API scopes to
+  // its allocations and its accounts). Disable the API's day-based scaling
+  // when the range is a single financial month (matches the Budgets page) so
+  // the budget total isn't pro-rated below its monthly value. On Overall the
+  // per-category budget view is hidden, so nothing is fetched.
   const isSingleFinancialMonth =
     preset === "this_month" || preset === "last_month";
   const { data: budgetData } = useBudgets({
     dateFrom: dateFrom || undefined,
     dateTo: dateTo || undefined,
-    accountId: accountIdParam,
+    budgetId: selectedPlan?.id,
     noScale: isSingleFinancialMonth,
+    enabled: !!selectedPlan,
+  });
+  // The plan's unscaled monthly budget for the vs-actual chart — independent
+  // of the page's date preset.
+  const { data: planMonthlyData } = useBudgets({
+    budgetId: selectedPlan?.id,
+    noScale: true,
+    enabled: !!selectedPlan,
   });
 
   const handlePresetChange = (value: string) => {
@@ -381,6 +364,43 @@ export default function InsightsPage() {
     navigateToTransactions(categoryId ? { category: categoryId } : {});
   };
 
+  // A budget with no accounts has no spending to analyze — showing all-account
+  // numbers under its tab would be a lie. Prompt instead.
+  if (selectedPlan && selectedPlan.accounts.length === 0) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-end justify-between flex-wrap gap-4">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Insights</h1>
+            <p className="text-sm text-muted-foreground">
+              {selectedPlan.name} budget
+            </p>
+          </div>
+          <Tabs value={selectedBudget ?? OVERALL} onValueChange={setSelectedBudget}>
+            <TabsList>
+              <TabsTrigger value={OVERALL}>Overall</TabsTrigger>
+              {plans.map((p) => (
+                <TabsTrigger key={p.id} value={p.id} className="gap-1.5">
+                  {p.isMain && (
+                    <Star className="h-3 w-3 fill-current text-amber-500" aria-label="Main budget" />
+                  )}
+                  {p.name}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+        </div>
+        <p className="py-16 text-center text-sm text-muted-foreground">
+          {selectedPlan.name} has no accounts yet — add some on the{" "}
+          <a href="/budgets" className="text-primary hover:underline">
+            Budgets
+          </a>{" "}
+          page to see its analysis.
+        </p>
+      </div>
+    );
+  }
+
   if (isLoading && !data) {
     return <LoadingMessages />;
   }
@@ -411,39 +431,33 @@ export default function InsightsPage() {
             )}
             {formatRangeLabel(dateFrom, dateTo)}
             {daysLeft > 0 && ` · ${daysLeft} day${daysLeft === 1 ? "" : "s"} left`}
+            {plans.length > 0 && (
+              <> · {selectedPlan ? `${selectedPlan.name} budget` : "all accounts"}</>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="w-[200px] justify-start font-normal">
-                <Landmark className="mr-2 h-4 w-4" />
-                <span className="flex-1 truncate text-left">{accountLabel}</span>
-                <ChevronDown className="h-4 w-4 opacity-50" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-[200px]">
-              <DropdownMenuItem
-                onSelect={(e) => {
-                  e.preventDefault();
-                  setSelectedAccountIds([]);
-                }}
-              >
-                All accounts
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              {accountsData?.map((acc) => (
-                <DropdownMenuCheckboxItem
-                  key={acc.id}
-                  checked={selectedAccountIds.includes(acc.id)}
-                  onCheckedChange={(checked) => toggleAccount(acc.id, checked)}
-                  onSelect={(e) => e.preventDefault()}
-                >
-                  {acc.name}
-                </DropdownMenuCheckboxItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {plans.length > 0 && (
+            <Tabs
+              value={selectedBudget ?? OVERALL}
+              onValueChange={setSelectedBudget}
+            >
+              <TabsList>
+                <TabsTrigger value={OVERALL}>Overall</TabsTrigger>
+                {plans.map((p) => (
+                  <TabsTrigger key={p.id} value={p.id} className="gap-1.5">
+                    {p.isMain && (
+                      <Star
+                        className="h-3 w-3 fill-current text-amber-500"
+                        aria-label="Main budget"
+                      />
+                    )}
+                    {p.name}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+          )}
           <Select value={preset} onValueChange={handlePresetChange}>
             <SelectTrigger className="w-[160px]">
               <Calendar className="mr-2 h-4 w-4" />
@@ -509,6 +523,11 @@ export default function InsightsPage() {
         onCategoryClick={navigateToCategory}
       />
 
+      {/* Overall only: how each budget stands right now, side by side. */}
+      {!selectedPlan && plans.length > 0 && (
+        <BudgetComparisonStrip plans={plans} onSelect={setSelectedBudget} />
+      )}
+
       {/* Category breakdown (per-category rows) */}
       <CategoryBreakdownCard
         sortedBreakdown={sortedBreakdown}
@@ -539,12 +558,20 @@ export default function InsightsPage() {
         />
       </div>
 
-      {/* Monthly Budget Performance — only for single financial months; the
-          API pro-rates caps for other ranges, which misleads here. */}
-      {isSingleFinancialMonth && (
+      {/* Per-plan only: monthly performance against this plan's caps (single
+          financial months — the API pro-rates caps for other ranges, which
+          misleads here) and spending vs. the current budget over time. */}
+      {selectedPlan && isSingleFinancialMonth && (
         <BudgetPerformance
           data={budgetData ?? null}
-          accountLabel={accountIdParam !== undefined ? accountLabel : undefined}
+          accountLabel={accountLabel}
+        />
+      )}
+      {selectedPlan && (
+        <BudgetVsActual
+          planName={selectedPlan.name}
+          accountId={accountIdParam}
+          monthlyBudget={planMonthlyData?.totalBudget ?? 0}
         />
       )}
 
