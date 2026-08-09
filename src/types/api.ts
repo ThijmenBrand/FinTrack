@@ -319,6 +319,8 @@ export interface UnbudgetedSpending {
 }
 
 export interface BudgetData {
+  /** The plan these numbers are scoped to; null for pre-plan users. */
+  plan: { id: string; name: string; isMain: boolean } | null;
   monthlyIncome: number;
   totalFixedCosts: number;
   availableToAllocate: number;

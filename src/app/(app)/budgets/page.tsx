@@ -184,7 +184,7 @@ export default function BudgetsPage() {
   };
 
   const runGenerate = async () => {
-    const result = await generateBudgets.mutateAsync();
+    const result = await generateBudgets.mutateAsync({});
     if (result.suggestions.length > 0) {
       setSuggestionsDialogOpen(true);
     }

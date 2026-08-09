@@ -99,6 +99,7 @@ async function createSchema() {
   await exec(`CREATE TABLE IF NOT EXISTS budgets (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
+    budget_id TEXT,
     category_id TEXT NOT NULL,
     amount REAL NOT NULL,
     period TEXT NOT NULL,

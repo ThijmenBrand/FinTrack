@@ -27,6 +27,7 @@ const TABLES = [
   "transactions",
   "transaction_groups",
   "budgets",
+  "budget_plans",
   "recurring_transactions",
   "category_rules",
   "categories",
@@ -61,9 +62,20 @@ export async function setupTestDb(name: string): Promise<TestDb> {
       currency TEXT NOT NULL DEFAULT 'EUR',
       initial_balance REAL NOT NULL DEFAULT 0,
       sort_order INTEGER NOT NULL DEFAULT 0,
+      budget_id TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )`,
+    `CREATE TABLE IF NOT EXISTS budget_plans (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      is_main INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_budget_plans_user_main
+      ON budget_plans (user_id) WHERE is_main = 1`,
     `CREATE TABLE IF NOT EXISTS categories (
       id TEXT PRIMARY KEY,
       user_id TEXT,
@@ -121,6 +133,7 @@ export async function setupTestDb(name: string): Promise<TestDb> {
     `CREATE TABLE IF NOT EXISTS budgets (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
+      budget_id TEXT,
       category_id TEXT NOT NULL,
       amount REAL NOT NULL,
       period TEXT NOT NULL,
@@ -157,6 +170,7 @@ export async function setupTestDb(name: string): Promise<TestDb> {
       financial_month_start_day INTEGER NOT NULL DEFAULT 1,
       default_account_id TEXT,
       hide_internal_transfers INTEGER NOT NULL DEFAULT 0,
+      count_cross_budget_transfers INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )`,

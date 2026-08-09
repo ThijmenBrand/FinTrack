@@ -5,10 +5,11 @@ import {
   recurringTransactions,
   transactions,
 } from "@/db/schema";
-import { and, eq, gte, lte, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import type { BudgetSuggestion } from "@/types/api";
 import { effectiveExpenseAmount } from "@/lib/reimbursement-sql";
 import { clampFrom, getStatsCutoff } from "@/lib/stat-reset";
+import type { ResolvedBudgetPlan } from "@/lib/budget-plan";
 
 /**
  * Round a number up to the nearest multiple of 5 (e.g. 142.30 -> 145).
@@ -52,12 +53,27 @@ function getLookbackWindow(lookbackMonths: number): DateWindow {
 export async function regenerateBudgetSuggestions(
   userId: string,
   lookbackMonths: number,
+  plan?: ResolvedBudgetPlan | null,
 ): Promise<BudgetSuggestion[]> {
   if (lookbackMonths < 1 || lookbackMonths > 12) {
     throw new Error(
       `regenerateBudgetSuggestions: lookbackMonths must be 1..12, got ${lookbackMonths}`,
     );
   }
+  // Per-plan scoping: spending history and fixed costs count only the plan's
+  // accounts, and the produced suggestions belong to the plan. A plan with no
+  // accounts has no history and gets no suggestions.
+  const planFilter = plan ? eq(budgets.budgetId, plan.id) : isNull(budgets.budgetId);
+  const txScope = plan
+    ? plan.accountIds.length > 0
+      ? inArray(transactions.accountId, plan.accountIds)
+      : sql`1=0`
+    : undefined;
+  const recurringScope = plan
+    ? plan.accountIds.length > 0
+      ? inArray(recurringTransactions.accountId, plan.accountIds)
+      : sql`1=0`
+    : undefined;
   const window = getLookbackWindow(lookbackMonths);
   // A statistics reset means older spending no longer describes this user, so
   // the lookback never reaches past it. monthsCovered is counted from the rows
@@ -75,6 +91,7 @@ export async function regenerateBudgetSuggestions(
         eq(recurringTransactions.userId, userId),
         eq(recurringTransactions.type, "expense"),
         eq(recurringTransactions.isActive, true),
+        ...(recurringScope ? [recurringScope] : []),
       ),
     );
   const fixedCategoryIds = new Set(
@@ -101,6 +118,7 @@ export async function regenerateBudgetSuggestions(
         sql`${transactions.categoryId} IS NOT NULL`,
         gte(transactions.date, from),
         lte(transactions.date, window.to),
+        ...(txScope ? [txScope] : []),
       ),
     )
     .groupBy(transactions.categoryId);
@@ -114,6 +132,7 @@ export async function regenerateBudgetSuggestions(
         eq(budgets.userId, userId),
         eq(budgets.isActive, true),
         eq(budgets.status, "active"),
+        planFilter,
       ),
     );
   const activeByCategory = new Map<string, { id: string; amount: number }>();
@@ -125,7 +144,7 @@ export async function regenerateBudgetSuggestions(
   // regeneration always reflects the latest spending pattern.
   await db
     .delete(budgets)
-    .where(and(eq(budgets.userId, userId), eq(budgets.status, "suggested")));
+    .where(and(eq(budgets.userId, userId), eq(budgets.status, "suggested"), planFilter));
 
   const now = new Date().toISOString();
   const suggestions: BudgetSuggestion[] = [];
@@ -151,6 +170,7 @@ export async function regenerateBudgetSuggestions(
     await db.insert(budgets).values({
       id,
       userId,
+      budgetId: plan?.id ?? null,
       categoryId: row.categoryId,
       amount: suggestedAmount,
       period: "monthly",
