@@ -23,8 +23,8 @@ import { useCategories } from "@/hooks/use-categories";
 import { usePots, useDeletePot, useAddToPot, useRemoveFromPot, useCreatePot } from "@/hooks/use-pots";
 import { useTransactions, useDeleteTransaction, useDetectTransfers, useDeleteReimbursement, useBulkCategorizeTransactions, useBulkDeleteTransactions } from "@/hooks/use-transactions";
 import { usePreferences } from "@/hooks/use-preferences";
-import { formatDate } from "@/lib/utils";
 import type { Transaction, Pot, Pagination, PotRangeTotal } from "@/types/api";
+import { useI18n } from "@/lib/i18n/client";
 import {
   TransactionSearchBar,
   computeDateRange,
@@ -50,6 +50,7 @@ export default function TransactionsPageWrapper() {
 }
 
 function TransactionsPage() {
+  const { t, plural, formatDate } = useI18n();
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -304,8 +305,10 @@ function TransactionsPage() {
       if (data.success) {
         setTransferResult(
           data.matchedPairs > 0
-            ? `Found ${data.matchedPairs} transfer pair${data.matchedPairs !== 1 ? "s" : ""} (${data.totalTransactionsUpdated} transactions updated)`
-            : "No new internal transfers detected"
+            ? plural(data.matchedPairs, "tx.transfersFound.one", "tx.transfersFound.other", {
+                updated: data.totalTransactionsUpdated,
+              })
+            : t("tx.transfersNone"),
         );
       }
     } catch (err) {
@@ -333,7 +336,9 @@ function TransactionsPage() {
 
   const accountOptions = accounts.map((a) => ({ value: a.id, label: a.name }));
   const categoryOptions = categories.map((c) => ({ value: c.id, label: c.name, color: c.color }));
-  const availableTypeOptions = TYPE_OPTIONS.filter((o) => distinctTypes.includes(o.value));
+  const availableTypeOptions = TYPE_OPTIONS.filter((o) =>
+    distinctTypes.includes(o.value),
+  ).map((o) => ({ value: o.value, label: t(o.labelKey) }));
 
   // Build display items: interleave pot summary rows before first transaction of each pot
   const potsById = useMemo(() => {
@@ -439,15 +444,13 @@ function TransactionsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Transactions</h1>
-          <p className="text-muted-foreground">
-            View, filter, and manage your transactions.
-          </p>
+          <h1 className="text-3xl font-bold tracking-tight">{t("tx.title")}</h1>
+          <p className="text-muted-foreground">{t("tx.subtitle")}</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => setCreatePotOpen(true)}>
             <Plus className="sm:mr-2 h-4 w-4" />
-            <span className="hidden sm:inline">Create Pot</span>
+            <span className="hidden sm:inline">{t("tx.createPot")}</span>
           </Button>
           <Button
             variant="outline"
@@ -460,17 +463,17 @@ function TransactionsPage() {
             ) : (
               <ArrowLeftRight className="sm:mr-2 h-4 w-4" />
             )}
-            <span className="hidden sm:inline">Detect Transfers</span>
+            <span className="hidden sm:inline">{t("tx.detectTransfers")}</span>
           </Button>
           <Button size="sm" variant="outline" asChild>
             <Link href="/import-history">
               <History className="sm:mr-2 h-4 w-4" />
-              <span className="hidden sm:inline">Import History</span>
+              <span className="hidden sm:inline">{t("tx.importHistory")}</span>
             </Link>
           </Button>
           <Button size="sm" onClick={() => setUploadOpen(true)}>
             <Upload className="sm:mr-2 h-4 w-4" />
-            <span className="hidden sm:inline">Import CSV</span>
+            <span className="hidden sm:inline">{t("tx.importCsv")}</span>
           </Button>
         </div>
       </div>
@@ -502,8 +505,8 @@ function TransactionsPage() {
       {(periodFilter !== "all" || dateFromOverride || dateToOverride) && (
         <div className="flex items-center gap-2">
           <span className="text-sm text-muted-foreground">
-            Showing: {dateFrom && formatDate(dateFrom)}
-            {dateTo ? ` — ${formatDate(dateTo)}` : " — now"}
+            {t("tx.showingRange", { from: dateFrom ? formatDate(dateFrom) : "" })}
+            {dateTo ? ` — ${formatDate(dateTo)}` : ` — ${t("tx.rangeToNow")}`}
           </span>
         </div>
       )}
@@ -523,7 +526,7 @@ function TransactionsPage() {
             size="sm"
             onClick={() => setTransferResult(null)}
           >
-            Dismiss
+            {t("tx.dismiss")}
           </Button>
         </div>
       )}
@@ -590,7 +593,7 @@ function TransactionsPage() {
         onRemoveFromPot={(tx) => handleRemoveFromPot(tx.groupId!, tx.id)}
         onReimburse={setReimbursePicker}
         onDelete={(tx) => {
-          if (window.confirm("Delete this transaction?")) handleDelete(tx.id);
+          if (window.confirm(t("tx.confirmDelete"))) handleDelete(tx.id);
         }}
         onFilterByCategory={(tx) => { if (tx.categoryId) applyFilter("category", tx.categoryId); }}
         onFilterByName={(tx) => applyFilter("search", tx.name || tx.description)}
@@ -688,7 +691,7 @@ function TransactionsPage() {
           open={true}
           onOpenChange={(open) => { if (!open) setBulkPotOpen(false); }}
           pots={pots}
-          transactionDescription={`${selectedOnPage.length} selected transactions`}
+          transactionDescription={t("tx.selectedTransactions", { count: selectedOnPage.length })}
           onCreate={handleCreatePot}
           onSelect={async (potId) => {
             for (const tx of selectedOnPage) {

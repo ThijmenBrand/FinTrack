@@ -12,7 +12,7 @@ external services required to run it locally.
 
 - **Next.js 16** (App Router, React 19) — UI and API routes
 - **Drizzle ORM** on **libSQL/SQLite** — local file DB in dev, [Turso](https://turso.tech) in prod
-- **better-auth** — username/password, PIN, and passkey login
+- **better-auth** — email/password, PIN, and passkey login
 - **TanStack Query** — client data fetching/caching
 - **Tailwind v4 + Radix UI** — styling and components
 - **Vitest** — tests
@@ -28,12 +28,14 @@ npm run dev       # http://localhost:3000
 
 Then log in:
 
-| User | Password | Goes to |
-|---|---|---|
-| `demo` | `demo` | the finance app, preloaded with 12 months of dummy data |
-| `admin` | `admin` | `/backoffice` — user management and the audit log |
+Sign-in is by **email address**, not username:
 
-**Use `demo` for app work.** Admins are redirected to `/backoffice` and can't
+| Email | Password | Goes to |
+|---|---|---|
+| `demo@local.test` | `demo` | the finance app, preloaded with 12 months of dummy data |
+| `admin@local.test` | `admin` | `/backoffice` — user management and the audit log |
+
+**Use `demo@local.test` for app work.** Admins are redirected to `/backoffice` and can't
 open the finance pages at all (`src/proxy.ts` enforces the split), so logging in
 as `admin` looks like the app is broken when it isn't.
 
@@ -83,8 +85,8 @@ empty `.env` still runs.
 |---|---|---|
 | `BETTER_AUTH_SECRET` | prod | Session-signing secret, min 32 chars. A dev fallback is used if unset (with a warning); **required in production**. |
 | `BETTER_AUTH_URL` | yes | Base URL, e.g. `http://localhost:3000` or your prod domain. Used for auth callbacks — and baked in at *build* time by `src/proxy.ts`. |
-| `ADMIN_USERNAME` / `ADMIN_PASSWORD` / `ADMIN_DISPLAY_NAME` | no | Seeded on first `db:migrate` only, and only when the database has no users. Default `admin`/`admin`. |
-| `SEED_USERNAME` / `SEED_PASSWORD` | no | Defaults for `db:seed`'s target user. Default `demo`/`demo`. |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` / `ADMIN_DISPLAY_NAME` | no | Seeded on first `db:migrate` only, and only when the database has no users. Default `admin`/`admin`, signing in as `admin@local.test`. |
+| `SEED_USERNAME` / `SEED_PASSWORD` / `SEED_EMAIL` | no | Defaults for `db:seed`'s target user. Default `demo`/`demo`, signing in as `demo@local.test`. |
 | `RESEND_API_KEY` / `EMAIL_FROM` | prod | Signup verification and password-reset mail. Unset locally → mail contents are logged to the console instead. |
 | `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN` | prod | Leave **unset** for local (uses the SQLite file). Set **both** to use Turso. |
 
@@ -117,8 +119,8 @@ commit the generated `drizzle/*.sql`, then `npm run db:migrate`. There is no
 
 | Symptom | Cause |
 |---|---|
-| Logged in, but every page bounces to `/backoffice` | You're on the `admin` account. Log in as `demo`. |
-| "Invalid username or password" for a user you just seeded | Dev server is holding the deleted database file. Restart it. |
+| Logged in, but every page bounces to `/backoffice` | You're on the `admin` account. Log in as `demo@local.test`. |
+| "Invalid email or password" for a user you just seeded | You're using the username — sign in with the full email (`demo@local.test`). Or the dev server is holding the deleted database file; restart it. |
 | Empty dashboard | Ran `db:migrate` but not `db:seed`, or you're logged in as a user with no data. |
 | `No such table` errors | Missing migrations — run `npm run db:migrate`. |
 
@@ -153,6 +155,7 @@ src/
     api/                route handlers — the backend
   db/                   schema.ts (Drizzle tables), migrate.ts (seed/init), index.ts (client)
   lib/                  auth, validation, csv-utils, audit, business logic
+  lib/i18n/             locales, message catalogues, client/server translators
   components/           UI (ui/ = Radix/shadcn primitives)
   hooks/                TanStack Query data hooks
 ```
@@ -167,6 +170,14 @@ src/
 - **Backend**: API route handlers under `src/app/api/*` do the work
   (transactions, categorize, upload/commit, budgets, pots, recurring,
   insights, admin). The client calls them via hooks in `src/hooks`.
+- **Language**: English and Dutch, picked in Settings → General and stored on
+  `user_preferences.locale` (mirrored into a `locale` cookie so the login and
+  invite pages match). Client components read `useI18n()` from
+  `src/lib/i18n/client`; server components `await getI18n()` from
+  `src/lib/i18n/server`. Both hand back `t()`, `plural()` and locale-bound
+  date/currency formatters. Message keys are flat and dotted in
+  `src/lib/i18n/messages/en.ts`; `nl.ts` is typed against it, so a missing
+  translation is a build error.
 
 ### What you can do
 

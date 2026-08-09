@@ -8,8 +8,10 @@ import { useUnlockPin } from "@/hooks/use-pin";
 import { useLockScreen } from "@/components/lock-screen-provider";
 import { ApiError } from "@/lib/api";
 import { PinInput } from "@/components/pin-input";
+import { useI18n } from "@/lib/i18n/client";
 
 export function LockScreen() {
+  const { t } = useI18n();
   const { isLocked, username, unlock, clearLockState } = useLockScreen();
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
@@ -49,7 +51,7 @@ export function LockScreen() {
           return;
         }
       }
-      setError(err instanceof Error ? err.message : "Invalid PIN");
+      setError(err instanceof Error ? err.message : t("lock.invalidPin"));
       setPin("");
     } finally {
       setLoading(false);
@@ -80,10 +82,10 @@ export function LockScreen() {
             </div>
             <div className="space-y-1">
               <h1 className="text-xl font-semibold tracking-tight text-foreground">
-                FinTrack
+                {t("nav.appShortName")}
               </h1>
               <p className="text-sm text-muted-foreground">
-                Welcome back,{" "}
+                {t("lock.welcomeBack")}{" "}
                 <span className="font-medium text-foreground">{username}</span>
               </p>
             </div>
@@ -93,7 +95,7 @@ export function LockScreen() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <PinInput
               id="lockPin"
-              label="PIN Code"
+              label={t("lock.pinCode")}
               value={pin}
               onChange={setPin}
               inputRef={pinInputRef}
@@ -111,7 +113,7 @@ export function LockScreen() {
               disabled={loading || pin.length < 4}
               className="inline-flex h-11 w-full items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground shadow-sm transition-[background-color,transform] hover:bg-primary/90 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card disabled:pointer-events-none disabled:opacity-50"
             >
-              {loading ? "Verifying…" : "Unlock"}
+              {loading ? t("lock.verifying") : t("lock.unlock")}
             </button>
           </form>
 
@@ -121,7 +123,7 @@ export function LockScreen() {
             className="mt-5 flex w-full items-center justify-center gap-2 border-t border-border/60 pt-4 text-sm text-muted-foreground transition-colors hover:text-foreground"
           >
             <LogOut className="h-4 w-4" />
-            Sign out
+            {t("lock.signOut")}
           </button>
         </div>
       </div>

@@ -17,8 +17,9 @@ import {
   useAcceptBudgetSuggestions,
   useRejectBudgetSuggestions,
 } from "@/hooks/use-budgets";
-import { formatCurrency } from "@/lib/utils";
+
 import type { BudgetSuggestion } from "@/types/api";
+import { useI18n } from "@/lib/i18n/client";
 
 interface Props {
   open: boolean;
@@ -28,6 +29,7 @@ interface Props {
 }
 
 export function BudgetSuggestionsDialog({ open, onOpenChange, suggestions, lookbackMonths }: Props) {
+  const { t, plural, formatCurrency } = useI18n();
   const accept = useAcceptBudgetSuggestions();
   const reject = useRejectBudgetSuggestions();
 
@@ -102,16 +104,20 @@ export function BudgetSuggestionsDialog({ open, onOpenChange, suggestions, lookb
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-blue-500" />
-            Review suggested budgets
+            {t("budgets.suggestions.title")}
           </DialogTitle>
           <DialogDescription>
-            Based on the last {lookbackMonths} month{lookbackMonths === 1 ? "" : "s"} of spending. Amounts are rounded up to the nearest €5. Pick what to apply.
+            {plural(
+              lookbackMonths,
+              "budgets.suggestions.description.one",
+              "budgets.suggestions.description.other",
+            )}
           </DialogDescription>
         </DialogHeader>
 
         {suggestions.length === 0 ? (
           <div className="py-6 text-center text-sm text-muted-foreground">
-            No new suggestions — your active budgets already match recent spending.
+            {t("budgets.suggestions.empty")}
           </div>
         ) : (
           <div className="-mx-6 max-h-[55vh] overflow-y-auto px-6">
@@ -119,12 +125,12 @@ export function BudgetSuggestionsDialog({ open, onOpenChange, suggestions, lookb
               <Checkbox
                 checked={allSelected ? true : someSelected ? "indeterminate" : false}
                 onCheckedChange={(v) => toggleAll(Boolean(v))}
-                aria-label="Select all"
+                aria-label={t("budgets.suggestions.selectAll")}
               />
-              <span className="flex-1">Category</span>
-              <span className="w-24 text-right">Current</span>
+              <span className="flex-1">{t("common.category")}</span>
+              <span className="w-24 text-right">{t("budgets.suggestions.colCurrent")}</span>
               <span className="w-6" />
-              <span className="w-28 text-right">Suggested</span>
+              <span className="w-28 text-right">{t("budgets.suggestions.colSuggested")}</span>
             </div>
             <ul className="divide-y">
               {suggestions.map((s) => {
@@ -137,7 +143,9 @@ export function BudgetSuggestionsDialog({ open, onOpenChange, suggestions, lookb
                       onCheckedChange={(v) =>
                         setSelected((prev) => ({ ...prev, [s.id]: Boolean(v) }))
                       }
-                      aria-label={`Select ${s.categoryName ?? "suggestion"}`}
+                      aria-label={t("budgets.suggestions.selectOne", {
+                        name: s.categoryName ?? t("budgets.suggestions.fallbackName"),
+                      })}
                     />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
@@ -145,16 +153,19 @@ export function BudgetSuggestionsDialog({ open, onOpenChange, suggestions, lookb
                           className="h-2 w-2 rounded-full shrink-0"
                           style={{ backgroundColor: s.categoryColor || "#94a3b8" }}
                         />
-                        <span className="truncate text-sm font-medium">{s.categoryName ?? "Uncategorized"}</span>
+                        <span className="truncate text-sm font-medium">{s.categoryName ?? t("common.uncategorized")}</span>
                         {isNew && (
                           <span className="text-[10px] uppercase tracking-wide text-blue-600 dark:text-blue-400 inline-flex items-center gap-0.5">
                             <Plus className="h-3 w-3" />
-                            New
+                            {t("budgets.suggestions.new")}
                           </span>
                         )}
                       </div>
                       <div className="text-xs text-muted-foreground">
-                        avg {formatCurrency(s.avgMonthly)}/mo over {s.monthsOfData} mo
+                        {t("budgets.suggestions.avgOver", {
+                          amount: formatCurrency(s.avgMonthly),
+                          months: s.monthsOfData,
+                        })}
                       </div>
                     </div>
                     <span className="w-24 text-right text-sm tabular-nums text-muted-foreground">
@@ -190,9 +201,13 @@ export function BudgetSuggestionsDialog({ open, onOpenChange, suggestions, lookb
               })}
             </ul>
             <div className="flex items-center justify-between border-t pt-2 text-sm">
-              <span className="text-muted-foreground">{selectedIds.length} selected</span>
+              <span className="text-muted-foreground">
+                {t("budgets.suggestions.selectedCount", { count: selectedIds.length })}
+              </span>
               <span className="tabular-nums font-medium">
-                Total: {formatCurrency(totalSelected)}/mo
+                {t("budgets.suggestions.totalPerMonth", {
+                  amount: formatCurrency(totalSelected),
+                })}
               </span>
             </div>
           </div>
@@ -200,14 +215,18 @@ export function BudgetSuggestionsDialog({ open, onOpenChange, suggestions, lookb
 
         <DialogFooter className="gap-2 sm:gap-2">
           <Button variant="ghost" onClick={handleRejectAll} disabled={isPending || suggestions.length === 0}>
-            Dismiss all
+            {t("budgets.dismissAll")}
           </Button>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isPending}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button onClick={handleAccept} disabled={isPending || selectedIds.length === 0}>
             {isPending && <Loader2 className="mr-2 h-3 w-3 animate-spin" />}
-            Apply {selectedIds.length || ""} budget{selectedIds.length === 1 ? "" : "s"}
+            {selectedIds.length === 0
+              ? t("budgets.suggestions.applyAll")
+              : selectedIds.length === 1
+                ? t("budgets.suggestions.applyOne")
+                : t("budgets.suggestions.applyCount", { count: selectedIds.length })}
           </Button>
         </DialogFooter>
       </DialogContent>

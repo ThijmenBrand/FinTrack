@@ -28,6 +28,7 @@ import {
 } from "@/hooks/use-admin";
 import type { AdminUser } from "@/types/api";
 import { ApiError } from "@/lib/api";
+import { useI18n } from "@/lib/i18n/client";
 
 type AccountForm = {
   displayUsername: string;
@@ -58,6 +59,7 @@ export function UserRow({
   onToggleExpand: () => void;
   onError: (message: string) => void;
 }) {
+  const { t, plural, formatDate, formatNumber } = useI18n();
   const deleteUser = useDeleteUser();
   const resetPassword = useResetPassword();
   const setBanned = useSetBanned();
@@ -94,11 +96,11 @@ export function UserRow({
   }
 
   async function handleDelete() {
-    if (!confirm(`Delete user "${user.username}" and all their data? This cannot be undone.`)) return;
+    if (!confirm(t("backoffice.confirmDeleteUser", { name: user.username }))) return;
     try {
       await deleteUser.mutateAsync(user.id);
     } catch (err) {
-      fail(err, "Failed to delete user");
+      fail(err, t("backoffice.deleteUserFailed"));
     }
   }
 
@@ -107,14 +109,12 @@ export function UserRow({
       if (user.banned) {
         await setBanned.mutateAsync({ id: user.id, banned: false });
       } else {
-        const reason = prompt(
-          `Ban "${user.username}"? Their sessions are revoked and sign-in is blocked.\n\nOptional reason:`,
-        );
+        const reason = prompt(t("backoffice.confirmBanUser", { name: user.username }));
         if (reason === null) return;
         await setBanned.mutateAsync({ id: user.id, banned: true, banReason: reason || undefined });
       }
     } catch (err) {
-      fail(err, user.banned ? "Failed to unban user" : "Failed to ban user");
+      fail(err, user.banned ? t("backoffice.unbanFailed") : t("backoffice.banFailed"));
     }
   }
 
@@ -138,7 +138,7 @@ export function UserRow({
     try {
       await updateUser.mutateAsync(payload);
     } catch (err) {
-      fail(err, "Failed to update account");
+      fail(err, t("backoffice.updateAccountFailed"));
     }
   }
 
@@ -146,7 +146,7 @@ export function UserRow({
     event.preventDefault();
     setPasswordError("");
     if (newPassword !== confirmPassword) {
-      setPasswordError("Passwords do not match.");
+      setPasswordError(t("backoffice.passwordsMismatch"));
       return;
     }
 
@@ -155,7 +155,10 @@ export function UserRow({
       setNewPassword("");
       setConfirmPassword("");
     } catch (err) {
-      const message = err instanceof ApiError ? err.message || "Failed to reset password" : "Failed to reset password";
+      const message =
+        err instanceof ApiError
+          ? err.message || t("backoffice.resetPasswordFailed")
+          : t("backoffice.resetPasswordFailed");
       setPasswordError(message);
     }
   }
@@ -171,7 +174,7 @@ export function UserRow({
             <div className="flex flex-wrap items-center gap-2">
               <p className="truncate font-medium text-foreground">{user.displayUsername}</p>
               <span className="rounded-full bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">
-                {user.role === "admin" ? "Admin" : "User"}
+                {user.role === "admin" ? t("backoffice.admin") : t("backoffice.user")}
               </span>
               {user.banned && (
                 <span
@@ -179,7 +182,7 @@ export function UserRow({
                   title={user.banReason || undefined}
                 >
                   <Ban className="h-3 w-3" />
-                  Banned
+                  {t("backoffice.banned")}
                 </span>
               )}
             </div>
@@ -190,7 +193,7 @@ export function UserRow({
               <span
                 className={user.emailVerified ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}
               >
-                {user.emailVerified ? "Verified" : "Unverified"}
+                {user.emailVerified ? t("backoffice.verified") : t("backoffice.unverified")}
               </span>
             </div>
           </div>
@@ -199,7 +202,7 @@ export function UserRow({
         <div className="flex shrink-0 items-center gap-2">
           <Button type="button" variant={expanded ? "secondary" : "outline"} size="sm" onClick={toggleManage}>
             <Settings2 className="h-4 w-4" />
-            Manage
+            {t("backoffice.manage")}
             {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
           </Button>
           <Button
@@ -209,8 +212,18 @@ export function UserRow({
             onClick={handleToggleBan}
             disabled={user.isCurrentUser || setBanned.isPending}
             className="hover:border-red-200 hover:bg-red-50 hover:text-red-700 dark:hover:border-red-900 dark:hover:bg-red-950/40 dark:hover:text-red-400"
-            aria-label={user.banned ? `Unban ${user.displayUsername}` : `Ban ${user.displayUsername}`}
-            title={user.isCurrentUser ? "You cannot ban your own account" : user.banned ? "Unban user" : "Ban user"}
+            aria-label={
+              user.banned
+                ? t("backoffice.unbanUser", { name: user.displayUsername })
+                : t("backoffice.banUser", { name: user.displayUsername })
+            }
+            title={
+              user.isCurrentUser
+                ? t("backoffice.cannotBanSelf")
+                : user.banned
+                  ? t("backoffice.unbanTitle")
+                  : t("backoffice.banTitle")
+            }
           >
             <Ban />
           </Button>
@@ -221,8 +234,12 @@ export function UserRow({
             onClick={handleDelete}
             disabled={user.isCurrentUser || deleteUser.isPending}
             className="hover:border-red-200 hover:bg-red-50 hover:text-red-700 dark:hover:border-red-900 dark:hover:bg-red-950/40 dark:hover:text-red-400"
-            aria-label={`Delete ${user.displayUsername}`}
-            title={user.isCurrentUser ? "You cannot delete your own account" : "Delete user"}
+            aria-label={t("backoffice.deleteUserLabel", { name: user.displayUsername })}
+            title={
+              user.isCurrentUser
+                ? t("backoffice.cannotDeleteSelf")
+                : t("backoffice.deleteUser")
+            }
           >
             <Trash2 />
           </Button>
@@ -234,15 +251,15 @@ export function UserRow({
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_17rem]">
             <form onSubmit={handleSaveAccount} className="space-y-4">
               <div>
-                <h2 className="font-semibold text-foreground">Account details</h2>
+                <h2 className="font-semibold text-foreground">{t("backoffice.accountDetails")}</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Update identity, access level, and email verification in one place.
+                  {t("backoffice.accountDetailsHint")}
                 </p>
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor={`display-name-${user.id}`}>Display name</Label>
+                  <Label htmlFor={`display-name-${user.id}`}>{t("profile.displayName")}</Label>
                   <Input
                     id={`display-name-${user.id}`}
                     value={account.displayUsername}
@@ -252,7 +269,7 @@ export function UserRow({
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor={`username-${user.id}`}>Username</Label>
+                  <Label htmlFor={`username-${user.id}`}>{t("auth.username")}</Label>
                   <Input
                     id={`username-${user.id}`}
                     value={account.username}
@@ -262,7 +279,7 @@ export function UserRow({
                   />
                 </div>
                 <div className="space-y-2 sm:col-span-2">
-                  <Label htmlFor={`email-${user.id}`}>Email address</Label>
+                  <Label htmlFor={`email-${user.id}`}>{t("backoffice.emailAddress")}</Label>
                   <Input
                     id={`email-${user.id}`}
                     type="email"
@@ -281,11 +298,11 @@ export function UserRow({
                     required
                   />
                   <p className="text-xs text-muted-foreground">
-                    Changing the address marks it unverified until you explicitly verify it below.
+                    {t("backoffice.emailChangeHint")}
                   </p>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor={`verification-${user.id}`}>Email verification</Label>
+                  <Label htmlFor={`verification-${user.id}`}>{t("backoffice.emailVerification")}</Label>
                   <Select
                     value={account.emailVerified ? "verified" : "unverified"}
                     onValueChange={(value) => updateAccount("emailVerified", value === "verified")}
@@ -294,13 +311,13 @@ export function UserRow({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="verified">Verified</SelectItem>
-                      <SelectItem value="unverified">Unverified</SelectItem>
+                      <SelectItem value="verified">{t("backoffice.verified")}</SelectItem>
+                      <SelectItem value="unverified">{t("backoffice.unverified")}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor={`role-${user.id}`}>Role</Label>
+                  <Label htmlFor={`role-${user.id}`}>{t("backoffice.role")}</Label>
                   <Select
                     value={account.role}
                     onValueChange={(value) => updateAccount("role", value as AccountForm["role"])}
@@ -310,18 +327,20 @@ export function UserRow({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="user">User</SelectItem>
-                      <SelectItem value="admin">Admin</SelectItem>
+                      <SelectItem value="user">{t("backoffice.user")}</SelectItem>
+                      <SelectItem value="admin">{t("backoffice.admin")}</SelectItem>
                     </SelectContent>
                   </Select>
                   {user.isCurrentUser && (
-                    <p className="text-xs text-muted-foreground">Your own role is protected.</p>
+                    <p className="text-xs text-muted-foreground">{t("backoffice.ownRoleProtected")}</p>
                   )}
                 </div>
               </div>
 
               <Button type="submit" disabled={!hasAccountChanges || updateUser.isPending}>
-                {updateUser.isPending ? "Saving changes…" : "Save account changes"}
+                {updateUser.isPending
+                  ? t("backoffice.savingChanges")
+                  : t("backoffice.saveAccountChanges")}
               </Button>
             </form>
 
@@ -330,14 +349,14 @@ export function UserRow({
                 <div>
                   <div className="flex items-center gap-2 font-semibold text-foreground">
                     <KeyRound className="h-4 w-4 text-muted-foreground" />
-                    Reset password
+                    {t("backoffice.resetPassword")}
                   </div>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Set a new password for this user. They can use it immediately.
+                    {t("backoffice.resetPasswordHint")}
                   </p>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor={`new-password-${user.id}`}>New password</Label>
+                  <Label htmlFor={`new-password-${user.id}`}>{t("backoffice.newPassword")}</Label>
                   <Input
                     id={`new-password-${user.id}`}
                     type="password"
@@ -346,11 +365,11 @@ export function UserRow({
                     autoComplete="new-password"
                     minLength={10}
                     required
-                    placeholder="At least 10 characters"
+                    placeholder={t("backoffice.passwordMinChars")}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor={`confirm-password-${user.id}`}>Confirm password</Label>
+                  <Label htmlFor={`confirm-password-${user.id}`}>{t("backoffice.confirmPassword")}</Label>
                   <Input
                     id={`confirm-password-${user.id}`}
                     type="password"
@@ -363,36 +382,41 @@ export function UserRow({
                 </div>
                 {passwordError && <p className="text-sm text-destructive">{passwordError}</p>}
                 <Button type="submit" variant="outline" disabled={!newPassword || !confirmPassword || resetPassword.isPending}>
-                  {resetPassword.isPending ? "Setting password…" : "Set new password"}
+                  {resetPassword.isPending
+                    ? t("backoffice.settingPassword")
+                    : t("backoffice.setNewPassword")}
                 </Button>
               </form>
 
               <dl className="mt-6 grid grid-cols-2 gap-x-4 gap-y-3 border-t pt-5 text-sm">
                 <div>
-                  <dt className="text-muted-foreground">Last active</dt>
+                  <dt className="text-muted-foreground">{t("backoffice.lastActive")}</dt>
                   <dd className="mt-0.5 font-medium text-foreground">
-                    {user.lastActive ? new Date(Number(user.lastActive)).toLocaleDateString() : "Never"}
+                    {user.lastActive
+                      ? formatDate(new Date(Number(user.lastActive)))
+                      : t("common.never")}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-muted-foreground">Joined</dt>
+                  <dt className="text-muted-foreground">{t("backoffice.joined")}</dt>
                   <dd className="mt-0.5 font-medium text-foreground">
-                    {new Date(user.createdAt).toLocaleDateString()}
+                    {formatDate(user.createdAt)}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-muted-foreground">Bank accounts</dt>
+                  <dt className="text-muted-foreground">{t("backoffice.bankAccounts")}</dt>
                   <dd className="mt-0.5 font-medium text-foreground">{user.accountCount}</dd>
                 </div>
                 <div>
-                  <dt className="text-muted-foreground">Transactions</dt>
-                  <dd className="mt-0.5 font-medium text-foreground">{user.transactionCount.toLocaleString()}</dd>
+                  <dt className="text-muted-foreground">{t("backoffice.transactions")}</dt>
+                  <dd className="mt-0.5 font-medium text-foreground">{formatNumber(user.transactionCount)}</dd>
                 </div>
                 <div className="col-span-2">
-                  <dt className="text-muted-foreground">Security</dt>
+                  <dt className="text-muted-foreground">{t("backoffice.security")}</dt>
                   <dd className="mt-0.5 font-medium text-foreground">
-                    {user.hasPin ? "PIN set" : "No PIN"}
-                    {user.passkeyCount > 0 && ` · ${user.passkeyCount} passkey${user.passkeyCount > 1 ? "s" : ""}`}
+                    {user.hasPin ? t("backoffice.pinSet") : t("backoffice.noPin")}
+                    {user.passkeyCount > 0 &&
+                      ` ${plural(user.passkeyCount, "backoffice.passkeys.one", "backoffice.passkeys.other")}`}
                   </dd>
                 </div>
               </dl>

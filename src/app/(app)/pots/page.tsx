@@ -10,8 +10,9 @@ import { CreatePotDialog } from "@/components/create-pot-dialog";
 import { AllocateToPotDialog } from "@/components/allocate-to-pot-dialog";
 import { usePots } from "@/hooks/use-pots";
 import { useCategories } from "@/hooks/use-categories";
-import { formatCurrency as fc, toIsoDate } from "@/lib/utils";
+import { toIsoDate } from "@/lib/utils";
 import type { Pot } from "@/types/api";
+import { useI18n } from "@/lib/i18n/client";
 
 export default function PotsPage() {
   return (
@@ -22,6 +23,7 @@ export default function PotsPage() {
 }
 
 function PotsPageInner() {
+  const { t, plural, formatCurrency: fc } = useI18n();
   const { data: pots = [], isLoading } = usePots();
   const { data: categories = [] } = useCategories();
   const searchParams = useSearchParams();
@@ -78,20 +80,25 @@ function PotsPageInner() {
     <div className="space-y-6">
       <header className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Pots</h1>
+          <h1 className="text-2xl font-bold tracking-tight">{t("pots.title")}</h1>
           <p className="text-sm text-muted-foreground mt-1">
             {pots.length === 0
-              ? "Group transactions or plan ahead for upcoming spikes."
-              : `${pots.length} pot${pots.length === 1 ? "" : "s"}${
+              ? t("pots.emptySubtitle")
+              : `${plural(pots.length, "pots.count.one", "pots.count.other")}${
                   activeSpikes.length > 0
-                    ? ` · ${activeSpikes.length} spike${activeSpikes.length === 1 ? "" : "s"} · ${fc(totalFunded)} saved toward ${fc(totalTarget)}`
+                    ? ` ${plural(
+                        activeSpikes.length,
+                        "pots.spikeSummary.one",
+                        "pots.spikeSummary.other",
+                        { saved: fc(totalFunded), target: fc(totalTarget) },
+                      )}`
                     : ""
                 }`}
           </p>
         </div>
         <Button onClick={() => setCreateOpen(true)}>
           <Plus className="h-4 w-4" />
-          New pot
+          {t("pots.new")}
         </Button>
       </header>
 
@@ -105,7 +112,10 @@ function PotsPageInner() {
         <div className="space-y-8">
           {activeSpikes.length > 0 && (
             <section className="space-y-3">
-              <SectionHeader title="Spikes" subtitle="Planned events with a target date" />
+              <SectionHeader
+                title={t("pots.sectionSpikes")}
+                subtitle={t("pots.sectionSpikesSub")}
+              />
               <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
                 {activeSpikes.map((pot) => (
                   <PotCard
@@ -121,7 +131,10 @@ function PotsPageInner() {
 
           {plain.length > 0 && (
             <section className="space-y-3">
-              <SectionHeader title="Pots" subtitle="Groups of related transactions" />
+              <SectionHeader
+                title={t("pots.sectionPots")}
+                subtitle={t("pots.sectionPotsSub")}
+              />
               <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
                 {plain.map((pot) => (
                   <PotCard
@@ -144,15 +157,12 @@ function PotsPageInner() {
               >
                 <span>
                   <span className="font-medium text-foreground">
-                    {pastSpikes.length} past spike
-                    {pastSpikes.length === 1 ? "" : "s"}
+                    {plural(pastSpikes.length, "pots.pastSpikes.one", "pots.pastSpikes.other")}
                   </span>{" "}
-                  <span className="text-xs">
-                    (target date more than a month ago)
-                  </span>
+                  <span className="text-xs">{t("pots.pastSpikesHint")}</span>
                 </span>
                 <span className="flex items-center gap-1 text-xs">
-                  {showPast ? "Hide" : "Show"}
+                  {showPast ? t("pots.hide") : t("pots.show")}
                   {showPast ? (
                     <ChevronUp className="h-4 w-4" />
                   ) : (
@@ -183,10 +193,10 @@ function PotsPageInner() {
                 aria-expanded={showArchived}
               >
                 <span className="font-medium text-foreground">
-                  {archived.length} archived pot{archived.length === 1 ? "" : "s"}
+                  {plural(archived.length, "pots.archived.one", "pots.archived.other")}
                 </span>
                 <span className="flex items-center gap-1 text-xs">
-                  {showArchived ? "Hide" : "Show"}
+                  {showArchived ? t("pots.hide") : t("pots.show")}
                   {showArchived ? (
                     <ChevronUp className="h-4 w-4" />
                   ) : (
@@ -253,16 +263,15 @@ function SectionHeader({ title, subtitle }: { title: string; subtitle: string })
 }
 
 function EmptyState({ onCreate }: { onCreate: () => void }) {
+  const { t } = useI18n();
   return (
     <div className="flex flex-col items-center justify-center py-16 px-6 text-center rounded-lg border border-dashed">
       <PiggyBank className="h-12 w-12 text-muted-foreground/30 mb-4" />
-      <h2 className="text-lg font-semibold">No pots yet</h2>
-      <p className="text-sm text-muted-foreground max-w-md mt-1">
-        Group related transactions into a pot, or plan ahead for an upcoming spike — like a festival or weekend trip — by setting a target amount and date.
-      </p>
+      <h2 className="text-lg font-semibold">{t("pots.emptyTitle")}</h2>
+      <p className="text-sm text-muted-foreground max-w-md mt-1">{t("pots.emptyBody")}</p>
       <Button className="mt-4" onClick={onCreate}>
         <Plus className="h-4 w-4" />
-        Create your first pot
+        {t("pots.createFirst")}
       </Button>
     </div>
   );

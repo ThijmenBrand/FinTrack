@@ -10,8 +10,10 @@ import {
 import { Repeat, X } from "lucide-react";
 import { useRecurring } from "@/hooks/use-recurring";
 import { useLinkRecurringTransaction } from "@/hooks/use-transactions";
-import { formatCurrency } from "@/lib/utils";
+
 import type { RecurringTx } from "@/types/api";
+import { useI18n } from "@/lib/i18n/client";
+import { FREQ_LABEL_KEYS } from "@/app/(app)/settings/recurring/_components/recurring-item";
 
 interface RecurringLinkPopoverProps {
   transactionId: string;
@@ -28,6 +30,7 @@ export function RecurringLinkPopover({
   currentRecurringId,
   currentRecurringDescription,
 }: RecurringLinkPopoverProps) {
+  const { t, formatCurrency } = useI18n();
   const [open, setOpen] = useState(false);
   const { data: recurring = [] } = useRecurring();
   const linkMutation = useLinkRecurringTransaction();
@@ -63,7 +66,7 @@ export function RecurringLinkPopover({
           ) : (
             <span className="text-muted-foreground flex items-center gap-1">
               <Repeat className="h-3 w-3" />
-              Link to recurring
+              {t("recurringLink.trigger")}
             </span>
           )}
         </button>
@@ -77,12 +80,14 @@ export function RecurringLinkPopover({
             onClick={() => handleSelect(null)}
           >
             <X className="h-3.5 w-3.5 mr-2" />
-            Clear link
+            {t("recurringLink.clear")}
           </Button>
         )}
         {candidates.length === 0 ? (
           <p className="text-xs text-muted-foreground p-2">
-            No active recurring {isExpense ? "expenses" : "incomes"} to link to.
+            {isExpense
+              ? t("recurringLink.emptyExpenses")
+              : t("recurringLink.emptyIncomes")}
           </p>
         ) : (
           <div className="max-h-72 overflow-y-auto">
@@ -103,7 +108,11 @@ export function RecurringLinkPopover({
                     </span>
                   </div>
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span>{r.frequency}</span>
+                    <span>
+                      {FREQ_LABEL_KEYS[r.frequency]
+                        ? t(FREQ_LABEL_KEYS[r.frequency])
+                        : r.frequency}
+                    </span>
                     {r.accountName && <span>· {r.accountName}</span>}
                   </div>
                 </button>

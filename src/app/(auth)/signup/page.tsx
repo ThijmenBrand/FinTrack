@@ -5,11 +5,13 @@ import Link from "next/link";
 import { Landmark, MailCheck } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { MIN_PASSWORD_LENGTH } from "@/lib/validation";
+import { useI18n } from "@/lib/i18n/client";
 
 const inputClass =
   "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
 
 export default function SignupPage() {
+  const { t } = useI18n();
   const [signupsEnabled, setSignupsEnabled] = useState<boolean | null>(null);
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -46,12 +48,12 @@ export default function SignupPage() {
         callbackURL: "/login?verified=1",
       });
       if (result.error) {
-        setError(result.error.message || "Sign up failed");
+        setError(result.error.message || t("auth.signUpFailed"));
         return;
       }
       setDone(true);
     } catch {
-      setError("Something went wrong. Please try again.");
+      setError(t("auth.genericError"));
     } finally {
       setLoading(false);
     }
@@ -65,46 +67,44 @@ export default function SignupPage() {
             {done ? <MailCheck className="h-6 w-6" /> : <Landmark className="h-6 w-6" />}
           </div>
           <h1 className="text-xl font-semibold tracking-tight text-foreground">
-            FinTrack
+            {t("nav.appShortName")}
           </h1>
           <p className="text-sm text-muted-foreground">
-            {done ? "Check your email" : "Create your account"}
+            {done ? t("auth.checkEmail") : t("auth.createAccountSubtitle")}
           </p>
         </div>
 
         {done ? (
           <div className="space-y-4 text-center">
             <p className="text-sm text-muted-foreground">
-              We sent a verification link to{" "}
-              <span className="font-medium text-foreground">{email}</span>.
-              Click it to activate your account.
+              {t("auth.verificationSent", { email })}
             </p>
             <Link
               href="/login"
               className="inline-flex h-10 w-full items-center justify-center rounded-md border border-input bg-background px-4 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground"
             >
-              Back to sign in
+              {t("auth.backToSignIn")}
             </Link>
           </div>
         ) : signupsEnabled === null ? (
-          <p className="text-center text-sm text-muted-foreground">Loading...</p>
+          <p className="text-center text-sm text-muted-foreground">{t("auth.loading")}</p>
         ) : !signupsEnabled ? (
           <div className="space-y-4 text-center">
             <p className="text-sm text-muted-foreground">
-              Sign-ups are currently closed.
+              {t("auth.signupsClosed")}
             </p>
             <Link
               href="/login"
               className="inline-flex h-10 w-full items-center justify-center rounded-md border border-input bg-background px-4 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground"
             >
-              Back to sign in
+              {t("auth.backToSignIn")}
             </Link>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <label htmlFor="username" className="text-sm font-medium leading-none text-foreground">
-                Username
+                {t("auth.username")}
               </label>
               <input
                 id="username"
@@ -115,13 +115,13 @@ export default function SignupPage() {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 className={inputClass}
-                placeholder="Choose a username"
+                placeholder={t("auth.usernamePlaceholder")}
               />
             </div>
 
             <div className="space-y-2">
               <label htmlFor="displayName" className="text-sm font-medium leading-none text-foreground">
-                Display name
+                {t("auth.displayName")}
               </label>
               <input
                 id="displayName"
@@ -131,13 +131,13 @@ export default function SignupPage() {
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
                 className={inputClass}
-                placeholder="How should we call you?"
+                placeholder={t("auth.displayNamePlaceholder")}
               />
             </div>
 
             <div className="space-y-2">
               <label htmlFor="email" className="text-sm font-medium leading-none text-foreground">
-                Email
+                {t("auth.email")}
               </label>
               <input
                 id="email"
@@ -147,13 +147,13 @@ export default function SignupPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className={inputClass}
-                placeholder="you@example.com"
+                placeholder={t("auth.emailPlaceholder")}
               />
             </div>
 
             <div className="space-y-2">
               <label htmlFor="password" className="text-sm font-medium leading-none text-foreground">
-                Password
+                {t("auth.password")}
               </label>
               <input
                 id="password"
@@ -164,7 +164,7 @@ export default function SignupPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className={inputClass}
-                placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
+                placeholder={t("auth.passwordMinChars", { count: MIN_PASSWORD_LENGTH })}
               />
             </div>
 
@@ -175,13 +175,13 @@ export default function SignupPage() {
               disabled={loading}
               className="inline-flex h-10 w-full items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
             >
-              {loading ? "Creating account..." : "Create account"}
+              {loading ? t("auth.creatingAccount") : t("auth.createAccount")}
             </button>
 
             <p className="text-center text-sm text-muted-foreground">
-              Already have an account?{" "}
+              {t("auth.haveAccount")}{" "}
               <Link href="/login" className="font-medium text-primary hover:underline">
-                Sign in
+                {t("auth.signIn")}
               </Link>
             </p>
           </form>

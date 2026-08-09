@@ -21,25 +21,20 @@ import {
 } from "lucide-react";
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog";
 import { useBudgetHistory } from "@/hooks/use-budgets";
-import { formatCurrency } from "@/lib/utils";
-import type { Allocation, Transaction, HistoryData } from "@/types/api";
 
-// Deliberately different from the shared formatDate: this list omits the
-// year (it's always within the current budget history's own month labels).
-function formatDate(dateStr: string) {
-  return new Intl.DateTimeFormat("nl-NL", {
-    day: "2-digit",
-    month: "short",
-  }).format(new Date(dateStr));
-}
+import type { Allocation, Transaction, HistoryData } from "@/types/api";
+import { useI18n } from "@/lib/i18n/client";
 
 interface BudgetHistoryDialogProps {
   allocation: Allocation | null;
+  /** Plan whose budget line and account scope the history reflects. */
+  budgetId?: string;
   onOpenChange: (open: boolean) => void;
 }
 
-export function BudgetHistoryDialog({ allocation, onOpenChange }: BudgetHistoryDialogProps) {
-  const { data: history, isLoading: loading } = useBudgetHistory(allocation?.categoryId ?? null, !!allocation);
+export function BudgetHistoryDialog({ allocation, budgetId, onOpenChange }: BudgetHistoryDialogProps) {
+  const { t, plural, formatCurrency, formatDayMonth: formatDate } = useI18n();
+  const { data: history, isLoading: loading } = useBudgetHistory(allocation?.categoryId ?? null, !!allocation, budgetId);
   const [expandedMonth, setExpandedMonth] = useState<string | null>(null);
   const [monthTransactions, setMonthTransactions] = useState<Record<string, Transaction[]>>({});
   const [loadingMonth, setLoadingMonth] = useState<string | null>(null);
@@ -109,7 +104,9 @@ export function BudgetHistoryDialog({ allocation, onOpenChange }: BudgetHistoryD
             {allocation.categoryName}
           </DialogTitle>
           <DialogDescription>
-            Monthly budget: {formatCurrency(allocation.amount)}
+            {t("budgets.history.monthlyBudget", {
+              amount: formatCurrency(allocation.amount),
+            })}
           </DialogDescription>
         </DialogHeader>
 
@@ -122,7 +119,7 @@ export function BudgetHistoryDialog({ allocation, onOpenChange }: BudgetHistoryD
             <div className="flex flex-col items-center justify-center py-12 text-center">
               <Receipt className="h-10 w-10 text-muted-foreground/30 mb-3" />
               <p className="text-sm text-muted-foreground">
-                No spending history for this category yet.
+                {t("budgets.history.empty")}
               </p>
             </div>
           ) : (
@@ -169,13 +166,17 @@ export function BudgetHistoryDialog({ allocation, onOpenChange }: BudgetHistoryD
                           <span className="font-medium text-sm">{m.label}</span>
                           {m.isCurrent && (
                             <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                              Current
+                              {t("budgets.history.current")}
                             </Badge>
                           )}
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="text-xs text-muted-foreground">
-                            {m.transactionCount} transaction{m.transactionCount !== 1 ? "s" : ""}
+                            {plural(
+                              m.transactionCount,
+                              "common.transactions.one",
+                              "common.transactions.other",
+                            )}
                           </span>
                           <StatusIcon className={`h-3.5 w-3.5 ${statusColor}`} />
                         </div>
@@ -236,7 +237,7 @@ export function BudgetHistoryDialog({ allocation, onOpenChange }: BudgetHistoryD
                           </div>
                         ) : (
                           <p className="text-sm text-muted-foreground text-center py-4">
-                            No transactions found.
+                            {t("budgets.history.noTransactions")}
                           </p>
                         )}
                       </div>

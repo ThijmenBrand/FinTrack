@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ShieldCheck } from "lucide-react";
 import { requireBackofficeAdmin } from "@/lib/auth";
+import { getI18n } from "@/lib/i18n/server";
 import { BackofficeSignOut } from "./_components/sign-out-button";
 
 export default async function BackofficeLayout({
@@ -8,7 +9,7 @@ export default async function BackofficeLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const session = await requireBackofficeAdmin();
+  const [session, { t }] = await Promise.all([requireBackofficeAdmin(), getI18n()]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -20,7 +21,7 @@ export default async function BackofficeLayout({
                 <ShieldCheck className="h-4 w-4" />
               </div>
               <span className="text-sm font-semibold tracking-tight text-foreground">
-                FinTrack Backoffice
+                {t("backoffice.title")}
               </span>
             </Link>
             <nav className="flex items-center gap-4 text-sm">
@@ -28,13 +29,13 @@ export default async function BackofficeLayout({
                 href="/backoffice"
                 className="text-muted-foreground transition-colors hover:text-foreground"
               >
-                Users
+                {t("backoffice.users")}
               </Link>
               <Link
                 href="/backoffice/audit-logs"
                 className="text-muted-foreground transition-colors hover:text-foreground"
               >
-                Audit Logs
+                {t("backoffice.auditLogs")}
               </Link>
             </nav>
           </div>

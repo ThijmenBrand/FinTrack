@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { extractPattern } from "@/lib/csv-utils";
-import { formatCurrency } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n/client";
 
 interface TopSpendingProps {
   merchants: { description: string; total: number; count: number }[];
@@ -16,21 +16,22 @@ interface TopSpendingProps {
  * unfamiliar.
  */
 export function TopSpending({ merchants, totalExpenses }: TopSpendingProps) {
+  const { t, formatCurrency } = useI18n();
   const [openIndex, setOpenIndex] = useState<number | null>(null);
   const max = merchants[0]?.total ?? 0;
 
   return (
     <Card>
       <CardHeader className="flex flex-row flex-wrap items-baseline justify-between gap-2 space-y-0 pb-3">
-        <CardTitle className="text-base">Top spending</CardTitle>
+        <CardTitle className="text-base">{t("insights.topSpending.title")}</CardTitle>
         <span className="text-xs text-muted-foreground">
-          merchant names cleaned · click a row for the bank&apos;s wording
+          {t("insights.topSpending.hint")}
         </span>
       </CardHeader>
       <CardContent>
         {merchants.length === 0 ? (
           <p className="text-muted-foreground text-sm py-8 text-center">
-            No expense data for this period.
+            {t("insights.topSpending.empty")}
           </p>
         ) : (
           <div>

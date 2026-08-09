@@ -13,7 +13,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Loader2 } from "lucide-react";
-import { cn, formatCurrency as fc } from "@/lib/utils";
+import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n/client";
 import { useAllocateToPot } from "@/hooks/use-pots";
 
 type Mode = "add" | "remove";
@@ -39,6 +40,7 @@ export function AllocateToPotDialog({
   suggestedAmount,
   onAllocated,
 }: AllocateToPotDialogProps) {
+  const { t, formatCurrency: fc } = useI18n();
   const [mode, setMode] = useState<Mode>("add");
   const [amount, setAmount] = useState("");
   const allocate = useAllocateToPot();
@@ -75,16 +77,24 @@ export function AllocateToPotDialog({
     }
   };
 
-  const submitLabel = mode === "add" ? "Allocate" : "Deallocate";
+  const submitLabel =
+    mode === "add" ? t("dashboard.allocate") : t("pots.allocate.deallocate");
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>{submitLabel} — {potName}</DialogTitle>
+          <DialogTitle>
+            {t("pots.allocate.dialogTitle", { action: submitLabel, name: potName })}
+          </DialogTitle>
           <DialogDescription>
-            {fc(fundedAmount)} of {fc(targetAmount)} funded so far —{" "}
-            {remaining > 0 ? `${fc(remaining)} to go.` : "fully funded."}
+            {t("pots.allocate.fundedSoFar", {
+              funded: fc(fundedAmount),
+              target: fc(targetAmount),
+            })}{" "}
+            {remaining > 0
+              ? t("pots.allocate.toGo", { amount: fc(remaining) })
+              : t("pots.allocate.fullyFunded")}
           </DialogDescription>
         </DialogHeader>
 
@@ -101,7 +111,7 @@ export function AllocateToPotDialog({
                   : "text-muted-foreground hover:text-foreground"
               )}
             >
-              Add
+              {t("pots.allocate.add")}
             </button>
             <button
               type="button"
@@ -114,7 +124,7 @@ export function AllocateToPotDialog({
                   : "text-muted-foreground hover:text-foreground"
               )}
             >
-              Remove
+              {t("pots.allocate.remove")}
             </button>
           </div>
 
@@ -124,14 +134,13 @@ export function AllocateToPotDialog({
                 😿
               </span>
               <p className="text-xs text-amber-800 dark:text-amber-300">
-                Are you sure? Deallocating means undoing your own saving —
-                future-you might miss this money.
+                {t("pots.allocate.removeWarning")}
               </p>
             </div>
           )}
 
           <div className="space-y-2">
-            <Label htmlFor="allocate-amount">Amount (€)</Label>
+            <Label htmlFor="allocate-amount">{t("pots.allocate.amountLabel")}</Label>
             <Input
               id="allocate-amount"
               type="number"
@@ -148,22 +157,27 @@ export function AllocateToPotDialog({
             />
             {isPositive && !exceedsFunded && (
               <p className="text-xs text-muted-foreground">
-                After this {mode === "add" ? "allocation" : "removal"}:{" "}
-                {fc(projected)} / {fc(targetAmount)}{" "}
+                {t(
+                  mode === "add"
+                    ? "pots.allocate.afterAllocation"
+                    : "pots.allocate.afterRemoval",
+                  { projected: fc(projected), target: fc(targetAmount) },
+                )}{" "}
                 {mode === "add" && projected >= targetAmount && (
                   <span className="text-emerald-600 dark:text-emerald-400">
-                    — fully funded
+                    {t("pots.allocate.nowFullyFunded")}
                   </span>
                 )}
                 {mode === "remove" && projected === 0 && (
-                  <span className="text-muted-foreground">— back to zero</span>
+                  <span className="text-muted-foreground">
+                    {t("pots.allocate.backToZero")}
+                  </span>
                 )}
               </p>
             )}
             {exceedsFunded && (
               <p className="text-xs text-amber-600 dark:text-amber-400">
-                Can&apos;t remove more than {fc(fundedAmount)} — that&apos;s all
-                you&apos;ve allocated.
+                {t("pots.allocate.exceeds", { amount: fc(fundedAmount) })}
               </p>
             )}
           </div>
@@ -171,7 +185,7 @@ export function AllocateToPotDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button
             onClick={handleSubmit}

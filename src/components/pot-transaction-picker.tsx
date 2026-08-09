@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useAddToPot } from "@/hooks/use-pots";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n/client";
 import { PickerDialog } from "@/components/picker-dialog";
 import { PickerRow } from "@/components/picker-row";
 
@@ -35,6 +35,7 @@ export function PotTransactionPicker({
   potName,
   onAdded,
 }: PotTransactionPickerProps) {
+  const { t, formatCurrency, formatDate } = useI18n();
   const [addingId, setAddingId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
 
@@ -69,14 +70,18 @@ export function PotTransactionPicker({
     <PickerDialog
       open={open}
       onOpenChange={onOpenChange}
-      title={`Add to "${potName}"`}
-      description="Click a transaction to add it to this pot."
+      title={t("pots.picker.addToTitle", { name: potName })}
+      description={t("pots.picker.addToDescription")}
       search={search}
       onSearchChange={setSearch}
-      searchPlaceholder="Search transactions..."
+      searchPlaceholder={t("pots.picker.searchTransactions")}
       loading={loading}
       isEmpty={filtered.length === 0}
-      emptyMessage={search ? "No matching transactions found." : "No recent transactions."}
+      emptyMessage={
+        search
+          ? t("pots.picker.noMatchingTransactions")
+          : t("pots.picker.noRecentTransactions")
+      }
       listClassName="max-h-[400px]"
     >
       {filtered.map((tx) => {
@@ -113,12 +118,12 @@ export function PotTransactionPicker({
               <p className="text-sm font-medium truncate">{tx.description}</p>
               {inThisPot && (
                 <span className="text-xs text-primary font-medium shrink-0">
-                  In pot
+                  {t("pots.picker.inPot")}
                 </span>
               )}
               {inOtherPot && (
                 <span className="text-xs text-muted-foreground shrink-0">
-                  In &quot;{tx.groupName}&quot;
+                  {t("pots.picker.inOtherPot", { name: tx.groupName ?? "" })}
                 </span>
               )}
             </div>

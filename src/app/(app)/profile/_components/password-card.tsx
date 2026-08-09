@@ -13,8 +13,10 @@ import { KeyRound, Loader2 } from "lucide-react";
 import { useUpdateProfile } from "@/hooks/use-profile";
 import { ApiError } from "@/lib/api";
 import { FormMessage, type FormMessageState } from "./form-message";
+import { useI18n } from "@/lib/i18n/client";
 
 export function PasswordCard() {
+  const { t } = useI18n();
   const updateProfile = useUpdateProfile();
 
   const [currentPassword, setCurrentPassword] = useState("");
@@ -28,14 +30,14 @@ export function PasswordCard() {
     setPwMsg(null);
 
     if (newPassword !== confirmPassword) {
-      setPwMsg({ type: "error", text: "New passwords do not match" });
+      setPwMsg({ type: "error", text: t("profile.password.mismatch") });
       return;
     }
 
     setChangingPw(true);
     try {
       await updateProfile.mutateAsync({ currentPassword, newPassword });
-      setPwMsg({ type: "success", text: "Password changed successfully" });
+      setPwMsg({ type: "success", text: t("profile.password.changed") });
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
@@ -43,7 +45,7 @@ export function PasswordCard() {
       if (err instanceof ApiError) {
         setPwMsg({ type: "error", text: err.message });
       } else {
-        setPwMsg({ type: "error", text: "Failed to change password" });
+        setPwMsg({ type: "error", text: t("profile.password.changeFailed") });
       }
     } finally {
       setChangingPw(false);
@@ -58,8 +60,8 @@ export function PasswordCard() {
             <KeyRound className="h-5 w-5 text-primary" />
           </div>
           <div>
-            <CardTitle>Change Password</CardTitle>
-            <CardDescription>Update your account password</CardDescription>
+            <CardTitle>{t("profile.password.title")}</CardTitle>
+            <CardDescription>{t("profile.password.hint")}</CardDescription>
           </div>
         </div>
       </CardHeader>
@@ -67,7 +69,7 @@ export function PasswordCard() {
         <form onSubmit={handlePasswordChange} className="space-y-4">
           <div className="space-y-2">
             <label htmlFor="currentPassword" className="text-sm font-medium">
-              Current Password
+              {t("profile.password.current")}
             </label>
             <Input
               id="currentPassword"
@@ -79,7 +81,7 @@ export function PasswordCard() {
           </div>
           <div className="space-y-2">
             <label htmlFor="newPassword" className="text-sm font-medium">
-              New Password
+              {t("profile.password.new")}
             </label>
             <Input
               id="newPassword"
@@ -92,7 +94,7 @@ export function PasswordCard() {
           </div>
           <div className="space-y-2">
             <label htmlFor="confirmPassword" className="text-sm font-medium">
-              Confirm New Password
+              {t("profile.password.confirm")}
             </label>
             <Input
               id="confirmPassword"
@@ -114,7 +116,7 @@ export function PasswordCard() {
             ) : (
               <KeyRound className="h-4 w-4" />
             )}
-            Change Password
+            {t("profile.password.title")}
           </button>
         </form>
       </CardContent>

@@ -20,8 +20,10 @@ import { RecurringFormDialog } from "./_components/recurring-form-dialog";
 import { RecurringList } from "./_components/recurring-list";
 import { CashFlowCard } from "./_components/cash-flow-card";
 import { UpcomingPayments } from "./_components/upcoming-payments";
+import { useI18n } from "@/lib/i18n/client";
 
 export default function RecurringPage() {
+  const { t } = useI18n();
   const { data: items = [], isLoading: loading } = useRecurring();
   const { data: accounts = [] } = useAccounts();
   const { data: categories = [] } = useCategories();
@@ -68,14 +70,13 @@ export default function RecurringPage() {
   const header = (
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div>
-        <h2 className="text-xl font-semibold tracking-tight">Recurring</h2>
+        <h2 className="text-xl font-semibold tracking-tight">{t("recurring.title")}</h2>
         <p className="text-sm text-muted-foreground">
-          Plans that repeat on a schedule, and what they do to your balance. Recurring expenses
-          become the{" "}
+          {t("recurring.subtitlePrefix")}{" "}
           <Link href="/budgets" className="text-primary hover:underline">
-            fixed costs
+            {t("recurring.subtitleLink")}
           </Link>{" "}
-          on your budget.
+          {t("recurring.subtitleSuffix")}
         </p>
       </div>
       <RecurringFormDialog
@@ -125,16 +126,15 @@ export default function RecurringPage() {
         <Card>
           <CardContent className="flex flex-col items-center px-6 py-16 text-center">
             <RefreshCcw className="mb-4 h-10 w-10 text-muted-foreground/30" />
-            <h2 className="text-base font-semibold">No recurring plans yet</h2>
+            <h2 className="text-base font-semibold">{t("recurring.emptyTitle")}</h2>
             <p className="mt-1.5 max-w-md text-sm text-muted-foreground">
-              Add your salary, rent, and subscriptions once, and this page projects your balance
-              months ahead and lists every payment before it lands.
+              {t("recurring.emptyBody")}
             </p>
             {/* The dialog itself is already mounted in the header — this just
                 opens it, so there's only ever one instance on the page. */}
             <Button className="mt-6" onClick={() => setDialogOpen(true)}>
               <Plus className="mr-2 h-4 w-4" />
-              Add Recurring
+              {t("recurring.add")}
             </Button>
           </CardContent>
         </Card>

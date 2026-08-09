@@ -2,13 +2,14 @@
 
 import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
-import { formatCurrency as fc } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n/client";
+import type { MessageKey } from "@/lib/i18n/translate";
 
-export const ON_TRACK_LABEL = {
-  ahead: "Ahead",
-  on_pace: "On pace",
-  behind: "Behind",
-} as const;
+export const ON_TRACK_LABEL_KEYS = {
+  ahead: "pots.onTrack.ahead",
+  on_pace: "pots.onTrack.onPace",
+  behind: "pots.onTrack.behind",
+} as const satisfies Record<string, MessageKey>;
 
 export const ON_TRACK_STYLES = {
   ahead:
@@ -19,7 +20,7 @@ export const ON_TRACK_STYLES = {
     "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-400",
 } as const;
 
-export type OnTrack = keyof typeof ON_TRACK_LABEL;
+export type OnTrack = keyof typeof ON_TRACK_LABEL_KEYS;
 
 const FUNDED_BADGE =
   "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-400";
@@ -65,6 +66,7 @@ export function SpikeProgress({
   meta,
   footer,
 }: SpikeProgressProps) {
+  const { t, formatCurrency: fc } = useI18n();
   const s = SIZES[size];
   const pct = target > 0 ? Math.min(100, (funded / target) * 100) : 0;
   const expectedPct =
@@ -82,12 +84,12 @@ export function SpikeProgress({
         </p>
         {isFullyFunded ? (
           <Badge variant="outline" className={`${s.badge} ${FUNDED_BADGE}`}>
-            Funded
+            {t("dashboard.savingToward.fundedBadge")}
           </Badge>
         ) : (
           onTrack && (
             <Badge variant="outline" className={`${s.badge} ${ON_TRACK_STYLES[onTrack]}`}>
-              {ON_TRACK_LABEL[onTrack]}
+              {t(ON_TRACK_LABEL_KEYS[onTrack])}
             </Badge>
           )
         )}
@@ -109,7 +111,7 @@ export function SpikeProgress({
             style={{ left: `${expectedPct}%` }}
             title={
               expectedFundedByNow != null
-                ? `Expected by now: ${fc(expectedFundedByNow)}`
+                ? t("pots.expectedByNowAmount", { amount: fc(expectedFundedByNow) })
                 : undefined
             }
           />

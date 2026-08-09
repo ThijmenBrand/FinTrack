@@ -11,6 +11,7 @@ import { eq, and, sum, isNotNull, gte, lte } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { generateOccurrences } from "@/lib/recurring";
 import { toMonthly } from "@/lib/month-money";
+import { getI18n } from "@/lib/i18n/server";
 
 /**
  * GET /api/recurring/forecast
@@ -24,6 +25,7 @@ import { toMonthly } from "@/lib/month-money";
  */
 export async function GET(request: NextRequest) {
   return withUser(async (userId) => {
+    const { t, intlLocale, formatCurrency } = await getI18n();
     const { searchParams } = new URL(request.url);
     const months = Math.min(12, Math.max(1, Number(searchParams.get("months")) || 3));
 
@@ -165,7 +167,7 @@ export async function GET(request: NextRequest) {
       const year = now.getFullYear() + Math.floor((now.getMonth() + i) / 12);
       const month = (now.getMonth() + i) % 12;
       const monthStr = `${year}-${String(month + 1).padStart(2, "0")}`;
-      const label = new Date(year, month, 1).toLocaleDateString("en-US", {
+      const label = new Date(year, month, 1).toLocaleDateString(intlLocale, {
         month: "short",
         year: "numeric",
       });
@@ -210,12 +212,17 @@ export async function GET(request: NextRequest) {
     if (monthlyNet > 0) {
       advice.push({
         type: "success",
-        message: `Your recurring income exceeds expenses by €${monthlyNet.toFixed(2)}/month. You could save €${(monthlyNet * 12).toFixed(2)} per year at this rate.`,
+        message: t("forecast.surplus", {
+          monthly: formatCurrency(monthlyNet),
+          yearly: formatCurrency(monthlyNet * 12),
+        }),
       });
     } else if (monthlyNet < 0) {
       advice.push({
         type: "warning",
-        message: `Your recurring expenses exceed income by €${Math.abs(monthlyNet).toFixed(2)}/month. Review subscriptions or find ways to increase income.`,
+        message: t("forecast.deficit", {
+          monthly: formatCurrency(Math.abs(monthlyNet)),
+        }),
       });
     }
 
@@ -224,7 +231,7 @@ export async function GET(request: NextRequest) {
     if (negativeMonth) {
       advice.push({
         type: "warning",
-        message: `Your balance is projected to go negative in ${negativeMonth.label}. Consider reducing expenses or building a buffer.`,
+        message: t("forecast.negativeMonth", { month: negativeMonth.label }),
       });
     }
 
@@ -234,12 +241,12 @@ export async function GET(request: NextRequest) {
       if (savingsRate >= 20) {
         advice.push({
           type: "success",
-          message: `Great savings rate of ${savingsRate.toFixed(0)}% — you're saving more than the recommended 20%.`,
+          message: t("forecast.goodSavings", { rate: savingsRate.toFixed(0) }),
         });
       } else if (savingsRate >= 0) {
         advice.push({
           type: "info",
-          message: `Your savings rate is ${savingsRate.toFixed(0)}%. Financial experts recommend saving at least 20% of income.`,
+          message: t("forecast.savingsRate", { rate: savingsRate.toFixed(0) }),
         });
       }
     }
@@ -251,7 +258,7 @@ export async function GET(request: NextRequest) {
     if (subscriptionCount > 5) {
       advice.push({
         type: "info",
-        message: `You have ${subscriptionCount} recurring subscriptions. Consider auditing them — unused subscriptions add up quickly.`,
+        message: t("forecast.manySubscriptions", { count: subscriptionCount }),
       });
     }
 
@@ -261,12 +268,12 @@ export async function GET(request: NextRequest) {
       if (monthsCovered < 3) {
         advice.push({
           type: "warning",
-          message: `Your balance covers only ${monthsCovered.toFixed(1)} months of recurring expenses. An emergency fund of 3-6 months is recommended.`,
+          message: t("forecast.thinBuffer", { months: monthsCovered.toFixed(1) }),
         });
       } else if (monthsCovered >= 6) {
         advice.push({
           type: "success",
-          message: `Your balance covers ${monthsCovered.toFixed(1)} months of expenses — a solid emergency fund.`,
+          message: t("forecast.solidBuffer", { months: monthsCovered.toFixed(1) }),
         });
       }
     }

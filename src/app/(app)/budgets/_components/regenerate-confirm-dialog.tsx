@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Loader2 } from "lucide-react";
+import { useI18n } from "@/lib/i18n/client";
 
 interface RegenerateConfirmDialogProps {
   open: boolean;
@@ -28,26 +29,25 @@ export function RegenerateConfirmDialog({
   pending,
   onConfirm,
 }: RegenerateConfirmDialogProps) {
+  const { t, plural } = useI18n();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Replace current suggestions?</DialogTitle>
+          <DialogTitle>{t("budgets.regen.title")}</DialogTitle>
           <DialogDescription>
-            This will replace the {suggestionCount} pending suggestion
-            {suggestionCount === 1 ? "" : "s"} with a fresh set based on the last{" "}
-            {lookbackMonths} month
-            {lookbackMonths === 1 ? "" : "s"} of spending. Any edits you&apos;ve
-            made to the current suggestions will be lost.
+            {plural(suggestionCount, "budgets.regen.body.one", "budgets.regen.body.other", {
+              months: lookbackMonths,
+            })}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button onClick={onConfirm} disabled={pending}>
             {pending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Regenerate
+            {t("budgets.regenerate")}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -4,11 +4,15 @@ import { budgets, categories, transactions, transactionGroups } from "@/db/schem
 import { eq, and, sql } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { effectiveExpenseAmount, potSpentAmount } from "@/lib/reimbursement-sql";
+import { accountScopeFilter, resolveBudgetPlan } from "@/lib/budget-plan";
+import { getI18n } from "@/lib/i18n/server";
 
 export async function GET(request: NextRequest) {
   return withUser(async (userId) => {
+    const { intlLocale } = await getI18n();
     const { searchParams } = new URL(request.url);
     const categoryId = searchParams.get("categoryId");
+    const budgetIdParam = searchParams.get("budgetId");
 
     if (!categoryId) {
       return NextResponse.json(
@@ -16,6 +20,14 @@ export async function GET(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    // History is per plan: the budget line and the spending both come from
+    // the plan's own allocations and accounts (main plan when unspecified).
+    const plan = await resolveBudgetPlan(userId, budgetIdParam);
+    if (budgetIdParam && !plan) {
+      return NextResponse.json({ error: "Budget not found" }, { status: 404 });
+    }
+    const scopeFilter = accountScopeFilter(plan ? plan.accountIds : undefined);
 
     // Get category info
     const [category] = await db
@@ -34,7 +46,14 @@ export async function GET(request: NextRequest) {
     const [budget] = await db
       .select({ amount: budgets.amount })
       .from(budgets)
-      .where(and(eq(budgets.categoryId, categoryId), eq(budgets.userId, userId), eq(budgets.status, "active")));
+      .where(
+        and(
+          eq(budgets.categoryId, categoryId),
+          eq(budgets.userId, userId),
+          eq(budgets.status, "active"),
+          ...(plan ? [eq(budgets.budgetId, plan.id)] : []),
+        ),
+      );
 
     const currentBudgetAmount = budget?.amount || 0;
 
@@ -51,7 +70,8 @@ export async function GET(request: NextRequest) {
           eq(transactions.categoryId, categoryId),
           eq(transactions.type, "expense"),
           sql`${transactions.groupId} IS NULL`,
-          eq(transactions.userId, userId)
+          eq(transactions.userId, userId),
+          ...(scopeFilter ? [scopeFilter] : []),
         )
       )
       .groupBy(sql`substr(${transactions.date}, 1, 7)`)
@@ -66,7 +86,14 @@ export async function GET(request: NextRequest) {
       })
       .from(transactionGroups)
       .innerJoin(transactions, eq(transactions.groupId, transactionGroups.id))
-      .where(and(eq(transactionGroups.categoryId, categoryId), eq(transactionGroups.userId, userId), eq(transactions.userId, userId)))
+      .where(
+        and(
+          eq(transactionGroups.categoryId, categoryId),
+          eq(transactionGroups.userId, userId),
+          eq(transactions.userId, userId),
+          ...(scopeFilter ? [scopeFilter] : []),
+        ),
+      )
       .groupBy(transactionGroups.id, sql`substr(${transactions.date}, 1, 7)`)
       .orderBy(sql`substr(${transactions.date}, 1, 7) desc`);
 
@@ -109,7 +136,7 @@ export async function GET(request: NextRequest) {
       // Parse month for label
       const [year, monthNum] = row.month.split("-");
       const monthDate = new Date(parseInt(year), parseInt(monthNum) - 1, 1);
-      const label = monthDate.toLocaleDateString("en-US", {
+      const label = monthDate.toLocaleDateString(intlLocale, {
         month: "long",
         year: "numeric",
       });

@@ -13,8 +13,10 @@ import { Lock, Save, Loader2, Trash2 } from "lucide-react";
 import { useHasPin, useSetupPin, useRemovePin } from "@/hooks/use-pin";
 import { ApiError } from "@/lib/api";
 import { FormMessage, type FormMessageState } from "./form-message";
+import { useI18n } from "@/lib/i18n/client";
 
 export function PinCard() {
+  const { t } = useI18n();
   const { data: pinStatus } = useHasPin();
   const hasPin = pinStatus?.hasPin ?? false;
   const setupPin = useSetupPin();
@@ -33,13 +35,13 @@ export function PinCard() {
     setPinMsg(null);
 
     if (pin !== confirmPin) {
-      setPinMsg({ type: "error", text: "PINs do not match" });
+      setPinMsg({ type: "error", text: t("profile.pin.mismatch") });
       return;
     }
 
     try {
       await setupPin.mutateAsync({ pin, currentPassword: pinPassword });
-      setPinMsg({ type: "success", text: hasPin ? "PIN updated successfully" : "PIN set up successfully" });
+      setPinMsg({ type: "success", text: hasPin ? t("profile.pin.updated") : t("profile.pin.created") });
       setShowPinSetup(false);
       setPin("");
       setConfirmPin("");
@@ -48,7 +50,7 @@ export function PinCard() {
       if (err instanceof ApiError) {
         setPinMsg({ type: "error", text: err.message });
       } else {
-        setPinMsg({ type: "error", text: "Failed to set up PIN" });
+        setPinMsg({ type: "error", text: t("profile.pin.setupFailed") });
       }
     }
   }
@@ -59,14 +61,14 @@ export function PinCard() {
 
     try {
       await removePin.mutateAsync({ currentPassword: removePinPassword });
-      setPinMsg({ type: "success", text: "PIN removed successfully" });
+      setPinMsg({ type: "success", text: t("profile.pin.removed") });
       setShowRemovePin(false);
       setRemovePinPassword("");
     } catch (err) {
       if (err instanceof ApiError) {
         setPinMsg({ type: "error", text: err.message });
       } else {
-        setPinMsg({ type: "error", text: "Failed to remove PIN" });
+        setPinMsg({ type: "error", text: t("profile.pin.removeFailed") });
       }
     }
   }
@@ -79,11 +81,9 @@ export function PinCard() {
             <Lock className="h-5 w-5 text-primary" />
           </div>
           <div>
-            <CardTitle>PIN Code</CardTitle>
+            <CardTitle>{t("profile.pin.title")}</CardTitle>
             <CardDescription>
-              {hasPin
-                ? "You have a PIN set up for quick login"
-                : "Set up a PIN for quick mobile login"}
+              {hasPin ? t("profile.pin.hasPin") : t("profile.pin.noPin")}
             </CardDescription>
           </div>
         </div>
@@ -98,7 +98,7 @@ export function PinCard() {
               className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
             >
               <Lock className="h-4 w-4" />
-              {hasPin ? "Change PIN" : "Set up PIN"}
+              {hasPin ? t("profile.pin.change") : t("profile.pin.setUp")}
             </button>
             {hasPin && (
               <button
@@ -106,7 +106,7 @@ export function PinCard() {
                 className="inline-flex items-center justify-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground transition-colors"
               >
                 <Trash2 className="h-4 w-4" />
-                Remove PIN
+                {t("profile.pin.remove")}
               </button>
             )}
           </div>
@@ -116,7 +116,7 @@ export function PinCard() {
           <form onSubmit={handlePinSetup} className="space-y-4">
             <div className="space-y-2">
               <label htmlFor="pinPassword" className="text-sm font-medium">
-                Current Password
+                {t("profile.password.current")}
               </label>
               <Input
                 id="pinPassword"
@@ -128,7 +128,7 @@ export function PinCard() {
             </div>
             <div className="space-y-2">
               <label htmlFor="pin" className="text-sm font-medium">
-                PIN (4-6 digits)
+                {t("profile.pin.label")}
               </label>
               <Input
                 id="pin"
@@ -139,14 +139,14 @@ export function PinCard() {
                 value={pin}
                 onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
                 className="tracking-[0.5em] text-center placeholder:tracking-normal"
-                placeholder="Enter PIN"
+                placeholder={t("profile.pin.enter")}
                 required
                 minLength={4}
               />
             </div>
             <div className="space-y-2">
               <label htmlFor="confirmPin" className="text-sm font-medium">
-                Confirm PIN
+                {t("profile.pin.confirmLabel")}
               </label>
               <Input
                 id="confirmPin"
@@ -157,7 +157,7 @@ export function PinCard() {
                 value={confirmPin}
                 onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, ""))}
                 className="tracking-[0.5em] text-center placeholder:tracking-normal"
-                placeholder="Confirm PIN"
+                placeholder={t("profile.pin.confirmLabel")}
                 required
                 minLength={4}
               />
@@ -173,14 +173,14 @@ export function PinCard() {
                 ) : (
                   <Save className="h-4 w-4" />
                 )}
-                {hasPin ? "Update PIN" : "Set PIN"}
+                {hasPin ? t("profile.pin.update") : t("profile.pin.set")}
               </button>
               <button
                 type="button"
                 onClick={() => { setShowPinSetup(false); setPin(""); setConfirmPin(""); setPinPassword(""); setPinMsg(null); }}
                 className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground transition-colors"
               >
-                Cancel
+                {t("common.cancel")}
               </button>
             </div>
           </form>
@@ -189,11 +189,11 @@ export function PinCard() {
         {showRemovePin && (
           <form onSubmit={handleRemovePin} className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Enter your password to confirm PIN removal.
+              {t("profile.pin.confirmRemoval")}
             </p>
             <div className="space-y-2">
               <label htmlFor="removePinPassword" className="text-sm font-medium">
-                Current Password
+                {t("profile.password.current")}
               </label>
               <Input
                 id="removePinPassword"
@@ -214,14 +214,14 @@ export function PinCard() {
                 ) : (
                   <Trash2 className="h-4 w-4" />
                 )}
-                Remove PIN
+                {t("profile.pin.remove")}
               </button>
               <button
                 type="button"
                 onClick={() => { setShowRemovePin(false); setRemovePinPassword(""); setPinMsg(null); }}
                 className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground transition-colors"
               >
-                Cancel
+                {t("common.cancel")}
               </button>
             </div>
           </form>

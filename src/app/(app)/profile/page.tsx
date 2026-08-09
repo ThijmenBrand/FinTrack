@@ -16,8 +16,10 @@ import { PasswordCard } from "./_components/password-card";
 import { PinCard } from "./_components/pin-card";
 import { PasskeyCard } from "./_components/passkey-card";
 import { TwoFactorCard } from "./_components/two-factor-card";
+import { useI18n } from "@/lib/i18n/client";
 
 export default function ProfilePage() {
+  const { t, formatDate } = useI18n();
   const router = useRouter();
   const { data: profile, isLoading, error } = useProfile();
 
@@ -39,10 +41,8 @@ export default function ProfilePage() {
   return (
     <div className="space-y-6 max-w-2xl">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Profile</h1>
-        <p className="text-muted-foreground">
-          Manage your account settings
-        </p>
+        <h1 className="text-2xl font-bold tracking-tight">{t("profile.title")}</h1>
+        <p className="text-muted-foreground">{t("profile.subtitle")}</p>
       </div>
 
       <ProfileCard profile={profile} />
@@ -54,22 +54,20 @@ export default function ProfilePage() {
       {/* Account Info */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm font-medium text-muted-foreground">Account Info</CardTitle>
+          <CardTitle className="text-sm font-medium text-muted-foreground">
+            {t("profile.accountInfo")}
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
           <div className="flex justify-between">
-            <span className="text-muted-foreground">Role</span>
-            <span className="font-medium">{profile.isAdmin ? "Admin" : "User"}</span>
+            <span className="text-muted-foreground">{t("profile.role")}</span>
+            <span className="font-medium">
+              {profile.isAdmin ? t("profile.roleAdmin") : t("profile.roleUser")}
+            </span>
           </div>
           <div className="flex justify-between">
-            <span className="text-muted-foreground">Member since</span>
-            <span className="font-medium">
-              {new Date(profile.createdAt).toLocaleDateString("en-US", {
-                year: "numeric",
-                month: "long",
-                day: "numeric",
-              })}
-            </span>
+            <span className="text-muted-foreground">{t("profile.memberSince")}</span>
+            <span className="font-medium">{formatDate(profile.createdAt)}</span>
           </div>
         </CardContent>
       </Card>

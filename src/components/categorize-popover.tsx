@@ -23,6 +23,7 @@ import { CategoryIcon } from "@/components/category-icon";
 import { CategorySelect } from "@/components/category-select";
 import { useCategorizeTransaction } from "@/hooks/use-transactions";
 import type { Category } from "@/types/api";
+import { useI18n } from "@/lib/i18n/client";
 
 interface CategorizePopoverProps {
   transactionId: string;
@@ -45,6 +46,7 @@ export function CategorizePopover({
   categories,
   onCategorized,
 }: CategorizePopoverProps) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [selectedCategoryId, setSelectedCategoryId] = useState(
     currentCategoryId || ""
@@ -92,7 +94,7 @@ export function CategorizePopover({
           ) : (
             <span className="text-muted-foreground flex items-center gap-1">
               <Tag className="h-3 w-3" />
-              Categorize
+              {t("categorize.trigger")}
             </span>
           )}
         </button>
@@ -100,14 +102,14 @@ export function CategorizePopover({
       <PopoverContent className="w-80" align="start">
         <div className="space-y-4">
           <div>
-            <h4 className="font-medium text-sm mb-1">Set Category</h4>
+            <h4 className="font-medium text-sm mb-1">{t("categorize.title")}</h4>
             <p className="text-xs text-muted-foreground break-words">
               {transactionDescription}
             </p>
           </div>
 
           <div className="space-y-2">
-            <Label className="text-xs">Category</Label>
+            <Label className="text-xs">{t("common.category")}</Label>
             <CategorySelect
               value={selectedCategoryId}
               onValueChange={setSelectedCategoryId}
@@ -128,10 +130,10 @@ export function CategorizePopover({
               />
               <div>
                 <Label htmlFor="create-rule" className="text-sm font-medium cursor-pointer">
-                  Apply to all matching transactions
+                  {t("categorize.applyToAll")}
                 </Label>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Creates a rule for future CSV imports too
+                  {t("categorize.applyToAllHint")}
                 </p>
               </div>
             </div>
@@ -139,16 +141,16 @@ export function CategorizePopover({
             {createRule && (
               <div className="space-y-2 pl-6">
                 <div className="space-y-1">
-                  <Label className="text-xs">Match pattern</Label>
+                  <Label className="text-xs">{t("categorize.matchPattern")}</Label>
                   <Input
                     value={rulePattern}
                     onChange={(e) => setRulePattern(e.target.value)}
-                    placeholder="e.g. Starbucks"
+                    placeholder={t("categorize.patternPlaceholder")}
                     className="h-8 text-sm"
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs">Match type</Label>
+                  <Label className="text-xs">{t("categorize.matchType")}</Label>
                   <Select
                     value={ruleMatchType}
                     onValueChange={setRuleMatchType}
@@ -158,13 +160,13 @@ export function CategorizePopover({
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="contains">
-                        Description contains
+                        {t("categorize.descContains")}
                       </SelectItem>
                       <SelectItem value="starts_with">
-                        Description starts with
+                        {t("categorize.descStartsWith")}
                       </SelectItem>
                       <SelectItem value="exact">
-                        Exact match
+                        {t("categorize.exactMatch")}
                       </SelectItem>
                     </SelectContent>
                   </Select>
@@ -179,14 +181,14 @@ export function CategorizePopover({
               size="sm"
               onClick={() => setOpen(false)}
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               size="sm"
               onClick={handleSave}
               disabled={categorize.isPending || !selectedCategoryId}
             >
-              {categorize.isPending ? "Saving..." : "Save"}
+              {categorize.isPending ? t("categorize.saving") : t("common.save")}
               {!categorize.isPending && <Check className="ml-1 h-3 w-3" />}
             </Button>
           </div>

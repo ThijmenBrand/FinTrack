@@ -1,12 +1,12 @@
-// Single source of truth for rule match-type options.
-// Reconciled the two divergent SelectItem label sets ("Description contains
-// pattern" vs "Contains") down to the short set below.
-export const MATCH_TYPES = [
-  { value: "contains", label: "Contains" },
-  { value: "starts_with", label: "Starts with" },
-  { value: "exact", label: "Exact match" },
-] as const;
+import type { MessageKey } from "@/lib/i18n/translate";
 
-export const MATCH_TYPE_LABELS: Record<string, string> = Object.fromEntries(
-  MATCH_TYPES.map((m) => [m.value, m.label])
+// Single source of truth for rule match-type options.
+export const MATCH_TYPES: { value: string; labelKey: MessageKey }[] = [
+  { value: "contains", labelKey: "categories.match.contains" },
+  { value: "starts_with", labelKey: "categories.match.startsWith" },
+  { value: "exact", labelKey: "categories.match.exact" },
+];
+
+export const MATCH_TYPE_LABEL_KEYS: Record<string, MessageKey> = Object.fromEntries(
+  MATCH_TYPES.map((m) => [m.value, m.labelKey]),
 );

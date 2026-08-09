@@ -4,6 +4,7 @@ import { getUserPreferences, updateUserPreferences } from "@/lib/preferences";
 import { db } from "@/db";
 import { accounts } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
+import { isLocale } from "@/lib/i18n";
 
 export async function GET() {
   return withUser(async (userId) => {
@@ -21,9 +22,12 @@ export async function PUT(request: NextRequest) {
     const patch: Record<string, unknown> = {};
     if (typeof body?.autoBudgetEnabled === "boolean") patch.autoBudgetEnabled = body.autoBudgetEnabled;
     if (typeof body?.hideInternalTransfers === "boolean") patch.hideInternalTransfers = body.hideInternalTransfers;
+    if (typeof body?.countCrossBudgetTransfers === "boolean") patch.countCrossBudgetTransfers = body.countCrossBudgetTransfers;
+    if (typeof body?.simpleMode === "boolean") patch.simpleMode = body.simpleMode;
     if (isFiniteNumber(body?.autoBudgetIntervalMonths)) patch.autoBudgetIntervalMonths = body.autoBudgetIntervalMonths;
     if (isFiniteNumber(body?.autoBudgetLookbackMonths)) patch.autoBudgetLookbackMonths = body.autoBudgetLookbackMonths;
     if (isFiniteNumber(body?.financialMonthStartDay)) patch.financialMonthStartDay = body.financialMonthStartDay;
+    if (isLocale(body?.locale)) patch.locale = body.locale;
     if ("defaultAccountId" in (body ?? {})) {
       const raw = body.defaultAccountId;
       if (raw === null || raw === "") {

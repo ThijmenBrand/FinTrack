@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { Card, CardContent, CardTitle } from "@/components/ui/card";
 import { layoutSankey, type SankeyNode } from "@/lib/sankey";
-import { formatCurrency } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n/client";
 import type { MoneyFlowData } from "@/types/api";
 
 interface MoneyFlowProps {
@@ -29,14 +29,14 @@ const MAX_NAME = 24;
 const shortName = (name: string) =>
   name.length > MAX_NAME ? `${name.slice(0, MAX_NAME - 1)}…` : name;
 
-const gutter = (nodes: { name: string; value: number }[]) =>
+const gutter = (
+  nodes: { name: string; value: number }[],
+  fc: (amount: number) => string,
+) =>
   Math.max(
     100,
     ...nodes.map(
-      (n) =>
-        (shortName(n.name).length + formatCurrency(n.value).length + 1) *
-          CHAR_W +
-        16,
+      (n) => (shortName(n.name).length + fc(n.value).length + 1) * CHAR_W + 16,
     ),
   );
 
@@ -110,6 +110,7 @@ export function MoneyFlow({
   onOpenChange,
   onSelect,
 }: MoneyFlowProps) {
+  const { t, formatCurrency } = useI18n();
   const [hovered, setHovered] = useState<string | null>(null);
 
   const layout = useMemo(() => {
@@ -136,8 +137,14 @@ export function MoneyFlow({
   const maxDepth = Math.max(0, ...layout.nodes.map((n) => n.depth));
   // Only the first column labels outward-left and only the last column runs
   // past the right edge; middle labels sit over the ribbons.
-  const marginLeft = gutter(layout.nodes.filter((n) => n.depth === 0));
-  const marginRight = gutter(layout.nodes.filter((n) => n.depth === maxDepth));
+  const marginLeft = gutter(
+    layout.nodes.filter((n) => n.depth === 0),
+    formatCurrency,
+  );
+  const marginRight = gutter(
+    layout.nodes.filter((n) => n.depth === maxDepth),
+    formatCurrency,
+  );
   const active = (id: string) => hovered === null || hovered === id;
 
   // SVG shapes aren't buttons, so clickable ones get the role and the keyboard
@@ -150,7 +157,7 @@ export function MoneyFlow({
       ? {
           role: "button" as const,
           tabIndex: 0,
-          "aria-label": `${label} — show transactions`,
+          "aria-label": t("insights.flow.showTransactions", { label }),
           className: "cursor-pointer",
           onClick: () => onSelect(filters),
           onKeyDown: (e: React.KeyboardEvent) => {
@@ -172,20 +179,19 @@ export function MoneyFlow({
       >
         <summary className="flex cursor-pointer list-none flex-row flex-wrap items-baseline gap-2 px-6 py-5 [&::-webkit-details-marker]:hidden">
           <ChevronRight className="h-4 w-4 shrink-0 self-center text-muted-foreground transition-transform group-[[open]]:rotate-90" />
-          <CardTitle className="text-base">Money flow</CardTitle>
+          <CardTitle className="text-base">{t("insights.flow.title")}</CardTitle>
           <span className="text-xs text-muted-foreground">
-            income → accounts → spending · click a bar or ribbon for its
-            transactions
+            {t("insights.flow.hint")}
           </span>
         </summary>
         <CardContent>
           {isLoading && !data ? (
             <p className="text-muted-foreground text-sm py-8 text-center">
-              Following the money…
+              {t("insights.flow.loading")}
             </p>
           ) : layout.nodes.length === 0 ? (
             <p className="text-muted-foreground text-sm py-8 text-center">
-              No flows to show for this period.
+              {t("insights.flow.empty")}
             </p>
           ) : (
             <div className="overflow-x-auto">
@@ -195,7 +201,7 @@ export function MoneyFlow({
                 }`}
                 className="w-full min-w-[720px]"
                 role="img"
-                aria-label="Money flow diagram"
+                aria-label={t("insights.flow.diagramLabel")}
               >
                 <g transform={`translate(${marginLeft}, 8)`}>
                   {layout.links.map((l) => {

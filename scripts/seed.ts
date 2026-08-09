@@ -6,6 +6,7 @@
  *   npm run db:seed                    # 12 months for the "demo" user
  *   npm run db:seed -- --months 6      # shorter history
  *   npm run db:seed -- --user alice    # a different user
+ *   npm run db:seed -- --email a@b.com # sign-in address (default user@local.test)
  *
  * The target user is created if it doesn't exist, as a *regular* user — the
  * seeded `admin` is role=admin and gets redirected to /backoffice by
@@ -43,6 +44,7 @@ function arg(name: string, fallback: string): string {
 
 const USERNAME = arg("user", process.env.SEED_USERNAME || "demo");
 const PASSWORD = arg("password", process.env.SEED_PASSWORD || "demo");
+const EMAIL = arg("email", process.env.SEED_EMAIL || `${USERNAME}@local.test`);
 const MONTHS = Math.max(1, Math.min(60, Number(arg("months", "12")) || 12));
 
 // ── Deterministic randomness ───────────────────────────────────────────────
@@ -141,12 +143,15 @@ const ruleMatch = (text: string) =>
 
 /**
  * Find the target user, or create it with role "user" and a credential login.
- * The `@local` email is grandfathered as verified by initializeDatabase(), and
- * we set email_verified up front so `requireEmailVerification` can't block it.
+ * Sign-in is by email, so the address has to be one better-auth accepts:
+ * `user@local.test`, not the bare `@local` TLD it rejects as malformed.
+ * `@local.test` is grandfathered as verified by initializeDatabase(), and we
+ * set email_verified up front so `requireEmailVerification` can't block it.
  */
 async function ensureUser(): Promise<string> {
-  const [existing] = await db.all<{ id: string; role: string | null }>(
-    sql`SELECT id, role FROM "user" WHERE username = ${USERNAME} LIMIT 1`,
+  const now = Date.now();
+  const [existing] = await db.all<{ id: string; role: string | null; email: string }>(
+    sql`SELECT id, role, email FROM "user" WHERE username = ${USERNAME} LIMIT 1`,
   );
   if (existing) {
     if (existing.role === "admin") {
@@ -154,20 +159,26 @@ async function ensureUser(): Promise<string> {
         `Note: "${USERNAME}" is an admin — src/proxy.ts redirects admins to /backoffice, so this data won't be visible in the app.`,
       );
     }
+    // Repair users seeded before the switch to email login.
+    await db.run(sql`
+      UPDATE "user" SET email = email || '.test', email_verified = 1, updated_at = ${now}
+      WHERE id = ${existing.id} AND email LIKE '%@local'
+    `);
+    const email = existing.email.endsWith("@local") ? `${existing.email}.test` : existing.email;
+    console.log(`Using existing user "${USERNAME}" — log in with ${email}.`);
     return existing.id;
   }
 
   const newId = id();
-  const now = Date.now();
   await db.run(sql`
     INSERT INTO "user" (id, name, email, email_verified, username, display_username, role, created_at, updated_at)
-    VALUES (${newId}, ${USERNAME}, ${`${USERNAME}@local`}, 1, ${USERNAME}, ${USERNAME}, 'user', ${now}, ${now})
+    VALUES (${newId}, ${USERNAME}, ${EMAIL}, 1, ${USERNAME}, ${USERNAME}, 'user', ${now}, ${now})
   `);
   await db.run(sql`
     INSERT INTO account (id, account_id, provider_id, user_id, password, created_at, updated_at)
     VALUES (${id()}, ${newId}, 'credential', ${newId}, ${await hashPassword(PASSWORD)}, ${now}, ${now})
   `);
-  console.log(`Created user "${USERNAME}" (password: ${PASSWORD}).`);
+  console.log(`Created user "${USERNAME}" — log in with ${EMAIL} / ${PASSWORD}.`);
   return newId;
 }
 

@@ -32,14 +32,18 @@ import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useCategories } from "@/hooks/use-categories";
 import { NotesEditor } from "@/components/notes-editor";
-import { formatCurrency, formatDate } from "@/lib/utils";
-import type { Transaction, ReimbursementDetail, Category } from "@/types/api";
 
-const TYPE_BADGES: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
-  income: { label: "Income", variant: "default" },
-  expense: { label: "Expense", variant: "destructive" },
-  internal_transfer: { label: "Transfer", variant: "secondary" },
-  reimbursement: { label: "Reimbursement", variant: "outline" },
+import type { Transaction, ReimbursementDetail, Category } from "@/types/api";
+import { useI18n } from "@/lib/i18n/client";
+import type { MessageKey } from "@/lib/i18n/translate";
+
+const TYPE_BADGES: Record<
+  string,
+  { labelKey: MessageKey; variant: "default" | "secondary" | "destructive" | "outline" }> = {
+  income: { labelKey: "tx.type.income", variant: "default" },
+  expense: { labelKey: "tx.type.expense", variant: "destructive" },
+  internal_transfer: { labelKey: "tx.type.internalTransfer", variant: "secondary" },
+  reimbursement: { labelKey: "tx.type.reimbursement", variant: "outline" },
 };
 
 interface TransactionDetailDialogProps {
@@ -50,6 +54,7 @@ interface TransactionDetailDialogProps {
 }
 
 export function TransactionDetailDialog({ transaction, onOpenChange, categories, onCategorized }: TransactionDetailDialogProps) {
+  const { t, formatCurrency, formatDate, formatDateTime } = useI18n();
   const { data: fetchedCategories } = useCategories();
   const resolvedCategories = categories || fetchedCategories || [];
 
@@ -115,8 +120,8 @@ export function TransactionDetailDialog({ transaction, onOpenChange, categories,
             <div className="flex items-center gap-2 pt-1">
               <Badge variant={typeInfo.variant} className="text-xs">
                 {isTransfer && tx.linkedAccountName
-                  ? `↔ Transfer → ${tx.linkedAccountName}`
-                  : typeInfo.label}
+                  ? t("tx.row.transferTo", { account: tx.linkedAccountName })
+                  : t(typeInfo.labelKey)}
               </Badge>
               <span className="text-xs text-muted-foreground">
                 {formatDate(tx.date)}
@@ -155,13 +160,13 @@ export function TransactionDetailDialog({ transaction, onOpenChange, categories,
         <div className="grid gap-3 text-sm">
           <div className="flex items-center gap-3">
             <Wallet className="h-4 w-4 text-muted-foreground shrink-0" />
-            <span className="text-muted-foreground w-20 shrink-0">Account</span>
+            <span className="text-muted-foreground w-20 shrink-0">{t("common.account")}</span>
             <span className="font-medium">{tx.accountName || "—"}</span>
           </div>
 
           <div className="flex items-center gap-3">
             <Tag className="h-4 w-4 text-muted-foreground shrink-0" />
-            <span className="text-muted-foreground w-20 shrink-0">Category</span>
+            <span className="text-muted-foreground w-20 shrink-0">{t("common.category")}</span>
             <CategorizePopover
               transactionId={tx.id}
               transactionDescription={tx.name || tx.description}
@@ -177,21 +182,21 @@ export function TransactionDetailDialog({ transaction, onOpenChange, categories,
           {tx.balance !== null && (
             <div className="flex items-center gap-3">
               <Hash className="h-4 w-4 text-muted-foreground shrink-0" />
-              <span className="text-muted-foreground w-20 shrink-0">Balance</span>
+              <span className="text-muted-foreground w-20 shrink-0">{t("txDetail.balance")}</span>
               <span className="font-medium font-mono">{formatCurrency(tx.balance)}</span>
             </div>
           )}
 
           <div className="flex items-start gap-3">
             <StickyNote className="h-4 w-4 text-muted-foreground shrink-0 mt-1.5" />
-            <span className="text-muted-foreground w-20 shrink-0 mt-1">Notes</span>
+            <span className="text-muted-foreground w-20 shrink-0 mt-1">{t("common.notes")}</span>
             <NotesEditor key={tx.id} transactionId={tx.id} initialNotes={tx.notes} />
           </div>
 
           {isTransfer && tx.linkedAccountName && (
             <div className="flex items-center gap-3">
               <ArrowLeftRight className="h-4 w-4 text-muted-foreground shrink-0" />
-              <span className="text-muted-foreground w-20 shrink-0">Linked to</span>
+              <span className="text-muted-foreground w-20 shrink-0">{t("txDetail.linkedTo")}</span>
               <span className="font-medium">{tx.linkedAccountName}</span>
             </div>
           )}
@@ -199,7 +204,7 @@ export function TransactionDetailDialog({ transaction, onOpenChange, categories,
           {tx.groupName && (
             <div className="flex items-center gap-3">
               <Package className="h-4 w-4 text-muted-foreground shrink-0" />
-              <span className="text-muted-foreground w-20 shrink-0">Pot</span>
+              <span className="text-muted-foreground w-20 shrink-0">{t("txDetail.pot")}</span>
               <Badge variant="outline" className="text-xs gap-1">
                 <Package className="h-3 w-3" />
                 {tx.groupName}
@@ -210,7 +215,7 @@ export function TransactionDetailDialog({ transaction, onOpenChange, categories,
           {(tx.type === "expense" || tx.type === "income") && (
             <div className="flex items-center gap-3">
               <Repeat className="h-4 w-4 text-muted-foreground shrink-0" />
-              <span className="text-muted-foreground w-20 shrink-0">Recurring</span>
+              <span className="text-muted-foreground w-20 shrink-0">{t("txDetail.recurring")}</span>
               <RecurringLinkPopover
                 transactionId={tx.id}
                 transactionAmount={tx.amount}
@@ -227,7 +232,7 @@ export function TransactionDetailDialog({ transaction, onOpenChange, categories,
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <Receipt className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <span className="font-medium">Reimburses</span>
+                  <span className="font-medium">{t("txDetail.reimburses")}</span>
                 </div>
                 <div className="space-y-1.5 pl-6">
                   {linkedExpenses.map((e) => (
@@ -253,7 +258,7 @@ export function TransactionDetailDialog({ transaction, onOpenChange, categories,
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <Receipt className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <span className="font-medium">Reimbursements</span>
+                  <span className="font-medium">{t("txDetail.reimbursements")}</span>
                 </div>
                 <div className="space-y-1.5 pl-6">
                   {reimbursements.map((r) => (
@@ -268,7 +273,7 @@ export function TransactionDetailDialog({ transaction, onOpenChange, categories,
                     </div>
                   ))}
                   <div className="flex items-center justify-between text-xs text-muted-foreground pt-1 px-1">
-                    <span>Your actual cost</span>
+                    <span>{t("txDetail.actualCost")}</span>
                     <span className="font-mono font-semibold text-foreground">
                       {formatCurrency(tx.effectiveAmount)}
                     </span>
@@ -282,18 +287,16 @@ export function TransactionDetailDialog({ transaction, onOpenChange, categories,
 
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             <Clock className="h-3.5 w-3.5 shrink-0" />
-            <span>Added {new Intl.DateTimeFormat("nl-NL", {
-              day: "2-digit",
-              month: "short",
-              year: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-            }).format(new Date(tx.createdAt))}</span>
+            <span>{t("txDetail.added", { date: formatDateTime(tx.createdAt) })}</span>
             {tx.isManual && (
-              <Badge variant="outline" className="text-[10px] px-1.5 py-0">Manual</Badge>
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                {t("txDetail.manual")}
+              </Badge>
             )}
             {tx.importBatchId && (
-              <Badge variant="outline" className="text-[10px] px-1.5 py-0">Imported</Badge>
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                {t("txDetail.imported")}
+              </Badge>
             )}
           </div>
         </div>

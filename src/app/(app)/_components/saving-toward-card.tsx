@@ -10,6 +10,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { getSavingTowardSpikes } from "../_lib/dashboard-queries";
 import { SavingTowardList } from "./saving-toward-list";
+import { getI18n } from "@/lib/i18n/server";
 
 export async function SavingTowardCard({
   userId,
@@ -18,19 +19,26 @@ export async function SavingTowardCard({
   userId: string;
   startDay?: number;
 }) {
-  const spikes = await getSavingTowardSpikes(userId, startDay);
+  const [spikes, { t, plural }] = await Promise.all([
+    getSavingTowardSpikes(userId, startDay),
+    getI18n(),
+  ]);
 
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <PiggyBank className="h-4 w-4 text-primary" />
-          Saving toward
+          {t("dashboard.savingToward.title")}
         </CardTitle>
         <CardDescription>
           {spikes.length === 0
-            ? "Plan ahead for vacations and bigger events."
-            : `${spikes.length} long-term goal${spikes.length === 1 ? "" : "s"}`}
+            ? t("dashboard.savingToward.empty")
+            : plural(
+                spikes.length,
+                "dashboard.savingToward.goals.one",
+                "dashboard.savingToward.goals.other",
+              )}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -38,9 +46,9 @@ export async function SavingTowardCard({
           <div className="flex flex-col items-center justify-center py-8 text-center">
             <PiggyBank className="h-10 w-10 text-muted-foreground/30 mb-3" />
             <p className="text-sm text-muted-foreground max-w-xs">
-              Create a pot with a target amount and a date further out to start saving toward it.{" "}
+              {t("dashboard.savingToward.emptyBody")}{" "}
               <Link href="/pots" className="text-primary hover:underline">
-                Go to pots
+                {t("dashboard.savingToward.goToPots")}
               </Link>
               .
             </p>

@@ -10,7 +10,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { TransactionsFilterLink } from "@/components/transactions-filter-link";
 import { getTopCategories } from "../_lib/dashboard-queries";
-import { formatCurrency } from "@/lib/utils";
+import { getI18n } from "@/lib/i18n/server";
 import {
   formatFinancialMonthLabel,
   getFinancialMonthRange,
@@ -19,36 +19,40 @@ import {
 export async function TopSpendingCard({
   userId,
   startDay = 1,
-  accountIds,
 }: {
   userId: string;
   startDay?: number;
-  accountIds?: string[];
 }) {
-  const topCategories = await getTopCategories(userId, startDay, accountIds);
+  const [{ planCount, categories: topCategories }, { t, formatCurrency, intlLocale }] =
+    await Promise.all([getTopCategories(userId, startDay), getI18n()]);
 
-  const monthLabel = formatFinancialMonthLabel(new Date(), startDay);
-  const periodCopy = startDay === 1 ? "this month" : "this period";
+  const monthLabel = formatFinancialMonthLabel(new Date(), startDay, intlLocale);
   const fmRange = startDay === 1 ? null : getFinancialMonthRange(new Date(), startDay);
+  // With one budget the split line repeats the same label five times — noise.
+  const showSplit = planCount > 1;
 
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle>Top Spending</CardTitle>
+          <CardTitle>{t("dashboard.topSpending.title")}</CardTitle>
           <Link
             href="/insights"
             className="text-xs text-primary hover:underline flex items-center gap-0.5"
           >
-            Insights <ArrowRight className="h-3 w-3" />
+            {t("dashboard.topSpending.insights")} <ArrowRight className="h-3 w-3" />
           </Link>
         </div>
-        <CardDescription>{monthLabel}</CardDescription>
+        <CardDescription>
+          {monthLabel} &middot; {t("dashboard.topSpending.allAccounts")}
+        </CardDescription>
       </CardHeader>
       <CardContent>
         {topCategories.length === 0 ? (
           <p className="text-sm text-muted-foreground py-8 text-center">
-            No expenses {periodCopy} yet.
+            {startDay === 1
+              ? t("dashboard.topSpending.emptyMonth")
+              : t("dashboard.topSpending.emptyPeriod")}
           </p>
         ) : (
           <div className="space-y-1">
@@ -58,28 +62,39 @@ export async function TopSpendingCard({
                 const rowContent = (
                   <>
                     <span
-                      className="h-3 w-3 rounded-full shrink-0"
+                      className="mt-1 h-3 w-3 rounded-full shrink-0"
                       style={{ backgroundColor: cat.color }}
                     />
-                    <span className="text-sm min-w-0 flex-1 truncate">
-                      {cat.name}
-                    </span>
-                    <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-                      <div
-                        className="h-full rounded-full"
-                        style={{
-                          width: `${(cat.total / max) * 100}%`,
-                          backgroundColor: cat.color,
-                        }}
-                      />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm min-w-0 flex-1 truncate">
+                          {cat.name}
+                        </span>
+                        <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full"
+                            style={{
+                              width: `${(cat.total / max) * 100}%`,
+                              backgroundColor: cat.color,
+                            }}
+                          />
+                        </div>
+                        <span className="text-sm font-semibold shrink-0 text-right tabular-nums">
+                          {formatCurrency(cat.total)}
+                        </span>
+                      </div>
+                      {showSplit && (
+                        <p className="truncate text-xs text-muted-foreground tabular-nums">
+                          {cat.byBudget
+                            .map((b) => `${b.budgetName} ${formatCurrency(b.total)}`)
+                            .join(" · ")}
+                        </p>
+                      )}
                     </div>
-                    <span className="text-sm font-semibold shrink-0 text-right tabular-nums">
-                      {formatCurrency(cat.total)}
-                    </span>
                   </>
                 );
                 const rowClass =
-                  "flex items-center gap-3 -mx-2 px-2 py-1.5 rounded-md";
+                  "flex items-start gap-3 -mx-2 px-2 py-1.5 rounded-md";
                 return cat.categoryId ? (
                   <TransactionsFilterLink
                     key={cat.categoryId}

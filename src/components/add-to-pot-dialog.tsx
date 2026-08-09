@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Plus } from "lucide-react";
 import { PickerDialog } from "@/components/picker-dialog";
 import { PickerRow } from "@/components/picker-row";
-import { formatCurrency } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n/client";
 
 interface Pot {
   id: string;
@@ -34,6 +34,7 @@ export function AddToPotDialog({
   onSelect,
   onCreate,
 }: AddToPotDialogProps) {
+  const { t, plural, formatCurrency } = useI18n();
   const [search, setSearch] = useState("");
   const [addingId, setAddingId] = useState<string | null>(null);
 
@@ -76,16 +77,16 @@ export function AddToPotDialog({
         if (!o) setSearch("");
         onOpenChange(o);
       }}
-      title="Add to Pot"
-      description={`Choose a pot for "${transactionDescription}"`}
+      title={t("pots.picker.addToPotTitle")}
+      description={t("pots.picker.choosePot", { description: transactionDescription })}
       truncateDescription
       contentClassName="sm:max-w-sm"
       listClassName="max-h-[300px]"
       search={search}
       onSearchChange={setSearch}
-      searchPlaceholder="Search pots..."
+      searchPlaceholder={t("pots.picker.searchPots")}
       isEmpty={filtered.length === 0 && !canCreate}
-      emptyMessage="No matching pots found."
+      emptyMessage={t("pots.picker.noMatchingPots")}
     >
       {canCreate && (
         <PickerRow
@@ -99,8 +100,10 @@ export function AddToPotDialog({
             </span>
           }
         >
-          <p className="text-sm font-medium truncate">Create &ldquo;{query}&rdquo;</p>
-          <p className="text-xs text-muted-foreground">New pot</p>
+          <p className="text-sm font-medium truncate">
+            {t("pots.picker.createNamed", { name: query })}
+          </p>
+          <p className="text-xs text-muted-foreground">{t("pots.picker.newPot")}</p>
         </PickerRow>
       )}
       {filtered.map((pot) => (
@@ -135,7 +138,7 @@ export function AddToPotDialog({
         >
           <p className="text-sm font-medium truncate">{pot.name}</p>
           <p className="text-xs text-muted-foreground">
-            {pot.transactionCount} transaction{pot.transactionCount !== 1 ? "s" : ""}
+            {plural(pot.transactionCount, "common.transactions.one", "common.transactions.other")}
             {pot.categoryName ? ` · ${pot.categoryName}` : ""}
           </p>
         </PickerRow>

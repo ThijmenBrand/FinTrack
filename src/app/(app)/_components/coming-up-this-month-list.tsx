@@ -7,16 +7,15 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AllocateToPotDialog } from "@/components/allocate-to-pot-dialog";
 import { PotDetailDialog } from "@/components/pot-detail-dialog";
-import { formatCurrency } from "@/lib/utils";
 import type { ThisMonthSpike } from "@/types/api";
+import { useI18n } from "@/lib/i18n/client";
+import type { I18n } from "@/lib/i18n/translate";
 
-function dayLabel(daysUntil: number, targetDate: string): string {
-  if (daysUntil === 0) return "today";
-  if (daysUntil === 1) return "tomorrow";
-  if (daysUntil < 14) return `in ${daysUntil} days`;
-  // Parse as local midnight so the rendered day matches the stored date.
-  const d = new Date(`${targetDate}T00:00:00`);
-  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+function dayLabel(i18n: I18n, daysUntil: number, targetDate: string): string {
+  if (daysUntil === 0) return i18n.t("date.today");
+  if (daysUntil === 1) return i18n.t("date.tomorrow");
+  if (daysUntil < 14) return i18n.t("date.inDays", { count: daysUntil });
+  return i18n.formatDayMonth(targetDate);
 }
 
 interface ComingUpThisMonthListProps {
@@ -32,6 +31,8 @@ export function ComingUpThisMonthList({
   freeToSpendAfterSpikes,
   hasIncome,
 }: ComingUpThisMonthListProps) {
+  const i18n = useI18n();
+  const { t, formatCurrency } = i18n;
   const router = useRouter();
   const [activeSpike, setActiveSpike] = useState<ThisMonthSpike | null>(null);
   const [detailPotId, setDetailPotId] = useState<string | null>(null);
@@ -40,7 +41,7 @@ export function ComingUpThisMonthList({
     <>
       {hasIncome && (
         <div className="mb-4 rounded-md bg-muted/50 px-3 py-2 text-xs">
-          <span className="text-muted-foreground">After upcoming events: </span>
+          <span className="text-muted-foreground">{t("dashboard.comingUp.afterEvents")} </span>
           <span
             className={`font-semibold tabular-nums ${
               freeToSpendAfterSpikes < 0
@@ -52,7 +53,7 @@ export function ComingUpThisMonthList({
           </span>
           <span className="text-muted-foreground">
             {" "}
-            of {formatCurrency(freeToSpend)} free to spend
+            {t("dashboard.comingUp.ofFreeToSpend", { amount: formatCurrency(freeToSpend) })}
           </span>
         </div>
       )}
@@ -68,14 +69,16 @@ export function ComingUpThisMonthList({
 
           const statusLabel = {
             fits: hasIncome
-              ? `Fits · ${formatCurrency(spike.freeAfter)} buffer`
-              : "Fits",
+              ? t("dashboard.comingUp.fitsBuffer", { amount: formatCurrency(spike.freeAfter) })
+              : t("dashboard.comingUp.fits"),
             tight: hasIncome
-              ? `Tight · ${formatCurrency(spike.freeAfter)} buffer`
-              : "Tight",
+              ? t("dashboard.comingUp.tightBuffer", { amount: formatCurrency(spike.freeAfter) })
+              : t("dashboard.comingUp.tight"),
             over: hasIncome
-              ? `Over by ${formatCurrency(Math.abs(spike.freeAfter))}`
-              : "Over budget",
+              ? t("dashboard.comingUp.overBy", {
+                  amount: formatCurrency(Math.abs(spike.freeAfter)),
+                })
+              : t("dashboard.comingUp.over"),
           }[spike.status];
 
           return (
@@ -109,12 +112,14 @@ export function ComingUpThisMonthList({
                   </Badge>
                 </div>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  {dayLabel(spike.daysUntil, spike.targetDate)} ·{" "}
+                  {dayLabel(i18n, spike.daysUntil, spike.targetDate)} ·{" "}
                   {formatCurrency(spike.targetAmount)}
                   {spike.fundedAmount > 0 && (
                     <>
-                      {" "}
-                      · funded {formatCurrency(spike.fundedAmount)}
+                      {" · "}
+                      {t("dashboard.comingUp.funded", {
+                        amount: formatCurrency(spike.fundedAmount),
+                      })}
                     </>
                   )}
                 </p>
@@ -133,7 +138,7 @@ export function ComingUpThisMonthList({
                   setActiveSpike(spike);
                 }}
               >
-                Allocate
+                {t("dashboard.allocate")}
               </Button>
             </div>
           );

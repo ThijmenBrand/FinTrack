@@ -15,6 +15,7 @@ const TEST_DB_PATH = path.join(
 process.env.TURSO_DATABASE_URL = `file:${TEST_DB_PATH}`;
 
 import {
+  explainEmptyGenerate,
   isRegenerationDue,
   regenerateBudgetSuggestions,
   roundUpToFive,
@@ -99,6 +100,7 @@ async function createSchema() {
   await exec(`CREATE TABLE IF NOT EXISTS budgets (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
+    budget_id TEXT,
     category_id TEXT NOT NULL,
     amount REAL NOT NULL,
     period TEXT NOT NULL,
@@ -491,4 +493,89 @@ describe("regenerateBudgetSuggestions", () => {
     const suggestions = await regenerateBudgetSuggestions(TEST_USER_ID, 3);
     expect(suggestions).toHaveLength(0);
   });
+
+  it("scopes to a plan's accounts and only replaces that plan's suggestions", async () => {
+    const now = new Date().toISOString();
+    await client.execute({
+      sql: `INSERT INTO accounts (id, user_id, name, type, currency, initial_balance, sort_order, created_at, updated_at)
+            VALUES ('acct-2', ?, 'Second', 'joint', 'EUR', 0, 1, ?, ?)`,
+      args: [TEST_USER_ID, now, now],
+    });
+    await insertCategory("cat-plan", "PlanCat");
+    // acct-1 spend (in plan) + acct-2 spend (outside plan, must not count).
+    await insertTransaction({
+      date: pastMonthDate(1),
+      amount: -100,
+      categoryId: "cat-plan",
+    });
+    await client.execute({
+      sql: `INSERT INTO transactions (id, user_id, account_id, date, description, amount, category_id, type, is_manual, created_at)
+            VALUES (?, ?, 'acct-2', ?, 'other-acct', -400, 'cat-plan', 'expense', 0, ?)`,
+      args: [crypto.randomUUID(), TEST_USER_ID, pastMonthDate(1), now],
+    });
+    // A pending suggestion belonging to ANOTHER plan must survive.
+    await client.execute({
+      sql: `INSERT INTO budgets (id, user_id, budget_id, category_id, amount, period, is_active, status, source, created_at)
+            VALUES ('sugg-other-plan', ?, 'plan-2', 'cat-plan', 999, 'monthly', 0, 'suggested', 'auto', ?)`,
+      args: [TEST_USER_ID, now],
+    });
+
+    const suggestions = await regenerateBudgetSuggestions(TEST_USER_ID, 3, {
+      id: "plan-1",
+      name: "Main",
+      isMain: true,
+      accountIds: ["acct-1"],
+    });
+
+    // Only acct-1's €100 counts, not acct-2's €400.
+    expect(suggestions).toHaveLength(1);
+    expect(suggestions[0].avgMonthly).toBe(100);
+    const rows = await client.execute({
+      sql: `SELECT id, budget_id FROM budgets WHERE user_id = ? AND status = 'suggested'`,
+      args: [TEST_USER_ID],
+    });
+    // The fresh suggestion carries the plan id; the other plan's pending
+    // suggestion was not wiped.
+    expect(rows.rows.map((r) => r.budget_id).sort()).toEqual(["plan-1", "plan-2"]);
+  });
+
+  it("suggests nothing for a plan with no accounts", async () => {
+    await insertCategory("cat-empty", "EmptyPlanCat");
+    await insertTransaction({
+      date: pastMonthDate(1),
+      amount: -80,
+      categoryId: "cat-empty",
+    });
+    const suggestions = await regenerateBudgetSuggestions(TEST_USER_ID, 3, {
+      id: "plan-empty",
+      name: "Empty",
+      isMain: false,
+      accountIds: [],
+    });
+    expect(suggestions).toHaveLength(0);
+  });
+
+  // Same DB fixture, so these live inside this describe.
+  it("blames the missing accounts when a plan owns none", async () => {
+    await insertCategory("cat-x", "X");
+    await insertTransaction({ date: pastMonthDate(1), amount: -80, categoryId: "cat-x" });
+    const reason = await explainEmptyGenerate(TEST_USER_ID, 3, {
+      id: "plan-empty",
+      name: "Empty",
+      isMain: false,
+      accountIds: [],
+    });
+    expect(reason).toBe("no-accounts");
+  });
+
+  it("reports no history when the lookback window is empty", async () => {
+    expect(await explainEmptyGenerate(TEST_USER_ID, 3)).toBe("no-history");
+  });
+
+  it("reports up-to-date when history exists but produced no suggestions", async () => {
+    await insertCategory("cat-y", "Y");
+    await insertTransaction({ date: pastMonthDate(1), amount: -80, categoryId: "cat-y" });
+    expect(await explainEmptyGenerate(TEST_USER_ID, 3)).toBe("up-to-date");
+  });
 });
+

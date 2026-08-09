@@ -22,7 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus } from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n/client";
 
 interface AllocationDialogProps {
   open: boolean;
@@ -45,6 +45,7 @@ export function AllocationDialog({
   onCreate,
   onUpdate,
 }: AllocationDialogProps) {
+  const { t, formatCurrency } = useI18n();
   // Initial fields come from the edit target; the parent remounts this
   // component (via `key`) whenever the target changes, so no sync effect.
   const [categoryId, setCategoryId] = useState(editingAlloc?.categoryId ?? "");
@@ -81,27 +82,31 @@ export function AllocationDialog({
       <DialogTrigger asChild>
         <Button className="flex-1 sm:flex-none">
           <Plus className="mr-2 h-4 w-4" />
-          Add manually
+          {t("budgets.addManually")}
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>
-            {editingAlloc ? "Edit Allocation" : "Add Budget Allocation"}
+            {editingAlloc ? t("budgets.alloc.editTitle") : t("budgets.alloc.addTitle")}
           </DialogTitle>
           <DialogDescription>
             {editingAlloc
-              ? `Update the monthly budget for ${editingAlloc.categoryName}.`
-              : `Allocate from your ${formatCurrency(unallocated)} unallocated budget.`}
+              ? t("budgets.alloc.editDescription", {
+                  name: editingAlloc.categoryName ?? "",
+                })
+              : t("budgets.alloc.addDescription", {
+                  amount: formatCurrency(unallocated),
+                })}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">
           {!editingAlloc && (
             <div className="grid gap-2">
-              <Label>Category</Label>
+              <Label>{t("common.category")}</Label>
               <Select value={categoryId} onValueChange={setCategoryId}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select a category..." />
+                  <SelectValue placeholder={t("budgets.alloc.categoryPlaceholder")} />
                 </SelectTrigger>
                 <SelectContent>
                   {availableCategories.map((cat) => (
@@ -120,7 +125,7 @@ export function AllocationDialog({
             </div>
           )}
           <div className="grid gap-2">
-            <Label>Monthly Amount</Label>
+            <Label>{t("budgets.alloc.monthlyAmount")}</Label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
                 &euro;
@@ -137,7 +142,7 @@ export function AllocationDialog({
             </div>
             {avg > 0 && (
               <p className="text-xs text-muted-foreground">
-                You typically spend{" "}
+                {t("budgets.alloc.avgHintPrefix")}{" "}
                 <button
                   type="button"
                   className="font-medium text-primary underline underline-offset-2"
@@ -145,20 +150,20 @@ export function AllocationDialog({
                 >
                   {formatCurrency(avg)}
                 </button>
-                /mo on average in this category.
+                {t("budgets.alloc.avgHintSuffix")}
               </p>
             )}
           </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => handleOpenChange(false)}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button
             onClick={handleSubmit}
             disabled={!amount || parseFloat(amount) <= 0 || (!editingAlloc && !categoryId)}
           >
-            {editingAlloc ? "Save" : "Allocate"}
+            {editingAlloc ? t("common.save") : t("budgets.alloc.allocate")}
           </Button>
         </DialogFooter>
       </DialogContent>

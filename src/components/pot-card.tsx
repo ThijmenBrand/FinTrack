@@ -3,22 +3,23 @@
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Package, PiggyBank } from "lucide-react";
-import { formatCurrency as fc } from "@/lib/utils";
 import { SpikeProgress, type OnTrack } from "@/components/spike-progress";
+import { useI18n } from "@/lib/i18n/client";
+import type { I18n } from "@/lib/i18n/translate";
 import { PlainAmount } from "@/components/plain-amount";
 import type { Pot } from "@/types/api";
 
-function dayLabel(targetDate: string): string {
+function dayLabel(i18n: I18n, targetDate: string): string {
   const target = new Date(targetDate);
   target.setHours(0, 0, 0, 0);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const days = Math.round((target.getTime() - today.getTime()) / 86400000);
-  if (days === 0) return "today";
-  if (days === 1) return "tomorrow";
-  if (days < 0) return `${-days} days ago`;
-  if (days < 14) return `in ${days} days`;
-  return target.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  if (days === 0) return i18n.t("date.today");
+  if (days === 1) return i18n.t("date.tomorrow");
+  if (days < 0) return i18n.t("pots.card.daysAgo", { count: -days });
+  if (days < 14) return i18n.t("date.inDays", { count: days });
+  return i18n.formatDayMonth(target);
 }
 
 interface PotCardProps {
@@ -44,6 +45,8 @@ export function PotCard({
   onClick,
   onAllocate,
 }: PotCardProps) {
+  const i18n = useI18n();
+  const { t, plural, formatCurrency: fc } = i18n;
   const isSpike = pot.targetAmount != null && pot.targetDate != null;
   const isFullyFunded = pot.targetAmount != null && pot.fundedAmount >= pot.targetAmount;
 
@@ -97,17 +100,17 @@ export function PotCard({
             meta={
               <div className="flex items-center justify-between gap-2 text-xs">
                 <span className="text-muted-foreground">
-                  {dayLabel(pot.targetDate)}
+                  {dayLabel(i18n, pot.targetDate)}
                   {paydaysRemaining != null && (
                     <>
-                      {" "}
-                      · {paydaysRemaining === 1 ? "1 payday" : `${paydaysRemaining} paydays`}
+                      {" · "}
+                      {plural(paydaysRemaining, "pots.card.paydays.one", "pots.card.paydays.other")}
                     </>
                   )}
                 </span>
                 {!isFullyFunded && suggestedAllocation != null && (
                   <span className="text-muted-foreground tabular-nums">
-                    {fc(suggestedAllocation)} this payday
+                    {t("pots.card.thisPayday", { amount: fc(suggestedAllocation) })}
                   </span>
                 )}
               </div>
@@ -123,7 +126,7 @@ export function PotCard({
                     onAllocate();
                   }}
                 >
-                  {isFullyFunded ? "Adjust allocation" : "Allocate"}
+                  {isFullyFunded ? t("pots.card.adjustAllocation") : t("dashboard.allocate")}
                 </Button>
               )
             }

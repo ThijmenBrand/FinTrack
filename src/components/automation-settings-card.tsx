@@ -18,11 +18,13 @@ import {
 } from "@/components/ui/select";
 import { Sparkles, Loader2, Save } from "lucide-react";
 import { usePreferences, useUpdatePreferences } from "@/hooks/use-preferences";
+import { useI18n } from "@/lib/i18n/client";
 
 const INTERVAL_OPTIONS = [1, 2, 3, 6];
 const LOOKBACK_OPTIONS = [1, 3, 6, 12];
 
 export function AutomationSettingsCard() {
+  const { t, plural } = useI18n();
   const { data, isLoading } = usePreferences();
   const update = useUpdatePreferences();
 
@@ -51,7 +53,7 @@ export function AutomationSettingsCard() {
       autoBudgetIntervalMonths: interval,
       autoBudgetLookbackMonths: lookback,
     });
-    setSavedMsg("Saved");
+    setSavedMsg(t("common.saved"));
     setTimeout(() => setSavedMsg(null), 2000);
   };
 
@@ -63,10 +65,8 @@ export function AutomationSettingsCard() {
             <Sparkles className="h-5 w-5 text-primary" />
           </div>
           <div>
-            <CardTitle>Budget Automation</CardTitle>
-            <CardDescription>
-              Let the system suggest budgets based on your historical spending. You always review before anything is applied.
-            </CardDescription>
+            <CardTitle>{t("settings.automation.title")}</CardTitle>
+            <CardDescription>{t("settings.automation.description")}</CardDescription>
           </div>
         </div>
       </CardHeader>
@@ -74,15 +74,15 @@ export function AutomationSettingsCard() {
         {isLoading ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Loading…
+            {t("common.loading")}
           </div>
         ) : (
           <>
             <label className="flex cursor-pointer items-start justify-between gap-3 rounded-md border p-3">
               <div>
-                <div className="text-sm font-medium">Auto-budget suggestions</div>
+                <div className="text-sm font-medium">{t("settings.automation.enabledLabel")}</div>
                 <div className="text-xs text-muted-foreground">
-                  When on, you&apos;ll be prompted to refresh your budgets each cadence.
+                  {t("settings.automation.enabledHint")}
                 </div>
               </div>
               <input
@@ -95,7 +95,7 @@ export function AutomationSettingsCard() {
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <label className="text-sm font-medium">Prompt cadence</label>
+                <label className="text-sm font-medium">{t("settings.automation.cadenceLabel")}</label>
                 <Select
                   value={String(interval)}
                   onValueChange={(v) => setInterval(parseInt(v, 10))}
@@ -107,18 +107,18 @@ export function AutomationSettingsCard() {
                   <SelectContent>
                     {INTERVAL_OPTIONS.map((m) => (
                       <SelectItem key={m} value={String(m)}>
-                        Every {m} month{m === 1 ? "" : "s"}
+                        {plural(m, "settings.automation.cadenceOption.one", "settings.automation.cadenceOption.other")}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  How often you want to be asked to regenerate.
+                  {t("settings.automation.cadenceHint")}
                 </p>
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-sm font-medium">Look-back window</label>
+                <label className="text-sm font-medium">{t("settings.automation.lookbackLabel")}</label>
                 <Select
                   value={String(lookback)}
                   onValueChange={(v) => setLookback(parseInt(v, 10))}
@@ -129,13 +129,13 @@ export function AutomationSettingsCard() {
                   <SelectContent>
                     {LOOKBACK_OPTIONS.map((m) => (
                       <SelectItem key={m} value={String(m)}>
-                        Last {m} month{m === 1 ? "" : "s"}
+                        {plural(m, "settings.automation.lookbackOption.one", "settings.automation.lookbackOption.other")}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  Suggestions average this many recent months and round up to the nearest €5.
+                  {t("settings.automation.lookbackHint")}
                 </p>
               </div>
             </div>
@@ -147,7 +147,7 @@ export function AutomationSettingsCard() {
                 ) : (
                   <Save className="mr-2 h-4 w-4" />
                 )}
-                Save preferences
+                {t("settings.automation.savePreferences")}
               </Button>
               {savedMsg && (
                 <span className="text-sm text-green-600 dark:text-green-400">{savedMsg}</span>

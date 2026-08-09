@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { budgets } from "@/db/schema";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
 
@@ -76,6 +76,8 @@ export async function POST(request: NextRequest) {
             ? override
             : suggestion.amount;
 
+        // The replaced allocation must live in the same plan as the
+        // suggestion — the same category can be budgeted in several plans.
         const existingActive = await tx
           .select({ id: budgets.id })
           .from(budgets)
@@ -85,6 +87,9 @@ export async function POST(request: NextRequest) {
               eq(budgets.categoryId, suggestion.categoryId),
               eq(budgets.status, "active"),
               eq(budgets.isActive, true),
+              suggestion.budgetId
+                ? eq(budgets.budgetId, suggestion.budgetId)
+                : isNull(budgets.budgetId),
             ),
           )
           .limit(1);

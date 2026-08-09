@@ -4,24 +4,25 @@ import type { LucideIcon } from "lucide-react";
 import { LayoutDashboard, Upload, PieChart, Wallet, PiggyBank } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useSession, signOut } from "@/lib/auth-client";
+import type { MessageKey } from "@/lib/i18n/translate";
 
 export interface NavItem {
-  name: string;
+  labelKey: MessageKey;
   href: string;
   icon: LucideIcon;
 }
 
 /** Primary tabs shown in the bottom bar and top of the sidebar. */
 export const PRIMARY_NAV: NavItem[] = [
-  { name: "Dashboard", href: "/", icon: LayoutDashboard },
-  { name: "Transactions", href: "/transactions", icon: Upload },
-  { name: "Insights", href: "/insights", icon: PieChart },
-  { name: "Budgets", href: "/budgets", icon: Wallet },
+  { labelKey: "nav.dashboard", href: "/", icon: LayoutDashboard },
+  { labelKey: "nav.transactions", href: "/transactions", icon: Upload },
+  { labelKey: "nav.insights", href: "/insights", icon: PieChart },
+  { labelKey: "nav.budgets", href: "/budgets", icon: Wallet },
 ];
 
 /** Secondary items — sidebar lists them inline, bottom nav tucks them under "More". */
 export const SECONDARY_NAV: NavItem[] = [
-  { name: "Pots", href: "/pots", icon: PiggyBank },
+  { labelKey: "nav.pots", href: "/pots", icon: PiggyBank },
 ];
 
 export interface SessionUser {

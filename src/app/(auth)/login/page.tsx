@@ -5,10 +5,12 @@ import Link from "next/link";
 import { Landmark, ArrowLeft, Fingerprint } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { useRouter } from "next/navigation";
+import { useI18n } from "@/lib/i18n/client";
 
 type LoginStep = "email" | "password";
 
 export default function LoginPage() {
+  const { t } = useI18n();
   const [step, setStep] = useState<LoginStep>("email");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -63,7 +65,7 @@ export default function LoginPage() {
       });
 
       if (result.error) {
-        setError(result.error.message || "Login failed");
+        setError(result.error.message || t("auth.loginFailed"));
         return;
       }
 
@@ -79,7 +81,7 @@ export default function LoginPage() {
       localStorage.setItem("lockscreen_last_active", String(Date.now()));
       router.push("/");
     } catch {
-      setError("Something went wrong. Please try again.");
+      setError(t("auth.genericError"));
     } finally {
       setLoading(false);
     }
@@ -92,7 +94,7 @@ export default function LoginPage() {
     try {
       const result = await authClient.signIn.passkey();
       if (result.error) {
-        setError(String(result.error.message || "Biometric authentication failed"));
+        setError(String(result.error.message || t("auth.biometricFailed")));
         return;
       }
       if (email) {
@@ -101,7 +103,7 @@ export default function LoginPage() {
       localStorage.setItem("lockscreen_last_active", String(Date.now()));
       router.push("/");
     } catch {
-      setError("Biometric authentication failed. Try another method.");
+      setError(t("auth.biometricFailedRetry"));
     } finally {
       setLoading(false);
     }
@@ -122,11 +124,11 @@ export default function LoginPage() {
             <Landmark className="h-6 w-6" />
           </div>
           <h1 className="text-xl font-semibold tracking-tight text-foreground">
-            FinTrack
+            {t("nav.appShortName")}
           </h1>
           <p className="text-sm text-muted-foreground">
-            {step === "email" && "Sign in to your account"}
-            {step === "password" && "Enter your password"}
+            {step === "email" && t("auth.signInToAccount")}
+            {step === "password" && t("auth.enterPassword")}
           </p>
         </div>
 
@@ -137,13 +139,13 @@ export default function LoginPage() {
             className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
             <ArrowLeft className="h-4 w-4" />
-            Back
+            {t("auth.back")}
           </button>
         )}
 
         {justVerified && (
           <div className="mb-4 rounded-md border border-green-200 bg-green-50 p-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-900/20 dark:text-green-400">
-            Email verified — you can sign in now.
+            {t("auth.emailVerified")}
           </div>
         )}
 
@@ -155,7 +157,7 @@ export default function LoginPage() {
                 htmlFor="email"
                 className="text-sm font-medium leading-none text-foreground"
               >
-                Email
+                {t("auth.email")}
               </label>
               <input
                 id="email"
@@ -166,7 +168,7 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                placeholder="you@example.com"
+                placeholder={t("auth.emailPlaceholder")}
               />
             </div>
 
@@ -177,14 +179,14 @@ export default function LoginPage() {
               disabled={checkingMethods}
               className="inline-flex h-10 w-full items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
             >
-              {checkingMethods ? "Checking..." : "Continue"}
+              {checkingMethods ? t("auth.checking") : t("auth.continue")}
             </button>
 
             {signupsEnabled && (
               <p className="text-center text-sm text-muted-foreground">
-                Don&apos;t have an account?{" "}
+                {t("auth.noAccount")}{" "}
                 <Link href="/signup" className="font-medium text-primary hover:underline">
-                  Sign up
+                  {t("auth.signUp")}
                 </Link>
               </p>
             )}
@@ -195,7 +197,8 @@ export default function LoginPage() {
         {step === "password" && (
           <form onSubmit={handlePasswordSubmit} className="space-y-4">
             <p className="text-xs text-muted-foreground text-center">
-              Signing in as <span className="font-medium text-foreground">{email}</span>
+              {t("auth.signingInAs")}{" "}
+              <span className="font-medium text-foreground">{email}</span>
             </p>
 
             <div className="space-y-2">
@@ -203,7 +206,7 @@ export default function LoginPage() {
                 htmlFor="password"
                 className="text-sm font-medium leading-none text-foreground"
               >
-                Password
+                {t("auth.password")}
               </label>
               <input
                 id="password"
@@ -214,7 +217,7 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                placeholder="Enter your password"
+                placeholder={t("auth.passwordPlaceholder")}
               />
             </div>
 
@@ -225,7 +228,7 @@ export default function LoginPage() {
               disabled={loading}
               className="inline-flex h-10 w-full items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
             >
-              {loading ? "Signing in..." : "Sign in"}
+              {loading ? t("auth.signingIn") : t("auth.signIn")}
             </button>
 
             <p className="text-center text-sm">
@@ -233,7 +236,7 @@ export default function LoginPage() {
                 href="/forgot-password"
                 className="text-muted-foreground hover:text-foreground hover:underline"
               >
-                Forgot password?
+                {t("auth.forgotPassword")}
               </Link>
             </p>
 
@@ -243,7 +246,7 @@ export default function LoginPage() {
                   <div className="absolute inset-0 flex items-center">
                     <div className="w-full border-t border-border" />
                   </div>
-                  <span className="relative bg-card px-2 text-xs text-muted-foreground">or</span>
+                  <span className="relative bg-card px-2 text-xs text-muted-foreground">{t("auth.or")}</span>
                 </div>
 
                 <button
@@ -253,7 +256,7 @@ export default function LoginPage() {
                   className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-input bg-background px-4 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
                 >
                   <Fingerprint className="h-4 w-4" />
-                  Sign in with biometrics
+                  {t("auth.signInBiometrics")}
                 </button>
               </>
             )}

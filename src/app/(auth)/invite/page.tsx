@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Landmark } from "lucide-react";
 import { MIN_PASSWORD_LENGTH } from "@/lib/validation";
+import { useI18n } from "@/lib/i18n/client";
 
 const inputClass =
   "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
@@ -15,6 +16,7 @@ interface InviteInfo {
 }
 
 export default function InvitePage() {
+  const { t } = useI18n();
   const router = useRouter();
   const token = useRef("");
   const [invite, setInvite] = useState<InviteInfo | null>(null);
@@ -66,7 +68,7 @@ export default function InvitePage() {
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        setError(data.error || "Could not accept this invite");
+        setError(data.error || t("auth.inviteAcceptFailed"));
         return;
       }
 
@@ -79,7 +81,7 @@ export default function InvitePage() {
       localStorage.setItem("lockscreen_last_active", String(Date.now()));
       router.push("/");
     } catch {
-      setError("Something went wrong. Please try again.");
+      setError(t("auth.genericError"));
     } finally {
       setLoading(false);
     }
@@ -93,33 +95,32 @@ export default function InvitePage() {
             <Landmark className="h-6 w-6" />
           </div>
           <h1 className="text-xl font-semibold tracking-tight text-foreground">
-            FinTrack
+            {t("nav.appShortName")}
           </h1>
           <p className="text-sm text-muted-foreground">
-            {invite ? "Set up your account" : "Invitation"}
+            {invite ? t("auth.inviteSetUp") : t("auth.inviteTitle")}
           </p>
         </div>
 
         {!checked ? (
-          <p className="text-center text-sm text-muted-foreground">Loading...</p>
+          <p className="text-center text-sm text-muted-foreground">{t("auth.loading")}</p>
         ) : !invite ? (
           <div className="space-y-4 text-center">
             <p className="text-sm text-muted-foreground">
-              This invite link is invalid, expired, or has already been used. Ask
-              an administrator for a new one.
+              {t("auth.inviteInvalid")}
             </p>
             <Link
               href="/login"
               className="inline-flex h-10 w-full items-center justify-center rounded-md border border-input bg-background px-4 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground"
             >
-              Back to sign in
+              {t("auth.backToSignIn")}
             </Link>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <label className="text-sm font-medium leading-none text-foreground">
-                Email
+                {t("auth.email")}
               </label>
               <input
                 type="email"
@@ -134,7 +135,7 @@ export default function InvitePage() {
                 htmlFor="username"
                 className="text-sm font-medium leading-none text-foreground"
               >
-                Username
+                {t("auth.username")}
               </label>
               <input
                 id="username"
@@ -145,7 +146,7 @@ export default function InvitePage() {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 className={inputClass}
-                placeholder="Choose a username"
+                placeholder={t("auth.usernamePlaceholder")}
               />
             </div>
 
@@ -154,7 +155,7 @@ export default function InvitePage() {
                 htmlFor="displayName"
                 className="text-sm font-medium leading-none text-foreground"
               >
-                Display name
+                {t("auth.displayName")}
               </label>
               <input
                 id="displayName"
@@ -164,7 +165,7 @@ export default function InvitePage() {
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
                 className={inputClass}
-                placeholder="How should we call you?"
+                placeholder={t("auth.displayNamePlaceholder")}
               />
             </div>
 
@@ -173,7 +174,7 @@ export default function InvitePage() {
                 htmlFor="password"
                 className="text-sm font-medium leading-none text-foreground"
               >
-                Password
+                {t("auth.password")}
               </label>
               <input
                 id="password"
@@ -184,7 +185,7 @@ export default function InvitePage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className={inputClass}
-                placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
+                placeholder={t("auth.passwordMinChars", { count: MIN_PASSWORD_LENGTH })}
               />
             </div>
 
@@ -195,7 +196,7 @@ export default function InvitePage() {
               disabled={loading}
               className="inline-flex h-10 w-full items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
             >
-              {loading ? "Creating account..." : "Create account"}
+              {loading ? t("auth.creatingAccount") : t("auth.createAccount")}
             </button>
           </form>
         )}

@@ -8,13 +8,11 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { formatCurrency, toIsoDate } from "@/lib/utils";
-import {
-  formatResetDate,
-  placeResetMarks,
-  type ResetMark,
-} from "@/lib/stat-reset-marks";
+import { toIsoDate } from "@/lib/utils";
+import { placeResetMarks, type ResetMark } from "@/lib/stat-reset-marks";
 import type { StatResetData } from "@/types/api";
+import { useI18n } from "@/lib/i18n/client";
+import type { I18n } from "@/lib/i18n/translate";
 
 type Granularity = "daily" | "weekly" | "monthly";
 
@@ -70,25 +68,30 @@ function getWeekStart(dateStr: string): Date {
 }
 
 // "Jul 6–12" for a same-month week, "Jun 30 – Jul 6" across a month boundary.
-function formatWeekRange(weekStart: Date): string {
+function formatWeekRange(weekStart: Date, intlLocale = "en-GB"): string {
   const end = new Date(weekStart);
   end.setDate(end.getDate() + 6);
-  const startMonth = weekStart.toLocaleDateString("en-US", { month: "short" });
-  const endMonth = end.toLocaleDateString("en-US", { month: "short" });
+  const monthFmt = new Intl.DateTimeFormat(intlLocale, { month: "short" });
+  const startMonth = monthFmt.format(weekStart);
+  const endMonth = monthFmt.format(end);
   if (startMonth === endMonth) {
     return `${startMonth} ${weekStart.getDate()}–${end.getDate()}`;
   }
   return `${startMonth} ${weekStart.getDate()} – ${endMonth} ${end.getDate()}`;
 }
 
-function aggregateWeekly(
-  daily: { date: string; expenses: number }[]
+export function aggregateWeekly(
+  daily: { date: string; expenses: number }[],
+  intlLocale = "en-GB",
 ): PeriodEntry[] {
   const map = new Map<string, { weekStart: Date; expenses: number }>();
   for (const row of daily) {
     if (!row.date) continue;
     const weekStart = getWeekStart(row.date);
-    const key = weekStart.toISOString().slice(0, 10);
+    // Local date, not toISOString(): weekStart is local midnight, so UTC
+    // conversion names the previous day everywhere east of UTC — which put the
+    // bucket's `start` a day before the Monday its label and total describe.
+    const key = toIsoDate(weekStart);
     const existing = map.get(key);
     const value = row.expenses || 0;
     if (existing) {
@@ -104,7 +107,7 @@ function aggregateWeekly(
       weekEnd.setDate(weekEnd.getDate() + 6);
       return {
         key,
-        label: formatWeekRange(value.weekStart),
+        label: formatWeekRange(value.weekStart, intlLocale),
         expenses: value.expenses,
         start: key,
         end: toIsoDate(weekEnd),
@@ -147,6 +150,7 @@ function barTone(
  * it stays glued to the bucket edge no matter how the chart is sized.
  */
 function ResetRule({ mark }: { mark: ResetMark }) {
+  const { t, formatDate } = useI18n();
   return (
     <div
       className={
@@ -160,8 +164,8 @@ function ResetRule({ mark }: { mark: ResetMark }) {
           (mark.isActive ? "font-medium text-primary" : "text-muted-foreground")
         }
       >
-        {mark.isActive ? "Counting from " : "Reset "}
-        {formatResetDate(mark.date)}
+        {mark.isActive ? t("insights.reset.countingFrom") : t("insights.reset.reset")}
+        {formatDate(mark.date)}
         {mark.note ? ` · ${mark.note}` : ""}
       </span>
     </div>
@@ -174,6 +178,8 @@ export function SpendingByPeriod({
   resets,
   onSelectRange,
 }: SpendingByPeriodProps) {
+  const i18n: I18n = useI18n();
+  const { t, plural, formatCurrency, formatDayMonth, intlLocale } = i18n;
   // Long ranges: daily bars get too dense, so hide that tab. Measured on the
   // dailies, since monthlyTotals always spans a trailing year.
   const hideDaily =
@@ -192,10 +198,7 @@ export function SpendingByPeriod({
         .filter((d) => d.expenses > 0)
         .map((d) => ({
           key: d.date,
-          label: new Date(d.date + "T00:00:00").toLocaleDateString("en-US", {
-            month: "short",
-            day: "numeric",
-          }),
+          label: formatDayMonth(d.date),
           expenses: d.expenses,
           start: d.date,
           end: d.date,
@@ -203,23 +206,24 @@ export function SpendingByPeriod({
     }
     if (granularity === "weekly") {
       return aggregateWeekly(
-        dailyTotals.map((d) => ({ date: d.date, expenses: d.expenses }))
+        dailyTotals.map((d) => ({ date: d.date, expenses: d.expenses })),
+        intlLocale,
       ).filter((e) => e.expenses > 0);
     }
     return monthlyTotals
       .filter((m) => m.income > 0 || m.expenses > 0)
       .map((m) => ({
         key: m.month,
-        label: new Date(m.month + "-01").toLocaleDateString("en-US", {
+        label: new Intl.DateTimeFormat(intlLocale, {
           month: "short",
           year: "2-digit",
-        }),
+        }).format(new Date(m.month + "-01T00:00:00")),
         expenses: m.expenses,
         income: m.income,
         start: `${m.month}-01`,
         end: monthEnd(m.month),
       }));
-  }, [granularity, dailyTotals, monthlyTotals]);
+  }, [granularity, dailyTotals, monthlyTotals, intlLocale, formatDayMonth]);
 
   // Reset markers, and the index from which the current era begins. Buckets
   // before that index belong to a previous financial life: still plotted, but
@@ -258,8 +262,13 @@ export function SpendingByPeriod({
     .slice(0, eraStart)
     .reduce((s, e) => s + e.expenses, 0);
   const avg = liveEntries.length > 0 ? total / liveEntries.length : 0;
-  const granularityNoun =
-    granularity === "daily" ? "day" : granularity === "weekly" ? "week" : "month";
+  const avgLabel = t(
+    granularity === "daily"
+      ? "insights.period.avgPerDay"
+      : granularity === "weekly"
+        ? "insights.period.avgPerWeek"
+        : "insights.period.avgPerMonth",
+  );
 
   const labelStride = entries.length <= 14 ? 1 : Math.ceil(entries.length / 10);
 
@@ -267,7 +276,7 @@ export function SpendingByPeriod({
     <Card>
       <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0 pb-6 flex-wrap">
         <div>
-          <CardTitle className="text-base">Spending by Period</CardTitle>
+          <CardTitle className="text-base">{t("insights.period.title")}</CardTitle>
           {entries.length > 0 && (
             <>
               <p className="text-xs text-muted-foreground mt-1.5">
@@ -276,26 +285,31 @@ export function SpendingByPeriod({
                 </span>
                 <span className="mx-1.5 text-muted-foreground/60">·</span>
                 <span className="tabular-nums">{formatCurrency(avg)}</span>{" "}
-                avg / {granularityNoun}
+                {avgLabel}
                 {/* Monthly reaches past the page's date range, so the total it
                     reports needs to say how far. */}
                 {granularity === "monthly" && (
                   <span className="text-muted-foreground/80">
                     {" "}
-                    · across {liveEntries.length} month
-                    {liveEntries.length === 1 ? "" : "s"}
+                    {plural(
+                      liveEntries.length,
+                      "insights.period.acrossMonths.one",
+                      "insights.period.acrossMonths.other",
+                    )}
                   </span>
                 )}
                 {eraStart > 0 && (
                   <span className="text-muted-foreground/80">
                     {" "}
-                    · since your reset
+                    {t("insights.period.sinceReset")}
                   </span>
                 )}
               </p>
               {eraStart > 0 && (
                 <p className="text-xs text-muted-foreground/70 mt-0.5 tabular-nums">
-                  {formatCurrency(beforeResetTotal)} before it
+                  {t("insights.period.beforeReset", {
+                    amount: formatCurrency(beforeResetTotal),
+                  })}
                 </p>
               )}
             </>
@@ -306,9 +320,11 @@ export function SpendingByPeriod({
           onValueChange={(v) => setGranularity(v as Granularity)}
         >
           <TabsList>
-            {!hideDaily && <TabsTrigger value="daily">Daily</TabsTrigger>}
-            <TabsTrigger value="weekly">Weekly</TabsTrigger>
-            <TabsTrigger value="monthly">Monthly</TabsTrigger>
+            {!hideDaily && (
+              <TabsTrigger value="daily">{t("insights.period.daily")}</TabsTrigger>
+            )}
+            <TabsTrigger value="weekly">{t("insights.period.weekly")}</TabsTrigger>
+            <TabsTrigger value="monthly">{t("insights.period.monthly")}</TabsTrigger>
           </TabsList>
         </Tabs>
       </CardHeader>
@@ -316,7 +332,7 @@ export function SpendingByPeriod({
         {entries.length === 0 ? (
           <div className="py-16 text-center">
             <p className="text-sm text-muted-foreground">
-              No spending in this period.
+              {t("insights.period.emptyRange")}
             </p>
           </div>
         ) : (
@@ -385,7 +401,9 @@ export function SpendingByPeriod({
                         {mark && <ResetRule mark={mark} />}
                         <button
                           type="button"
-                          aria-label={`View transactions for ${entry.label}`}
+                          aria-label={t("insights.period.viewTransactions", {
+                            label: entry.label,
+                          })}
                           className="relative flex-1 min-w-[16px] h-full flex flex-col justify-end cursor-pointer rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           onClick={() => onSelectRange(entry.start, entry.end)}
                           onFocus={() => setHoveredKey(entry.key)}
@@ -506,11 +524,11 @@ export function SpendingByPeriod({
           <div className="flex justify-center gap-4 pt-3 text-xs text-muted-foreground">
             <span className="flex items-center gap-1.5">
               <span className="h-2 w-2 rounded-sm bg-emerald-500" />
-              Income
+              {t("common.income")}
             </span>
             <span className="flex items-center gap-1.5">
               <span className="h-2 w-2 rounded-sm bg-primary" />
-              Expenses
+              {t("common.expenses")}
             </span>
           </div>
         )}

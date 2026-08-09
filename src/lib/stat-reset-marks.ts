@@ -74,12 +74,3 @@ export function placeResetMarks(
   }
   return marks.sort((a, b) => a.index - b.index);
 }
-
-/** "12 Mar 2026" — the label used on every reset marker. */
-export function formatResetDate(iso: string): string {
-  return new Date(iso + "T00:00:00").toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}

@@ -26,25 +26,30 @@ import {
   StickyNote,
   Filter,
 } from "lucide-react";
-import { formatCurrency, formatDate } from "@/lib/utils";
 import type { Transaction, Category, Pot, PotRangeTotal } from "@/types/api";
+import { useI18n } from "@/lib/i18n/client";
+import type { MessageKey } from "@/lib/i18n/translate";
 
-const TYPE_BADGES: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
-  income: { label: "Income", variant: "default" },
-  expense: { label: "Expense", variant: "destructive" },
-  internal_transfer: { label: "Transfer", variant: "secondary" },
-  reimbursement: { label: "Reimbursement", variant: "outline" },
+const TYPE_BADGES: Record<
+  string,
+  { labelKey: MessageKey; variant: "default" | "secondary" | "destructive" | "outline" }
+> = {
+  income: { labelKey: "tx.type.income", variant: "default" },
+  expense: { labelKey: "tx.type.expense", variant: "destructive" },
+  internal_transfer: { labelKey: "tx.type.internalTransfer", variant: "secondary" },
+  reimbursement: { labelKey: "tx.type.reimbursement", variant: "outline" },
 };
 
 type Layout = "table" | "card";
 
 /** Pot badge — links to the pot's detail on the pots page. */
 function PotBadge({ groupId, groupName, className }: { groupId: string; groupName: string; className: string }) {
+  const { t } = useI18n();
   return (
     <Link
       href={`/pots?pot=${groupId}`}
       onClick={(e) => e.stopPropagation()}
-      title={`View pot: ${groupName}`}
+      title={t("tx.row.viewPot", { name: groupName })}
     >
       <Badge variant="outline" className={`${className} hover:bg-muted transition-colors`}>
         <Package className="h-2.5 w-2.5" />
@@ -72,6 +77,7 @@ interface TransactionRowProps {
 
 /** Amount cell — shared between layouts; handles reimbursement strike-through and in-pot/transfer muting. */
 function Amount({ tx }: { tx: Transaction }) {
+  const { formatCurrency } = useI18n();
   const isTransfer = tx.type === "internal_transfer";
   const isReimbursement = tx.type === "reimbursement";
   const isInPot = !!tx.groupId;
@@ -118,6 +124,7 @@ export function TransactionRow({
   onDelete,
   onContextMenu,
 }: TransactionRowProps) {
+  const { t, formatDate } = useI18n();
   const isTransfer = tx.type === "internal_transfer";
   const isReimbursement = tx.type === "reimbursement";
   const isInPot = !!tx.groupId;
@@ -139,7 +146,7 @@ export function TransactionRow({
           <Checkbox
             checked={selected}
             onCheckedChange={onToggleSelect}
-            aria-label="Select transaction"
+            aria-label={t("tx.row.selectTransaction")}
           />
         </span>
         <CategoryIcon icon={tx.categoryIcon} color={tx.categoryColor} size="md" />
@@ -163,7 +170,7 @@ export function TransactionRow({
           </p>
           {isReimbursement && tx.reimbursesDescription && (
             <p className="text-xs text-muted-foreground truncate mt-0.5">
-              Reimburses: {tx.reimbursesDescription}
+              {t("tx.row.reimburses", { description: tx.reimbursesDescription })}
             </p>
           )}
         </div>
@@ -185,7 +192,7 @@ export function TransactionRow({
         <Checkbox
           checked={selected}
           onCheckedChange={onToggleSelect}
-          aria-label="Select transaction"
+          aria-label={t("tx.row.selectTransaction")}
         />
       </TableCell>
       <TableCell className="whitespace-nowrap text-sm">
@@ -198,7 +205,7 @@ export function TransactionRow({
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <StickyNote className="h-3.5 w-3.5 text-muted-foreground shrink-0" aria-label="Has note" />
+                  <StickyNote className="h-3.5 w-3.5 text-muted-foreground shrink-0" aria-label={t("tx.row.hasNote")} />
                 </TooltipTrigger>
                 <TooltipContent side="top" className="max-w-xs whitespace-pre-wrap break-words">
                   {tx.notes}
@@ -221,7 +228,7 @@ export function TransactionRow({
         )}
         {isReimbursement && tx.reimbursesDescription && (
           <div className="text-xs text-muted-foreground truncate mt-0.5">
-            Reimburses: {tx.reimbursesDescription}
+            {t("tx.row.reimburses", { description: tx.reimbursesDescription })}
           </div>
         )}
       </TableCell>
@@ -243,8 +250,8 @@ export function TransactionRow({
         <div className="flex items-center gap-1">
           <Badge variant={typeInfo.variant} className="text-xs">
             {isTransfer && tx.linkedAccountName
-              ? `↔ Transfer → ${tx.linkedAccountName}`
-              : typeInfo.label}
+              ? t("tx.row.transferTo", { account: tx.linkedAccountName })
+              : t(typeInfo.labelKey)}
           </Badge>
           {hasReimbursements && (
             <Badge variant="outline" className="text-xs gap-0.5">
@@ -264,7 +271,7 @@ export function TransactionRow({
               variant="ghost"
               size="icon"
               className="h-7 w-7 text-muted-foreground hover:text-foreground transition-colors"
-              title="Add to pot"
+              title={t("tx.row.addToPot")}
               onClick={onAddToPot}
             >
               <Package className="h-3 w-3" />
@@ -275,7 +282,7 @@ export function TransactionRow({
               variant="ghost"
               size="icon"
               className="h-7 w-7 text-muted-foreground hover:text-foreground transition-colors"
-              title="Remove from pot"
+              title={t("tx.row.removeFromPot")}
               onClick={onRemoveFromPot}
             >
               <Minus className="h-3 w-3" />
@@ -286,7 +293,7 @@ export function TransactionRow({
               variant="ghost"
               size="icon"
               className="h-7 w-7 text-muted-foreground hover:text-foreground transition-colors"
-              title={isReimbursement ? "Link to expenses" : "Mark as reimbursement"}
+              title={isReimbursement ? t("tx.row.linkToExpenses") : t("tx.row.markReimbursement")}
               onClick={onReimburse}
             >
               <Receipt className="h-3 w-3" />
@@ -297,13 +304,13 @@ export function TransactionRow({
               variant="ghost"
               size="icon"
               className="h-7 w-7 text-muted-foreground hover:text-foreground transition-colors"
-              title="Unlink reimbursement"
+              title={t("tx.row.unlinkReimbursement")}
               onClick={onUnlinkReimbursement}
             >
               <Undo2 className="h-3 w-3" />
             </Button>
           )}
-          <ConfirmDeleteButton onConfirm={onDelete} label="Delete transaction" />
+          <ConfirmDeleteButton onConfirm={onDelete} label={t("tx.row.deleteTransaction")} />
         </div>
       </TableCell>
     </TableRow>
@@ -330,6 +337,7 @@ export function PotRow({
   onEdit,
   onDelete,
 }: PotRowProps) {
+  const { t, plural, formatCurrency, formatDate } = useI18n();
   const progressWidth =
     pot.targetAmount != null && pot.targetAmount > 0
       ? `${Math.min(100, Math.round((pot.fundedAmount / pot.targetAmount) * 100))}%`
@@ -340,9 +348,11 @@ export function PotRow({
   const amount = rangeTotal ? rangeTotal.net : pot.netAmount;
   const count = rangeTotal ? rangeTotal.memberCount : pot.transactionCount;
   const partialLabel = rangeTotal?.isPartial
-    ? `Filtered range — ${rangeTotal.memberCount} of ${rangeTotal.totalMemberCount} transactions. Lifetime net: ${
-        pot.netAmount >= 0 ? "+" : ""
-      }${formatCurrency(pot.netAmount)}`
+    ? t("tx.row.partialLabel", {
+        shown: rangeTotal.memberCount,
+        total: rangeTotal.totalMemberCount,
+        net: `${pot.netAmount >= 0 ? "+" : ""}${formatCurrency(pot.netAmount)}`,
+      })
     : null;
 
   if (layout === "card") {
@@ -354,14 +364,18 @@ export function PotRow({
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold truncate">{pot.name}</p>
           <p className="text-xs text-muted-foreground">
-            {count} transaction{count !== 1 ? "s" : ""}
-            {partialLabel && " · in range"}
+            {plural(count, "common.transactions.one", "common.transactions.other")}
+            {partialLabel && ` · ${t("tx.row.inRangeSuffix")}`}
           </p>
           {pot.targetAmount != null && pot.targetDate && (
             <div className="mt-1 space-y-1">
               <p className="text-[10px] text-muted-foreground flex items-center gap-1">
                 <Target className="h-2.5 w-2.5" />
-                {formatCurrency(pot.fundedAmount)} / {formatCurrency(pot.targetAmount)} by {formatDate(pot.targetDate)}
+                {t("tx.row.targetBy", {
+                  funded: formatCurrency(pot.fundedAmount),
+                  target: formatCurrency(pot.targetAmount),
+                  date: formatDate(pot.targetDate),
+                })}
               </p>
               {pot.targetAmount > 0 && (
                 <div className="h-1 w-full bg-muted rounded-full overflow-hidden">
@@ -395,12 +409,12 @@ export function PotRow({
             size="icon"
             variant="ghost"
             className="h-7 w-7 text-muted-foreground"
-            aria-label="Edit pot"
+            aria-label={t("tx.row.editPot")}
             onClick={onEdit}
           >
             <Pencil className="h-3 w-3" />
           </Button>
-          <ConfirmDeleteButton onConfirm={onDelete} label="Delete pot" />
+          <ConfirmDeleteButton onConfirm={onDelete} label={t("tx.row.deletePot")} />
         </div>
       </div>
     );
@@ -418,7 +432,7 @@ export function PotRow({
             <Package className="h-4 w-4 text-muted-foreground" />
             <span>{pot.name}</span>
             <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-              {count} tx
+              {t("tx.row.txCount", { count })}
             </Badge>
             {partialLabel && (
               <TooltipProvider>
@@ -426,7 +440,7 @@ export function PotRow({
                   <TooltipTrigger asChild>
                     <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-1 font-normal cursor-help">
                       <Filter className="h-2.5 w-2.5" />
-                      In range
+                      {t("tx.row.inRange")}
                     </Badge>
                   </TooltipTrigger>
                   <TooltipContent side="top">{partialLabel}</TooltipContent>
@@ -436,7 +450,11 @@ export function PotRow({
             {pot.targetAmount != null && pot.targetDate && (
               <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-1 font-normal">
                 <Target className="h-2.5 w-2.5" />
-                {formatCurrency(pot.fundedAmount)} / {formatCurrency(pot.targetAmount)} by {formatDate(pot.targetDate)}
+                {t("tx.row.targetBy", {
+                  funded: formatCurrency(pot.fundedAmount),
+                  target: formatCurrency(pot.targetAmount),
+                  date: formatDate(pot.targetDate),
+                })}
               </Badge>
             )}
           </div>
@@ -463,7 +481,9 @@ export function PotRow({
         />
       </TableCell>
       <TableCell className="hidden sm:table-cell">
-        <Badge variant="outline" className="text-xs">Pot</Badge>
+        <Badge variant="outline" className="text-xs">
+          {t("tx.row.potBadge")}
+        </Badge>
       </TableCell>
       <TableCell className="text-right whitespace-nowrap">
         <span
@@ -481,7 +501,7 @@ export function PotRow({
             size="icon"
             variant="ghost"
             className="h-7 w-7 text-muted-foreground hover:text-foreground"
-            title="Add transactions to pot"
+            title={t("tx.row.addTransactionsToPot")}
             onClick={onAddTransactions}
           >
             <Plus className="h-3 w-3" />
@@ -490,12 +510,12 @@ export function PotRow({
             size="icon"
             variant="ghost"
             className="h-7 w-7 text-muted-foreground hover:text-foreground"
-            title="Edit pot"
+            title={t("tx.row.editPot")}
             onClick={onEdit}
           >
             <Pencil className="h-3 w-3" />
           </Button>
-          <ConfirmDeleteButton onConfirm={onDelete} label="Delete pot" />
+          <ConfirmDeleteButton onConfirm={onDelete} label={t("tx.row.deletePot")} />
         </div>
       </TableCell>
     </TableRow>

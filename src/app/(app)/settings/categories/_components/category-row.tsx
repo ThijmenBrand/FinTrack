@@ -28,7 +28,8 @@ import {
   useDeleteCategory,
 } from "@/hooks/use-categories";
 import type { CategoryWithDetails, RuleWithCategory } from "@/types/api";
-import { MATCH_TYPES, MATCH_TYPE_LABELS } from "./match-types";
+import { MATCH_TYPES, MATCH_TYPE_LABEL_KEYS } from "./match-types";
+import { useI18n } from "@/lib/i18n/client";
 
 interface CategoryRowProps {
   category: CategoryWithDetails;
@@ -41,6 +42,7 @@ interface CategoryRowProps {
 }
 
 export function CategoryRow({ category, rules, categories, onEdit, dragHandle }: CategoryRowProps) {
+  const { t, plural } = useI18n();
   const updateRule = useUpdateCategoryRule();
   const deleteRule = useDeleteCategoryRule();
   const deleteCategory = useDeleteCategory();
@@ -104,9 +106,9 @@ export function CategoryRow({ category, rules, categories, onEdit, dragHandle }:
             <p className="font-medium">{category.name}</p>
           </div>
           <p className="text-xs text-muted-foreground">
-            {category.transactionCount} transaction
-            {category.transactionCount !== 1 ? "s" : ""}
-            {hasRules && ` · ${rules.length} rule${rules.length !== 1 ? "s" : ""}`}
+            {plural(category.transactionCount, "common.transactions.one", "common.transactions.other")}
+            {hasRules &&
+              ` · ${plural(rules.length, "categories.ruleCount.one", "categories.ruleCount.other")}`}
           </p>
         </div>
 
@@ -124,7 +126,7 @@ export function CategoryRow({ category, rules, categories, onEdit, dragHandle }:
               await deleteCategory.mutateAsync(category.id);
             }}
             pending={deleteCategory.isPending}
-            label="Delete category"
+            label={t("categories.deleteCategory")}
           />
         </div>
       </div>
@@ -134,7 +136,7 @@ export function CategoryRow({ category, rules, categories, onEdit, dragHandle }:
         <div className="border-t bg-muted/30">
           <div className="px-4 py-2">
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
-              Auto-categorization rules
+              {t("categories.rulesHeading")}
             </p>
             <div className="space-y-1">
               {rules.map((rule) => (
@@ -163,7 +165,7 @@ export function CategoryRow({ category, rules, categories, onEdit, dragHandle }:
                           <SelectContent>
                             {MATCH_TYPES.map((m) => (
                               <SelectItem key={m.value} value={m.value}>
-                                {m.label}
+                                {t(m.labelKey)}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -218,7 +220,9 @@ export function CategoryRow({ category, rules, categories, onEdit, dragHandle }:
                           variant="secondary"
                           className="text-[10px] px-1.5 py-0 shrink-0"
                         >
-                          {MATCH_TYPE_LABELS[rule.matchType] || rule.matchType}
+                          {MATCH_TYPE_LABEL_KEYS[rule.matchType]
+                            ? t(MATCH_TYPE_LABEL_KEYS[rule.matchType])
+                            : rule.matchType}
                         </Badge>
                         {/* Show target category if it differs (rule was moved) */}
                         {rule.categoryId !== category.id && (
@@ -245,7 +249,7 @@ export function CategoryRow({ category, rules, categories, onEdit, dragHandle }:
                             await deleteRule.mutateAsync(rule.id);
                           }}
                           pending={deleteRule.isPending}
-                          label="Delete rule"
+                          label={t("categories.deleteRule")}
                         />
                       </div>
                     </>

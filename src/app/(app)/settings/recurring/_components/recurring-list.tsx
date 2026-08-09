@@ -2,8 +2,8 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { TrendingDown, TrendingUp } from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
 import { toMonthly } from "@/lib/recurring";
+import { useI18n } from "@/lib/i18n/client";
 import type { RecurringTx } from "@/types/api";
 import { RecurringItem } from "./recurring-item";
 
@@ -23,6 +23,7 @@ export function RecurringList({
   onDelete: (id: string) => void;
   onToggle: (item: RecurringTx) => void;
 }) {
+  const { t } = useI18n();
   const sections = (["income", "expense"] as const).map((type) => {
     const rows = items
       .filter((i) => i.type === type)
@@ -42,10 +43,11 @@ export function RecurringList({
   return (
     <Card>
       <CardHeader className="pb-4">
-        <CardTitle className="text-base">Recurring items</CardTitle>
+        <CardTitle className="text-base">{t("recurring.listTitle")}</CardTitle>
         <CardDescription>
-          {activeCount} active
-          {pausedCount > 0 ? ` · ${pausedCount} paused` : ""} · monthly totals exclude paused plans
+          {t("recurring.listActive", { count: activeCount })}
+          {pausedCount > 0 ? ` · ${t("recurring.listPaused", { count: pausedCount })}` : ""}
+          {` · ${t("recurring.listTotalsNote")}`}
         </CardDescription>
       </CardHeader>
       <CardContent className="px-0 sm:px-6">
@@ -81,6 +83,7 @@ function SectionGroup({
   count: number;
   children: React.ReactNode;
 }) {
+  const { t, formatCurrency } = useI18n();
   const isIncome = type === "income";
   const Icon = isIncome ? TrendingUp : TrendingDown;
 
@@ -91,18 +94,19 @@ function SectionGroup({
           <Icon
             className={`h-3.5 w-3.5 ${isIncome ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}
           />
-          {isIncome ? "Income" : "Expenses"}
+          {isIncome ? t("common.income") : t("common.expenses")}
           {count > 0 && <span className="tabular-nums font-normal">({count})</span>}
         </span>
         {count > 0 && (
           <span className="text-xs tabular-nums text-muted-foreground">
-            <span className="font-medium text-foreground">{formatCurrency(monthly)}</span> /mo
+            <span className="font-medium text-foreground">{formatCurrency(monthly)}</span>{" "}
+            {t("recurring.perMonthShort")}
           </span>
         )}
       </li>
       {count === 0 ? (
         <li className="px-4 py-5 text-center text-sm text-muted-foreground">
-          No recurring {isIncome ? "income" : "expenses"} yet.
+          {isIncome ? t("recurring.noIncomeYet") : t("recurring.noExpensesYet")}
         </li>
       ) : (
         children

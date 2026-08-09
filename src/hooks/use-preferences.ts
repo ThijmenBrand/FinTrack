@@ -21,6 +21,8 @@ export function useUpdatePreferences() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["preferences"] });
       qc.invalidateQueries({ queryKey: ["budgets"] });
+      // countCrossBudgetTransfers changes what per-budget insights count.
+      qc.invalidateQueries({ queryKey: ["insights"] });
     },
   });
 }

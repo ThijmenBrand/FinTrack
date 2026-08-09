@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/select";
 import { CategoryIcon } from "@/components/category-icon";
 import type { Category } from "@/types/api";
+import { useI18n } from "@/lib/i18n/client";
 
 export const NO_CATEGORY_VALUE = "__none__";
 
@@ -26,20 +27,21 @@ export function CategorySelect({
   value,
   onValueChange,
   categories,
-  placeholder = "Select a category...",
+  placeholder,
   className = "h-8 text-sm",
   allowNone = false,
-  noneLabel = "No category",
+  noneLabel,
 }: CategorySelectProps) {
+  const { t } = useI18n();
   return (
     <Select value={value} onValueChange={onValueChange}>
       <SelectTrigger className={className}>
-        <SelectValue placeholder={placeholder} />
+        <SelectValue placeholder={placeholder ?? t("categorySelect.placeholder")} />
       </SelectTrigger>
       <SelectContent>
         {allowNone && (
           <SelectItem value={NO_CATEGORY_VALUE}>
-            <span className="text-muted-foreground">{noneLabel}</span>
+            <span className="text-muted-foreground">{noneLabel ?? t("categorySelect.none")}</span>
           </SelectItem>
         )}
         {categories.map((cat) => (

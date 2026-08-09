@@ -1,33 +1,39 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import type { BudgetData, BudgetSuggestion, HistoryData, Transaction } from "@/types/api";
+import type { EmptyGenerateReason } from "@/lib/auto-budget";
 
 export function useBudgets(opts?: {
   dateFrom?: string;
   dateTo?: string;
   accountId?: string;
+  budgetId?: string;
   noScale?: boolean;
+  enabled?: boolean;
 }) {
   const dateFrom = opts?.dateFrom || "";
   const dateTo = opts?.dateTo || "";
   const accountId = opts?.accountId || "";
+  const budgetId = opts?.budgetId || "";
   const noScale = !!opts?.noScale;
   const params = new URLSearchParams();
   if (dateFrom) params.set("dateFrom", dateFrom);
   if (dateTo) params.set("dateTo", dateTo);
   if (accountId) params.set("accountId", accountId);
+  if (budgetId) params.set("budgetId", budgetId);
   if (noScale) params.set("noScale", "1");
   const qs = params.toString();
   return useQuery({
-    queryKey: ["budgets", { dateFrom, dateTo, accountId, noScale }],
+    queryKey: ["budgets", { dateFrom, dateTo, accountId, budgetId, noScale }],
     queryFn: () => apiFetch<BudgetData>(qs ? `/api/budgets?${qs}` : "/api/budgets"),
+    enabled: opts?.enabled ?? true,
   });
 }
 
 export function useCreateBudget() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { categoryId: string; amount: number }) =>
+    mutationFn: (payload: { categoryId: string; amount: number; budgetId?: string }) =>
       apiFetch("/api/budgets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["budgets"] }); },
   });
@@ -50,10 +56,14 @@ export function useDeleteBudget() {
   });
 }
 
-export function useBudgetHistory(categoryId: string | null, enabled: boolean) {
+export function useBudgetHistory(categoryId: string | null, enabled: boolean, budgetId?: string) {
   return useQuery({
-    queryKey: ["budget-history", categoryId],
-    queryFn: () => apiFetch<HistoryData>(`/api/budgets/history?categoryId=${categoryId}`),
+    queryKey: ["budget-history", categoryId, budgetId ?? ""],
+    queryFn: () => {
+      const params = new URLSearchParams({ categoryId: categoryId ?? "" });
+      if (budgetId) params.set("budgetId", budgetId);
+      return apiFetch<HistoryData>(`/api/budgets/history?${params}`);
+    },
     enabled: !!categoryId && enabled,
     staleTime: 60 * 1000,
   });
@@ -62,8 +72,15 @@ export function useBudgetHistory(categoryId: string | null, enabled: boolean) {
 export function useGenerateBudgets() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () =>
-      apiFetch<{ suggestions: BudgetSuggestion[] }>("/api/budgets/generate", { method: "POST" }),
+    mutationFn: (payload?: { budgetId?: string }) =>
+      apiFetch<{
+        suggestions: BudgetSuggestion[];
+        emptyReason: EmptyGenerateReason | null;
+      }>("/api/budgets/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload ?? {}),
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["budgets"] });
     },

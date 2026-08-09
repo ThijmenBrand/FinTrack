@@ -9,6 +9,7 @@ import {
 } from "@/db/schema";
 import { eq, and, gte, lte, sql, inArray } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
+import { getI18n } from "@/lib/i18n/server";
 import { logDataEvent } from "@/lib/audit";
 import { effectiveExpenseAmount, potSpentAmount } from "@/lib/reimbursement-sql";
 import { isRegenerationDue } from "@/lib/auto-budget";
@@ -16,11 +17,12 @@ import { getUserPreferences } from "@/lib/preferences";
 import { toMonthly, getCurrentMonthRange } from "@/lib/month-money";
 import { isFiniteNumber } from "@/lib/validation";
 import { getStatsCutoff } from "@/lib/stat-reset";
+import { accountScopeFilter, resolveBudgetPlan } from "@/lib/budget-plan";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const AVG_DAYS_PER_MONTH = 30.4375;
 
-function rangeLabel(from: string, to: string): string {
+function rangeLabel(from: string, to: string, intlLocale: string): string {
   const fromDate = new Date(from + "T00:00:00");
   const toDate = new Date(to + "T00:00:00");
   const sameYear = fromDate.getFullYear() === toDate.getFullYear();
@@ -33,7 +35,7 @@ function rangeLabel(from: string, to: string): string {
     toDate.getDate() ===
       new Date(toDate.getFullYear(), toDate.getMonth() + 1, 0).getDate()
   ) {
-    return fromDate.toLocaleDateString("en-US", {
+    return fromDate.toLocaleDateString(intlLocale, {
       month: "long",
       year: "numeric",
     });
@@ -43,8 +45,8 @@ function rangeLabel(from: string, to: string): string {
     month: "short",
     day: "numeric",
   };
-  const fromStr = fromDate.toLocaleDateString("en-US", monthFmt);
-  const toStr = toDate.toLocaleDateString("en-US", {
+  const fromStr = fromDate.toLocaleDateString(intlLocale, monthFmt);
+  const toStr = toDate.toLocaleDateString(intlLocale, {
     ...monthFmt,
     year: "numeric",
   });
@@ -63,16 +65,31 @@ function rangeLabel(from: string, to: string): string {
  */
 export async function GET(request: NextRequest) {
   return withUser(async (userId) => {
+    const { intlLocale } = await getI18n();
     const { searchParams } = new URL(request.url);
     const dateFromParam = searchParams.get("dateFrom");
     const dateToParam = searchParams.get("dateTo");
     // accountId may be a comma-separated list of account ids
     const accountIds =
       searchParams.get("accountId")?.split(",").filter(Boolean) ?? [];
+    const budgetIdParam = searchParams.get("budgetId");
     const noScaleParam = searchParams.get("noScale");
     const noScale = noScaleParam === "1" || noScaleParam === "true";
 
-    const prefs = await getUserPreferences(userId);
+    const [prefs, plan] = await Promise.all([
+      getUserPreferences(userId),
+      resolveBudgetPlan(userId, budgetIdParam),
+    ]);
+    if (budgetIdParam && !plan) {
+      return NextResponse.json({ error: "Budget not found" }, { status: 404 });
+    }
+
+    // Every spend-derived number in this endpoint respects one scope: an
+    // explicit accountId param wins, otherwise the plan's accounts (main plan
+    // when no budgetId was passed). A plan with zero accounts matches nothing.
+    const scopeAccountIds =
+      accountIds.length > 0 ? accountIds : plan ? plan.accountIds : undefined;
+    const scopeFilter = accountScopeFilter(scopeAccountIds);
 
     // Use the requested range when both dates are present and well-formed;
     // otherwise default to the current financial month (honors the user's
@@ -115,9 +132,7 @@ export async function GET(request: NextRequest) {
           gte(transactions.date, from),
           lte(transactions.date, to),
           eq(transactions.userId, userId),
-          ...(accountIds.length > 0
-            ? [inArray(transactions.accountId, accountIds)]
-            : []),
+          ...(scopeFilter ? [scopeFilter] : []),
         ),
       )
       .groupBy(transactionGroups.id, transactionGroups.categoryId);
@@ -131,6 +146,15 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Recurring plans live on an account, so they follow the same scope as
+    // spending — a Joint budget only counts salary/bills on joint accounts.
+    const recurringScopeFilter =
+      scopeAccountIds === undefined
+        ? undefined
+        : scopeAccountIds.length > 0
+          ? inArray(recurringTransactions.accountId, scopeAccountIds)
+          : sql`1=0`;
+
     // 1. Get recurring income (monthly equivalent)
     const recurringIncome = await db
       .select()
@@ -140,6 +164,7 @@ export async function GET(request: NextRequest) {
           eq(recurringTransactions.type, "income"),
           eq(recurringTransactions.isActive, true),
           eq(recurringTransactions.userId, userId),
+          ...(recurringScopeFilter ? [recurringScopeFilter] : []),
         ),
       );
 
@@ -165,6 +190,7 @@ export async function GET(request: NextRequest) {
           eq(recurringTransactions.type, "expense"),
           eq(recurringTransactions.isActive, true),
           eq(recurringTransactions.userId, userId),
+          ...(recurringScopeFilter ? [recurringScopeFilter] : []),
         ),
       );
 
@@ -224,6 +250,7 @@ export async function GET(request: NextRequest) {
           eq(budgets.userId, userId),
           eq(budgets.status, "active"),
           eq(budgets.isActive, true),
+          ...(plan ? [eq(budgets.budgetId, plan.id)] : []),
         ),
       );
 
@@ -239,7 +266,13 @@ export async function GET(request: NextRequest) {
       })
       .from(budgets)
       .leftJoin(categories, eq(budgets.categoryId, categories.id))
-      .where(and(eq(budgets.userId, userId), eq(budgets.status, "suggested")));
+      .where(
+        and(
+          eq(budgets.userId, userId),
+          eq(budgets.status, "suggested"),
+          ...(plan ? [eq(budgets.budgetId, plan.id)] : []),
+        ),
+      );
 
     // 4. Calculate actual spending per category for the current month in a
     // single grouped query (effective amounts, exclude grouped). We then look
@@ -257,9 +290,7 @@ export async function GET(request: NextRequest) {
           sql`${transactions.groupId} IS NULL`,
           gte(transactions.date, from),
           lte(transactions.date, to),
-          ...(accountIds.length > 0
-            ? [inArray(transactions.accountId, accountIds)]
-            : []),
+          ...(scopeFilter ? [scopeFilter] : []),
         ),
       )
       .groupBy(transactions.categoryId);
@@ -328,6 +359,7 @@ export async function GET(request: NextRequest) {
           sql`substr(${transactions.date}, 1, 7) < ${from.slice(0, 7)}`,
           ...(statsCutoff ? [gte(transactions.date, statsCutoff)] : []),
           eq(transactions.userId, userId),
+          ...(scopeFilter ? [scopeFilter] : []),
         ),
       )
       .groupBy(
@@ -494,6 +526,7 @@ export async function GET(request: NextRequest) {
       );
 
     return NextResponse.json({
+      plan: plan ? { id: plan.id, name: plan.name, isMain: plan.isMain } : null,
       monthlyIncome: Math.round(scaledMonthlyIncome * 100) / 100,
       totalFixedCosts: Math.round(scaledTotalFixedCosts * 100) / 100,
       availableToAllocate: Math.round(availableToAllocate * 100) / 100,
@@ -518,7 +551,7 @@ export async function GET(request: NextRequest) {
       month: {
         from,
         to,
-        label: rangeLabel(from, to),
+        label: rangeLabel(from, to, intlLocale),
       },
     });
   }, "Failed to fetch budget");
@@ -528,7 +561,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   return withUser(async (userId) => {
     const body = await request.json();
-    const { categoryId, amount } = body;
+    const { categoryId, amount, budgetId } = body;
 
     if (!categoryId || amount === undefined) {
       return NextResponse.json(
@@ -541,6 +574,15 @@ export async function POST(request: NextRequest) {
         { error: "amount must be a non-negative finite number" },
         { status: 400 },
       );
+    }
+    if (budgetId !== undefined && typeof budgetId !== "string") {
+      return NextResponse.json({ error: "budgetId must be a string" }, { status: 400 });
+    }
+
+    // The plan the allocation belongs to — main when the caller didn't say.
+    const plan = await resolveBudgetPlan(userId, budgetId ?? null);
+    if (budgetId && !plan) {
+      return NextResponse.json({ error: "Budget not found" }, { status: 404 });
     }
 
     const [ownedCategory] = await db
@@ -561,6 +603,7 @@ export async function POST(request: NextRequest) {
           eq(budgets.categoryId, categoryId),
           eq(budgets.userId, userId),
           eq(budgets.status, "active"),
+          plan ? eq(budgets.budgetId, plan.id) : sql`${budgets.budgetId} IS NULL`,
         ),
       );
 
@@ -583,6 +626,7 @@ export async function POST(request: NextRequest) {
     const id = crypto.randomUUID();
     await db.insert(budgets).values({
       id,
+      budgetId: plan?.id ?? null,
       categoryId,
       amount,
       period: "monthly",

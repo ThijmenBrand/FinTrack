@@ -127,6 +127,12 @@ export async function initializeDatabase() {
     .run(sql`ALTER TABLE user_preferences ADD COLUMN hide_internal_transfers INTEGER NOT NULL DEFAULT 0`)
     .catch(() => {});
 
+  // locale: UI language preference. Same story as hide_internal_transfers —
+  // reads of user_preferences 500 without it on a drifted DB. Idempotent.
+  await db
+    .run(sql`ALTER TABLE user_preferences ADD COLUMN locale TEXT NOT NULL DEFAULT 'en'`)
+    .catch(() => {});
+
   // category_source: tracks whether categoryId was set by a rule or manually.
   // Backfill existing categorized rows as 'manual' so a subsequent "Recalculate
   // All" can never wipe pre-existing user assignments.

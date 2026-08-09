@@ -27,7 +27,16 @@ describe("user preferences", () => {
       financialMonthStartDay: 1,
       defaultAccountId: null,
       hideInternalTransfers: false,
+      countCrossBudgetTransfers: false,
+      locale: "en",
+      simpleMode: false,
     });
+  });
+
+  it("persists simpleMode", async () => {
+    const prefs = await updateUserPreferences(USER, { simpleMode: true });
+    expect(prefs.simpleMode).toBe(true);
+    expect((await getUserPreferences(USER)).simpleMode).toBe(true);
   });
 
   it("creates the row on first update and persists the patch", async () => {

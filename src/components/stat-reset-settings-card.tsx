@@ -18,8 +18,8 @@ import {
   useDeleteStatReset,
   useStatResets,
 } from "@/hooks/use-stat-resets";
-import { formatResetDate } from "@/lib/stat-reset-marks";
 import { toIsoDate } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n/client";
 
 const NOTE_MAX = 500;
 
@@ -35,6 +35,7 @@ function monthsSince(iso: string): number {
 }
 
 export function StatResetSettingsCard() {
+  const { t } = useI18n();
   const { data: resets, isLoading } = useStatResets();
   const add = useAddStatReset();
   const remove = useDeleteStatReset();
@@ -50,18 +51,18 @@ export function StatResetSettingsCard() {
   const handleAdd = async () => {
     setError(null);
     if (!date) {
-      setError("Pick the date your averages should start counting from.");
+      setError(t("settings.statReset.errorNoDate"));
       return;
     }
     if (date > today) {
-      setError("A reset point can't be in the future.");
+      setError(t("settings.statReset.errorFuture"));
       return;
     }
     try {
       await add.mutateAsync({ date, note: note.trim() });
       setNote("");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't add the reset point.");
+      setError(e instanceof Error ? e.message : t("settings.statReset.errorAdd"));
     }
   };
 
@@ -78,12 +79,8 @@ export function StatResetSettingsCard() {
             <Milestone className="h-5 w-5 text-primary" />
           </div>
           <div>
-            <CardTitle>Statistics reset</CardTitle>
-            <CardDescription>
-              Start your averages over from a chosen day. Budget averages,
-              suggestions and period comparisons count from your most recent
-              reset — transactions, balances and charts keep the full history.
-            </CardDescription>
+            <CardTitle>{t("settings.statReset.title")}</CardTitle>
+            <CardDescription>{t("settings.statReset.description")}</CardDescription>
           </div>
         </div>
       </CardHeader>
@@ -91,11 +88,11 @@ export function StatResetSettingsCard() {
         {isLoading ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Loading…
+            {t("common.loading")}
           </div>
         ) : !active ? (
           <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
-            No reset points yet. Every average uses your full history.
+            {t("settings.statReset.empty")}
           </p>
         ) : (
           // A timeline of eras, newest at the top: the rail makes it obvious
@@ -125,8 +122,7 @@ export function StatResetSettingsCard() {
 
         {noCompleteMonthYet && (
           <p className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-amber-700 dark:text-amber-400">
-            Budget suggestions average completed months only, so they stay empty
-            until this month closes. Your budgets and spending are unaffected.
+            {t("settings.statReset.noCompleteMonth")}
           </p>
         )}
 
@@ -137,7 +133,7 @@ export function StatResetSettingsCard() {
                 htmlFor="stat-reset-date"
                 className="text-xs font-medium text-muted-foreground"
               >
-                Count from
+                {t("settings.statReset.countFrom")}
               </label>
               <Input
                 id="stat-reset-date"
@@ -153,13 +149,13 @@ export function StatResetSettingsCard() {
                 htmlFor="stat-reset-note"
                 className="text-xs font-medium text-muted-foreground"
               >
-                Why (optional)
+                {t("settings.statReset.noteLabel")}
               </label>
               <Input
                 id="stat-reset-note"
                 value={note}
                 maxLength={NOTE_MAX}
-                placeholder="New job, moved house…"
+                placeholder={t("settings.statReset.notePlaceholder")}
                 onChange={(e) => setNote(e.target.value)}
               />
             </div>
@@ -169,15 +165,14 @@ export function StatResetSettingsCard() {
               ) : (
                 <Plus className="mr-2 h-4 w-4" />
               )}
-              Add reset point
+              {t("settings.statReset.add")}
             </Button>
           </div>
           {error ? (
             <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
           ) : (
             <p className="text-xs text-muted-foreground">
-              Adding a reset never deletes anything. Remove it and every average
-              goes back to using your full history.
+              {t("settings.statReset.footnote")}
             </p>
           )}
         </div>
@@ -197,6 +192,7 @@ function ResetRow({
   onDelete: () => Promise<void>;
   pending: boolean;
 }) {
+  const { t, plural, formatDate } = useI18n();
   const months = monthsSince(reset.date);
   return (
     <li className="relative">
@@ -214,17 +210,17 @@ function ResetRow({
             (isActive ? "font-semibold" : "text-muted-foreground")
           }
         >
-          {formatResetDate(reset.date)}
+          {formatDate(reset.date)}
         </span>
         {isActive && (
           <Badge variant="secondary" className="font-medium">
-            Counting from here
+            {t("settings.statReset.countingFromHere")}
           </Badge>
         )}
         <ConfirmDeleteButton
           onConfirm={onDelete}
           pending={pending}
-          label={`Remove reset point of ${formatResetDate(reset.date)}`}
+          label={t("settings.statReset.removeLabel", { date: formatDate(reset.date) })}
           className="ml-auto"
         />
       </div>
@@ -232,9 +228,9 @@ function ResetRow({
         {reset.note && <span>{reset.note} · </span>}
         {isActive
           ? months === 0
-            ? "Less than a month of data so far"
-            : `${months} month${months === 1 ? "" : "s"} of data so far`
-          : "Superseded"}
+            ? t("settings.statReset.lessThanMonth")
+            : plural(months, "settings.statReset.dataSoFar.one", "settings.statReset.dataSoFar.other")
+          : t("settings.statReset.superseded")}
       </p>
     </li>
   );

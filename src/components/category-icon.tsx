@@ -1,3 +1,4 @@
+import type { MessageKey } from "@/lib/i18n/translate";
 import {
   ShoppingCart,
   UtensilsCrossed,
@@ -117,33 +118,33 @@ export const LUCIDE_ICON_MAP: Record<string, LucideIcon> = {
   Leaf,
 };
 
-export const LUCIDE_ICON_SECTIONS = [
+export const LUCIDE_ICON_SECTIONS: { labelKey: MessageKey; icons: string[] }[] = [
   {
-    label: "Food & Drink",
+    labelKey: "iconPicker.foodDrink",
     icons: ["ShoppingCart", "UtensilsCrossed", "Coffee", "Utensils", "Wine", "Beer"],
   },
   {
-    label: "Transport",
+    labelKey: "iconPicker.transport",
     icons: ["Car", "Bus", "Bike", "Train", "Plane", "Fuel", "Footprints"],
   },
   {
-    label: "Home & Utilities",
+    labelKey: "iconPicker.homeUtilities",
     icons: ["Home", "Lightbulb", "Wrench", "Smartphone", "Laptop", "Package", "Plug", "Zap"],
   },
   {
-    label: "Money & Work",
+    labelKey: "iconPicker.moneyWork",
     icons: ["Banknote", "CreditCard", "Landmark", "Wallet", "PiggyBank", "CircleDollarSign", "HandCoins", "TrendingUp", "Briefcase", "Receipt"],
   },
   {
-    label: "Health & Personal",
+    labelKey: "iconPicker.healthPersonal",
     icons: ["Heart", "Pill", "Hospital", "Dumbbell", "Baby", "PawPrint", "GraduationCap"],
   },
   {
-    label: "Entertainment & Shopping",
+    labelKey: "iconPicker.entertainmentShopping",
     icons: ["Tv", "Clapperboard", "Gamepad2", "Music", "BookOpen", "Palette", "ShoppingBag", "Shirt", "Gift", "Scissors"],
   },
   {
-    label: "Other",
+    labelKey: "iconPicker.other",
     icons: ["Sparkles", "Tag", "Paperclip", "FolderOpen", "ArrowLeftRight", "Globe", "Leaf", "MoreHorizontal"],
   },
 ];

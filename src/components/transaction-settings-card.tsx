@@ -9,12 +9,15 @@ import {
 } from "@/components/ui/card";
 import { ArrowLeftRight, Loader2 } from "lucide-react";
 import { usePreferences, useUpdatePreferences } from "@/hooks/use-preferences";
+import { useI18n } from "@/lib/i18n/client";
 
 export function TransactionSettingsCard() {
+  const { t } = useI18n();
   const { data, isLoading } = usePreferences();
   const update = useUpdatePreferences();
 
   const hideInternal = data?.hideInternalTransfers ?? false;
+  const countCrossBudget = data?.countCrossBudgetTransfers ?? false;
 
   return (
     <Card>
@@ -24,10 +27,8 @@ export function TransactionSettingsCard() {
             <ArrowLeftRight className="h-5 w-5 text-primary" />
           </div>
           <div>
-            <CardTitle>Transactions</CardTitle>
-            <CardDescription>
-              Control what shows up in your transactions list by default.
-            </CardDescription>
+            <CardTitle>{t("settings.transactions.title")}</CardTitle>
+            <CardDescription>{t("settings.transactions.description")}</CardDescription>
           </div>
         </div>
       </CardHeader>
@@ -35,26 +36,49 @@ export function TransactionSettingsCard() {
         {isLoading ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Loading…
+            {t("common.loading")}
           </div>
         ) : (
-          <label className="flex cursor-pointer items-start justify-between gap-3 rounded-md border p-3">
-            <div>
-              <div className="text-sm font-medium">Hide internal transfers</div>
-              <div className="text-xs text-muted-foreground">
-                When on, transfers between your own accounts are hidden from the transactions list.
+          <div className="space-y-3">
+            <label className="flex cursor-pointer items-start justify-between gap-3 rounded-md border p-3">
+              <div>
+                <div className="text-sm font-medium">
+                  {t("settings.transactions.hideInternal")}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {t("settings.transactions.hideInternalHint")}
+                </div>
               </div>
-            </div>
-            <input
-              type="checkbox"
-              checked={hideInternal}
-              disabled={update.isPending}
-              onChange={(e) =>
-                update.mutate({ hideInternalTransfers: e.target.checked })
-              }
-              className="mt-0.5 h-4 w-4 cursor-pointer accent-primary"
-            />
-          </label>
+              <input
+                type="checkbox"
+                checked={hideInternal}
+                disabled={update.isPending}
+                onChange={(e) =>
+                  update.mutate({ hideInternalTransfers: e.target.checked })
+                }
+                className="mt-0.5 h-4 w-4 cursor-pointer accent-primary"
+              />
+            </label>
+            <label className="flex cursor-pointer items-start justify-between gap-3 rounded-md border p-3">
+              <div>
+                <div className="text-sm font-medium">
+                  {t("settings.transactions.countCrossBudget")}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {t("settings.transactions.countCrossBudgetHint")}
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={countCrossBudget}
+                disabled={update.isPending}
+                onChange={(e) =>
+                  update.mutate({ countCrossBudgetTransfers: e.target.checked })
+                }
+                className="mt-0.5 h-4 w-4 cursor-pointer accent-primary"
+              />
+            </label>
+          </div>
         )}
       </CardContent>
     </Card>

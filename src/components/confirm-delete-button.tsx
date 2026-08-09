@@ -4,6 +4,7 @@ import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Trash2, X, Loader2 } from "lucide-react";
+import { useI18n } from "@/lib/i18n/client";
 
 interface ConfirmDeleteButtonProps {
   /** Called when the user confirms. May be async — the button shows pending while it resolves. */
@@ -31,11 +32,14 @@ export function ConfirmDeleteButton({
   pending,
   disabled,
   variant = "icon",
-  label = "Delete",
-  confirmLabel = "Delete",
+  label,
+  confirmLabel,
   message,
   className,
 }: ConfirmDeleteButtonProps) {
+  const { t } = useI18n();
+  const resolvedLabel = label ?? t("common.delete");
+  const resolvedConfirmLabel = confirmLabel ?? t("common.delete");
   const [confirming, setConfirming] = useState(false);
 
   const confirm = async () => {
@@ -54,7 +58,7 @@ export function ConfirmDeleteButton({
           disabled={disabled}
         >
           <Trash2 className="h-4 w-4" />
-          {label}
+          {resolvedLabel}
         </Button>
       );
     }
@@ -68,7 +72,7 @@ export function ConfirmDeleteButton({
             onClick={() => setConfirming(false)}
             disabled={pending}
           >
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button
             size="sm"
@@ -77,7 +81,7 @@ export function ConfirmDeleteButton({
             disabled={pending}
           >
             {pending && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />}
-            {confirmLabel}
+            {resolvedConfirmLabel}
           </Button>
         </div>
       </div>
@@ -93,7 +97,7 @@ export function ConfirmDeleteButton({
         className={cn("h-7 w-7 text-muted-foreground hover:text-destructive", className)}
         onClick={() => setConfirming(true)}
         disabled={disabled}
-        aria-label={label}
+        aria-label={resolvedLabel}
       >
         <Trash2 className="h-3.5 w-3.5" />
       </Button>
@@ -107,7 +111,7 @@ export function ConfirmDeleteButton({
         className="h-7 w-7"
         onClick={confirm}
         disabled={pending}
-        aria-label={`Confirm ${label.toLowerCase()}`}
+        aria-label={t("confirm.confirmLabel", { label: resolvedLabel.toLowerCase() })}
       >
         {pending ? (
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -121,7 +125,7 @@ export function ConfirmDeleteButton({
         className="h-7 w-7"
         onClick={() => setConfirming(false)}
         disabled={pending}
-        aria-label={`Cancel ${label.toLowerCase()}`}
+        aria-label={t("confirm.cancelLabel", { label: resolvedLabel.toLowerCase() })}
       >
         <X className="h-3.5 w-3.5" />
       </Button>

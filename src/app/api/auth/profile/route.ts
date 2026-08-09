@@ -81,10 +81,12 @@ export async function PATCH(req: NextRequest) {
         return NextResponse.json({ error: `Invalid username: ${usernameCheck.error}` }, { status: 400 });
       }
       const clean = usernameCheck.value;
+      // Sign-in is by email, so the username is just a label — deriving the
+      // email from it here used to lock the user out of their own account.
       // Uniqueness enforced inside the UPDATE so a concurrent claim of the
       // same username can't slip between a check and the write.
       const updated = await db.run(
-        sql`UPDATE "user" SET username = ${clean}, email = ${clean + '@local'}, updated_at = ${new Date().toISOString()}
+        sql`UPDATE "user" SET username = ${clean}, updated_at = ${new Date().toISOString()}
             WHERE id = ${userId}
             AND NOT EXISTS (SELECT 1 FROM "user" WHERE username = ${clean} AND id != ${userId})`
       );

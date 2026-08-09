@@ -3,33 +3,46 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { formatDate } from "@/lib/utils";
 import { parseSearchTerm } from "@/lib/search-query";
 import type { Account, Category, Pot } from "@/types/api";
+import { useI18n } from "@/lib/i18n/client";
+import type { I18n, MessageKey } from "@/lib/i18n/translate";
 
-export const TYPE_OPTIONS = [
-  { value: "income", label: "Income" },
-  { value: "expense", label: "Expense" },
-  { value: "internal_transfer", label: "Transfer" },
-  { value: "reimbursement", label: "Reimbursement" },
+export const TYPE_OPTIONS: { value: string; labelKey: MessageKey }[] = [
+  { value: "income", labelKey: "tx.type.income" },
+  { value: "expense", labelKey: "tx.type.expense" },
+  { value: "internal_transfer", labelKey: "tx.type.internalTransfer" },
+  { value: "reimbursement", labelKey: "tx.type.reimbursement" },
 ];
 
-const PERIOD_OPTIONS = [
-  { value: "this-month", label: "This Month" },
-  { value: "last-month", label: "Last Month" },
-  { value: "last-3-months", label: "Last 3 Months" },
-  { value: "last-6-months", label: "Last 6 Months" },
-  { value: "this-year", label: "This Year" },
-  { value: "last-year", label: "Last Year" },
+const PERIOD_OPTIONS: { value: string; labelKey: MessageKey }[] = [
+  { value: "this-month", labelKey: "tx.period.thisMonth" },
+  { value: "last-month", labelKey: "tx.period.lastMonth" },
+  { value: "last-3-months", labelKey: "tx.period.last3Months" },
+  { value: "last-6-months", labelKey: "tx.period.last6Months" },
+  { value: "this-year", labelKey: "tx.period.thisYear" },
+  { value: "last-year", labelKey: "tx.period.lastYear" },
 ];
 
+// The `key:value` tokens are query syntax, not prose — they stay in English so
+// a filter URL means the same thing whatever language the UI is in. Only the
+// human-readable description beside each suggestion is translated.
 const FILTER_KEYS = ["account", "category", "type", "period", "pot"] as const;
 
-function describeSearch(raw: string): string {
+const FILTER_KEY_LABELS: Record<string, MessageKey> = {
+  account: "tx.search.key.account",
+  category: "tx.search.key.category",
+  type: "tx.search.key.type",
+  period: "tx.search.key.period",
+  pot: "tx.search.key.pot",
+};
+
+function describeSearch(t: I18n["t"], raw: string): string {
   const parsed = parseSearchTerm(raw);
-  if (parsed.date) return "Search text or that date";
-  if (parsed.amount) return parsed.text ? "Search text or that amount" : "Search around that amount";
-  return "Search descriptions";
+  if (parsed.date) return t("tx.search.textOrDate");
+  if (parsed.amount)
+    return parsed.text ? t("tx.search.textOrAmount") : t("tx.search.aroundAmount");
+  return t("tx.search.descriptions");
 }
 
 // Only category and type support exclusion (GitHub-style `-key:value` tokens).
@@ -120,6 +133,7 @@ export function TransactionSearchBar({
   onRemoveExclude,
   onClearAll,
 }: TransactionSearchBarProps) {
+  const { t, formatDate } = useI18n();
   const [inputValue, setInputValue] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedSuggestion, setSelectedSuggestion] = useState(0);
@@ -137,16 +151,19 @@ export function TransactionSearchBar({
         key: "account",
         value: accountFilter,
         prefix: "account:",
-        text: names.length === ids.length ? names.join(", ") : `${ids.length} accounts`,
+        text:
+          names.length === ids.length
+            ? names.join(", ")
+            : t("tx.search.accountCount", { count: ids.length }),
       });
     }
     for (const id of categoryFilters) {
       const cat = categories.find((c) => c.id === id);
       tokens.push({ key: "category", value: id, prefix: "category:", text: cat?.name || id });
     }
-    for (const t of typeFilters) {
-      const opt = TYPE_OPTIONS.find((o) => o.value === t);
-      tokens.push({ key: "type", value: t, prefix: "type:", text: opt?.label || t });
+    for (const type of typeFilters) {
+      const opt = TYPE_OPTIONS.find((o) => o.value === type);
+      tokens.push({ key: "type", value: type, prefix: "type:", text: opt ? t(opt.labelKey) : type });
     }
     if (potFilter !== "all") {
       const pot = pots.find((p) => p.id === potFilter);
@@ -156,22 +173,33 @@ export function TransactionSearchBar({
       const cat = categories.find((c) => c.id === id);
       tokens.push({ key: "category", value: id, prefix: "-category:", text: cat?.name || id, exclude: true });
     }
-    for (const t of excludeTypes) {
-      const opt = TYPE_OPTIONS.find((o) => o.value === t);
-      tokens.push({ key: "type", value: t, prefix: "-type:", text: opt?.label || t, exclude: true });
+    for (const type of excludeTypes) {
+      const opt = TYPE_OPTIONS.find((o) => o.value === type);
+      tokens.push({
+        key: "type",
+        value: type,
+        prefix: "-type:",
+        text: opt ? t(opt.labelKey) : type,
+        exclude: true,
+      });
     }
     if (dateFromOverride || dateToOverride) {
       const parts = [dateFromOverride && formatDate(dateFromOverride), dateToOverride && formatDate(dateToOverride)].filter(Boolean);
       tokens.push({ key: "period", value: "custom", prefix: "period:", text: parts.join(" — ") });
     } else if (periodFilter !== "all") {
       const p = PERIOD_OPTIONS.find((o) => o.value === periodFilter);
-      tokens.push({ key: "period", value: periodFilter, prefix: "period:", text: p?.label || periodFilter });
+      tokens.push({
+        key: "period",
+        value: periodFilter,
+        prefix: "period:",
+        text: p ? t(p.labelKey) : periodFilter,
+      });
     }
     if (search) {
       tokens.push({ key: "search", value: search, prefix: "", text: search });
     }
     return tokens;
-  }, [accountFilter, categoryFilters, typeFilters, potFilter, periodFilter, dateFromOverride, dateToOverride, excludeCategories, excludeTypes, search, accounts, categories, pots]);
+  }, [accountFilter, categoryFilters, typeFilters, potFilter, periodFilter, dateFromOverride, dateToOverride, excludeCategories, excludeTypes, search, accounts, categories, pots, t, formatDate]);
 
   const suggestions = useMemo(() => {
     const raw = inputValue.trim();
@@ -179,7 +207,10 @@ export function TransactionSearchBar({
     const body = (exclude ? raw.slice(1) : raw).toLowerCase();
     const keys: readonly string[] = exclude ? EXCLUDE_KEYS : FILTER_KEYS;
     const prefix = exclude ? "-" : "";
-    const verb = exclude ? "Exclude" : "Filter";
+    const describeKey = (k: string) =>
+      t(exclude ? "tx.search.excludeBy" : "tx.search.filterBy", {
+        what: FILTER_KEY_LABELS[k] ? t(FILTER_KEY_LABELS[k]) : k,
+      });
 
     if (!body) {
       return keys.map((k) => ({
@@ -187,7 +218,7 @@ export function TransactionSearchBar({
         key: k,
         exclude,
         label: `${prefix}${k}:`,
-        description: `${verb} by ${k === "period" ? "time period" : k}`,
+        description: describeKey(k),
       }));
     }
 
@@ -202,9 +233,12 @@ export function TransactionSearchBar({
         } else if (key === "category") {
           options = categories.map((c) => ({ value: c.id, label: c.name }));
         } else if (key === "type") {
-          options = TYPE_OPTIONS.filter((o) => distinctTypes.includes(o.value));
+          options = TYPE_OPTIONS.filter((o) => distinctTypes.includes(o.value)).map((o) => ({
+            value: o.value,
+            label: t(o.labelKey),
+          }));
         } else if (key === "period") {
-          options = PERIOD_OPTIONS;
+          options = PERIOD_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }));
         } else if (key === "pot") {
           options = pots.map((p) => ({ value: p.id, label: p.name }));
         }
@@ -228,7 +262,7 @@ export function TransactionSearchBar({
         key: k,
         exclude,
         label: `${prefix}${k}:`,
-        description: `${verb} by ${k}`,
+        description: describeKey(k),
       }));
 
     // Free-text search only applies to inclusive input.
@@ -236,9 +270,16 @@ export function TransactionSearchBar({
       ? keyMatches
       : [
           ...keyMatches,
-          { type: "search" as const, key: "search", exclude, label: raw, description: describeSearch(raw), value: raw },
+          {
+            type: "search" as const,
+            key: "search",
+            exclude,
+            label: raw,
+            description: describeSearch(t, raw),
+            value: raw,
+          },
         ];
-  }, [inputValue, accounts, categories, pots, distinctTypes]);
+  }, [inputValue, accounts, categories, pots, distinctTypes, t]);
 
   const handleSuggestionSelect = (suggestion: (typeof suggestions)[number]) => {
     if (suggestion.type === "key") {
@@ -332,7 +373,11 @@ export function TransactionSearchBar({
           ref={inputRef}
           type="text"
           className="flex-1 min-w-[120px] bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-          placeholder={activeTokens.length === 0 ? "Filter transactions... (e.g. account:ING, 12.50, ~12.50, 2026-07-28)" : "Add filter..."}
+          placeholder={
+            activeTokens.length === 0
+              ? t("tx.search.placeholder")
+              : t("tx.search.addFilter")
+          }
           value={inputValue}
           onChange={(e) => {
             setInputValue(e.target.value);

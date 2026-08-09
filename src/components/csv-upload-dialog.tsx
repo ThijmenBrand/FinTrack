@@ -36,6 +36,7 @@ import { usePreviewUpload, useCommitUpload } from "@/hooks/use-csv-upload";
 import type { Category } from "@/types/api";
 import { bankHasSeparateFeeColumn } from "@/lib/banks";
 import { BankLogo } from "@/components/bank-logo";
+import { useI18n } from "@/lib/i18n/client";
 
 interface Account {
   id: string;
@@ -64,6 +65,7 @@ export function CsvUploadDialog({
   accounts,
   onUploadComplete,
 }: CsvUploadDialogProps) {
+  const { t, plural } = useI18n();
   const [step, setStep] = useState<UploadStep>("select-file");
   const [selectedAccountId, setSelectedAccountId] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -141,7 +143,7 @@ export function CsvUploadDialog({
         // Only fail if no data was parsed; ignore non-fatal warnings
         // (e.g. TooFewFields on trailing empty lines, TooManyFields, etc.)
         if (results.data.length === 0) {
-          setError("Failed to parse CSV. Check the file format.");
+          setError(t("csv.parseFailed"));
           return;
         }
         const cols = (results.meta.fields || []).filter((c) => c.length > 0);
@@ -286,11 +288,9 @@ export function CsvUploadDialog({
         className={`${dialogWidth} overflow-x-hidden transition-all`}
       >
         <DialogHeader>
-          <DialogTitle>Import Bank Statement</DialogTitle>
+          <DialogTitle>{t("csv.title")}</DialogTitle>
           <DialogDescription>
-            {step === "review"
-              ? "Review and categorize transactions before importing."
-              : "Upload a CSV file from your bank to import transactions."}
+            {step === "review" ? t("csv.reviewDescription") : t("csv.uploadDescription")}
           </DialogDescription>
         </DialogHeader>
 
@@ -302,10 +302,8 @@ export function CsvUploadDialog({
               onClick={() => fileInputRef.current?.click()}
             >
               <Upload className="h-10 w-10 text-muted-foreground mb-3" />
-              <p className="font-medium">Click to select a CSV file</p>
-              <p className="text-sm text-muted-foreground mt-1">
-                Supports CSV exports from most banks
-              </p>
+              <p className="font-medium">{t("csv.clickToSelect")}</p>
+              <p className="text-sm text-muted-foreground mt-1">{t("csv.supports")}</p>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -330,19 +328,19 @@ export function CsvUploadDialog({
               <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
               <span className="text-sm font-medium truncate">{file?.name}</span>
               <span className="text-xs text-muted-foreground shrink-0">
-                ({previewRows.length} rows)
+                {t("csv.rows", { count: previewRows.length })}
               </span>
             </div>
 
             <div className="grid gap-4">
               <div className="grid gap-2">
-                <Label>Target Account</Label>
+                <Label>{t("csv.targetAccount")}</Label>
                 <Select
                   value={selectedAccountId}
                   onValueChange={setSelectedAccountId}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select an account..." />
+                    <SelectValue placeholder={t("csv.selectAccount")} />
                   </SelectTrigger>
                   <SelectContent>
                     {accounts.map((a) => (
@@ -360,7 +358,7 @@ export function CsvUploadDialog({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="grid gap-2">
                   <Label>
-                    Date Column <span className="text-destructive">*</span>
+                    {t("csv.dateColumn")} <span className="text-destructive">*</span>
                   </Label>
                   <Select
                     value={mapping.date}
@@ -369,7 +367,7 @@ export function CsvUploadDialog({
                     }
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select column..." />
+                      <SelectValue placeholder={t("csv.selectColumn")} />
                     </SelectTrigger>
                     <SelectContent>
                       {headers.map((h) => (
@@ -383,7 +381,7 @@ export function CsvUploadDialog({
 
                 <div className="grid gap-2">
                   <Label>
-                    Description Column <span className="text-destructive">*</span>
+                    {t("csv.descriptionColumn")} <span className="text-destructive">*</span>
                   </Label>
                   <Select
                     value={mapping.description}
@@ -392,7 +390,7 @@ export function CsvUploadDialog({
                     }
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select column..." />
+                      <SelectValue placeholder={t("csv.selectColumn")} />
                     </SelectTrigger>
                     <SelectContent>
                       {headers.map((h) => (
@@ -405,7 +403,7 @@ export function CsvUploadDialog({
                 </div>
 
                 <div className="grid gap-2">
-                  <Label>Name Column (optional)</Label>
+                  <Label>{t("csv.nameColumn")}</Label>
                   <Select
                     value={mapping.name || "none"}
                     onValueChange={(v) =>
@@ -416,10 +414,10 @@ export function CsvUploadDialog({
                     }
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select column..." />
+                      <SelectValue placeholder={t("csv.selectColumn")} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">None</SelectItem>
+                      <SelectItem value="none">{t("common.none")}</SelectItem>
                       {headers.map((h) => (
                         <SelectItem key={h} value={h}>
                           {h}
@@ -431,7 +429,7 @@ export function CsvUploadDialog({
 
                 <div className="grid gap-2">
                   <Label>
-                    Amount Column <span className="text-destructive">*</span>
+                    {t("csv.amountColumn")} <span className="text-destructive">*</span>
                   </Label>
                   <Select
                     value={mapping.amount}
@@ -440,7 +438,7 @@ export function CsvUploadDialog({
                     }
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select column..." />
+                      <SelectValue placeholder={t("csv.selectColumn")} />
                     </SelectTrigger>
                     <SelectContent>
                       {headers.map((h) => (
@@ -453,7 +451,7 @@ export function CsvUploadDialog({
                 </div>
 
                 <div className="grid gap-2">
-                  <Label>Balance Column (optional)</Label>
+                  <Label>{t("csv.balanceColumn")}</Label>
                   <Select
                     value={mapping.balance || "none"}
                     onValueChange={(v) =>
@@ -464,10 +462,10 @@ export function CsvUploadDialog({
                     }
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select column..." />
+                      <SelectValue placeholder={t("csv.selectColumn")} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">None</SelectItem>
+                      <SelectItem value="none">{t("common.none")}</SelectItem>
                       {headers.map((h) => (
                         <SelectItem key={h} value={h}>
                           {h}
@@ -478,7 +476,7 @@ export function CsvUploadDialog({
                 </div>
                 {showFeeColumn && (
                   <div className="grid gap-2">
-                    <Label>Fee Column (optional)</Label>
+                    <Label>{t("csv.feeColumn")}</Label>
                     <Select
                       value={mapping.fee || "none"}
                       onValueChange={(v) =>
@@ -486,10 +484,10 @@ export function CsvUploadDialog({
                       }
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="Select column..." />
+                        <SelectValue placeholder={t("csv.selectColumn")} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="none">None</SelectItem>
+                        <SelectItem value="none">{t("common.none")}</SelectItem>
                         {headers.map((h) => (
                           <SelectItem key={h} value={h}>
                             {h}
@@ -504,7 +502,7 @@ export function CsvUploadDialog({
                   </div>
                 )}
                 <div className="grid gap-2">
-                  <Label>Counterparty IBAN (optional)</Label>
+                  <Label>{t("csv.ibanColumn")}</Label>
                   <Select
                     value={mapping.counterpartyIban || "none"}
                     onValueChange={(v) =>
@@ -515,10 +513,10 @@ export function CsvUploadDialog({
                     }
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select column..." />
+                      <SelectValue placeholder={t("csv.selectColumn")} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">None</SelectItem>
+                      <SelectItem value="none">{t("common.none")}</SelectItem>
                       {headers.map((h) => (
                         <SelectItem key={h} value={h}>
                           {h}
@@ -537,7 +535,7 @@ export function CsvUploadDialog({
               ).slice(0, 3);
               return (
                 <div>
-                  <Label className="mb-2 block">Data Preview</Label>
+                  <Label className="mb-2 block">{t("csv.dataPreview")}</Label>
                   {/* Mobile: show only mapped columns */}
                   <div className="rounded-md border overflow-x-auto max-h-48 sm:hidden">
                     <Table>
@@ -606,7 +604,7 @@ export function CsvUploadDialog({
           <div className="flex flex-col items-center justify-center py-12">
             <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
             <p className="mt-4 text-sm text-muted-foreground">
-              Analyzing transactions and applying rules...
+              {t("csv.analyzing")}
             </p>
           </div>
         )}
@@ -636,7 +634,7 @@ export function CsvUploadDialog({
           <div className="flex flex-col items-center justify-center py-12">
             <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
             <p className="mt-4 text-sm text-muted-foreground">
-              Importing transactions...
+              {t("csv.importing")}
             </p>
           </div>
         )}
@@ -645,24 +643,28 @@ export function CsvUploadDialog({
         {step === "done" && result && (
           <div className="flex flex-col items-center justify-center py-12">
             <CheckCircle2 className="h-12 w-12 text-emerald-500 dark:text-emerald-400 mb-3" />
-            <p className="text-lg font-semibold">Import Complete</p>
+            <p className="text-lg font-semibold">{t("csv.complete")}</p>
             <p className="text-sm text-muted-foreground mt-1">
-              {result.imported} transaction{result.imported !== 1 ? "s" : ""}{" "}
-              imported
+              {plural(result.imported, "csv.imported.one", "csv.imported.other")}
               {result.rulesCreated > 0 &&
-                `, ${result.rulesCreated} new rule${result.rulesCreated !== 1 ? "s" : ""} created`}
+                plural(result.rulesCreated, "csv.rulesCreated.one", "csv.rulesCreated.other")}
             </p>
             {result.duplicatesSkipped > 0 && (
               <p className="text-sm text-muted-foreground mt-1">
-                {result.duplicatesSkipped} duplicate
-                {result.duplicatesSkipped !== 1 ? "s" : ""} of existing
-                transactions skipped
+                {plural(
+                  result.duplicatesSkipped,
+                  "csv.duplicatesSkipped.one",
+                  "csv.duplicatesSkipped.other",
+                )}
               </p>
             )}
             {result.transfersDetected > 0 && (
               <p className="text-sm text-muted-foreground mt-1">
-                {result.transfersDetected} internal transfer pair{result.transfersDetected !== 1 ? "s" : ""}{" "}
-                detected and excluded from expenses
+                {plural(
+                  result.transfersDetected,
+                  "csv.transfersDetected.one",
+                  "csv.transfersDetected.other",
+                )}
               </p>
             )}
           </div>
@@ -674,13 +676,13 @@ export function CsvUploadDialog({
             {step === "map-columns" && (
               <>
                 <Button variant="outline" onClick={() => reset()}>
-                  Back
+                  {t("auth.back")}
                 </Button>
                 <Button
                   onClick={handlePreview}
                   disabled={!canProceedToPreview}
                 >
-                  Review Transactions
+                  {t("csv.reviewTransactions")}
                 </Button>
               </>
             )}
@@ -691,7 +693,7 @@ export function CsvUploadDialog({
                   onOpenChange(false);
                 }}
               >
-                Done
+                {t("common.done")}
               </Button>
             )}
           </DialogFooter>

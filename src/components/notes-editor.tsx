@@ -5,6 +5,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { StickyNote } from "lucide-react";
 import { useUpdateTransactionNotes } from "@/hooks/use-transactions";
 import { MAX_NOTE_LENGTH, sanitizeNote } from "@/lib/validation";
+import { useI18n } from "@/lib/i18n/client";
 
 interface NotesEditorProps {
   transactionId: string;
@@ -13,6 +14,7 @@ interface NotesEditorProps {
 
 /** Inline note viewer/editor: click to edit, blur or Enter to save (optimistic). */
 export function NotesEditor({ transactionId, initialNotes }: NotesEditorProps) {
+  const { t } = useI18n();
   const [notes, setNotes] = useState(initialNotes);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -55,7 +57,7 @@ export function NotesEditor({ transactionId, initialNotes }: NotesEditorProps) {
         }}
         maxLength={MAX_NOTE_LENGTH}
         rows={2}
-        placeholder="Add a note…"
+        placeholder={t("notes.placeholder")}
         className="flex-1 min-h-[60px] text-sm"
       />
     );
@@ -75,7 +77,7 @@ export function NotesEditor({ transactionId, initialNotes }: NotesEditorProps) {
       ) : (
         <span className="text-muted-foreground flex items-center gap-1">
           <StickyNote className="h-3 w-3" />
-          Add note
+          {t("tx.menu.addNote")}
         </span>
       )}
     </button>

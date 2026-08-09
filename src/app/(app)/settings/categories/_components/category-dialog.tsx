@@ -16,6 +16,7 @@ import { CategoryIcon } from "@/components/category-icon";
 import { EmojiPicker } from "@/components/emoji-picker";
 import { useCreateCategory, useUpdateCategory } from "@/hooks/use-categories";
 import type { CategoryWithDetails } from "@/types/api";
+import { useI18n } from "@/lib/i18n/client";
 
 interface CategoryDialogProps {
   open: boolean;
@@ -46,6 +47,7 @@ function CategoryForm({
   category: CategoryWithDetails | null;
   onDone: () => void;
 }) {
+  const { t } = useI18n();
   const createCategory = useCreateCategory();
   const updateCategory = useUpdateCategory();
 
@@ -69,33 +71,35 @@ function CategoryForm({
       await (category ? updateCategory : createCategory).mutateAsync(payload as never);
       onDone();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save category");
+      setError(err instanceof Error ? err.message : t("categories.saveError"));
     }
   };
 
   return (
     <>
       <DialogHeader>
-          <DialogTitle>{category ? "Edit Category" : "Add New Category"}</DialogTitle>
+          <DialogTitle>
+            {category ? t("categories.editTitle") : t("categories.addTitle")}
+          </DialogTitle>
           <DialogDescription>
-            {category ? "Update this spending category." : "Create a new spending category."}
+            {category ? t("categories.editDescription") : t("categories.addDescription")}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">
           <div className="grid gap-2">
-            <Label>Category Name</Label>
+            <Label>{t("categories.nameLabel")}</Label>
             <Input
-              placeholder="e.g. Groceries, Transport, Coffee"
+              placeholder={t("categories.namePlaceholder")}
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
           </div>
           <div className="grid gap-2">
-            <Label>Icon</Label>
+            <Label>{t("categories.iconLabel")}</Label>
             <div className="flex items-center gap-3 mb-2">
               <CategoryIcon icon={icon} color={color} size="lg" />
               <span className="text-sm text-muted-foreground">
-                {icon ? "Click an emoji below to change" : "Pick an emoji"}
+                {icon ? t("categories.iconChange") : t("categories.iconPick")}
               </span>
             </div>
             <div className="max-h-48 overflow-y-auto rounded-md border p-3">
@@ -103,7 +107,7 @@ function CategoryForm({
             </div>
           </div>
           <div className="grid gap-2">
-            <Label>Color</Label>
+            <Label>{t("categories.colorLabel")}</Label>
             <div className="flex items-center gap-3">
               <input
                 type="color"
@@ -123,10 +127,10 @@ function CategoryForm({
         </div>
       <DialogFooter>
         <Button variant="outline" onClick={onDone}>
-          Cancel
+          {t("common.cancel")}
         </Button>
         <Button onClick={handleSubmit} disabled={!name || isPending}>
-          {category ? "Save Changes" : "Create Category"}
+          {category ? t("categories.saveChanges") : t("categories.createCategory")}
         </Button>
       </DialogFooter>
     </>

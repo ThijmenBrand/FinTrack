@@ -1,3 +1,5 @@
+import type { Locale } from "@/lib/i18n";
+
 export interface Account {
   id: string;
   name: string;
@@ -9,6 +11,8 @@ export interface Account {
   initialBalance: number;
   currentBalance: number;
   transactionTotal: number;
+  /** The budget plan this account belongs to; null = not in any budget. */
+  budgetId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -319,6 +323,8 @@ export interface UnbudgetedSpending {
 }
 
 export interface BudgetData {
+  /** The plan these numbers are scoped to; null for pre-plan users. */
+  plan: { id: string; name: string; isMain: boolean } | null;
   monthlyIncome: number;
   totalFixedCosts: number;
   availableToAllocate: number;
@@ -337,6 +343,15 @@ export interface BudgetData {
   month: { from: string; to: string; label: string };
 }
 
+/** A named budget: owns accounts (exclusive) and per-category allocations. */
+export interface BudgetPlanData {
+  id: string;
+  name: string;
+  isMain: boolean;
+  createdAt: string;
+  accounts: { id: string; name: string; type: string }[];
+}
+
 export interface UserPreferencesData {
   autoBudgetEnabled: boolean;
   autoBudgetIntervalMonths: number;
@@ -345,6 +360,12 @@ export interface UserPreferencesData {
   financialMonthStartDay: number;
   defaultAccountId: string | null;
   hideInternalTransfers: boolean;
+  /** Envelope-style: count transfers between budgets as spending/income in per-budget views. */
+  countCrossBudgetTransfers: boolean;
+  /** UI language — see LOCALES in @/lib/i18n. */
+  locale: Locale;
+  /** Simple mode: hide advanced features on dashboard, budgets and insights. */
+  simpleMode: boolean;
 }
 
 /** A dated line in the sand after which averages start counting again. */

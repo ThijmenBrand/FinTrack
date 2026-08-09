@@ -11,6 +11,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { useCreateInvite } from "@/hooks/use-admin";
 import { ApiError } from "@/lib/api";
+import { useI18n } from "@/lib/i18n/client";
 
 export function InviteUserForm({
   onClose,
@@ -19,6 +20,7 @@ export function InviteUserForm({
   onClose: () => void;
   onError: (message: string) => void;
 }) {
+  const { t } = useI18n();
   const createInvite = useCreateInvite();
 
   const [email, setEmail] = useState("");
@@ -43,7 +45,11 @@ export function InviteUserForm({
       setDisplayName("");
       setIsAdmin(false);
     } catch (err) {
-      onError(err instanceof ApiError ? err.message || "Failed to send invite" : "Failed to send invite");
+      onError(
+        err instanceof ApiError
+          ? err.message || t("backoffice.sendInviteFailed")
+          : t("backoffice.sendInviteFailed"),
+      );
     } finally {
       setSending(false);
     }
@@ -52,17 +58,14 @@ export function InviteUserForm({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Invite User</CardTitle>
-        <CardDescription>
-          They receive a link to pick a username and password. The account is
-          created — with a verified email — once they accept.
-        </CardDescription>
+        <CardTitle>{t("backoffice.inviteUser")}</CardTitle>
+        <CardDescription>{t("backoffice.inviteDescription")}</CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleInvite} className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <label className="text-sm font-medium">Email</label>
+              <label className="text-sm font-medium">{t("auth.email")}</label>
               <Input
                 type="email"
                 required
@@ -70,19 +73,22 @@ export function InviteUserForm({
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="h-10"
-                placeholder="them@example.com"
+                placeholder={t("backoffice.inviteEmailPlaceholder")}
               />
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">
-                Display Name <span className="text-muted-foreground">(optional)</span>
+                {t("profile.displayName")}{" "}
+                <span className="text-muted-foreground">
+                  {t("backoffice.displayNameOptional")}
+                </span>
               </label>
               <Input
                 type="text"
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
                 className="h-10"
-                placeholder="They can change this"
+                placeholder={t("backoffice.displayNamePlaceholder")}
               />
             </div>
             <div className="flex items-end gap-2 pb-1">
@@ -93,7 +99,7 @@ export function InviteUserForm({
                   onChange={(e) => setIsAdmin(e.target.checked)}
                   className="rounded"
                 />
-                Admin privileges
+                {t("backoffice.adminPrivileges")}
               </label>
             </div>
           </div>
@@ -103,14 +109,14 @@ export function InviteUserForm({
               disabled={sending}
               className="inline-flex items-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90 disabled:opacity-50"
             >
-              {sending ? "Sending..." : "Send Invite"}
+              {sending ? t("auth.sending") : t("backoffice.sendInvite")}
             </button>
             <button
               type="button"
               onClick={onClose}
               className="inline-flex items-center rounded-md border px-4 py-2 text-sm font-medium hover:bg-muted"
             >
-              Cancel
+              {t("common.cancel")}
             </button>
           </div>
         </form>

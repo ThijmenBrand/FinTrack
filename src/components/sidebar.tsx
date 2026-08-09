@@ -25,10 +25,12 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { PRIMARY_NAV, SECONDARY_NAV, useSessionUser } from "@/components/nav-shared";
+import { useI18n } from "@/lib/i18n/client";
 
 const navigation = [...PRIMARY_NAV, ...SECONDARY_NAV];
 
 export function Sidebar() {
+  const { t } = useI18n();
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -54,7 +56,7 @@ export function Sidebar() {
         </div>
         {!collapsed && (
           <span className="text-lg font-semibold tracking-tight text-foreground">
-            FinTrack
+            {t("nav.appShortName")}
           </span>
         )}
       </div>
@@ -68,7 +70,7 @@ export function Sidebar() {
               : pathname.startsWith(item.href);
           return (
             <Link
-              key={item.name}
+              key={item.href}
               href={item.href}
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
@@ -78,7 +80,7 @@ export function Sidebar() {
               )}
             >
               <item.icon className="h-4 w-4 shrink-0" />
-              {!collapsed && <span>{item.name}</span>}
+              {!collapsed && <span>{t(item.labelKey)}</span>}
             </Link>
           );
         })}
@@ -113,13 +115,13 @@ export function Sidebar() {
               <DropdownMenuItem asChild>
                 <Link href="/profile" className="flex items-center gap-2">
                   <User className="h-4 w-4" />
-                  Profile
+                  {t("nav.profile")}
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link href="/settings" className="flex items-center gap-2">
                   <Settings className="h-4 w-4" />
-                  Settings
+                  {t("nav.settings")}
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
@@ -128,7 +130,7 @@ export function Sidebar() {
                 className="flex items-center gap-2"
               >
                 <Sun className="h-4 w-4" />
-                Light
+                {t("theme.light")}
                 {theme === "light" && <Check className="ml-auto h-4 w-4" />}
               </DropdownMenuItem>
               <DropdownMenuItem
@@ -136,7 +138,7 @@ export function Sidebar() {
                 className="flex items-center gap-2"
               >
                 <Moon className="h-4 w-4" />
-                Dark
+                {t("theme.dark")}
                 {theme === "dark" && <Check className="ml-auto h-4 w-4" />}
               </DropdownMenuItem>
               <DropdownMenuItem
@@ -144,7 +146,7 @@ export function Sidebar() {
                 className="flex items-center gap-2"
               >
                 <Heart className="h-4 w-4 fill-current" />
-                Pink
+                {t("theme.pink")}
                 {theme === "pink" && <Check className="ml-auto h-4 w-4" />}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
@@ -153,7 +155,7 @@ export function Sidebar() {
                 className="flex items-center gap-2 text-destructive focus:text-destructive"
               >
                 <LogOut className="h-4 w-4" />
-                Sign Out
+                {t("nav.logout")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -163,6 +165,7 @@ export function Sidebar() {
       {/* Collapse toggle */}
       <button
         onClick={() => setCollapsed(!collapsed)}
+        aria-label={collapsed ? t("nav.expandSidebar") : t("nav.collapseSidebar")}
         className="absolute -right-3 top-20 flex h-6 w-6 items-center justify-center rounded-full border bg-background text-muted-foreground shadow-sm hover:text-foreground"
       >
         {collapsed ? (

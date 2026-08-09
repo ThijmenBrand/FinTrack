@@ -14,8 +14,10 @@ import { Fingerprint, Loader2, Trash2 } from "lucide-react";
 import { usePasskeys, useDeletePasskey, useRegisterPasskey } from "@/hooks/use-passkey";
 import { ApiError } from "@/lib/api";
 import { FormMessage, type FormMessageState } from "./form-message";
+import { useI18n } from "@/lib/i18n/client";
 
 export function PasskeyCard() {
+  const { t, formatDate } = useI18n();
   const [webAuthnSupported, setWebAuthnSupported] = useState(false);
   const [passkeyMsg, setPasskeyMsg] = useState<FormMessageState>(null);
   const [registeringPasskey, setRegisteringPasskey] = useState(false);
@@ -43,7 +45,7 @@ export function PasskeyCard() {
     } catch (err) {
       setPasskeyMsg({
         type: "error",
-        text: err instanceof Error ? err.message : "Failed to register passkey",
+        text: err instanceof Error ? err.message : t("profile.passkey.registerFailed"),
       });
     } finally {
       setRegisteringPasskey(false);
@@ -62,7 +64,7 @@ export function PasskeyCard() {
     } catch (err) {
       setPasskeyMsg({
         type: "error",
-        text: err instanceof ApiError ? err.message : "Failed to remove passkey",
+        text: err instanceof ApiError ? err.message : t("profile.passkey.removeFailed"),
       });
     }
   }
@@ -75,10 +77,8 @@ export function PasskeyCard() {
             <Fingerprint className="h-5 w-5 text-primary" />
           </div>
           <div>
-            <CardTitle>Face ID / Biometric Login</CardTitle>
-            <CardDescription>
-              Use biometrics for quick, secure sign-in
-            </CardDescription>
+            <CardTitle>{t("profile.passkey.title")}</CardTitle>
+            <CardDescription>{t("profile.passkey.hint")}</CardDescription>
           </div>
         </div>
       </CardHeader>
@@ -87,31 +87,31 @@ export function PasskeyCard() {
 
         {!webAuthnSupported ? (
           <p className="text-sm text-muted-foreground">
-            Biometric login is not available on this device or browser.
+            {t("profile.passkey.unsupported")}
           </p>
         ) : (
           <div className="space-y-4">
             {passkeys.length > 0 && (
               <div className="space-y-2">
-                <p className="text-sm font-medium">Registered passkeys</p>
+                <p className="text-sm font-medium">{t("profile.passkey.registered")}</p>
                 {passkeys.map((pk) => (
                   <div key={pk.id}>
                     <div className="flex items-center justify-between rounded-md border p-3">
                       <div className="flex items-center gap-2">
                         <Fingerprint className="h-4 w-4 text-muted-foreground" />
                         <span className="text-sm">
-                          {pk.name || "Passkey"}
+                          {pk.name || t("profile.passkey.fallbackName")}
                         </span>
                         {pk.createdAt && (
                           <span className="text-xs text-muted-foreground">
-                            {new Date(pk.createdAt).toLocaleDateString()}
+                            {formatDate(pk.createdAt)}
                           </span>
                         )}
                       </div>
                       <button
                         onClick={() => { setDeletePasskeyId(pk.id); setDeletePasskeyPassword(""); setPasskeyMsg(null); }}
                         className="inline-flex items-center justify-center rounded-md p-1 text-muted-foreground hover:text-destructive transition-colors"
-                        title="Remove passkey"
+                        title={t("profile.passkey.remove")}
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
@@ -119,11 +119,11 @@ export function PasskeyCard() {
                     {deletePasskeyId === pk.id && (
                       <form onSubmit={handleDeletePasskey} className="mt-2 space-y-3 rounded-md border border-destructive/20 bg-destructive/5 p-3">
                         <p className="text-sm text-muted-foreground">
-                          Enter your password to confirm passkey removal.
+                          {t("profile.passkey.confirmRemoval")}
                         </p>
                         <div className="space-y-2">
                           <label htmlFor={`deletePasskeyPw-${pk.id}`} className="text-sm font-medium">
-                            Current Password
+                            {t("profile.password.current")}
                           </label>
                           <Input
                             id={`deletePasskeyPw-${pk.id}`}
@@ -145,14 +145,14 @@ export function PasskeyCard() {
                             ) : (
                               <Trash2 className="h-4 w-4" />
                             )}
-                            Remove Passkey
+                            {t("profile.passkey.removeButton")}
                           </button>
                           <button
                             type="button"
                             onClick={() => { setDeletePasskeyId(null); setDeletePasskeyPassword(""); setPasskeyMsg(null); }}
                             className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground transition-colors"
                           >
-                            Cancel
+                            {t("common.cancel")}
                           </button>
                         </div>
                       </form>
@@ -173,8 +173,8 @@ export function PasskeyCard() {
                 <Fingerprint className="h-4 w-4" />
               )}
               {passkeys.length > 0
-                ? "Add another passkey"
-                : "Set up Face ID / Touch ID"}
+                ? t("profile.passkey.addAnother")
+                : t("profile.passkey.setUp")}
             </button>
           </div>
         )}

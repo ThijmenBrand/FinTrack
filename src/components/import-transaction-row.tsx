@@ -19,6 +19,7 @@ import {
 import { CheckCircle2, Tag, StickyNote, Package, Receipt, Check } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
 import type { PreviewTransaction } from "@/lib/csv-utils";
+import { useI18n } from "@/lib/i18n/client";
 
 export interface ImportCategory {
   id: string;
@@ -34,13 +35,6 @@ export interface ImportPot {
 
 // Deliberately different from the shared formatDate: en-US, no year, and
 // pinned to noon to dodge DST edge cases in this row-dense import list.
-function formatDate(dateStr: string) {
-  return new Intl.DateTimeFormat("en-US", {
-    day: "numeric",
-    month: "short",
-  }).format(new Date(dateStr + "T12:00:00"));
-}
-
 export const ImportTransactionRow = memo(function ImportTransactionRow({
   tx,
   categories,
@@ -64,6 +58,7 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
   selected: boolean;
   onToggleSelect: (tempId: string) => void;
 }) {
+  const { t, formatDayMonth: formatDate } = useI18n();
   const [expanded, setExpanded] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
   const category = categories.find((c) => c.id === tx.categoryId);
@@ -101,7 +96,7 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
         ) : (
           <span className="flex items-center gap-1.5 text-muted-foreground">
             <Tag className="h-3 w-3" />
-            <span>Select...</span>
+            <span>{t("csvRow.selectPlaceholder")}</span>
           </span>
         )}
       </SelectTrigger>
@@ -128,7 +123,7 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
         <Checkbox
           checked={selected}
           onCheckedChange={() => onToggleSelect(tx.tempId)}
-          aria-label="Select transaction"
+          aria-label={t("csvRow.selectTransaction")}
           className="shrink-0"
         />
 
@@ -176,8 +171,8 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
           variant="ghost"
           size="icon"
           className="h-7 w-7 shrink-0"
-          aria-label={tx.notes ? "Edit note" : "Add note"}
-          title={tx.notes ? "Edit note" : "Add note"}
+          aria-label={tx.notes ? t("csvRow.editNote") : t("csvRow.addNote")}
+          title={tx.notes ? t("csvRow.editNote") : t("csvRow.addNote")}
           onClick={() => setNoteOpen((prev) => !prev)}
         >
           <StickyNote
@@ -196,8 +191,8 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
                 variant="ghost"
                 size="icon"
                 className="h-7 w-7 shrink-0"
-                aria-label={pot ? `In pot: ${pot.name}` : "Add to pot"}
-                title={pot ? `In pot: ${pot.name}` : "Add to pot"}
+                aria-label={pot ? t("csvRow.inPot", { name: pot.name }) : t("csvRow.addToPot")}
+                title={pot ? t("csvRow.inPot", { name: pot.name }) : t("csvRow.addToPot")}
               >
                 <Package
                   className={cn(
@@ -227,7 +222,7 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
                   onClick={() => onPotChange(tx.tempId, null)}
                   className="text-muted-foreground"
                 >
-                  <span className="ml-[22px]">Remove from pot</span>
+                  <span className="ml-[22px]">{t("tx.row.removeFromPot")}</span>
                 </DropdownMenuItem>
               )}
             </DropdownMenuContent>
@@ -241,14 +236,18 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
             size="icon"
             className="h-7 w-7 shrink-0"
             aria-label={
-              isReimbursement ? "Unmark reimbursement" : "Mark as reimbursement"
+              isReimbursement
+                ? t("csvRow.unmarkReimbursement")
+                : t("csvRow.markReimbursement")
             }
             title={
               isReimbursement
                 ? tx.reimbursesDescription
-                  ? `Reimburses: ${tx.reimbursesDescription} — click to unmark`
-                  : "Unmark reimbursement"
-                : "Mark as reimbursement"
+                  ? t("csvRow.reimbursesClickToUnmark", {
+                      description: tx.reimbursesDescription,
+                    })
+                  : t("csvRow.unmarkReimbursement")
+                : t("csvRow.markReimbursement")
             }
             onClick={() => onToggleReimbursement(tx.tempId)}
           >
@@ -274,7 +273,7 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
         <div className="sm:pl-[104px]">
           <Input
             defaultValue={tx.notes ?? ""}
-            placeholder="Add a note…"
+            placeholder={t("notes.placeholder")}
             maxLength={500}
             autoFocus={noteOpen}
             className="h-7 text-xs"

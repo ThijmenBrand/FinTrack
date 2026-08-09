@@ -2,7 +2,7 @@
 
 import type { BudgetSuggestion } from "@/types/api";
 import { Button } from "@/components/ui/button";
-import { formatCurrency } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n/client";
 import { Sparkles, X, Check } from "lucide-react";
 import { ROW_GRID, CELL_BAR, CELL_AMOUNT, CELL_DELTA } from "./budget-row";
 
@@ -14,6 +14,7 @@ interface SuggestionRowProps {
 }
 
 export function SuggestionRow({ suggestion, busy, onAccept, onReject }: SuggestionRowProps) {
+  const { t, formatCurrency } = useI18n();
   const isNew = suggestion.currentAmount === null;
   const delta =
     suggestion.currentAmount !== null
@@ -30,11 +31,14 @@ export function SuggestionRow({ suggestion, busy, onAccept, onReject }: Suggesti
           <span className="truncate text-sm font-medium">{suggestion.categoryName}</span>
           <span className="inline-flex shrink-0 items-center gap-0.5 rounded-md bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
             <Sparkles className="h-2.5 w-2.5" />
-            {isNew ? "New" : "Update"}
+            {isNew ? t("budgets.suggestion.new") : t("budgets.suggestion.update")}
           </span>
         </div>
         <div className="truncate text-xs text-muted-foreground">
-          avg {formatCurrency(suggestion.avgMonthly)}/mo · {suggestion.monthsOfData} mo
+          {t("budgets.row.avgPerMonth", {
+            amount: formatCurrency(suggestion.avgMonthly),
+            months: suggestion.monthsOfData,
+          })}
         </div>
       </div>
       <div className={`hidden text-xs text-muted-foreground sm:block ${CELL_BAR}`}>
@@ -55,7 +59,7 @@ export function SuggestionRow({ suggestion, busy, onAccept, onReject }: Suggesti
           </span>
         ) : (
           <span>
-            Suggest{" "}
+            {t("budgets.suggestion.suggestPrefix")}{" "}
             <span className="font-medium text-foreground">
               {formatCurrency(suggestion.suggestedAmount)}
             </span>
@@ -64,7 +68,7 @@ export function SuggestionRow({ suggestion, busy, onAccept, onReject }: Suggesti
       </div>
       <div className={`whitespace-nowrap text-right text-sm tabular-nums ${CELL_AMOUNT}`}>
         <span className="font-medium">{formatCurrency(suggestion.suggestedAmount)}</span>
-        <span className="text-muted-foreground">/mo</span>
+        <span className="text-muted-foreground">{t("budgets.perMonthShort")}</span>
       </div>
       <div className={`flex items-center justify-end gap-1 ${CELL_DELTA}`}>
         <Button
@@ -73,7 +77,7 @@ export function SuggestionRow({ suggestion, busy, onAccept, onReject }: Suggesti
           className="h-7 px-2"
           onClick={onReject}
           disabled={busy}
-          aria-label="Dismiss suggestion"
+          aria-label={t("budgets.suggestion.dismiss")}
         >
           <X className="h-3.5 w-3.5" />
         </Button>
@@ -82,7 +86,7 @@ export function SuggestionRow({ suggestion, busy, onAccept, onReject }: Suggesti
           className="h-7 px-2"
           onClick={onAccept}
           disabled={busy}
-          aria-label="Accept suggestion"
+          aria-label={t("budgets.suggestion.accept")}
         >
           <Check className="h-3.5 w-3.5" />
         </Button>

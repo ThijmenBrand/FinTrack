@@ -58,18 +58,22 @@ import {
   Star,
   StarOff,
 } from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
 import { BANKS, bankHasSeparateFeeColumn } from "@/lib/banks";
+import { useI18n } from "@/lib/i18n/client";
+import type { MessageKey } from "@/lib/i18n/translate";
 import { BankLogo } from "@/components/bank-logo";
 import { AccountBalanceDialog } from "@/components/account-balance-dialog";
 
-const ACCOUNT_TYPES = [
-  { value: "checking", label: "Checking" },
-  { value: "savings", label: "Savings" },
-  { value: "joint", label: "Joint" },
-  { value: "credit", label: "Credit Card" },
-  { value: "other", label: "Other" },
+const ACCOUNT_TYPES: { value: string; labelKey: MessageKey }[] = [
+  { value: "checking", labelKey: "accounts.type.checking" },
+  { value: "savings", labelKey: "accounts.type.savings" },
+  { value: "joint", labelKey: "accounts.type.joint" },
+  { value: "credit", labelKey: "accounts.type.credit" },
+  { value: "other", labelKey: "accounts.type.other" },
 ];
+
+const typeLabelKey = (type: string): MessageKey =>
+  ACCOUNT_TYPES.find((t) => t.value === type)?.labelKey ?? "accounts.type.other";
 
 const ACCOUNT_TYPE_STYLES: Record<string, { badge: string }> = {
   checking: {
@@ -109,6 +113,7 @@ function SortableAccountCard({
   onToggleDefault: (id: string, makeDefault: boolean) => void;
   onOpen: (account: Account) => void;
 }) {
+  const { t, formatCurrency } = useI18n();
   const {
     attributes,
     listeners,
@@ -139,7 +144,7 @@ function SortableAccountCard({
       {/* Drag handle strip */}
       <button
         className="absolute left-0 top-0 bottom-0 w-6 flex items-center justify-center rounded-l-xl md:opacity-0 md:group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing touch-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-r-none"
-        aria-label={`Reorder ${account.name}`}
+        aria-label={t("accounts.reorderLabel", { name: account.name })}
         {...attributes}
         {...listeners}
       >
@@ -149,7 +154,7 @@ function SortableAccountCard({
       <div
         role="button"
         tabIndex={0}
-        aria-label={`View balance history for ${account.name}`}
+        aria-label={t("accounts.viewHistoryLabel", { name: account.name })}
         onClick={() => onOpen(account)}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
@@ -171,15 +176,15 @@ function SortableAccountCard({
                 {isDefault && (
                   <span
                     className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
-                    title="Fallback account for the Dashboard and Insights when you have no checking account"
+                    title={t("accounts.defaultTooltip")}
                   >
                     <Star className="h-2.5 w-2.5 fill-current" />
-                    Default
+                    {t("accounts.default")}
                   </span>
                 )}
               </div>
               <p className="text-xs text-muted-foreground truncate">
-                {account.bankName || "No bank"}
+                {account.bankName || t("accounts.noBank")}
               </p>
             </div>
           </div>
@@ -193,7 +198,7 @@ function SortableAccountCard({
             <DropdownMenuTrigger asChild>
               <button
                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md md:opacity-0 md:group-hover:opacity-100 transition-opacity hover:bg-muted focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                aria-label={`Actions for ${account.name}`}
+                aria-label={t("accounts.actionsLabel", { name: account.name })}
               >
                 <MoreVertical className="h-4 w-4 text-muted-foreground" />
               </button>
@@ -201,18 +206,18 @@ function SortableAccountCard({
             <DropdownMenuContent align="end">
               <DropdownMenuItem onClick={() => onEdit(account)}>
                 <Pencil className="h-4 w-4" />
-                Edit account
+                {t("accounts.editAccount")}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => onToggleDefault(account.id, !isDefault)}>
                 {isDefault ? (
                   <>
                     <StarOff className="h-4 w-4" />
-                    Remove as default
+                    {t("accounts.removeDefault")}
                   </>
                 ) : (
                   <>
                     <Star className="h-4 w-4" />
-                    Set as default
+                    {t("accounts.setDefault")}
                   </>
                 )}
               </DropdownMenuItem>
@@ -222,7 +227,7 @@ function SortableAccountCard({
                 onClick={() => onDelete(account.id)}
               >
                 <Trash2 className="h-4 w-4" />
-                Delete account
+                {t("accounts.deleteAccount")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -245,9 +250,9 @@ function SortableAccountCard({
         {/* Footer: type badge + net change */}
         <div className="mt-3 flex items-center justify-between gap-2">
           <span
-            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium capitalize ${typeBadge}`}
+            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${typeBadge}`}
           >
-            {account.type === "credit" ? "Credit card" : account.type}
+            {t(typeLabelKey(account.type))}
           </span>
           {netChange !== 0 && (
             <span
@@ -270,6 +275,7 @@ function SortableAccountCard({
 const emptyAccounts: Account[] = [];
 
 export default function AccountsPage() {
+  const { t, plural, formatCurrency } = useI18n();
   const { data: accountsData = emptyAccounts, isLoading: loading } = useAccounts();
   const { data: prefs } = usePreferences();
   const updatePrefs = useUpdatePreferences();
@@ -380,10 +386,8 @@ export default function AccountsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Accounts</h1>
-          <p className="text-muted-foreground">
-            Manage your bank accounts and view balances.
-          </p>
+          <h1 className="text-3xl font-bold tracking-tight">{t("accounts.title")}</h1>
+          <p className="text-muted-foreground">{t("accounts.subtitle")}</p>
         </div>
         <Dialog
           open={dialogOpen}
@@ -395,48 +399,48 @@ export default function AccountsPage() {
           <DialogTrigger asChild>
             <Button>
               <Plus className="mr-2 h-4 w-4" />
-              Add Account
+              {t("accounts.add")}
             </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle>
-                {editingAccount ? "Edit Account" : "Add New Account"}
+                {editingAccount ? t("accounts.editTitle") : t("accounts.addTitle")}
               </DialogTitle>
               <DialogDescription>
                 {editingAccount
-                  ? "Update the details for this account."
-                  : "Add a new bank account to track."}
+                  ? t("accounts.editDescription")
+                  : t("accounts.addDescription")}
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="grid gap-2">
-                <Label htmlFor="name">Account Name</Label>
+                <Label htmlFor="name">{t("accounts.nameLabel")}</Label>
                 <Input
                   id="name"
-                  placeholder="e.g. Main Checking"
+                  placeholder={t("accounts.namePlaceholder")}
                   autoComplete="off"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                 />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="type">Account Type</Label>
+                <Label htmlFor="type">{t("accounts.typeLabel")}</Label>
                 <Select value={type} onValueChange={setType}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {ACCOUNT_TYPES.map((t) => (
-                      <SelectItem key={t.value} value={t.value}>
-                        {t.label}
+                    {ACCOUNT_TYPES.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {t(opt.labelKey)}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="bank">Bank (optional)</Label>
+                <Label htmlFor="bank">{t("accounts.bankLabel")}</Label>
                 <Select
                   value={bank || "none"}
                   onValueChange={(v) => setBank(v === "none" ? "" : v)}
@@ -445,7 +449,7 @@ export default function AccountsPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">Not set</SelectItem>
+                    <SelectItem value="none">{t("accounts.bankNotSet")}</SelectItem>
                     {BANKS.map((b) => (
                       <SelectItem key={b.value} value={b.value}>
                         <span className="flex items-center gap-2">
@@ -459,7 +463,7 @@ export default function AccountsPage() {
                 {bank === "other" && (
                   <Input
                     id="bankName"
-                    placeholder="Bank name"
+                    placeholder={t("accounts.bankNamePlaceholder")}
                     autoComplete="off"
                     value={bankName}
                     onChange={(e) => setBankName(e.target.value)}
@@ -467,24 +471,22 @@ export default function AccountsPage() {
                 )}
                 {bankHasSeparateFeeColumn(bank) && (
                   <p className="text-xs text-muted-foreground">
-                    Revolut lists card and ATM fees in a separate Fee column.
-                    Imports for this account will subtract them from each
-                    transaction, so your balance stays exact.
+                    {t("accounts.feeColumnHint")}
                   </p>
                 )}
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="iban">IBAN (optional)</Label>
+                <Label htmlFor="iban">{t("accounts.ibanLabel")}</Label>
                 <Input
                   id="iban"
-                  placeholder="e.g. NL91ABNA0417164300"
+                  placeholder={t("accounts.ibanPlaceholder")}
                   value={iban}
                   onChange={(e) => setIban(e.target.value)}
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2">
-                  <Label htmlFor="currency">Currency</Label>
+                  <Label htmlFor="currency">{t("accounts.currencyLabel")}</Label>
                   <Select value={currency} onValueChange={setCurrency}>
                     <SelectTrigger>
                       <SelectValue />
@@ -497,7 +499,7 @@ export default function AccountsPage() {
                   </Select>
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="balance">Starting Balance</Label>
+                  <Label htmlFor="balance">{t("accounts.startingBalanceLabel")}</Label>
                   <Input
                     id="balance"
                     type="number"
@@ -517,10 +519,10 @@ export default function AccountsPage() {
                   resetForm();
                 }}
               >
-                Cancel
+                {t("common.cancel")}
               </Button>
               <Button onClick={handleSubmit} disabled={!name}>
-                {editingAccount ? "Save Changes" : "Create Account"}
+                {editingAccount ? t("accounts.saveChanges") : t("accounts.createAccount")}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -530,13 +532,12 @@ export default function AccountsPage() {
       {/* Total Balance Card */}
       {accounts.length > 0 && (
         <div className="rounded-xl bg-primary p-6 text-primary-foreground">
-          <p className="text-sm font-medium opacity-80">Total Balance</p>
+          <p className="text-sm font-medium opacity-80">{t("accounts.totalBalance")}</p>
           <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight">
             {formatCurrency(totalBalance)}
           </p>
           <p className="mt-2 text-sm opacity-60">
-            {accounts.length} account{accounts.length !== 1 ? "s" : ""}{" "}
-            connected
+            {plural(accounts.length, "accounts.connected.one", "accounts.connected.other")}
           </p>
         </div>
       )}
@@ -562,14 +563,14 @@ export default function AccountsPage() {
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed py-16">
           <Landmark className="h-12 w-12 text-muted-foreground/30 mb-3" />
           <h3 className="text-base font-medium text-muted-foreground mb-1">
-            No accounts yet
+            {t("accounts.emptyTitle")}
           </h3>
           <p className="text-sm text-muted-foreground mb-4">
-            Add your first bank account to start tracking.
+            {t("accounts.emptyBody")}
           </p>
           <Button onClick={() => setDialogOpen(true)}>
             <Plus className="mr-2 h-4 w-4" />
-            Add Account
+            {t("accounts.add")}
           </Button>
         </div>
       ) : (

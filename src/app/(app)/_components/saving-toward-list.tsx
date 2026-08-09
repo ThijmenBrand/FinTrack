@@ -6,23 +6,16 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AllocateToPotDialog } from "@/components/allocate-to-pot-dialog";
 import { PotDetailDialog } from "@/components/pot-detail-dialog";
-import { formatCurrency } from "@/lib/utils";
-import { ON_TRACK_LABEL, ON_TRACK_STYLES } from "@/components/spike-progress";
+import { ON_TRACK_LABEL_KEYS, ON_TRACK_STYLES } from "@/components/spike-progress";
 import type { SavingTowardSpike } from "@/types/api";
-
-function dateLabel(targetDate: string): string {
-  return new Date(targetDate).toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
+import { useI18n } from "@/lib/i18n/client";
 
 interface SavingTowardListProps {
   spikes: SavingTowardSpike[];
 }
 
 export function SavingTowardList({ spikes }: SavingTowardListProps) {
+  const { t, plural, formatCurrency, formatDate } = useI18n();
   const router = useRouter();
   const [activeSpike, setActiveSpike] = useState<SavingTowardSpike | null>(null);
   const [detailPotId, setDetailPotId] = useState<string | null>(null);
@@ -42,10 +35,12 @@ export function SavingTowardList({ spikes }: SavingTowardListProps) {
           const isFullyFunded = spike.fundedAmount >= spike.targetAmount;
           const paydaysLabel =
             spike.paydaysRemaining === 0
-              ? "no paydays before"
-              : spike.paydaysRemaining === 1
-                ? "1 payday before"
-                : `${spike.paydaysRemaining} paydays before`;
+              ? t("dashboard.savingToward.noPaydays")
+              : plural(
+                  spike.paydaysRemaining,
+                  "dashboard.savingToward.paydays.one",
+                  "dashboard.savingToward.paydays.other",
+                );
 
           return (
             <div
@@ -76,7 +71,7 @@ export function SavingTowardList({ spikes }: SavingTowardListProps) {
                         variant="outline"
                         className={`text-[10px] px-1.5 py-0 font-normal ${ON_TRACK_STYLES[spike.onTrack]}`}
                       >
-                        {ON_TRACK_LABEL[spike.onTrack]}
+                        {t(ON_TRACK_LABEL_KEYS[spike.onTrack])}
                       </Badge>
                     )}
                     {isFullyFunded && (
@@ -84,12 +79,12 @@ export function SavingTowardList({ spikes }: SavingTowardListProps) {
                         variant="outline"
                         className="text-[10px] px-1.5 py-0 font-normal border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-400"
                       >
-                        Funded
+                        {t("dashboard.savingToward.fundedBadge")}
                       </Badge>
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {dateLabel(spike.targetDate)} · {paydaysLabel}
+                    {formatDate(spike.targetDate)} · {paydaysLabel}
                   </p>
                 </div>
                 <p className="text-sm font-semibold tabular-nums whitespace-nowrap">
@@ -106,7 +101,11 @@ export function SavingTowardList({ spikes }: SavingTowardListProps) {
                 aria-valuenow={pct}
                 aria-valuemin={0}
                 aria-valuemax={100}
-                aria-label={`${spike.name}: ${pct}% funded, expected ${expectedPct}%`}
+                aria-label={t("dashboard.savingToward.progressLabel", {
+                  name: spike.name,
+                  pct,
+                  expected: expectedPct,
+                })}
               >
                 <div
                   className="h-full rounded-full transition-all duration-500"
@@ -122,7 +121,7 @@ export function SavingTowardList({ spikes }: SavingTowardListProps) {
                     className="absolute top-0 bottom-0 w-px bg-foreground/40"
                     style={{ left: `${expectedPct}%` }}
                     aria-hidden="true"
-                    title={`Expected by now: ${expectedPct}%`}
+                    title={t("dashboard.savingToward.expectedByNow", { pct: expectedPct })}
                   />
                 )}
               </div>
@@ -130,8 +129,10 @@ export function SavingTowardList({ spikes }: SavingTowardListProps) {
               <div className="flex items-center justify-between pt-1">
                 <p className="text-xs text-muted-foreground">
                   {isFullyFunded
-                    ? "Fully funded"
-                    : `${formatCurrency(spike.suggestedAllocation)} suggested this payday`}
+                    ? t("dashboard.savingToward.fullyFunded")
+                    : t("dashboard.savingToward.suggestedThisPayday", {
+                        amount: formatCurrency(spike.suggestedAllocation),
+                      })}
                 </p>
                 <Button
                   size="sm"
@@ -141,7 +142,7 @@ export function SavingTowardList({ spikes }: SavingTowardListProps) {
                     setActiveSpike(spike);
                   }}
                 >
-                  Allocate
+                  {t("dashboard.allocate")}
                 </Button>
               </div>
             </div>

@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/select";
 import { Package, Receipt, Trash2, Loader2, X } from "lucide-react";
 import type { Category } from "@/types/api";
+import { useI18n } from "@/lib/i18n/client";
 
 interface TransactionBulkBarProps {
   count: number;
@@ -38,15 +39,16 @@ export function TransactionBulkBar({
   onDelete,
   onClear,
 }: TransactionBulkBarProps) {
+  const { t } = useI18n();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   return (
     <div className="flex items-center gap-2 flex-wrap rounded-lg border border-primary/20 bg-primary/5 px-3 py-2">
-      <span className="text-sm font-medium">{count} selected</span>
+      <span className="text-sm font-medium">{t("tx.bulk.selected", { count })}</span>
       <Select value="" onValueChange={onCategorize} disabled={categorizePending}>
         <SelectTrigger className="h-8 w-48 text-xs">
           <span className="text-muted-foreground">
-            {categorizePending ? "Applying..." : "Set category..."}
+            {categorizePending ? t("tx.bulk.applying") : t("tx.bulk.setCategory")}
           </span>
         </SelectTrigger>
         <SelectContent>
@@ -61,19 +63,19 @@ export function TransactionBulkBar({
               </span>
             </SelectItem>
           ))}
-          <SelectItem value="none">No category</SelectItem>
+          <SelectItem value="none">{t("tx.bulk.noCategory")}</SelectItem>
         </SelectContent>
       </Select>
       {canAddToPot && (
         <Button variant="outline" size="sm" className="h-8" onClick={onAddToPot}>
           <Package className="mr-1.5 h-3.5 w-3.5" />
-          Add to Pot
+          {t("tx.bulk.addToPot")}
         </Button>
       )}
       {canReimburse && (
         <Button variant="outline" size="sm" className="h-8" onClick={onReimburse}>
           <Receipt className="mr-1.5 h-3.5 w-3.5" />
-          Mark as reimbursement
+          {t("tx.bulk.markReimbursement")}
         </Button>
       )}
       {confirmingDelete ? (
@@ -93,7 +95,7 @@ export function TransactionBulkBar({
             ) : (
               <Trash2 className="mr-1.5 h-3.5 w-3.5" />
             )}
-            Delete {count}
+            {t("tx.bulk.deleteCount", { count })}
           </Button>
           <Button
             variant="outline"
@@ -101,7 +103,7 @@ export function TransactionBulkBar({
             className="h-8"
             onClick={() => setConfirmingDelete(false)}
           >
-            Cancel
+            {t("common.cancel")}
           </Button>
         </>
       ) : (
@@ -112,7 +114,7 @@ export function TransactionBulkBar({
           onClick={() => setConfirmingDelete(true)}
         >
           <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-          Delete
+          {t("common.delete")}
         </Button>
       )}
       <Button
@@ -125,7 +127,7 @@ export function TransactionBulkBar({
         }}
       >
         <X className="mr-1 h-3.5 w-3.5" />
-        Clear
+        {t("common.clear")}
       </Button>
     </div>
   );

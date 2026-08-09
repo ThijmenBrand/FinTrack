@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { CalendarRange, Loader2, Save, Lightbulb } from "lucide-react";
 import { usePreferences, useUpdatePreferences } from "@/hooks/use-preferences";
 import { apiFetch } from "@/lib/api";
+import { useI18n } from "@/lib/i18n/client";
 
 interface IncomeDaySuggestion {
   day: number;
@@ -22,12 +23,6 @@ interface IncomeDaySuggestion {
 }
 
 type Mode = "calendar" | "custom";
-
-const ordinal = (n: number): string => {
-  const s = ["th", "st", "nd", "rd"];
-  const v = n % 100;
-  return `${n}${s[(v - 20) % 10] ?? s[v] ?? s[0]}`;
-};
 
 function useIncomeDaySuggestion() {
   return useQuery({
@@ -41,6 +36,7 @@ function useIncomeDaySuggestion() {
 }
 
 export function FinancialMonthSettingsCard() {
+  const { t, plural, ordinal } = useI18n();
   const { data, isLoading } = usePreferences();
   const { data: suggestionData } = useIncomeDaySuggestion();
   const update = useUpdatePreferences();
@@ -79,7 +75,7 @@ export function FinancialMonthSettingsCard() {
     if (effectiveDay === null) return;
     setSavedMsg(null);
     await update.mutateAsync({ financialMonthStartDay: effectiveDay });
-    setSavedMsg("Saved");
+    setSavedMsg(t("common.saved"));
     setTimeout(() => setSavedMsg(null), 2000);
   };
 
@@ -100,10 +96,8 @@ export function FinancialMonthSettingsCard() {
             <CalendarRange className="h-5 w-5 text-primary" />
           </div>
           <div>
-            <CardTitle>Financial month</CardTitle>
-            <CardDescription>
-              Define when your month starts. If your salary lands mid-month, this lets Insights group spending into your real cycle.
-            </CardDescription>
+            <CardTitle>{t("settings.financialMonth.title")}</CardTitle>
+            <CardDescription>{t("settings.financialMonth.description")}</CardDescription>
           </div>
         </div>
       </CardHeader>
@@ -111,7 +105,7 @@ export function FinancialMonthSettingsCard() {
         {isLoading ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Loading…
+            {t("common.loading")}
           </div>
         ) : (
           <>
@@ -125,9 +119,9 @@ export function FinancialMonthSettingsCard() {
                   className="mt-0.5 h-4 w-4 cursor-pointer accent-primary"
                 />
                 <div>
-                  <div className="text-sm font-medium">Calendar month</div>
+                  <div className="text-sm font-medium">{t("settings.financialMonth.calendar")}</div>
                   <div className="text-xs text-muted-foreground">
-                    1st to the last day of each month.
+                    {t("settings.financialMonth.calendarHint")}
                   </div>
                 </div>
               </label>
@@ -141,9 +135,9 @@ export function FinancialMonthSettingsCard() {
                 />
                 <div className="flex-1 space-y-2">
                   <div>
-                    <div className="text-sm font-medium">Custom start day</div>
+                    <div className="text-sm font-medium">{t("settings.financialMonth.custom")}</div>
                     <div className="text-xs text-muted-foreground">
-                      Months run from your chosen day to the day before it the next month.
+                      {t("settings.financialMonth.customHint")}
                     </div>
                   </div>
                   {mode === "custom" && (
@@ -168,8 +162,11 @@ export function FinancialMonthSettingsCard() {
                       />
                       <span className="text-xs text-muted-foreground">
                         {effectiveDay !== null && previewEnd !== null
-                          ? `Day 1–28. Preview: ${ordinal(effectiveDay)} → ${ordinal(previewEnd)} of next month.`
-                          : "Enter a day between 1 and 28."}
+                          ? t("settings.financialMonth.preview", {
+                              from: ordinal(effectiveDay),
+                              to: ordinal(previewEnd),
+                            })
+                          : t("settings.financialMonth.rangeHint")}
                       </span>
                     </div>
                   )}
@@ -182,16 +179,21 @@ export function FinancialMonthSettingsCard() {
                 <div className="flex items-start gap-2 text-sm">
                   <Lightbulb className="mt-0.5 h-4 w-4 flex-shrink-0 text-primary" />
                   <div>
-                    <div className="font-medium">Suggested: {ordinal(suggestion.day)}</div>
+                    <div className="font-medium">
+                      {t("settings.financialMonth.suggested", { day: ordinal(suggestion.day) })}
+                    </div>
                     <div className="text-xs text-muted-foreground">
-                      Based on your highest-income day across the last {suggestion.monthsObserved} month
-                      {suggestion.monthsObserved === 1 ? "" : "s"}.
+                      {plural(
+                        suggestion.monthsObserved,
+                        "settings.financialMonth.suggestionHint.one",
+                        "settings.financialMonth.suggestionHint.other",
+                      )}
                     </div>
                   </div>
                 </div>
                 {effectiveDay !== suggestion.day && (
                   <Button size="sm" variant="outline" onClick={handleUseSuggestion}>
-                    Use suggestion
+                    {t("settings.financialMonth.useSuggestion")}
                   </Button>
                 )}
               </div>
@@ -204,7 +206,7 @@ export function FinancialMonthSettingsCard() {
                 ) : (
                   <Save className="mr-2 h-4 w-4" />
                 )}
-                Save preferences
+                {t("settings.automation.savePreferences")}
               </Button>
               {savedMsg && (
                 <span className="text-sm text-green-600 dark:text-green-400">{savedMsg}</span>

@@ -4,8 +4,10 @@ import { useState } from "react";
 import { ShieldCheck } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { useRouter } from "next/navigation";
+import { useI18n } from "@/lib/i18n/client";
 
 export default function BackofficeLoginPage() {
+  const { t } = useI18n();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -20,7 +22,7 @@ export default function BackofficeLoginPage() {
     try {
       const result = await authClient.signIn.email({ email: email.trim(), password });
       if (result.error) {
-        setError(result.error.message || "Login failed");
+        setError(result.error.message || t("auth.loginFailed"));
         return;
       }
       // No session yet when a second factor is owed — the two-factor client
@@ -31,7 +33,7 @@ export default function BackofficeLoginPage() {
       }
       router.push("/backoffice");
     } catch {
-      setError("Something went wrong. Please try again.");
+      setError(t("auth.genericError"));
     } finally {
       setLoading(false);
     }
@@ -46,11 +48,9 @@ export default function BackofficeLoginPage() {
               <ShieldCheck className="h-6 w-6" />
             </div>
             <h1 className="text-xl font-semibold tracking-tight text-foreground">
-              FinTrack Backoffice
+              {t("backoffice.title")}
             </h1>
-            <p className="text-sm text-muted-foreground">
-              Administrator sign in
-            </p>
+            <p className="text-sm text-muted-foreground">{t("backoffice.loginSubtitle")}</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -59,7 +59,7 @@ export default function BackofficeLoginPage() {
                 htmlFor="email"
                 className="text-sm font-medium leading-none text-foreground"
               >
-                Email
+                {t("auth.email")}
               </label>
               <input
                 id="email"
@@ -70,7 +70,7 @@ export default function BackofficeLoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                placeholder="you@example.com"
+                placeholder={t("auth.emailPlaceholder")}
               />
             </div>
 
@@ -79,7 +79,7 @@ export default function BackofficeLoginPage() {
                 htmlFor="password"
                 className="text-sm font-medium leading-none text-foreground"
               >
-                Password
+                {t("auth.password")}
               </label>
               <input
                 id="password"
@@ -89,7 +89,7 @@ export default function BackofficeLoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                placeholder="Enter your password"
+                placeholder={t("auth.passwordPlaceholder")}
               />
             </div>
 
@@ -100,7 +100,7 @@ export default function BackofficeLoginPage() {
               disabled={loading}
               className="inline-flex h-10 w-full items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
             >
-              {loading ? "Signing in..." : "Sign in"}
+              {loading ? t("auth.signingIn") : t("auth.signIn")}
             </button>
           </form>
         </div>

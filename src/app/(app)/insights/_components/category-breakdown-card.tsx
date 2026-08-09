@@ -7,7 +7,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { formatCurrency } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n/client";
 import { placeResetMarks } from "@/lib/stat-reset-marks";
 import type { StatResetData } from "@/types/api";
 
@@ -47,6 +47,7 @@ export function CategoryBreakdownCard({
   unbudgetedCategoryIds,
   onCategoryClick,
 }: CategoryBreakdownCardProps) {
+  const { t, formatCurrency } = useI18n();
   const months = useMemo(() => {
     const set = new Set<string>();
     for (const row of monthlyCategoryTotals) {
@@ -92,15 +93,15 @@ export function CategoryBreakdownCard({
   return (
     <Card>
       <CardHeader className="flex flex-row flex-wrap items-baseline justify-between gap-2 space-y-0">
-        <CardTitle className="text-base">Where your money went</CardTitle>
+        <CardTitle className="text-base">{t("insights.breakdown.title")}</CardTitle>
         <span className="text-xs text-muted-foreground tabular-nums">
-          Total {formatCurrency(totalExpenses)}
+          {t("insights.breakdown.total", { amount: formatCurrency(totalExpenses) })}
         </span>
       </CardHeader>
       <CardContent>
         {sortedBreakdown.length === 0 ? (
           <p className="text-muted-foreground text-sm py-8 text-center">
-            No expense data for this period.
+            {t("insights.topSpending.empty")}
           </p>
         ) : (
           <div className="space-y-1">
@@ -153,7 +154,7 @@ export function CategoryBreakdownCard({
                         // Desktop only — the name column has no room for it
                         // on mobile, where the signal card says the same thing.
                         <span className="hidden shrink-0 rounded-full border border-amber-300 px-1.5 text-[10px] font-semibold text-amber-600 sm:inline dark:border-amber-900/60 dark:text-amber-400">
-                          no budget
+                          {t("insights.breakdown.noBudgetBadge")}
                         </span>
                       )}
                   </div>

@@ -14,6 +14,7 @@ import { Loader2 } from "lucide-react";
 import { useCreatePot } from "@/hooks/use-pots";
 import { PotForm, isPotTargetValid } from "@/components/pot-form";
 import type { Category } from "@/types/api";
+import { useI18n } from "@/lib/i18n/client";
 
 interface CreatePotDialogProps {
   open: boolean;
@@ -28,6 +29,7 @@ export function CreatePotDialog({
   categories,
   onCreated,
 }: CreatePotDialogProps) {
+  const { t } = useI18n();
   const [name, setName] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [hasTarget, setHasTarget] = useState(false);
@@ -66,10 +68,8 @@ export function CreatePotDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Create Pot</DialogTitle>
-          <DialogDescription>
-            Group related transactions (e.g. a weekend trip) into a pot. Add a target to plan for an upcoming spike.
-          </DialogDescription>
+          <DialogTitle>{t("pots.create.title")}</DialogTitle>
+          <DialogDescription>{t("pots.create.description")}</DialogDescription>
         </DialogHeader>
 
         <PotForm
@@ -85,13 +85,13 @@ export function CreatePotDialog({
           onTargetAmountChange={setTargetAmount}
           targetDate={targetDate}
           onTargetDateChange={setTargetDate}
-          spikeHint="Set a target amount and date so the pot shows up in your forecast and dashboard."
+          spikeHint={t("pots.create.spikeHint")}
           onEnterSubmit={handleCreate}
         />
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button
             onClick={handleCreate}
@@ -100,7 +100,7 @@ export function CreatePotDialog({
             {createPot.isPending && (
               <Loader2 className="h-4 w-4 animate-spin mr-2" />
             )}
-            Create Pot
+            {t("pots.create.title")}
           </Button>
         </DialogFooter>
       </DialogContent>

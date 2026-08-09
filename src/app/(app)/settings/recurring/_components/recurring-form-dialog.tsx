@@ -23,8 +23,14 @@ import {
 } from "@/components/ui/select";
 import { Plus } from "lucide-react";
 import type { Account, CategoryWithDetails, RecurringTx } from "@/types/api";
+import { useI18n } from "@/lib/i18n/client";
 
-const DOW_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+/** Locale's own short weekday names, Sunday-first to match dayOfWeek 0–6. */
+function weekdayNames(intlLocale: string): string[] {
+  const fmt = new Intl.DateTimeFormat(intlLocale, { weekday: "short" });
+  // 2024-01-07 was a Sunday.
+  return Array.from({ length: 7 }, (_, i) => fmt.format(new Date(2024, 0, 7 + i)));
+}
 
 export function RecurringFormDialog({
   open,
@@ -41,12 +47,13 @@ export function RecurringFormDialog({
   categories: CategoryWithDetails[];
   onSubmit: (payload: Record<string, unknown>) => Promise<void>;
 }) {
+  const { t } = useI18n();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger asChild>
         <Button>
           <Plus className="mr-2 h-4 w-4" />
-          Add Recurring
+          {t("recurring.add")}
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-lg">
@@ -79,6 +86,7 @@ function RecurringFormBody({
   onSubmit: (payload: Record<string, unknown>) => Promise<void>;
   onCancel: () => void;
 }) {
+  const { t, intlLocale } = useI18n();
   const [fAccountId, setFAccountId] = useState(editing?.accountId ?? "");
   const [fDescription, setFDescription] = useState(editing?.description ?? "");
   const [fAmount, setFAmount] = useState(
@@ -127,18 +135,18 @@ function RecurringFormBody({
     <>
       <DialogHeader>
         <DialogTitle>
-          {editing ? "Edit Recurring Payment" : "Add Recurring Payment"}
+          {editing ? t("recurring.form.editTitle") : t("recurring.form.addTitle")}
         </DialogTitle>
         <DialogDescription>
           {editing
-            ? "Update this recurring income or expense."
-            : "Set up a recurring income or expense for cash flow tracking."}
+            ? t("recurring.form.editDescription")
+            : t("recurring.form.addDescription")}
         </DialogDescription>
       </DialogHeader>
       <div className="grid gap-4 py-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="grid gap-2">
-            <Label>Type</Label>
+            <Label>{t("common.type")}</Label>
             <Select
               value={fType}
               onValueChange={(v) => setFType(v as "income" | "expense")}
@@ -147,16 +155,16 @@ function RecurringFormBody({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="expense">Expense</SelectItem>
-                <SelectItem value="income">Income</SelectItem>
+                <SelectItem value="expense">{t("common.expense")}</SelectItem>
+                <SelectItem value="income">{t("common.income")}</SelectItem>
               </SelectContent>
             </Select>
           </div>
           <div className="grid gap-2">
-            <Label>Account</Label>
+            <Label>{t("common.account")}</Label>
             <Select value={fAccountId} onValueChange={setFAccountId}>
               <SelectTrigger>
-                <SelectValue placeholder="Select..." />
+                <SelectValue placeholder={t("recurring.form.accountPlaceholder")} />
               </SelectTrigger>
               <SelectContent>
                 {accounts.map((a) => (
@@ -172,16 +180,16 @@ function RecurringFormBody({
           </div>
         </div>
         <div className="grid gap-2">
-          <Label>Description</Label>
+          <Label>{t("common.description")}</Label>
           <Input
-            placeholder="e.g. Rent, Salary, Netflix"
+            placeholder={t("recurring.form.descriptionPlaceholder")}
             value={fDescription}
             onChange={(e) => setFDescription(e.target.value)}
           />
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="grid gap-2">
-            <Label>Amount</Label>
+            <Label>{t("common.amount")}</Label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
                 &euro;
@@ -197,10 +205,10 @@ function RecurringFormBody({
             </div>
           </div>
           <div className="grid gap-2">
-            <Label>Category</Label>
+            <Label>{t("common.category")}</Label>
             <Select value={fCategoryId} onValueChange={setFCategoryId}>
               <SelectTrigger>
-                <SelectValue placeholder="Optional..." />
+                <SelectValue placeholder={t("recurring.form.categoryPlaceholder")} />
               </SelectTrigger>
               <SelectContent>
                 {categories.map((c) => (
@@ -222,28 +230,28 @@ function RecurringFormBody({
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="grid gap-2">
-            <Label>Frequency</Label>
+            <Label>{t("recurring.form.frequency")}</Label>
             <Select value={fFrequency} onValueChange={setFFrequency}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="weekly">Weekly</SelectItem>
-                <SelectItem value="biweekly">Bi-weekly</SelectItem>
-                <SelectItem value="monthly">Monthly</SelectItem>
-                <SelectItem value="yearly">Yearly</SelectItem>
+                <SelectItem value="weekly">{t("recurring.freq.weekly")}</SelectItem>
+                <SelectItem value="biweekly">{t("recurring.freq.biweekly")}</SelectItem>
+                <SelectItem value="monthly">{t("recurring.freq.monthly")}</SelectItem>
+                <SelectItem value="yearly">{t("recurring.freq.yearly")}</SelectItem>
               </SelectContent>
             </Select>
           </div>
           {fFrequency === "weekly" && (
             <div className="grid gap-2">
-              <Label>Day of week</Label>
+              <Label>{t("recurring.form.dayOfWeek")}</Label>
               <Select value={fDayOfWeek} onValueChange={setFDayOfWeek}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {DOW_LABELS.map((label, i) => (
+                  {weekdayNames(intlLocale).map((label, i) => (
                     <SelectItem key={i} value={String(i)}>
                       {label}
                     </SelectItem>
@@ -254,7 +262,7 @@ function RecurringFormBody({
           )}
           {(fFrequency === "monthly" || fFrequency === "yearly") && (
             <div className="grid gap-2">
-              <Label>Day of month</Label>
+              <Label>{t("recurring.form.dayOfMonth")}</Label>
               <Input
                 type="number"
                 min="1"
@@ -266,7 +274,7 @@ function RecurringFormBody({
           )}
         </div>
         <div className="grid gap-2">
-          <Label>Start date</Label>
+          <Label>{t("recurring.form.startDate")}</Label>
           <Input
             type="date"
             value={fStartDate}
@@ -276,13 +284,13 @@ function RecurringFormBody({
       </div>
       <DialogFooter>
         <Button variant="outline" onClick={onCancel}>
-          Cancel
+          {t("common.cancel")}
         </Button>
         <Button
           onClick={handleSubmit}
           disabled={!fAccountId || !fDescription || !fAmount || submitting}
         >
-          {editing ? "Save Changes" : "Create"}
+          {editing ? t("accounts.saveChanges") : t("common.create")}
         </Button>
       </DialogFooter>
     </>
