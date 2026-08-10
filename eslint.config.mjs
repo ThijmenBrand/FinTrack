@@ -38,6 +38,43 @@ export default tseslint.config(
         "warn",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
+      // CLAUDE.md: sql.raw interpolates without binding parameters. Use
+      // sql`` templates or sql.identifier() instead.
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: 'MemberExpression[object.name="sql"][property.name="raw"]',
+          message:
+            "sql.raw bypasses parameterization. Use sql`` bindings or sql.identifier().",
+        },
+      ],
+      // adminDb skips the tenant guard; only backoffice and bootstrap code
+      // (allowlisted below) may take it.
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@/db",
+              importNames: ["adminDb"],
+              message:
+                "adminDb bypasses the tenant guard — only admin/backoffice and migration code may use it.",
+            },
+            {
+              name: "@/db/index",
+              importNames: ["adminDb"],
+              message:
+                "adminDb bypasses the tenant guard — only admin/backoffice and migration code may use it.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["src/app/api/admin/**", "src/db/**", "src/lib/audit.ts"],
+    rules: {
+      "no-restricted-imports": "off",
     },
   },
   {

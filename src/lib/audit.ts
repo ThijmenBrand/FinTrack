@@ -1,4 +1,4 @@
-import { db } from "@/db/index";
+import { db, adminDb } from "@/db/index";
 import { auditLog } from "@/db/schema";
 import { and, eq, gte, lt, lte, ne, type SQL } from "drizzle-orm";
 
@@ -116,7 +116,9 @@ export function toCsvCell(value: unknown): string {
 export async function cleanupOldAuditLogs(retentionDays: number = 90): Promise<number> {
   try {
     const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
-    const result = await db
+    // Retention sweep is deliberately cross-user, so it takes the unguarded
+    // handle.
+    const result = await adminDb
       .delete(auditLog)
       .where(and(lt(auditLog.createdAt, cutoff), ne(auditLog.action, "pot.allocate")));
     return (result as unknown as { rowsAffected?: number }).rowsAffected || 0;

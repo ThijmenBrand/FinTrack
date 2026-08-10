@@ -1,4 +1,6 @@
-import { db } from "./index";
+// Bootstrap/repair code runs before or across user scopes, so it uses the
+// unguarded handle.
+import { adminDb as db } from "./index";
 import { sql } from "drizzle-orm";
 import crypto from "crypto";
 import { validatePassword } from "@/lib/validation";
