@@ -91,10 +91,8 @@ export const nl: Record<MessageKey, string> = {
   "meta.description": "Persoonlijke financiën bijhouden met slimme categorisering en budgettering",
 
   // ─── Language setting ─────────────────────────────────────────────────────
-  "settings.language.title": "Taal",
   "settings.language.description": "De taal die in de hele app wordt gebruikt.",
   "settings.language.label": "Weergavetaal",
-  "settings.language.saved": "Taal bijgewerkt",
 
   // ─── Theme & shell ─────────────────────────────────────────────────────────
   "theme.label": "Thema",
@@ -110,7 +108,10 @@ export const nl: Record<MessageKey, string> = {
 
   // ─── Settings shell & automation ───────────────────────────────────────────
   "settings.title": "Instellingen",
-  "settings.subtitle": "Beheer je rekeningen, categorieën en automatiseringsvoorkeuren.",
+  "settings.general.title": "Algemeen",
+  "settings.general.description": "Hoe de app zich toont, in welke periode je cijfers worden gegroepeerd en vanaf wanneer je gemiddelden tellen. Wijzigingen worden direct opgeslagen.",
+  "settings.interface.title": "Weergave",
+  "settings.interface.description": "Hoeveel van de app je ziet, en in welke taal.",
   "settings.tabs.general": "Algemeen",
   "settings.tabs.accounts": "Rekeningen",
   "settings.tabs.categories": "Categorieën",
@@ -128,21 +129,18 @@ export const nl: Record<MessageKey, string> = {
   "settings.automation.lookbackHint": "Voorstellen middelen dit aantal recente maanden en ronden af naar boven op €5.",
   "settings.automation.lookbackOption.one": "Afgelopen maand",
   "settings.automation.lookbackOption.other": "Afgelopen {count} maanden",
-  "settings.automation.savePreferences": "Voorkeuren opslaan",
 
   // ─── Settings — financial month ────────────────────────────────────────────
   "settings.financialMonth.title": "Financiële maand",
   "settings.financialMonth.description": "Bepaal wanneer je maand begint. Als je salaris midden in de maand binnenkomt, groepeert Inzichten je uitgaven zo op je echte cyclus.",
+  "settings.financialMonth.startsOn": "Maand begint op",
   "settings.financialMonth.calendar": "Kalendermaand",
   "settings.financialMonth.calendarHint": "Van de 1e tot de laatste dag van elke maand.",
-  "settings.financialMonth.custom": "Eigen startdag",
-  "settings.financialMonth.customHint": "Maanden lopen van je gekozen dag tot de dag ervoor in de volgende maand.",
-  "settings.financialMonth.preview": "Dag 1–28. Voorbeeld: {from} → {to} van de volgende maand.",
-  "settings.financialMonth.rangeHint": "Voer een dag tussen 1 en 28 in.",
-  "settings.financialMonth.suggested": "Voorstel: {day}",
+  "settings.financialMonth.dayOption": "De {day}",
+  "settings.financialMonth.previewRange": "Je maand loopt van de {from} tot de {to} van de volgende maand.",
+  "settings.financialMonth.suggested": "Gebruik de {day}",
   "settings.financialMonth.suggestionHint.one": "Gebaseerd op je dag met de hoogste inkomsten in de afgelopen maand.",
   "settings.financialMonth.suggestionHint.other": "Gebaseerd op je dag met de hoogste inkomsten in de afgelopen {count} maanden.",
-  "settings.financialMonth.useSuggestion": "Voorstel gebruiken",
 
   // ─── Settings — statistics reset ───────────────────────────────────────────
   "settings.statReset.title": "Statistieken opnieuw beginnen",
@@ -1081,13 +1079,11 @@ export const nl: Record<MessageKey, string> = {
 
   // ─── Settings — transactions & simple mode ─────────────────────────────────
   "settings.transactions.title": "Transacties",
-  "settings.transactions.description": "Bepaal wat er standaard in je transactielijst verschijnt.",
+  "settings.transactions.description": "Wat je transactielijst standaard toont, en hoe overboekingen meetellen in je budgettotalen.",
   "settings.transactions.hideInternal": "Interne overboekingen verbergen",
   "settings.transactions.hideInternalHint": "Wanneer dit aanstaat, worden overboekingen tussen je eigen rekeningen verborgen in de transactielijst.",
   "settings.transactions.countCrossBudget": "Overboekingen tussen budgetten meetellen",
   "settings.transactions.countCrossBudgetHint": "Wanneer dit aanstaat, telt een overboeking van de rekening van het ene budget naar het andere als uitgave in het verzendende budget en als inkomsten in het ontvangende, in de Inzichten-totalen van elk budget. Uit houdt ze overal buiten beschouwing, zoals nu.",
-  "settings.simpleMode.title": "Eenvoudige modus",
-  "settings.simpleMode.description": "Een rustigere versie van de app met alleen het essentiële.",
   "settings.simpleMode.label": "Eenvoudige modus gebruiken",
   "settings.simpleMode.hint": "Verbergt budgetplannen, voorstellen en diepgaande grafieken op het dashboard, de budget- en inzichtenpagina's. Er wordt niets verwijderd — zet het uit om alles terug te krijgen.",
 

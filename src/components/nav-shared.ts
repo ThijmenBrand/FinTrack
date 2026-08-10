@@ -4,6 +4,7 @@ import type { LucideIcon } from "lucide-react";
 import { LayoutDashboard, Upload, PieChart, Wallet, PiggyBank } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useSession, signOut } from "@/lib/auth-client";
+import { usePreferences } from "@/hooks/use-preferences";
 import type { MessageKey } from "@/lib/i18n/translate";
 
 export interface NavItem {
@@ -24,6 +25,12 @@ export const PRIMARY_NAV: NavItem[] = [
 export const SECONDARY_NAV: NavItem[] = [
   { labelKey: "nav.pots", href: "/pots", icon: PiggyBank },
 ];
+
+/** Secondary items minus the ones simple mode hides (currently: pots). */
+export function useSecondaryNav(): NavItem[] {
+  const { data: prefs } = usePreferences();
+  return prefs?.simpleMode ? [] : SECONDARY_NAV;
+}
 
 export interface SessionUser {
   displayUsername: string;

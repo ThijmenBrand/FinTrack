@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/sheet";
 import {
   PRIMARY_NAV as mainTabs,
-  SECONDARY_NAV as moreItems,
+  useSecondaryNav,
   useSessionUser,
 } from "@/components/nav-shared";
 import { useI18n } from "@/lib/i18n/client";
@@ -35,6 +35,7 @@ export function BottomNav() {
   const [mounted, setMounted] = useState(false);
   const { theme, setTheme } = useTheme();
   const { user, logout } = useSessionUser();
+  const moreItems = useSecondaryNav();
 
   useEffect(() => {
     setMounted(true);

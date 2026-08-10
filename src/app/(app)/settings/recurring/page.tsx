@@ -20,6 +20,7 @@ import { RecurringFormDialog } from "./_components/recurring-form-dialog";
 import { RecurringList } from "./_components/recurring-list";
 import { CashFlowCard } from "./_components/cash-flow-card";
 import { UpcomingPayments } from "./_components/upcoming-payments";
+import { SettingsHeader } from "@/components/settings/settings-ui";
 import { useI18n } from "@/lib/i18n/client";
 
 export default function RecurringPage() {
@@ -65,34 +66,33 @@ export default function RecurringPage() {
   // on the numbers it describes and lives inside the cash flow card.
   const warnings = forecast?.advice.filter((a) => a.type === "warning") ?? [];
 
-  // The settings layout already owns the <h1> and names this tab, so this is a
-  // section heading — not a second page title.
   const header = (
-    <div className="flex flex-wrap items-start justify-between gap-3">
-      <div>
-        <h2 className="text-xl font-semibold tracking-tight">{t("recurring.title")}</h2>
-        <p className="text-sm text-muted-foreground">
-          {t("recurring.subtitlePrefix")}{" "}
-          <Link href="/budgets" className="text-primary hover:underline">
-            {t("recurring.subtitleLink")}
-          </Link>{" "}
-          {t("recurring.subtitleSuffix")}
-        </p>
-      </div>
-      <RecurringFormDialog
-        open={dialogOpen}
-        onOpenChange={handleDialogOpenChange}
-        editing={editing}
-        accounts={accounts}
-        categories={categories}
-        onSubmit={handleFormSubmit}
-      />
-    </div>
+    <SettingsHeader
+      title="recurring.title"
+      actions={
+        <RecurringFormDialog
+          open={dialogOpen}
+          onOpenChange={handleDialogOpenChange}
+          editing={editing}
+          accounts={accounts}
+          categories={categories}
+          onSubmit={handleFormSubmit}
+        />
+      }
+    >
+      <p className="max-w-prose text-sm text-muted-foreground">
+        {t("recurring.subtitlePrefix")}{" "}
+        <Link href="/budgets" className="text-primary hover:underline">
+          {t("recurring.subtitleLink")}
+        </Link>{" "}
+        {t("recurring.subtitleSuffix")}
+      </p>
+    </SettingsHeader>
   );
 
   if (loading) {
     return (
-      <div className="space-y-8">
+      <div className="space-y-6">
         {header}
         <Card>
           <CardHeader className="pb-4">
@@ -121,12 +121,12 @@ export default function RecurringPage() {
 
   if (items.length === 0) {
     return (
-      <div className="space-y-8">
+      <div className="space-y-6">
         {header}
         <Card>
           <CardContent className="flex flex-col items-center px-6 py-16 text-center">
             <RefreshCcw className="mb-4 h-10 w-10 text-muted-foreground/30" />
-            <h2 className="text-base font-semibold">{t("recurring.emptyTitle")}</h2>
+            <h3 className="text-base font-semibold">{t("recurring.emptyTitle")}</h3>
             <p className="mt-1.5 max-w-md text-sm text-muted-foreground">
               {t("recurring.emptyBody")}
             </p>

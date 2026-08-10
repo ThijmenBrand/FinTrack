@@ -63,6 +63,7 @@ import { useI18n } from "@/lib/i18n/client";
 import type { MessageKey } from "@/lib/i18n/translate";
 import { BankLogo } from "@/components/bank-logo";
 import { AccountBalanceDialog } from "@/components/account-balance-dialog";
+import { SettingsHeader } from "@/components/settings/settings-ui";
 
 const ACCOUNT_TYPES: { value: string; labelKey: MessageKey }[] = [
   { value: "checking", labelKey: "accounts.type.checking" },
@@ -382,165 +383,171 @@ export default function AccountsPage() {
   const totalBalance = accounts.reduce((sum, a) => sum + a.currentBalance, 0);
 
   return (
-    <div className="space-y-8">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">{t("accounts.title")}</h1>
-          <p className="text-muted-foreground">{t("accounts.subtitle")}</p>
-        </div>
-        <Dialog
-          open={dialogOpen}
-          onOpenChange={(open) => {
-            setDialogOpen(open);
-            if (!open) resetForm();
-          }}
-        >
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              {t("accounts.add")}
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>
-                {editingAccount ? t("accounts.editTitle") : t("accounts.addTitle")}
-              </DialogTitle>
-              <DialogDescription>
-                {editingAccount
-                  ? t("accounts.editDescription")
-                  : t("accounts.addDescription")}
-              </DialogDescription>
-            </DialogHeader>
-            <div className="grid gap-4 py-4">
-              <div className="grid gap-2">
-                <Label htmlFor="name">{t("accounts.nameLabel")}</Label>
-                <Input
-                  id="name"
-                  placeholder={t("accounts.namePlaceholder")}
-                  autoComplete="off"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                />
+    <div className="space-y-6">
+      <SettingsHeader
+        title="accounts.title"
+        description="accounts.subtitle"
+        actions={
+          <>
+            {/* The total used to be a saturated primary slab below the header —
+                the one block in Settings that shouted. It's a header stat now. */}
+            {accounts.length > 0 && (
+              <div className="mr-1 text-left sm:text-right">
+                <p className="text-xs text-muted-foreground">
+                  {t("accounts.totalBalance")}
+                  {" · "}
+                  {plural(
+                    accounts.length,
+                    "accounts.connected.one",
+                    "accounts.connected.other",
+                  )}
+                </p>
+                <p className="text-lg font-semibold tabular-nums tracking-tight">
+                  {formatCurrency(totalBalance)}
+                </p>
               </div>
-              <div className="grid gap-2">
-                <Label htmlFor="type">{t("accounts.typeLabel")}</Label>
-                <Select value={type} onValueChange={setType}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {ACCOUNT_TYPES.map((opt) => (
-                      <SelectItem key={opt.value} value={opt.value}>
-                        {t(opt.labelKey)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="bank">{t("accounts.bankLabel")}</Label>
-                <Select
-                  value={bank || "none"}
-                  onValueChange={(v) => setBank(v === "none" ? "" : v)}
-                >
-                  <SelectTrigger id="bank">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">{t("accounts.bankNotSet")}</SelectItem>
-                    {BANKS.map((b) => (
-                      <SelectItem key={b.value} value={b.value}>
-                        <span className="flex items-center gap-2">
-                          <BankLogo bank={b.value} size={24} />
-                          {b.label}
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {bank === "other" && (
-                  <Input
-                    id="bankName"
-                    placeholder={t("accounts.bankNamePlaceholder")}
-                    autoComplete="off"
-                    value={bankName}
-                    onChange={(e) => setBankName(e.target.value)}
-                  />
-                )}
-                {bankHasSeparateFeeColumn(bank) && (
-                  <p className="text-xs text-muted-foreground">
-                    {t("accounts.feeColumnHint")}
-                  </p>
-                )}
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="iban">{t("accounts.ibanLabel")}</Label>
-                <Input
-                  id="iban"
-                  placeholder={t("accounts.ibanPlaceholder")}
-                  value={iban}
-                  onChange={(e) => setIban(e.target.value)}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="currency">{t("accounts.currencyLabel")}</Label>
-                  <Select value={currency} onValueChange={setCurrency}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="EUR">EUR</SelectItem>
-                      <SelectItem value="USD">USD</SelectItem>
-                      <SelectItem value="GBP">GBP</SelectItem>
-                    </SelectContent>
-                  </Select>
+            )}
+            <Dialog
+              open={dialogOpen}
+              onOpenChange={(open) => {
+                setDialogOpen(open);
+                if (!open) resetForm();
+              }}
+            >
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="mr-2 h-4 w-4" />
+                  {t("accounts.add")}
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle>
+                    {editingAccount ? t("accounts.editTitle") : t("accounts.addTitle")}
+                  </DialogTitle>
+                  <DialogDescription>
+                    {editingAccount
+                      ? t("accounts.editDescription")
+                      : t("accounts.addDescription")}
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="name">{t("accounts.nameLabel")}</Label>
+                    <Input
+                      id="name"
+                      placeholder={t("accounts.namePlaceholder")}
+                      autoComplete="off"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="type">{t("accounts.typeLabel")}</Label>
+                    <Select value={type} onValueChange={setType}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ACCOUNT_TYPES.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {t(opt.labelKey)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="bank">{t("accounts.bankLabel")}</Label>
+                    <Select
+                      value={bank || "none"}
+                      onValueChange={(v) => setBank(v === "none" ? "" : v)}
+                    >
+                      <SelectTrigger id="bank">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">{t("accounts.bankNotSet")}</SelectItem>
+                        {BANKS.map((b) => (
+                          <SelectItem key={b.value} value={b.value}>
+                            <span className="flex items-center gap-2">
+                              <BankLogo bank={b.value} size={24} />
+                              {b.label}
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {bank === "other" && (
+                      <Input
+                        id="bankName"
+                        placeholder={t("accounts.bankNamePlaceholder")}
+                        autoComplete="off"
+                        value={bankName}
+                        onChange={(e) => setBankName(e.target.value)}
+                      />
+                    )}
+                    {bankHasSeparateFeeColumn(bank) && (
+                      <p className="text-xs text-muted-foreground">
+                        {t("accounts.feeColumnHint")}
+                      </p>
+                    )}
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="iban">{t("accounts.ibanLabel")}</Label>
+                    <Input
+                      id="iban"
+                      placeholder={t("accounts.ibanPlaceholder")}
+                      value={iban}
+                      onChange={(e) => setIban(e.target.value)}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="grid gap-2">
+                      <Label htmlFor="currency">{t("accounts.currencyLabel")}</Label>
+                      <Select value={currency} onValueChange={setCurrency}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="EUR">EUR</SelectItem>
+                          <SelectItem value="USD">USD</SelectItem>
+                          <SelectItem value="GBP">GBP</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="balance">{t("accounts.startingBalanceLabel")}</Label>
+                      <Input
+                        id="balance"
+                        type="number"
+                        step="0.01"
+                        placeholder="0.00"
+                        value={initialBalance}
+                        onChange={(e) => setInitialBalance(e.target.value)}
+                      />
+                    </div>
+                  </div>
                 </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="balance">{t("accounts.startingBalanceLabel")}</Label>
-                  <Input
-                    id="balance"
-                    type="number"
-                    step="0.01"
-                    placeholder="0.00"
-                    value={initialBalance}
-                    onChange={(e) => setInitialBalance(e.target.value)}
-                  />
-                </div>
-              </div>
-            </div>
-            <DialogFooter>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setDialogOpen(false);
-                  resetForm();
-                }}
-              >
-                {t("common.cancel")}
-              </Button>
-              <Button onClick={handleSubmit} disabled={!name}>
-                {editingAccount ? t("accounts.saveChanges") : t("accounts.createAccount")}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </div>
-
-      {/* Total Balance Card */}
-      {accounts.length > 0 && (
-        <div className="rounded-xl bg-primary p-6 text-primary-foreground">
-          <p className="text-sm font-medium opacity-80">{t("accounts.totalBalance")}</p>
-          <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight">
-            {formatCurrency(totalBalance)}
-          </p>
-          <p className="mt-2 text-sm opacity-60">
-            {plural(accounts.length, "accounts.connected.one", "accounts.connected.other")}
-          </p>
-        </div>
-      )}
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setDialogOpen(false);
+                      resetForm();
+                    }}
+                  >
+                    {t("common.cancel")}
+                  </Button>
+                  <Button onClick={handleSubmit} disabled={!name}>
+                    {editingAccount ? t("accounts.saveChanges") : t("accounts.createAccount")}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </>
+        }
+      />
 
       {/* Account Cards */}
       {loading ? (

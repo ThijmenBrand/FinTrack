@@ -1,18 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
-import { Loader2, Milestone, Plus } from "lucide-react";
+import { SettingsPanel } from "@/components/settings/settings-ui";
+import { AlertTriangle, Loader2, Milestone, Plus } from "lucide-react";
 import {
   useAddStatReset,
   useDeleteStatReset,
@@ -34,7 +29,7 @@ function monthsSince(iso: string): number {
   return Math.max(0, months);
 }
 
-export function StatResetSettingsCard() {
+export function StatResetSection() {
   const { t } = useI18n();
   const { data: resets, isLoading } = useStatResets();
   const add = useAddStatReset();
@@ -72,26 +67,19 @@ export function StatResetSettingsCard() {
     active !== null && active.date.slice(0, 7) >= today.slice(0, 7);
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
-            <Milestone className="h-5 w-5 text-primary" />
-          </div>
-          <div>
-            <CardTitle>{t("settings.statReset.title")}</CardTitle>
-            <CardDescription>{t("settings.statReset.description")}</CardDescription>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        {isLoading ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            {t("common.loading")}
-          </div>
-        ) : !active ? (
-          <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+    // The only panel that isn't a preference: adding a reset point is a create
+    // action, so it keeps an explicit button rather than autosaving.
+    <SettingsPanel
+      title="settings.statReset.title"
+      description="settings.statReset.description"
+      icon={Milestone}
+      loading={isLoading}
+      loadingRows={1}
+      footer={t("settings.statReset.footnote")}
+    >
+      <div className="space-y-4 px-5 py-4">
+        {!active ? (
+          <p className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
             {t("settings.statReset.empty")}
           </p>
         ) : (
@@ -121,63 +109,62 @@ export function StatResetSettingsCard() {
         )}
 
         {noCompleteMonthYet && (
-          <p className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-amber-700 dark:text-amber-400">
+          <p className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-xs leading-relaxed text-amber-900 dark:text-amber-100">
+            <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
             {t("settings.statReset.noCompleteMonth")}
           </p>
         )}
+      </div>
 
-        <div className="space-y-3 border-t pt-5">
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="space-y-1.5">
-              <label
-                htmlFor="stat-reset-date"
-                className="text-xs font-medium text-muted-foreground"
-              >
-                {t("settings.statReset.countFrom")}
-              </label>
-              <Input
-                id="stat-reset-date"
-                type="date"
-                max={today}
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                className="w-[170px]"
-              />
-            </div>
-            <div className="min-w-[180px] flex-1 space-y-1.5">
-              <label
-                htmlFor="stat-reset-note"
-                className="text-xs font-medium text-muted-foreground"
-              >
-                {t("settings.statReset.noteLabel")}
-              </label>
-              <Input
-                id="stat-reset-note"
-                value={note}
-                maxLength={NOTE_MAX}
-                placeholder={t("settings.statReset.notePlaceholder")}
-                onChange={(e) => setNote(e.target.value)}
-              />
-            </div>
-            <Button onClick={handleAdd} disabled={add.isPending}>
-              {add.isPending ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Plus className="mr-2 h-4 w-4" />
-              )}
-              {t("settings.statReset.add")}
-            </Button>
+      <div className="space-y-3 px-5 py-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="space-y-1.5">
+            <Label
+              htmlFor="stat-reset-date"
+              className="text-xs font-medium text-muted-foreground"
+            >
+              {t("settings.statReset.countFrom")}
+            </Label>
+            <Input
+              id="stat-reset-date"
+              type="date"
+              max={today}
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="w-[170px]"
+            />
           </div>
-          {error ? (
-            <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              {t("settings.statReset.footnote")}
-            </p>
-          )}
+          <div className="min-w-[180px] flex-1 space-y-1.5">
+            <Label
+              htmlFor="stat-reset-note"
+              className="text-xs font-medium text-muted-foreground"
+            >
+              {t("settings.statReset.noteLabel")}
+            </Label>
+            <Input
+              id="stat-reset-note"
+              value={note}
+              maxLength={NOTE_MAX}
+              placeholder={t("settings.statReset.notePlaceholder")}
+              onChange={(e) => setNote(e.target.value)}
+            />
+          </div>
+          <Button onClick={handleAdd} disabled={add.isPending}>
+            {add.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Plus className="mr-2 h-4 w-4" />
+            )}
+            {t("settings.statReset.add")}
+          </Button>
         </div>
-      </CardContent>
-    </Card>
+        {error && (
+          <p role="alert" className="text-xs text-destructive">
+            {error}
+          </p>
+        )}
+      </div>
+    </SettingsPanel>
   );
 }
 
