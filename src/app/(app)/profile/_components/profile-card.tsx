@@ -22,14 +22,12 @@ export function ProfileCard({ profile }: { profile: Profile }) {
   const router = useRouter();
   const updateProfile = useUpdateProfile();
 
-  const [displayUsername, setDisplayUsername] = useState("");
-  const [username, setUsername] = useState("");
+  const [displayName, setDisplayName] = useState("");
   const [saving, setSaving] = useState(false);
   const [profileMsg, setProfileMsg] = useState<FormMessageState>(null);
 
   useEffect(() => {
-    setDisplayUsername(profile.displayUsername);
-    setUsername(profile.username);
+    setDisplayName(profile.displayName);
   }, [profile]);
 
   async function handleProfileSave(e: React.FormEvent) {
@@ -37,7 +35,7 @@ export function ProfileCard({ profile }: { profile: Profile }) {
     setProfileMsg(null);
     setSaving(true);
     try {
-      await updateProfile.mutateAsync({ displayUsername, username });
+      await updateProfile.mutateAsync({ displayName });
       setProfileMsg({ type: "success", text: t("profile.updated") });
       router.refresh();
     } catch (err) {
@@ -67,26 +65,15 @@ export function ProfileCard({ profile }: { profile: Profile }) {
       <CardContent>
         <form onSubmit={handleProfileSave} className="space-y-4">
           <div className="space-y-2">
-            <label htmlFor="displayUsername" className="text-sm font-medium">
+            <label htmlFor="displayName" className="text-sm font-medium">
               {t("profile.displayName")}
             </label>
             <Input
-              id="displayUsername"
+              id="displayName"
               type="text"
-              value={displayUsername}
-              onChange={(e) => setDisplayUsername(e.target.value)}
-              required
-            />
-          </div>
-          <div className="space-y-2">
-            <label htmlFor="username" className="text-sm font-medium">
-              {t("profile.username")}
-            </label>
-            <Input
-              id="username"
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              autoComplete="name"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
               required
             />
           </div>

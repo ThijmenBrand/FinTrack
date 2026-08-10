@@ -61,6 +61,19 @@ describe("POST /api/budget-plans", () => {
     expect(await budgetPlanIds()).toEqual([id]);
   });
 
+  it("refuses to create a plan when the user has no budgetable account", async () => {
+    await testDb.client.execute("DELETE FROM accounts");
+    const { POST } = await import("./route");
+    const res = await POST(
+      new Request("http://x/api/budget-plans", {
+        method: "POST",
+        body: JSON.stringify({ name: "Main" }),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any,
+    );
+    expect(res.status).toBe(400);
+  });
+
   it("leaves allocations alone when a plan already exists", async () => {
     const { POST } = await import("./route");
     const mk = (name: string) =>

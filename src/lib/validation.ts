@@ -77,7 +77,7 @@ export function validateEmail(input: unknown): string | null {
   return null;
 }
 
-/** Trimmed, non-empty, length-capped username / display name. */
+/** Trimmed, non-empty, length-capped display name. */
 export function validateName(input: unknown): { ok: true; value: string } | { ok: false; error: string } {
   if (typeof input !== "string" || !input.trim()) {
     return { ok: false, error: "Value cannot be empty" };

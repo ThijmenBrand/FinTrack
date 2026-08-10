@@ -52,15 +52,13 @@ async function handleSignUp(req: NextRequest) {
   if (passwordError) {
     return NextResponse.json({ error: passwordError }, { status: 400 });
   }
-  for (const field of ["username", "name"] as const) {
-    if (body[field] !== undefined) {
-      const check = validateName(body[field]);
-      if (!check.ok) {
-        return NextResponse.json(
-          { error: `Invalid ${field}: ${check.error}` },
-          { status: 400 },
-        );
-      }
+  if (body.name !== undefined) {
+    const check = validateName(body.name);
+    if (!check.ok) {
+      return NextResponse.json(
+        { error: `Invalid name: ${check.error}` },
+        { status: 400 },
+      );
     }
   }
 
@@ -175,10 +173,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Intercept sign-in attempts to log failures
-  if (
-    path.endsWith("/sign-in/email") ||
-    path.endsWith("/sign-in/username")
-  ) {
+  if (path.endsWith("/sign-in/email")) {
     const clonedReq = req.clone();
     const response = await _POST(req);
     if (!response.ok) {
@@ -187,7 +182,7 @@ export async function POST(req: NextRequest) {
         logAuthEvent({
           userId: null,
           action: "login_failure",
-          details: { username: body.username || null },
+          details: { email: body.email || null },
           ipAddress,
           userAgent,
         });

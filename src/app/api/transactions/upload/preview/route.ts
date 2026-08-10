@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { categoryRules, accounts, categories, recurringTransactions, transactions as transactionsTable } from "@/db/schema";
+import { categoryRules, accounts, recurringTransactions, transactions as transactionsTable } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
+import { findTransferCategory } from "@/lib/detect-transfers";
 import { withUser } from "@/lib/auth";
 import { bankHasSeparateFeeColumn } from "@/lib/banks";
 import Papa from "papaparse";
@@ -107,10 +108,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Get the "Internal Transfer" category
-    const [transferCategory] = await db
-      .select()
-      .from(categories)
-      .where(and(eq(categories.name, "Internal Transfer"), eq(categories.userId, userId)));
+    const transferCategory = await findTransferCategory(db, userId);
 
     // Active recurring plans — used to auto-link rows that look like a
     // recurring bill so they don't double-count in Free to Spend.

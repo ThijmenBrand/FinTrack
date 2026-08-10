@@ -85,7 +85,10 @@ export function CategorizePopover({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button className="flex items-center gap-1.5 text-sm rounded-md px-2 py-1 hover:bg-accent transition-colors text-left">
+        <button
+          data-tour="tx-category"
+          className="flex items-center gap-1.5 text-sm rounded-md px-2 py-1 hover:bg-accent transition-colors text-left"
+        >
           {currentCategoryName ? (
             <>
               <CategoryIcon icon={currentCategoryIcon ?? null} color={currentCategoryColor} size="sm" />

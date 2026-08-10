@@ -97,7 +97,7 @@ async function main() {
 
   // List users
   const users = await client.execute(
-    "SELECT id, name, username FROM user",
+    "SELECT id, name FROM user",
   );
 
   if (users.rows.length === 0) {
@@ -107,7 +107,7 @@ async function main() {
 
   console.log("\nUsers:");
   users.rows.forEach((row, i) => {
-    console.log(`  ${i + 1}. ${row.username} (${row.name})`);
+    console.log(`  ${i + 1}. ${row.name}`);
   });
 
   const choice = await prompt("\nSelect user number: ");
@@ -118,7 +118,7 @@ async function main() {
   }
 
   const userId = users.rows[idx].id as string;
-  const username = users.rows[idx].username as string;
+  const name = users.rows[idx].name as string;
 
   const password = await prompt("New password (min 10 chars): ", true);
   if (password.length < 10) {
@@ -139,7 +139,7 @@ async function main() {
     args: [hash, userId],
   });
 
-  console.log(`\nPassword reset successfully for user "${username}".`);
+  console.log(`\nPassword reset successfully for user "${name}".`);
   process.exit(0);
 }
 

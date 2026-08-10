@@ -442,7 +442,7 @@ export default function InsightsPage() {
   return (
     // Simple mode is one narrow column of sentences — centre it (header included)
     // so it doesn't sit against the left edge with a page of empty space beside it.
-    <div className={`space-y-6${simple ? " mx-auto max-w-2xl" : ""}`}>
+    <div className={`space-y-6${simple ? " mx-auto max-w-4xl" : ""}`}>
       {/* Header */}
       <div className="flex items-end justify-between flex-wrap gap-4">
         <div>
@@ -492,7 +492,8 @@ export default function InsightsPage() {
             </Tabs>
           )}
           <Select value={preset} onValueChange={handlePresetChange}>
-            <SelectTrigger className="w-[160px]">
+            {/* Auto width: fixed 160px clipped longer labels in Dutch. */}
+            <SelectTrigger className="w-auto min-w-[160px]">
               <Calendar className="mr-2 h-4 w-4" />
               <SelectValue />
             </SelectTrigger>

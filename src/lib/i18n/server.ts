@@ -1,14 +1,9 @@
 import { cache } from "react";
-import { cookies, headers } from "next/headers";
+import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { getUserPreferences } from "@/lib/preferences";
-import {
-  DEFAULT_LOCALE,
-  isLocale,
-  LOCALE_COOKIE,
-  localeFromAcceptLanguage,
-  type Locale,
-} from ".";
+import { DEFAULT_LOCALE, isLocale, type Locale } from ".";
+import { getRequestLocale } from "./request";
 import { getI18nFor, type I18n } from "./translate";
 
 /**
@@ -30,14 +25,10 @@ export const getLocale = cache(async (): Promise<Locale> => {
     // Unauthenticated or pre-migration DB — fall through to the cookie.
   }
 
-  try {
-    const cookie = (await cookies()).get(LOCALE_COOKIE)?.value;
-    if (isLocale(cookie)) return cookie;
-    return localeFromAcceptLanguage((await headers()).get("accept-language")) ?? DEFAULT_LOCALE;
-  } catch {
-    return DEFAULT_LOCALE;
-  }
+  return getRequestLocale();
 });
+
+export { getRequestLocale };
 
 /**
  * Translator + locale-bound formatters for server components.

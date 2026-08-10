@@ -164,7 +164,7 @@ export default function AuditLogsPage() {
               <option value="">{t("backoffice.auditAllUsers")}</option>
               {users.map((u) => (
                 <option key={u.id} value={u.id}>
-                  {u.displayUsername || u.username}
+                  {u.displayName}
                 </option>
               ))}
             </select>
@@ -231,7 +231,7 @@ export default function AuditLogsPage() {
                         {formatDate(log.createdAt)}
                       </td>
                       <td className="py-2.5 pr-4 whitespace-nowrap">
-                        {log.displayUsername || log.username || (
+                        {log.displayName || (
                           <span className="text-muted-foreground italic">
                             {t("backoffice.auditUnknownUser")}
                           </span>

@@ -13,6 +13,8 @@ import {
 } from "@/hooks/use-budgets";
 import { useBudgetPlans } from "@/hooks/use-budget-plans";
 import { useAccounts } from "@/hooks/use-accounts";
+import { BUDGETABLE_ACCOUNT_TYPES } from "@/lib/account-scope";
+import { NON_BUDGETABLE_CATEGORY_NAMES } from "@/lib/default-categories";
 import { useCategories } from "@/hooks/use-categories";
 import { usePreferences } from "@/hooks/use-preferences";
 import {
@@ -45,6 +47,7 @@ import {
   ChevronRight,
   ArrowRight,
   Info,
+  Wallet,
   X,
 } from "lucide-react";
 import {
@@ -231,7 +234,7 @@ export default function BudgetsPage() {
     null;
   const activePlanId = activePlan?.id;
 
-  const { data: accountsData } = useAccounts();
+  const { data: accountsData, isLoading: accountsLoading } = useAccounts();
   const [planDialogOpen, setPlanDialogOpen] = useState(false);
   const [editingPlan, setEditingPlan] = useState<BudgetPlanData | null>(null);
 
@@ -329,8 +332,34 @@ export default function BudgetsPage() {
     await rejectSuggestions.mutateAsync([s.id]);
   };
 
-  if (loading) {
+  if (loading || accountsLoading) {
     return <BudgetsSkeleton />;
+  }
+
+  // A budget divides up money that lands somewhere. Without a budgetable
+  // account there is nothing to plan, so the page sends you to add one first
+  // instead of letting you build a plan that can never fill. Only when the
+  // query succeeded — a failed fetch must not masquerade as "no accounts".
+  if (
+    accountsData &&
+    !accountsData.some((a) =>
+      (BUDGETABLE_ACCOUNT_TYPES as readonly string[]).includes(a.type),
+    )
+  ) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center gap-3 px-6 py-12 text-center">
+          <Wallet className="h-10 w-10 text-muted-foreground/30" />
+          <CardTitle className="text-base">{t("budgets.noAccounts.title")}</CardTitle>
+          <p className="max-w-sm text-sm text-muted-foreground">
+            {t("budgets.noAccounts.body")}
+          </p>
+          <Button asChild className="mt-2">
+            <Link href="/settings/accounts">{t("budgets.noAccounts.cta")}</Link>
+          </Button>
+        </CardContent>
+      </Card>
+    );
   }
 
   if (!data) return null;
@@ -342,7 +371,7 @@ export default function BudgetsPage() {
     (c) =>
       !allocatedCatIds.has(c.id) &&
       !fixedCatIds.has(c.id) &&
-      !["Salary", "Internal Transfer", "Income - Other"].includes(c.name)
+      !NON_BUDGETABLE_CATEGORY_NAMES.includes(c.name)
   );
 
   const totalPlanned = data.totalFixedCosts + data.totalAllocated;
@@ -381,29 +410,20 @@ export default function BudgetsPage() {
   return (
     <div className="space-y-6">
       {/* Which budget the page is about. Everything below follows this tab.
-          Simple mode keeps the switcher (a second budget is useless if you
-          can't reach it) but drops the create/edit controls. */}
-      {plansData && (!simple || plans.length > 1) && (
+          Plan management stays available in simple mode too. */}
+      {plansData && (
         <BudgetPlanTabs
           plans={plans}
           activeId={activePlanId}
           onSelect={setSelectedPlanId}
-          onEdit={
-            simple
-              ? undefined
-              : (p) => {
-                  setEditingPlan(p);
-                  setPlanDialogOpen(true);
-                }
-          }
-          onCreate={
-            simple
-              ? undefined
-              : () => {
-                  setEditingPlan(null);
-                  setPlanDialogOpen(true);
-                }
-          }
+          onEdit={(p) => {
+            setEditingPlan(p);
+            setPlanDialogOpen(true);
+          }}
+          onCreate={() => {
+            setEditingPlan(null);
+            setPlanDialogOpen(true);
+          }}
         />
       )}
 

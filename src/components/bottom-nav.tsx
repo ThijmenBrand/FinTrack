@@ -8,6 +8,7 @@ import {
   Sun,
   Moon,
   Heart,
+  Monitor,
   LogOut,
   Settings,
   User,
@@ -157,11 +158,10 @@ export function BottomNav() {
             {user && (
               <div className="flex items-center gap-3 rounded-lg px-3 py-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
-                  {user.displayUsername.charAt(0).toUpperCase()}
+                  {user.displayName.charAt(0).toUpperCase()}
                 </div>
                 <div>
-                  <p className="text-sm font-medium">{user.displayUsername}</p>
-                  <p className="text-xs text-muted-foreground">@{user.username}</p>
+                  <p className="text-sm font-medium">{user.displayName}</p>
                 </div>
               </div>
             )}
@@ -172,7 +172,9 @@ export function BottomNav() {
                     ? "dark"
                     : theme === "dark"
                       ? "pink"
-                      : "light";
+                      : theme === "pink"
+                        ? "system"
+                        : "light";
                 setTheme(next);
               }}
               className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium text-foreground hover:bg-muted transition-colors min-h-[44px]"
@@ -183,8 +185,10 @@ export function BottomNav() {
                 <Heart className="h-5 w-5 fill-current" />
               ) : theme === "dark" ? (
                 <Moon className="h-5 w-5" />
-              ) : (
+              ) : theme === "light" ? (
                 <Sun className="h-5 w-5" />
+              ) : (
+                <Monitor className="h-5 w-5" />
               )}
               <span>
                 {!mounted
@@ -193,7 +197,9 @@ export function BottomNav() {
                     ? t("theme.pinkMode")
                     : theme === "dark"
                       ? t("theme.darkMode")
-                      : t("theme.lightMode")}
+                      : theme === "light"
+                        ? t("theme.lightMode")
+                        : t("theme.systemMode")}
               </span>
             </button>
             <button

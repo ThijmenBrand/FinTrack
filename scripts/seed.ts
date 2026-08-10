@@ -151,7 +151,7 @@ const ruleMatch = (text: string) =>
 async function ensureUser(): Promise<string> {
   const now = Date.now();
   const [existing] = await db.all<{ id: string; role: string | null; email: string }>(
-    sql`SELECT id, role, email FROM "user" WHERE username = ${USERNAME} LIMIT 1`,
+    sql`SELECT id, role, email FROM "user" WHERE email = ${EMAIL} LIMIT 1`,
   );
   if (existing) {
     if (existing.role === "admin") {
@@ -159,20 +159,14 @@ async function ensureUser(): Promise<string> {
         `Note: "${USERNAME}" is an admin — src/proxy.ts redirects admins to /backoffice, so this data won't be visible in the app.`,
       );
     }
-    // Repair users seeded before the switch to email login.
-    await db.run(sql`
-      UPDATE "user" SET email = email || '.test', email_verified = 1, updated_at = ${now}
-      WHERE id = ${existing.id} AND email LIKE '%@local'
-    `);
-    const email = existing.email.endsWith("@local") ? `${existing.email}.test` : existing.email;
-    console.log(`Using existing user "${USERNAME}" — log in with ${email}.`);
+    console.log(`Using existing user "${USERNAME}" — log in with ${existing.email}.`);
     return existing.id;
   }
 
   const newId = id();
   await db.run(sql`
-    INSERT INTO "user" (id, name, email, email_verified, username, display_username, role, created_at, updated_at)
-    VALUES (${newId}, ${USERNAME}, ${EMAIL}, 1, ${USERNAME}, ${USERNAME}, 'user', ${now}, ${now})
+    INSERT INTO "user" (id, name, email, email_verified, role, created_at, updated_at)
+    VALUES (${newId}, ${USERNAME}, ${EMAIL}, 1, 'user', ${now}, ${now})
   `);
   await db.run(sql`
     INSERT INTO account (id, account_id, provider_id, user_id, password, created_at, updated_at)

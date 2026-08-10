@@ -95,7 +95,7 @@ export function TransactionsTable({
             setPagination((p) => ({ ...p, limit: Number(v), page: 1 }))
           }
         >
-          <SelectTrigger className="w-[100px] hidden sm:flex">
+          <SelectTrigger className="w-[130px] hidden sm:flex">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

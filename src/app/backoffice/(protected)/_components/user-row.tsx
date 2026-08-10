@@ -31,8 +31,7 @@ import { ApiError } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/client";
 
 type AccountForm = {
-  displayUsername: string;
-  username: string;
+  displayName: string;
   email: string;
   emailVerified: boolean;
   role: "admin" | "user";
@@ -40,8 +39,7 @@ type AccountForm = {
 
 function accountValues(user: AdminUser): AccountForm {
   return {
-    displayUsername: user.displayUsername,
-    username: user.username,
+    displayName: user.displayName,
     email: user.email,
     emailVerified: user.emailVerified,
     role: user.role,
@@ -71,8 +69,7 @@ export function UserRow({
   const [passwordError, setPasswordError] = useState("");
 
   const hasAccountChanges =
-    account.displayUsername.trim() !== user.displayUsername ||
-    account.username.trim() !== user.username ||
+    account.displayName.trim() !== user.displayName ||
     account.email.trim().toLowerCase() !== user.email.toLowerCase() ||
     account.emailVerified !== user.emailVerified ||
     (!user.isCurrentUser && account.role !== user.role);
@@ -96,7 +93,7 @@ export function UserRow({
   }
 
   async function handleDelete() {
-    if (!confirm(t("backoffice.confirmDeleteUser", { name: user.username }))) return;
+    if (!confirm(t("backoffice.confirmDeleteUser", { name: user.displayName }))) return;
     try {
       await deleteUser.mutateAsync(user.id);
     } catch (err) {
@@ -109,7 +106,7 @@ export function UserRow({
       if (user.banned) {
         await setBanned.mutateAsync({ id: user.id, banned: false });
       } else {
-        const reason = prompt(t("backoffice.confirmBanUser", { name: user.username }));
+        const reason = prompt(t("backoffice.confirmBanUser", { name: user.displayName }));
         if (reason === null) return;
         await setBanned.mutateAsync({ id: user.id, banned: true, banReason: reason || undefined });
       }
@@ -123,12 +120,10 @@ export function UserRow({
     if (!hasAccountChanges) return;
 
     const payload: UserUpdate = { id: user.id };
-    const cleanUsername = account.username.trim();
-    const cleanDisplayName = account.displayUsername.trim();
+    const cleanDisplayName = account.displayName.trim();
     const cleanEmail = account.email.trim().toLowerCase();
 
-    if (cleanUsername !== user.username) payload.username = cleanUsername;
-    if (cleanDisplayName !== user.displayUsername) payload.displayUsername = cleanDisplayName;
+    if (cleanDisplayName !== user.displayName) payload.displayName = cleanDisplayName;
     if (cleanEmail !== user.email.toLowerCase()) payload.email = cleanEmail;
     if (account.emailVerified !== user.emailVerified) payload.emailVerified = account.emailVerified;
     if (!user.isCurrentUser && account.role !== user.role) {
@@ -168,11 +163,11 @@ export function UserRow({
       <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-center gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
-            {user.displayUsername.charAt(0).toUpperCase()}
+            {user.displayName.charAt(0).toUpperCase()}
           </div>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <p className="truncate font-medium text-foreground">{user.displayUsername}</p>
+              <p className="truncate font-medium text-foreground">{user.displayName}</p>
               <span className="rounded-full bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">
                 {user.role === "admin" ? t("backoffice.admin") : t("backoffice.user")}
               </span>
@@ -189,7 +184,6 @@ export function UserRow({
             <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
               <span className="truncate">{user.email}</span>
               <span aria-hidden="true">·</span>
-              <span>@{user.username}</span>
               <span
                 className={user.emailVerified ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}
               >
@@ -214,8 +208,8 @@ export function UserRow({
             className="hover:border-red-200 hover:bg-red-50 hover:text-red-700 dark:hover:border-red-900 dark:hover:bg-red-950/40 dark:hover:text-red-400"
             aria-label={
               user.banned
-                ? t("backoffice.unbanUser", { name: user.displayUsername })
-                : t("backoffice.banUser", { name: user.displayUsername })
+                ? t("backoffice.unbanUser", { name: user.displayName })
+                : t("backoffice.banUser", { name: user.displayName })
             }
             title={
               user.isCurrentUser
@@ -234,7 +228,7 @@ export function UserRow({
             onClick={handleDelete}
             disabled={user.isCurrentUser || deleteUser.isPending}
             className="hover:border-red-200 hover:bg-red-50 hover:text-red-700 dark:hover:border-red-900 dark:hover:bg-red-950/40 dark:hover:text-red-400"
-            aria-label={t("backoffice.deleteUserLabel", { name: user.displayUsername })}
+            aria-label={t("backoffice.deleteUserLabel", { name: user.displayName })}
             title={
               user.isCurrentUser
                 ? t("backoffice.cannotDeleteSelf")
@@ -258,23 +252,13 @@ export function UserRow({
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
+                <div className="space-y-2 sm:col-span-2">
                   <Label htmlFor={`display-name-${user.id}`}>{t("profile.displayName")}</Label>
                   <Input
                     id={`display-name-${user.id}`}
-                    value={account.displayUsername}
-                    onChange={(event) => updateAccount("displayUsername", event.target.value)}
+                    value={account.displayName}
+                    onChange={(event) => updateAccount("displayName", event.target.value)}
                     autoComplete="name"
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor={`username-${user.id}`}>{t("auth.username")}</Label>
-                  <Input
-                    id={`username-${user.id}`}
-                    value={account.username}
-                    onChange={(event) => updateAccount("username", event.target.value)}
-                    autoComplete="username"
                     required
                   />
                 </div>

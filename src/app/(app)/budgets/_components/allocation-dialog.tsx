@@ -80,7 +80,7 @@ export function AllocationDialog({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <Button className="flex-1 sm:flex-none">
+        <Button data-tour="budget-add" className="flex-1 sm:flex-none">
           <Plus className="mr-2 h-4 w-4" />
           {t("budgets.addManually")}
         </Button>

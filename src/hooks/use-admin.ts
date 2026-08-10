@@ -47,8 +47,7 @@ export function useRevokeInvite() {
 
 export type UserUpdate = {
   id: string;
-  username?: string;
-  displayUsername?: string;
+  displayName?: string;
   email?: string;
   emailVerified?: boolean;
   isAdmin?: boolean;

@@ -34,9 +34,7 @@ export async function GET(request: NextRequest) {
         ipAddress: auditLog.ipAddress,
         userAgent: auditLog.userAgent,
         createdAt: auditLog.createdAt,
-        username: user.username,
-        displayUsername: user.displayUsername,
-        userDisplayName: user.name,
+        displayName: user.name,
       })
       .from(auditLog)
       .leftJoin(user, eq(auditLog.userId, user.id))
@@ -48,8 +46,7 @@ export async function GET(request: NextRequest) {
     const data = rows.map((row) => ({
       id: row.id,
       userId: row.userId,
-      username: row.username || null,
-      displayUsername: row.displayUsername || row.userDisplayName || null,
+      displayName: row.displayName || null,
       category: row.category,
       action: row.action,
       targetId: row.targetId || null,
