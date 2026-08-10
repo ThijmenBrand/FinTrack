@@ -97,10 +97,8 @@ export const en = {
   "meta.description": "Personal finance tracking with smart categorization and budgeting",
 
   // ─── Language setting ─────────────────────────────────────────────────────
-  "settings.language.title": "Language",
   "settings.language.description": "The language used across the app.",
   "settings.language.label": "Display language",
-  "settings.language.saved": "Language updated",
 
   // ─── Theme & shell ─────────────────────────────────────────────────────────
   "theme.label": "Theme",
@@ -116,7 +114,10 @@ export const en = {
 
   // ─── Settings shell & automation ───────────────────────────────────────────
   "settings.title": "Settings",
-  "settings.subtitle": "Manage your accounts, categories, and automation preferences.",
+  "settings.general.title": "General",
+  "settings.general.description": "How the app presents itself, which period your numbers are grouped into, and where your averages count from. Changes save as you make them.",
+  "settings.interface.title": "Interface",
+  "settings.interface.description": "How much of the app you see, and in which language.",
   "settings.tabs.general": "General",
   "settings.tabs.accounts": "Accounts",
   "settings.tabs.categories": "Categories",
@@ -134,21 +135,18 @@ export const en = {
   "settings.automation.lookbackHint": "Suggestions average this many recent months and round up to the nearest €5.",
   "settings.automation.lookbackOption.one": "Last month",
   "settings.automation.lookbackOption.other": "Last {count} months",
-  "settings.automation.savePreferences": "Save preferences",
 
   // ─── Settings — financial month ────────────────────────────────────────────
   "settings.financialMonth.title": "Financial month",
   "settings.financialMonth.description": "Define when your month starts. If your salary lands mid-month, this lets Insights group spending into your real cycle.",
+  "settings.financialMonth.startsOn": "Month starts on",
   "settings.financialMonth.calendar": "Calendar month",
   "settings.financialMonth.calendarHint": "1st to the last day of each month.",
-  "settings.financialMonth.custom": "Custom start day",
-  "settings.financialMonth.customHint": "Months run from your chosen day to the day before it the next month.",
-  "settings.financialMonth.preview": "Day 1–28. Preview: {from} → {to} of next month.",
-  "settings.financialMonth.rangeHint": "Enter a day between 1 and 28.",
-  "settings.financialMonth.suggested": "Suggested: {day}",
+  "settings.financialMonth.dayOption": "The {day}",
+  "settings.financialMonth.previewRange": "Your month runs {from} → {to} of the next month.",
+  "settings.financialMonth.suggested": "Use the {day}",
   "settings.financialMonth.suggestionHint.one": "Based on your highest-income day across the last month.",
   "settings.financialMonth.suggestionHint.other": "Based on your highest-income day across the last {count} months.",
-  "settings.financialMonth.useSuggestion": "Use suggestion",
 
   // ─── Settings — statistics reset ───────────────────────────────────────────
   "settings.statReset.title": "Statistics reset",
@@ -1088,13 +1086,11 @@ export const en = {
 
   // ─── Settings — transactions & simple mode ─────────────────────────────────
   "settings.transactions.title": "Transactions",
-  "settings.transactions.description": "Control what shows up in your transactions list by default.",
+  "settings.transactions.description": "What your transactions list shows by default, and how transfers count toward budget totals.",
   "settings.transactions.hideInternal": "Hide internal transfers",
   "settings.transactions.hideInternalHint": "When on, transfers between your own accounts are hidden from the transactions list.",
   "settings.transactions.countCrossBudget": "Count transfers between budgets",
   "settings.transactions.countCrossBudgetHint": "When on, a transfer from one budget's account to another's counts as spending in the sending budget and income in the receiving one, in each budget's Insights totals. Off keeps them excluded everywhere, like today.",
-  "settings.simpleMode.title": "Simple mode",
-  "settings.simpleMode.description": "A calmer version of the app with only the essentials.",
   "settings.simpleMode.label": "Use simple mode",
   "settings.simpleMode.hint": "Hides budget plans, suggestions and deep-dive charts from the dashboard, budgets and insights pages. Nothing is deleted — turn it off any time to get everything back.",
 

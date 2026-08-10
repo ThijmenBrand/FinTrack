@@ -24,13 +24,12 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { PRIMARY_NAV, SECONDARY_NAV, useSessionUser } from "@/components/nav-shared";
+import { PRIMARY_NAV, useSecondaryNav, useSessionUser } from "@/components/nav-shared";
 import { useI18n } from "@/lib/i18n/client";
-
-const navigation = [...PRIMARY_NAV, ...SECONDARY_NAV];
 
 export function Sidebar() {
   const { t } = useI18n();
+  const navigation = [...PRIMARY_NAV, ...useSecondaryNav()];
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [mounted, setMounted] = useState(false);

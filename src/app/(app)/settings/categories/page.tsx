@@ -27,6 +27,7 @@ import { CategoryDialog } from "./_components/category-dialog";
 import { RuleDialog } from "./_components/rule-dialog";
 import { UncategorizedTransactions } from "./_components/uncategorized-transactions";
 import { CategoryRow } from "./_components/category-row";
+import { SettingsHeader } from "@/components/settings/settings-ui";
 import { useI18n } from "@/lib/i18n/client";
 
 function SortableCategoryRow({
@@ -149,31 +150,36 @@ export default function CategoriesPage() {
   );
 
   return (
-    <div className="space-y-8">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">{t("categories.title")}</h1>
-          <p className="text-muted-foreground">{t("categories.subtitle")}</p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={handleReapplyRules} disabled={reapplyRules.isPending}>
-            {reapplyRules.isPending ? (
-              <Loader2 className="sm:mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="sm:mr-2 h-4 w-4" />
-            )}
-            <span className="hidden sm:inline">
-              {reapplyRules.isPending ? t("categories.recalculating") : t("categories.recalculate")}
-            </span>
-          </Button>
-          <RuleDialog categories={categories} />
-          <Button onClick={openCreateCategory}>
-            <Plus className="sm:mr-2 h-4 w-4" />
-            <span className="hidden sm:inline">{t("categories.add")}</span>
-          </Button>
-        </div>
-      </div>
+    <div className="space-y-6">
+      <SettingsHeader
+        title="categories.title"
+        description="categories.subtitle"
+        actions={
+          <>
+            <Button
+              variant="outline"
+              onClick={handleReapplyRules}
+              disabled={reapplyRules.isPending}
+            >
+              {reapplyRules.isPending ? (
+                <Loader2 className="sm:mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="sm:mr-2 h-4 w-4" />
+              )}
+              <span className="hidden sm:inline">
+                {reapplyRules.isPending
+                  ? t("categories.recalculating")
+                  : t("categories.recalculate")}
+              </span>
+            </Button>
+            <RuleDialog categories={categories} />
+            <Button onClick={openCreateCategory}>
+              <Plus className="sm:mr-2 h-4 w-4" />
+              <span className="hidden sm:inline">{t("categories.add")}</span>
+            </Button>
+          </>
+        }
+      />
 
       <CategoryDialog
         open={categoryDialogOpen}
@@ -219,10 +225,10 @@ export default function CategoriesPage() {
       <UncategorizedTransactions categories={categories} />
 
       {/* Categories with Grouped Rules */}
-      <div className="space-y-3">
-        <h2 className="text-lg font-semibold">
+      <div className="space-y-3 pt-2">
+        <h3 className="text-base font-semibold tracking-tight">
           {t("categories.heading", { count: categories.length })}
-        </h2>
+        </h3>
         {loading ? (
           <div className="space-y-3">
             {[1, 2, 3].map((i) => (
