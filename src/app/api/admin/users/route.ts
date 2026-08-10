@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/db";
+import { adminDb as db } from "@/db";
 import { sql } from "drizzle-orm";
 import { withAdmin, hashPassword } from "@/lib/auth";
 import { validatePassword, validateName, validateEmail } from "@/lib/validation";

@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { db } from "@/db";
+import { adminDb as db } from "@/db";
 import { auditLog } from "@/db/schema";
 import { user } from "@/db/auth-schema";
 import { eq, desc } from "drizzle-orm";
