@@ -10,6 +10,7 @@ import {
   Sun,
   Moon,
   Heart,
+  Monitor,
   LogOut,
   User,
   Settings,
@@ -98,11 +99,11 @@ export function Sidebar() {
               )}
             >
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
-                {user.displayUsername.charAt(0).toUpperCase()}
+                {user.displayName.charAt(0).toUpperCase()}
               </div>
               {!collapsed && (
                 <span className="truncate text-sm font-medium text-sidebar-foreground">
-                  {user.displayUsername}
+                  {user.displayName}
                 </span>
               )}
             </DropdownMenuTrigger>
@@ -124,6 +125,14 @@ export function Sidebar() {
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={() => setTheme("system")}
+                className="flex items-center gap-2"
+              >
+                <Monitor className="h-4 w-4" />
+                {t("theme.system")}
+                {theme === "system" && <Check className="ml-auto h-4 w-4" />}
+              </DropdownMenuItem>
               <DropdownMenuItem
                 onSelect={() => setTheme("light")}
                 className="flex items-center gap-2"

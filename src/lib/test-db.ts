@@ -50,7 +50,7 @@ export async function setupTestDb(name: string): Promise<TestDb> {
     `CREATE TABLE IF NOT EXISTS "user" (
       id TEXT PRIMARY KEY,
       name TEXT, email TEXT, email_verified INTEGER,
-      username TEXT, display_username TEXT, role TEXT,
+      role TEXT,
       created_at INTEGER, updated_at INTEGER
     )`,
     `CREATE TABLE IF NOT EXISTS accounts (

@@ -4,6 +4,8 @@ import { adminDb as db } from "./index";
 import { sql } from "drizzle-orm";
 import crypto from "crypto";
 import { validatePassword } from "@/lib/validation";
+import { DEFAULT_CATEGORIES, defaultCategoryName } from "@/lib/default-categories";
+import { DEFAULT_LOCALE, type Locale } from "@/lib/i18n";
 
 export function hashPassword(password: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -15,27 +17,13 @@ export function hashPassword(password: string): Promise<string> {
   });
 }
 
-// Default categories seeded for each new user
-const DEFAULT_CATEGORIES = [
-  { name: "Groceries", icon: "ShoppingCart", color: "#22c55e" },
-  { name: "Dining Out", icon: "UtensilsCrossed", color: "#f97316" },
-  { name: "Coffee", icon: "Coffee", color: "#92400e" },
-  { name: "Transport", icon: "Car", color: "#3b82f6" },
-  { name: "Housing", icon: "Home", color: "#8b5cf6" },
-  { name: "Utilities", icon: "Zap", color: "#eab308" },
-  { name: "Entertainment", icon: "Tv", color: "#ec4899" },
-  { name: "Shopping", icon: "ShoppingBag", color: "#14b8a6" },
-  { name: "Health", icon: "Heart", color: "#ef4444" },
-  { name: "Subscriptions", icon: "CreditCard", color: "#6366f1" },
-  { name: "Salary", icon: "Banknote", color: "#10b981" },
-  { name: "Internal Transfer", icon: "ArrowLeftRight", color: "#94a3b8" },
-  { name: "Other", icon: "MoreHorizontal", color: "#71717a" },
-];
-
 /**
- * Seed default categories for a specific user.
+ * Seed default categories for a specific user, in their language.
  */
-export async function seedCategoriesForUser(userId: string) {
+export async function seedCategoriesForUser(
+  userId: string,
+  locale: Locale = DEFAULT_LOCALE,
+) {
   const existing = await db.run(
     sql`SELECT COUNT(*) as count FROM categories WHERE user_id = ${userId}`
   );
@@ -43,9 +31,10 @@ export async function seedCategoriesForUser(userId: string) {
 
   if (count === 0) {
     for (const [i, cat] of DEFAULT_CATEGORIES.entries()) {
+      const name = defaultCategoryName(cat.key, locale);
       await db.run(sql`
         INSERT INTO categories (id, user_id, name, icon, color, sort_order, created_at)
-        VALUES (${crypto.randomUUID()}, ${userId}, ${cat.name}, ${cat.icon}, ${cat.color}, ${i}, ${new Date().toISOString()})
+        VALUES (${crypto.randomUUID()}, ${userId}, ${name}, ${cat.icon}, ${cat.color}, ${i}, ${new Date().toISOString()})
       `);
     }
   }
@@ -63,6 +52,8 @@ export async function initializeDatabase() {
   let adminUserId: string | null = null;
 
   if (numUsers === 0) {
+    // Only the local part of the seeded admin's email — accounts have no
+    // username anymore, sign-in is by email.
     const adminUsername = process.env.ADMIN_USERNAME || "admin";
     const adminPassword = process.env.ADMIN_PASSWORD || "admin";
     const adminDisplayName = process.env.ADMIN_DISPLAY_NAME || "Admin";
@@ -88,8 +79,8 @@ export async function initializeDatabase() {
     const now = Date.now();
 
     await db.run(sql`
-      INSERT INTO "user" (id, name, email, email_verified, username, display_username, role, created_at, updated_at)
-      VALUES (${adminUserId}, ${adminDisplayName}, ${adminUsername + '@local.test'}, 1, ${adminUsername}, ${adminDisplayName}, 'admin', ${now}, ${now})
+      INSERT INTO "user" (id, name, email, email_verified, role, created_at, updated_at)
+      VALUES (${adminUserId}, ${adminDisplayName}, ${adminUsername + '@local.test'}, 1, 'admin', ${now}, ${now})
     `);
 
     await db.run(sql`
@@ -97,7 +88,7 @@ export async function initializeDatabase() {
       VALUES (${crypto.randomUUID()}, ${adminUserId}, 'credential', ${adminUserId}, ${hashedPassword}, ${now}, ${now})
     `);
 
-    console.log(`Admin user "${adminUsername}" created. Change the password after first login.`);
+    console.log(`Admin user "${adminUsername}@local.test" created. Change the password after first login.`);
   }
 
   // ── Data migrations & column-level drift repair ─────────────────────────

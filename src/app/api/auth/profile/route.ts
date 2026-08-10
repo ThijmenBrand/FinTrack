@@ -31,7 +31,7 @@ function checkPasswordRateLimit(userId: string): boolean {
 export async function GET() {
   return withUser(async (userId) => {
     const result = await db.run(
-      sql`SELECT id, username, display_username, name, role, two_factor_enabled, created_at FROM "user" WHERE id = ${userId}`
+      sql`SELECT id, name, role, two_factor_enabled, created_at FROM "user" WHERE id = ${userId}`
     );
     const user = result.rows[0] as Record<string, unknown> | undefined;
 
@@ -41,8 +41,7 @@ export async function GET() {
 
     return NextResponse.json({
       id: user.id,
-      username: user.username,
-      displayUsername: user.display_username || user.name,
+      displayName: user.name,
       isAdmin: user.role === "admin",
       twoFactorEnabled: user.two_factor_enabled === 1 || user.two_factor_enabled === true,
       createdAt: user.created_at,
@@ -53,10 +52,10 @@ export async function GET() {
 export async function PATCH(req: NextRequest) {
   return withUser(async (userId) => {
     const body = await req.json();
-    const { displayUsername, username, currentPassword, newPassword } = body;
+    const { displayName, currentPassword, newPassword } = body;
 
     const result = await db.run(
-      sql`SELECT id, username FROM "user" WHERE id = ${userId}`
+      sql`SELECT id FROM "user" WHERE id = ${userId}`
     );
     const user = result.rows[0] as Record<string, unknown> | undefined;
 
@@ -64,35 +63,14 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
-    // Update display name and/or username
-    if (displayUsername !== undefined) {
-      const displayCheck = validateName(displayUsername);
+    if (displayName !== undefined) {
+      const displayCheck = validateName(displayName);
       if (!displayCheck.ok) {
         return NextResponse.json({ error: `Invalid display name: ${displayCheck.error}` }, { status: 400 });
       }
       await db.run(
-        sql`UPDATE "user" SET name = ${displayCheck.value}, display_username = ${displayCheck.value}, updated_at = ${new Date().toISOString()} WHERE id = ${userId}`
+        sql`UPDATE "user" SET name = ${displayCheck.value}, updated_at = ${new Date().toISOString()} WHERE id = ${userId}`
       );
-    }
-
-    if (username !== undefined) {
-      const usernameCheck = validateName(username);
-      if (!usernameCheck.ok) {
-        return NextResponse.json({ error: `Invalid username: ${usernameCheck.error}` }, { status: 400 });
-      }
-      const clean = usernameCheck.value;
-      // Sign-in is by email, so the username is just a label — deriving the
-      // email from it here used to lock the user out of their own account.
-      // Uniqueness enforced inside the UPDATE so a concurrent claim of the
-      // same username can't slip between a check and the write.
-      const updated = await db.run(
-        sql`UPDATE "user" SET username = ${clean}, updated_at = ${new Date().toISOString()}
-            WHERE id = ${userId}
-            AND NOT EXISTS (SELECT 1 FROM "user" WHERE username = ${clean} AND id != ${userId})`
-      );
-      if (Number(updated.rowsAffected) === 0) {
-        return NextResponse.json({ error: "Username already taken" }, { status: 409 });
-      }
     }
 
     // Password change
@@ -134,7 +112,7 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    if (!displayUsername && !username && !newPassword) {
+    if (!displayName && !newPassword) {
       return NextResponse.json({ error: "No changes provided" }, { status: 400 });
     }
 
@@ -143,16 +121,13 @@ export async function PATCH(req: NextRequest) {
     if (newPassword) {
       logAuthEvent({ userId, action: "password_change", ipAddress, userAgent });
     }
-    if (displayUsername !== undefined || username !== undefined) {
+    if (displayName !== undefined) {
       logDataEvent({
         userId,
         action: "profile_update",
         targetId: userId,
         targetType: "user",
-        details: {
-          ...(displayUsername !== undefined && { displayUsername }),
-          ...(username !== undefined && { username }),
-        },
+        details: { displayName },
         ipAddress,
         userAgent,
       });

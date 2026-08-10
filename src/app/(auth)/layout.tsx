@@ -3,9 +3,7 @@ export default function AuthLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-4">
-      {children}
-    </div>
-  );
+  // Every auth page renders inside AuthShell, which owns its own full-height
+  // layout — this wrapper only sets the page background.
+  return <div className="bg-background">{children}</div>;
 }

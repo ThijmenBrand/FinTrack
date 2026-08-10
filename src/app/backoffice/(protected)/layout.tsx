@@ -1,15 +1,20 @@
 import Link from "next/link";
 import { ShieldCheck } from "lucide-react";
 import { requireBackofficeAdmin } from "@/lib/auth";
-import { getI18n } from "@/lib/i18n/server";
+import { getI18n, getLocale } from "@/lib/i18n/server";
 import { BackofficeSignOut } from "./_components/sign-out-button";
+import { BackofficeLocaleSelect } from "./_components/locale-select";
 
 export default async function BackofficeLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const [session, { t }] = await Promise.all([requireBackofficeAdmin(), getI18n()]);
+  const [session, { t }, locale] = await Promise.all([
+    requireBackofficeAdmin(),
+    getI18n(),
+    getLocale(),
+  ]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -40,8 +45,9 @@ export default async function BackofficeLayout({
             </nav>
           </div>
           <div className="flex items-center gap-3">
+            <BackofficeLocaleSelect locale={locale} />
             <span className="text-sm text-muted-foreground">
-              {session.displayUsername}
+              {session.displayName}
             </span>
             <BackofficeSignOut />
           </div>

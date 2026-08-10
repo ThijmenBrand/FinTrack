@@ -118,6 +118,14 @@ describe("toCsvCell", () => {
     expect(toCsvCell('say "hi"')).toBe('"say ""hi"""');
     expect(toCsvCell("line1\nline2")).toBe('"line1\nline2"');
   });
+
+  it("neutralizes spreadsheet formula triggers with a leading apostrophe", () => {
+    expect(toCsvCell('=HYPERLINK("http://evil")')).toBe('"\'=HYPERLINK(""http://evil"")"');
+    expect(toCsvCell("+1")).toBe("'+1");
+    expect(toCsvCell("-2")).toBe("'-2");
+    expect(toCsvCell("@cmd")).toBe("'@cmd");
+    expect(toCsvCell("normal =text")).toBe("normal =text");
+  });
 });
 
 describe("getRequestMeta", () => {

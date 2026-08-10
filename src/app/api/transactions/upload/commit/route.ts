@@ -12,7 +12,7 @@ import {
 } from "@/db/schema";
 import { eq, and, lt, inArray } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
-import { detectTransfers } from "@/lib/detect-transfers";
+import { detectTransfers, findTransferCategory } from "@/lib/detect-transfers";
 import { logDataEvent } from "@/lib/audit";
 import {
   validatePattern,
@@ -184,10 +184,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Get the "Internal Transfer" category for mirror transactions
-    const [transferCategory] = await db
-      .select()
-      .from(categories)
-      .where(and(eq(categories.name, "Internal Transfer"), eq(categories.userId, userId)));
+    const transferCategory = await findTransferCategory(db, userId);
 
     // Only allow pot assignments to pots the user actually owns
     const userPots = await db

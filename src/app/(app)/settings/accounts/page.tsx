@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAccounts, useCreateAccount, useUpdateAccount, useDeleteAccount, useReorderAccounts } from "@/hooks/use-accounts";
 import { usePreferences, useUpdatePreferences } from "@/hooks/use-preferences";
@@ -276,7 +277,16 @@ function SortableAccountCard({
 const emptyAccounts: Account[] = [];
 
 export default function AccountsPage() {
+  return (
+    <Suspense>
+      <AccountsPageInner />
+    </Suspense>
+  );
+}
+
+function AccountsPageInner() {
   const { t, plural, formatCurrency } = useI18n();
+  const searchParams = useSearchParams();
   const { data: accountsData = emptyAccounts, isLoading: loading } = useAccounts();
   const { data: prefs } = usePreferences();
   const updatePrefs = useUpdatePreferences();
@@ -287,7 +297,10 @@ export default function AccountsPage() {
   const queryClient = useQueryClient();
 
   const [localAccounts, setLocalAccounts] = useState<Account[]>([]);
-  const [dialogOpen, setDialogOpen] = useState(false);
+  // ?new= opens the create dialog straight away (e.g. from the dashboard empty state).
+  const [dialogOpen, setDialogOpen] = useState(
+    () => searchParams.get("new") !== null
+  );
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [detailAccount, setDetailAccount] = useState<Account | null>(null);
 
@@ -415,7 +428,7 @@ export default function AccountsPage() {
               }}
             >
               <DialogTrigger asChild>
-                <Button>
+                <Button data-tour="account-add">
                   <Plus className="mr-2 h-4 w-4" />
                   {t("accounts.add")}
                 </Button>

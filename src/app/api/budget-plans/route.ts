@@ -111,6 +111,25 @@ export async function POST(request: NextRequest) {
       ? accountIds.filter((v): v is string => typeof v === "string")
       : [];
 
+    // A plan without any budgetable account to draw from can never fill, so
+    // creation is blocked until the user has one.
+    const [budgetable] = await db
+      .select({ id: accounts.id })
+      .from(accounts)
+      .where(
+        and(
+          eq(accounts.userId, userId),
+          inArray(accounts.type, [...BUDGETABLE_ACCOUNT_TYPES]),
+        ),
+      )
+      .limit(1);
+    if (!budgetable) {
+      return NextResponse.json(
+        { error: "Add a checking or joint account before creating a budget" },
+        { status: 400 },
+      );
+    }
+
     const existing = await db
       .select({ id: budgetPlans.id })
       .from(budgetPlans)

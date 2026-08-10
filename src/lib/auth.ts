@@ -1,6 +1,6 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { admin, twoFactor, username } from "better-auth/plugins";
+import { admin, twoFactor } from "better-auth/plugins";
 import { passkey } from "@better-auth/passkey";
 import { NextResponse } from "next/server";
 import { db } from "@/db/index";
@@ -14,6 +14,23 @@ import { logAuthEvent } from "@/lib/audit";
 import { sendVerificationEmail, sendPasswordResetEmail } from "@/lib/email";
 import { MIN_PASSWORD_LENGTH } from "@/lib/validation";
 import { seedCategoriesForUser } from "@/db/migrate";
+import { getRequestLocale } from "@/lib/i18n/request";
+import { isLocale, type Locale } from "@/lib/i18n";
+
+/**
+ * Language for a mail sent to `userId`: their stored preference, or — for
+ * brand-new signups that have no preferences row yet — the language of the
+ * request that triggered the mail.
+ */
+async function emailLocale(userId: string): Promise<Locale> {
+  const [row] = await db
+    .select({ locale: schema.userPreferences.locale })
+    .from(schema.userPreferences)
+    .where(eq(schema.userPreferences.userId, userId))
+    .limit(1);
+  const stored = row?.locale;
+  return isLocale(stored) ? stored : getRequestLocale();
+}
 
 // ─── Password Hashing (scrypt — compatible with existing hashes) ────────────
 
@@ -21,7 +38,7 @@ function hashPassword(password: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const salt = crypto.randomBytes(16).toString("hex");
     crypto.scrypt(password, salt, 64, (err, derivedKey) => {
-      if (err) reject(err);
+      if (err) return reject(err);
       resolve(`${salt}:${derivedKey.toString("hex")}`);
     });
   });
@@ -31,7 +48,7 @@ function verifyPassword(password: string, hash: string): Promise<boolean> {
   return new Promise((resolve, reject) => {
     const [salt, key] = hash.split(":");
     crypto.scrypt(password, salt, 64, (err, derivedKey) => {
-      if (err) reject(err);
+      if (err) return reject(err);
       resolve(crypto.timingSafeEqual(Buffer.from(key, "hex"), derivedKey));
     });
   });
@@ -74,7 +91,6 @@ export const auth = betterAuth({
   appName: "FinTrack",
   trustedOrigins: [getBaseURL()],
   plugins: [
-    username(),
     admin(),
     passkey({ rpName: "FinTrack" }),
     twoFactor({ issuer: "FinTrack" }),
@@ -88,7 +104,6 @@ export const auth = betterAuth({
     max: 100,
     customRules: {
       "/sign-in/email": { window: 60, max: 5 },
-      "/sign-in/username": { window: 60, max: 5 },
       "/sign-up/email": { window: 60, max: 5 },
       "/forget-password": { window: 60, max: 3 },
       "/request-password-reset": { window: 60, max: 3 },
@@ -115,7 +130,7 @@ export const auth = betterAuth({
         after: async (user) => {
           // Only self-signup goes through the adapter — the admin create route
           // and the migrate seed insert with raw SQL and seed explicitly.
-          await seedCategoriesForUser(user.id);
+          await seedCategoriesForUser(user.id, await getRequestLocale());
           logAuthEvent({ userId: user.id, action: "user_signup" });
         },
       },
@@ -141,7 +156,7 @@ export const auth = betterAuth({
   },
   emailVerification: {
     sendVerificationEmail: async ({ user, url }) => {
-      await sendVerificationEmail(user.email, url);
+      await sendVerificationEmail(user.email, url, await emailLocale(user.id));
     },
     sendOnSignUp: true,
     autoSignInAfterVerification: true,
@@ -154,7 +169,7 @@ export const auth = betterAuth({
     requireEmailVerification: true,
     minPasswordLength: MIN_PASSWORD_LENGTH,
     sendResetPassword: async ({ user, url }) => {
-      await sendPasswordResetEmail(user.email, url);
+      await sendPasswordResetEmail(user.email, url, await emailLocale(user.id));
     },
     password: {
       hash: async (password: string) => hashPassword(password),
@@ -168,8 +183,7 @@ export const auth = betterAuth({
 
 export interface SessionData {
   userId: string;
-  username: string;
-  displayUsername: string;
+  displayName: string;
   isAdmin: boolean;
   twoFactorEnabled: boolean;
 }
@@ -202,11 +216,7 @@ export async function requireAuth(): Promise<SessionData> {
   }
   return {
     userId: session.user.id,
-    username:
-      ((session.user as Record<string, unknown>).username as string) ||
-      session.user.name ||
-      "",
-    displayUsername: session.user.name || "",
+    displayName: session.user.name || "",
     isAdmin: (session.user as Record<string, unknown>).role === "admin",
     twoFactorEnabled: (session.user as Record<string, unknown>).twoFactorEnabled === true,
   };
@@ -229,11 +239,7 @@ export async function requireBackofficeAdmin(): Promise<SessionData> {
   }
   return {
     userId: session.user.id,
-    username:
-      ((session.user as Record<string, unknown>).username as string) ||
-      session.user.name ||
-      "",
-    displayUsername: session.user.name || "",
+    displayName: session.user.name || "",
     isAdmin: true,
     twoFactorEnabled: (session.user as Record<string, unknown>).twoFactorEnabled === true,
   };
@@ -253,11 +259,7 @@ export async function requireAdmin(): Promise<SessionData> {
   }
   const data: SessionData = {
     userId: session.user.id,
-    username:
-      ((session.user as Record<string, unknown>).username as string) ||
-      session.user.name ||
-      "",
-    displayUsername: session.user.name || "",
+    displayName: session.user.name || "",
     isAdmin: (session.user as Record<string, unknown>).role === "admin",
     twoFactorEnabled: (session.user as Record<string, unknown>).twoFactorEnabled === true,
   };

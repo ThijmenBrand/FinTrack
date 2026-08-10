@@ -10,7 +10,8 @@ import {
   recurringTransactions,
   transactionGroups,
 } from "@/db/schema";
-import { eq, and, asc, gte, lte, sql, sum, inArray, isNotNull } from "drizzle-orm";
+import { eq, and, asc, gte, lte, sql, sum, inArray, isNotNull, notInArray } from "drizzle-orm";
+import { defaultCategoryNames, TRANSFER_CATEGORY } from "@/lib/default-categories";
 import { accountScopeFilter, resolveBudgetPlan } from "@/lib/budget-plan";
 import { getPaySchedule, paydaysBetween, type PaySchedule } from "@/lib/pay-schedule";
 import { getMonthMoneyMath, toMonthly } from "@/lib/month-money";
@@ -966,7 +967,10 @@ export async function getTopCategories(userId: string, startDay: number = 1) {
         and(
           eq(transactions.userId, userId),
           eq(transactions.type, "expense"),
-          sql`COALESCE(${categories.name}, '') <> 'Internal Transfer'`,
+          notInArray(
+            sql`COALESCE(${categories.name}, '')`,
+            defaultCategoryNames(TRANSFER_CATEGORY),
+          ),
           sql`${transactions.groupId} IS NULL`,
           gte(transactions.date, monthStart),
           lte(transactions.date, monthEnd),

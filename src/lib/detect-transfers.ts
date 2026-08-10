@@ -1,6 +1,24 @@
 import { db as defaultDb } from "@/db";
 import { transactions, categories } from "@/db/schema";
-import { eq, and, notInArray } from "drizzle-orm";
+import { eq, and, notInArray, inArray, asc } from "drizzle-orm";
+import { defaultCategoryNames, TRANSFER_CATEGORY } from "@/lib/default-categories";
+
+/**
+ * The user's transfer bucket, matched across every locale's spelling. Oldest
+ * row wins so the seeded category beats a later custom category that happens
+ * to reuse another locale's name.
+ */
+export async function findTransferCategory(db: typeof defaultDb, userId: string) {
+  const rows = await db
+    .select()
+    .from(categories)
+    .where(
+      and(inArray(categories.name, defaultCategoryNames(TRANSFER_CATEGORY)), eq(categories.userId, userId))
+    )
+    .orderBy(asc(categories.createdAt), asc(categories.id))
+    .limit(1);
+  return rows.at(0);
+}
 
 /**
  * Detects internal transfers between accounts.
@@ -8,13 +26,7 @@ import { eq, and, notInArray } from "drizzle-orm";
  * with the same absolute amount, flag both as "Internal Transfer".
  */
 export async function detectTransfers(db: typeof defaultDb, userId: string) {
-  // Get the "Internal Transfer" category
-  const [transferCategory] = await db
-    .select()
-    .from(categories)
-    .where(
-      and(eq(categories.name, "Internal Transfer"), eq(categories.userId, userId))
-    );
+  const transferCategory = await findTransferCategory(db, userId);
 
   if (!transferCategory) {
     return { matchedPairs: 0, totalTransactionsUpdated: 0 };

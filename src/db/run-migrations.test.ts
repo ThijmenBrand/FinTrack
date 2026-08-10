@@ -92,6 +92,9 @@ describe("run-migrations pipeline", () => {
     await client.execute("DROP TABLE invites");
     await client.execute("DROP TABLE twoFactor");
     await client.execute("ALTER TABLE user DROP COLUMN two_factor_enabled");
+    // Old prod still has the username columns 0013 collapses into `name`.
+    await client.execute("ALTER TABLE user ADD COLUMN username TEXT");
+    await client.execute("ALTER TABLE user ADD COLUMN display_username TEXT");
     await client.execute("DROP INDEX idx_budgets_plan");
     await client.execute("ALTER TABLE budgets DROP COLUMN budget_id");
     await client.execute("ALTER TABLE accounts DROP COLUMN budget_id");
@@ -171,6 +174,8 @@ describe("run-migrations pipeline", () => {
     expect(await tableNames()).toContain("invites");
     expect(await tableNames()).toContain("twoFactor");
     expect(await columnNames("user")).toContain("two_factor_enabled");
+    expect(await columnNames("user")).not.toContain("username");
+    expect(await columnNames("user")).not.toContain("display_username");
     expect(await columnNames("user_preferences")).toContain("hide_internal_transfers");
     expect(await tableNames()).toContain("budget_plans");
     expect(await columnNames("accounts")).toContain("budget_id");

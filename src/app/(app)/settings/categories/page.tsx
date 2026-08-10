@@ -173,7 +173,7 @@ export default function CategoriesPage() {
               </span>
             </Button>
             <RuleDialog categories={categories} />
-            <Button onClick={openCreateCategory}>
+            <Button data-tour="category-new" onClick={openCreateCategory}>
               <Plus className="sm:mr-2 h-4 w-4" />
               <span className="hidden sm:inline">{t("categories.add")}</span>
             </Button>

@@ -101,9 +101,14 @@ export function buildAuditLogFilter(searchParams: URLSearchParams): SQL | undefi
   return conditions.length > 0 ? and(...conditions) : undefined;
 }
 
-/** Escape a value for one CSV cell (RFC 4180 quote-doubling). */
+/**
+ * Escape a value for one CSV cell (RFC 4180 quote-doubling). Cells starting
+ * with a formula trigger get a leading apostrophe — display names and
+ * user agents are attacker-controlled, and Excel executes `=`/`@` cells.
+ */
 export function toCsvCell(value: unknown): string {
-  const s = value === null || value === undefined ? "" : String(value);
+  let s = value === null || value === undefined ? "" : String(value);
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 

@@ -10,7 +10,6 @@ interface BudgetPlanTabsProps {
   plans: BudgetPlanData[];
   activeId?: string;
   onSelect: (planId: string) => void;
-  /** Omitted in simple mode — switching stays, plan management doesn't. */
   onEdit?: (plan: BudgetPlanData) => void;
   onCreate?: () => void;
 }

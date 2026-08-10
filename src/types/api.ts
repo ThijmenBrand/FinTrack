@@ -188,8 +188,7 @@ export interface MonthMoneyView {
 
 export interface Profile {
   id: string;
-  username: string;
-  displayUsername: string;
+  displayName: string;
   isAdmin: boolean;
   twoFactorEnabled: boolean;
   createdAt: string;
@@ -197,8 +196,7 @@ export interface Profile {
 
 export interface AdminUser {
   id: string;
-  username: string;
-  displayUsername: string;
+  displayName: string;
   email: string;
   emailVerified: boolean;
   role: "admin" | "user";
@@ -476,8 +474,7 @@ export interface ImportBatch {
 export interface AuditLogEntry {
   id: string;
   userId: string | null;
-  username: string | null;
-  displayUsername: string | null;
+  displayName: string | null;
   category: "auth" | "data" | "admin";
   action: string;
   targetId: string | null;

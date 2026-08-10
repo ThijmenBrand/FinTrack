@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { transactions, importBatches, categoryRules, categories, accounts } from "@/db/schema";
+import { transactions, importBatches, categoryRules, accounts } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import Papa from "papaparse";
@@ -82,12 +82,6 @@ export async function POST(request: NextRequest) {
       .select()
       .from(categoryRules)
       .where(and(eq(categoryRules.isActive, true), eq(categoryRules.userId, userId)));
-
-    // Get "Internal Transfer" category id
-    const [transferCategory] = await db
-      .select()
-      .from(categories)
-      .where(and(eq(categories.name, "Internal Transfer"), eq(categories.userId, userId)));
 
     // Create import batch
     const batchId = crypto.randomUUID();

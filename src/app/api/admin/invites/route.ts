@@ -14,9 +14,13 @@ import {
 } from "@/lib/invites";
 import { sendInviteEmail } from "@/lib/email";
 import { logAudit, getRequestMeta } from "@/lib/audit";
+import { getUserPreferences } from "@/lib/preferences";
+import type { Locale } from "@/lib/i18n";
 
-function inviteUrl(token: string): string {
-  return `${getBaseURL()}/invite?token=${token}`;
+// `lang` makes the accept page render in the inviter's language before the
+// invitee has any preference of their own.
+function inviteUrl(token: string, locale: Locale): string {
+  return `${getBaseURL()}/invite?token=${token}&lang=${locale}`;
 }
 
 async function logInviteAction(
@@ -38,14 +42,31 @@ async function logInviteAction(
   });
 }
 
-/** Send the invite mail, keeping the row so "Resend" can retry a failed send. */
+/**
+ * Send the invite mail, keeping the row so "Resend" can retry a failed send.
+ * Name and language both follow the original inviter — the accept page shows
+ * their name, so a resend by another admin must not say someone else invited
+ * you (or mix languages).
+ */
 async function deliver(
   email: string,
   token: string,
   session: SessionData,
+  inviterId: string = session.userId,
 ): Promise<NextResponse | null> {
   try {
-    await sendInviteEmail(email, inviteUrl(token), session.displayUsername);
+    const { locale } = await getUserPreferences(inviterId);
+    const inviter = await db
+      .select({ name: user.name })
+      .from(user)
+      .where(eq(user.id, inviterId))
+      .get();
+    await sendInviteEmail(
+      email,
+      inviteUrl(token, locale),
+      inviter?.name ?? session.displayName,
+      locale,
+    );
     return null;
   } catch (err) {
     console.error("Invite email failed to send:", err);
@@ -184,7 +205,7 @@ export async function PUT(request: NextRequest) {
       email: invite.email,
     });
 
-    const failure = await deliver(invite.email, token, session);
+    const failure = await deliver(invite.email, token, session, invite.invitedBy ?? undefined);
     if (failure) return failure;
 
     return NextResponse.json({ success: true });

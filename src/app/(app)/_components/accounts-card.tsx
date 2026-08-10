@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { Landmark } from "lucide-react";
+import { Landmark, Plus } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -71,9 +72,15 @@ export async function AccountsCard({ userId }: { userId: string }) {
         {accountBalances.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-center">
             <Landmark className="h-12 w-12 text-muted-foreground/30 mb-4" />
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-muted-foreground mb-4">
               {t("dashboard.accounts.empty")}
             </p>
+            <Button asChild>
+              <Link href="/settings/accounts?new=1">
+                <Plus className="mr-2 h-4 w-4" />
+                {t("accounts.add")}
+              </Link>
+            </Button>
           </div>
         ) : (
           <div className="space-y-4">

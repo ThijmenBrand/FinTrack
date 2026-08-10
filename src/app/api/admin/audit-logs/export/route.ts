@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
     const rows = await db
       .select({
         createdAt: auditLog.createdAt,
-        username: user.username,
+        displayName: user.name,
         category: auditLog.category,
         action: auditLog.action,
         targetId: auditLog.targetId,
@@ -33,13 +33,13 @@ export async function GET(request: NextRequest) {
       .orderBy(desc(auditLog.createdAt))
       .limit(MAX_ROWS);
 
-    const header = "created_at,username,category,action,target_id,target_type,details,ip_address,user_agent";
+    const header = "created_at,display_name,category,action,target_id,target_type,details,ip_address,user_agent";
     const csv = [
       header,
       ...rows.map((r) =>
         [
           r.createdAt,
-          r.username,
+          r.displayName,
           r.category,
           r.action,
           r.targetId,

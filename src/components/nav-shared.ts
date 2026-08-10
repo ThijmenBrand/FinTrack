@@ -33,8 +33,7 @@ export function useSecondaryNav(): NavItem[] {
 }
 
 export interface SessionUser {
-  displayUsername: string;
-  username: string;
+  displayName: string;
   isAdmin: boolean;
 }
 
@@ -45,11 +44,7 @@ export function useSessionUser() {
 
   const user: SessionUser | null = session?.user
     ? {
-        displayUsername:
-          ((session.user as Record<string, unknown>).displayUsername as string) ||
-          session.user.name ||
-          "",
-        username: ((session.user as Record<string, unknown>).username as string) || "",
+        displayName: session.user.name || "",
         isAdmin: (session.user as Record<string, unknown>).role === "admin",
       }
     : null;

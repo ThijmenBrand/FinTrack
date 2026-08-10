@@ -471,7 +471,7 @@ function TransactionsPage() {
               <span className="hidden sm:inline">{t("tx.importHistory")}</span>
             </Link>
           </Button>
-          <Button size="sm" onClick={() => setUploadOpen(true)}>
+          <Button data-tour="import-csv" size="sm" onClick={() => setUploadOpen(true)}>
             <Upload className="sm:mr-2 h-4 w-4" />
             <span className="hidden sm:inline">{t("tx.importCsv")}</span>
           </Button>
