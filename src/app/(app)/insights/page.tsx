@@ -584,8 +584,11 @@ export default function InsightsPage() {
           />
 
           {/* The two time-series read as a pair, so they sit side by side once
-              there's room for both without squashing either. */}
-          <div className="grid gap-4 xl:grid-cols-2">
+              there's room for both without squashing either. [&>*]:min-w-0:
+              grid items default to min-width:auto, so the charts' min-width'd
+              scroll areas widened the whole page on mobile instead of scrolling
+              inside their cards. */}
+          <div className="grid gap-4 xl:grid-cols-2 [&>*]:min-w-0">
             <SpendingByPeriod
               dailyTotals={data.dailyTotals}
               monthlyTotals={data.monthlyTotals}
