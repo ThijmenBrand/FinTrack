@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { withUser } from "@/lib/auth";
+import { touchAllLedgers } from "@/lib/budget-jobs";
 import { detectTransfers } from "@/lib/detect-transfers";
 
 /**
@@ -15,6 +16,9 @@ import { detectTransfers } from "@/lib/detect-transfers";
 export async function POST() {
   return withUser(async (userId) => {
     const result = await detectTransfers(db, userId);
+
+    // Rows reclassified as internal transfers stop counting as spend.
+    await touchAllLedgers(userId);
 
     return NextResponse.json({
       success: true,

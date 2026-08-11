@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import {
@@ -350,6 +350,36 @@ export default function InsightsPage() {
     enabled: simple || !!chartPlan,
   });
 
+  // The vs-actual chart looks back twelve months, which straddles two
+  // financial years on a yearly plan. Only fetch the previous year when there
+  // is a yearly envelope to fetch it for.
+  const chartIsYearly = planMonthlyData?.plan?.period === "yearly";
+  const previousYear = (planMonthlyData?.yearly?.year ?? 0) - 1;
+  const { data: previousYearData } = useBudgets({
+    budgetId: chartPlan?.id,
+    noScale: true,
+    year: previousYear,
+    enabled: chartIsYearly && previousYear > 0,
+  });
+
+  // Each month's real ceiling: the categories' carry-over-adjusted allowances
+  // plus the plan's recurring fixed costs, which sit outside the envelope.
+  const allowanceByMonth = useMemo(() => {
+    if (!chartIsYearly) return undefined;
+    const fixed = planMonthlyData?.totalFixedCosts ?? 0;
+    const out: Record<string, number> = {};
+    for (const view of [previousYearData?.yearly, planMonthlyData?.yearly]) {
+      if (!view?.hasData) continue;
+      for (const category of view.categories) {
+        for (const month of category.months) {
+          const key = month.from.slice(0, 7);
+          out[key] = (out[key] ?? fixed) + month.allowance;
+        }
+      }
+    }
+    return Object.keys(out).length > 0 ? out : undefined;
+  }, [chartIsYearly, planMonthlyData, previousYearData]);
+
   const handlePresetChange = (value: string) => {
     const key = value as PresetKey;
     if (key === "custom") {
@@ -545,6 +575,7 @@ export default function InsightsPage() {
               planName={chartPlan?.name ?? null}
               budgetId={chartPlan?.id}
               monthlyBudget={planMonthlyData?.totalBudget ?? 0}
+              allowanceByMonth={allowanceByMonth}
             />
           }
         />
@@ -634,6 +665,7 @@ export default function InsightsPage() {
               planName={selectedPlan.name}
               budgetId={selectedPlan.id}
               monthlyBudget={planMonthlyData?.totalBudget ?? 0}
+              allowanceByMonth={allowanceByMonth}
             />
           )}
 

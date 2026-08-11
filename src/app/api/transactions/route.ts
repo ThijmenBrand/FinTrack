@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { transactions, accounts, categories } from "@/db/schema";
 import { eq, desc, asc, and, gte, lte, like, or, sql, inArray, notInArray, isNull, isNotNull } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
+import { touchAllLedgers } from "@/lib/budget-jobs";
 import { logDataEvent } from "@/lib/audit";
 import { parseSearchTerm } from "@/lib/search-query";
 import { effectiveExpenseAmount } from "@/lib/reimbursement-sql";
@@ -371,6 +372,9 @@ export async function DELETE(request: NextRequest) {
     }
 
     await db.delete(transactions).where(and(eq(transactions.id, id), eq(transactions.userId, userId)));
+
+    // The deleted spend has to leave every yearly envelope it was part of.
+    await touchAllLedgers(userId);
 
     logDataEvent({ userId, action: "transaction_delete", targetId: id, targetType: "transaction" });
 

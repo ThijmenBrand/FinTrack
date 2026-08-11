@@ -100,6 +100,9 @@ describe("run-migrations pipeline", () => {
     await client.execute("ALTER TABLE accounts DROP COLUMN budget_id");
     await client.execute("ALTER TABLE user_preferences DROP COLUMN count_cross_budget_transfers");
     await client.execute("DROP TABLE budget_plans");
+    // Created by 0014, alongside the yearly columns on budget_plans.
+    await client.execute("DROP TABLE budget_ledger");
+    await client.execute("DROP TABLE budget_ledger_jobs");
     expect(await columnNames("user_preferences")).not.toContain("hide_internal_transfers");
 
     // Pre-0009 data for the backfill: checking, joint and savings accounts

@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { categoryRules, transactions } from "@/db/schema";
 import { sql, eq, and } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
+import { touchAllLedgers } from "@/lib/budget-jobs";
 import { applyRuleToTransactions } from "@/lib/apply-rule";
 
 /**
@@ -69,6 +70,9 @@ export async function POST() {
       .where(eq(transactions.userId, userId));
 
     const total = totalResult[0]?.count || 0;
+
+    // A rules sweep can recategorise years of history at once.
+    await touchAllLedgers(userId);
 
     return NextResponse.json({
       success: true,

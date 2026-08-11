@@ -49,6 +49,15 @@ export const budgetPlans = sqliteTable("budget_plans", {
   userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   isMain: integer("is_main", { mode: "boolean" }).notNull().default(false),
+  // "monthly" — every month stands alone, the classic behaviour.
+  // "yearly" — the plan's allocations form one annual envelope per category:
+  // each month gets amount/12 plus whatever the earlier months left over
+  // (or owe). Tracked in budget_ledger.
+  period: text("period", { enum: ["monthly", "yearly"] }).notNull().default("monthly"),
+  // First financial month the yearly envelope covers, as `YYYY-MM-DD` (the FM
+  // start). Switching a plan to yearly mid-year starts fresh here rather than
+  // backfilling carry-over the user never saw. Null while the plan is monthly.
+  periodStartedAt: text("period_started_at"),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
@@ -212,6 +221,90 @@ export const budgets = sqliteTable("budgets", {
   index("idx_budgets_user_active").on(table.userId, table.isActive),
   index("idx_budgets_user_status").on(table.userId, table.status),
   index("idx_budgets_plan").on(table.budgetId),
+]);
+
+// ─── Budget Ledger ───────────────────────────────────────────────────────────
+// One row per (yearly plan, category, financial month). Only yearly plans
+// have rows: monthly plans need no ledger because nothing carries over.
+//
+// `target` is the month's own share of the annual envelope (the allocation's
+// monthly amount at the time the month closed). `rolloverIn` is what the
+// earlier months of the same financial year left behind — positive when they
+// underspent, negative when they overspent, because the envelope is one pot.
+// The month's actual allowance is `target + rolloverIn`, and it hands
+// `rolloverOut = target + rolloverIn − spent` to the next month.
+//
+// Closed months keep their `target` frozen: raising an allocation in July
+// must not retroactively rewrite what January was allowed to spend. A late
+// edit to an old transaction still updates that month's `spent` and
+// re-cascades every rollover after it — see recomputeLedger.
+export const budgetLedger = sqliteTable("budget_ledger", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  budgetId: text("budget_id")
+    .notNull()
+    .references(() => budgetPlans.id, { onDelete: "cascade" }),
+  categoryId: text("category_id")
+    .notNull()
+    .references(() => categories.id, { onDelete: "cascade" }),
+  // Financial year: the calendar year the year's first financial month starts
+  // in. With financialMonthStartDay = 1 this is just the calendar year.
+  year: integer("year").notNull(),
+  // 0–11, the month's position inside that financial year.
+  monthIndex: integer("month_index").notNull(),
+  periodStart: text("period_start").notNull(),
+  periodEnd: text("period_end").notNull(),
+  target: real("target").notNull(),
+  spent: real("spent").notNull().default(0),
+  rolloverIn: real("rollover_in").notNull().default(0),
+  rolloverOut: real("rollover_out").notNull().default(0),
+  // A finished month whose `target` no longer tracks the live allocation.
+  closed: integer("closed", { mode: "boolean" }).notNull().default(false),
+  computedAt: text("computed_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  uniqueIndex("idx_budget_ledger_slot").on(
+    table.budgetId,
+    table.categoryId,
+    table.year,
+    table.monthIndex,
+  ),
+  index("idx_budget_ledger_lookup").on(table.userId, table.budgetId, table.year),
+]);
+
+// ─── Budget Ledger Jobs ──────────────────────────────────────────────────────
+// Work queue for ledger recomputation. Recomputing a year of carry-over is too
+// slow to sit in a request, so writers only mark what went stale and the
+// actual maths runs after the response is flushed (see runLedgerJobs).
+//
+// At most one row per (plan, year): a second enqueue folds into the existing
+// one, so a 2,000-row import leaves a single job behind, not 2,000. A job is
+// only ever "this plan-year is stale" — the worker rebuilds the whole year,
+// because a changed month invalidates every rollover after it anyway.
+export const budgetLedgerJobs = sqliteTable("budget_ledger_jobs", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  budgetId: text("budget_id")
+    .notNull()
+    .references(() => budgetPlans.id, { onDelete: "cascade" }),
+  year: integer("year").notNull(),
+  status: text("status", { enum: ["pending", "running", "failed"] })
+    .notNull()
+    .default("pending"),
+  attempts: integer("attempts").notNull().default(0),
+  lastError: text("last_error"),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+  startedAt: text("started_at"),
+}, (table) => [
+  uniqueIndex("idx_budget_ledger_jobs_slot").on(table.budgetId, table.year),
+  index("idx_budget_ledger_jobs_status").on(table.status, table.createdAt),
 ]);
 
 // ─── User Preferences ────────────────────────────────────────────────────────
@@ -546,6 +639,9 @@ export type Budget = typeof budgets.$inferSelect;
 export type NewBudget = typeof budgets.$inferInsert;
 export type BudgetPlan = typeof budgetPlans.$inferSelect;
 export type NewBudgetPlan = typeof budgetPlans.$inferInsert;
+export type BudgetLedgerRow = typeof budgetLedger.$inferSelect;
+export type NewBudgetLedgerRow = typeof budgetLedger.$inferInsert;
+export type BudgetLedgerJob = typeof budgetLedgerJobs.$inferSelect;
 export type RecurringTransaction = typeof recurringTransactions.$inferSelect;
 export type NewRecurringTransaction = typeof recurringTransactions.$inferInsert;
 export type ImportBatch = typeof importBatches.$inferSelect;

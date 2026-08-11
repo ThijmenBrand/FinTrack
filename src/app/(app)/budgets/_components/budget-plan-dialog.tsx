@@ -20,7 +20,7 @@ import {
   useUpdateBudgetPlan,
 } from "@/hooks/use-budget-plans";
 import { BUDGETABLE_ACCOUNT_TYPES } from "@/lib/account-scope";
-import type { Account, BudgetPlanData } from "@/types/api";
+import type { Account, BudgetPlanData, BudgetPlanPeriod } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
 
 interface BudgetPlanDialogProps {
@@ -56,8 +56,11 @@ export function BudgetPlanDialog({
     plan?.accounts.map((a) => a.id) ?? [],
   );
   const [makeMain, setMakeMain] = useState(plan?.isMain ?? false);
+  const [period, setPeriod] = useState<BudgetPlanPeriod>(plan?.period ?? "monthly");
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const switchingToYearly = period === "yearly" && plan?.period !== "yearly";
+  const switchingToMonthly = period === "monthly" && plan?.period === "yearly";
 
   const isFirstPlan = plans.length === 0;
   const busy = createPlan.isPending || updatePlan.isPending || deletePlan.isPending;
@@ -80,12 +83,14 @@ export function BudgetPlanDialog({
           name: name.trim(),
           accountIds: selectedIds,
           ...(makeMain && !plan.isMain ? { isMain: true } : {}),
+          ...(period !== plan.period ? { period } : {}),
         });
         onSaved?.(plan.id);
       } else {
         const result = await createPlan.mutateAsync({
           name: name.trim(),
           accountIds: selectedIds,
+          period,
         });
         if (makeMain && !isFirstPlan) {
           await updatePlan.mutateAsync({ id: result.id, isMain: true });
@@ -137,6 +142,45 @@ export function BudgetPlanDialog({
               maxLength={60}
               autoFocus
             />
+          </div>
+
+          {/* Monthly or one annual envelope. The consequence of the choice is
+              spelled out below the buttons — carry-over changes what "over
+              budget" even means, so it should not be a silent toggle. */}
+          <div className="space-y-2">
+            <Label>{t("budgets.plan.periodLabel")}</Label>
+            <div className="grid grid-cols-2 gap-2">
+              {(["monthly", "yearly"] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => setPeriod(option)}
+                  aria-pressed={period === option}
+                  className={`rounded-md border px-3 py-2 text-left text-sm transition-colors ${
+                    period === option
+                      ? "border-primary bg-primary/5 text-foreground"
+                      : "border-input text-muted-foreground hover:bg-muted/60"
+                  }`}
+                >
+                  <span className="block font-medium">
+                    {t(`budgets.plan.period.${option}`)}
+                  </span>
+                  <span className="block text-xs text-muted-foreground">
+                    {t(`budgets.plan.period.${option}Hint`)}
+                  </span>
+                </button>
+              ))}
+            </div>
+            {switchingToYearly && (
+              <p className="text-xs text-amber-700 dark:text-amber-400">
+                {t("budgets.plan.period.switchToYearly")}
+              </p>
+            )}
+            {switchingToMonthly && (
+              <p className="text-xs text-amber-700 dark:text-amber-400">
+                {t("budgets.plan.period.switchToMonthly")}
+              </p>
+            )}
           </div>
 
           <div className="space-y-2">

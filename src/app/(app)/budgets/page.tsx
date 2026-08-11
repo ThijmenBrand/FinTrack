@@ -21,6 +21,10 @@ import {
   formatFinancialMonthLabel,
   getFinancialMonthRange,
 } from "@/lib/financial-month";
+import {
+  currentFinancialSlot,
+  getFinancialYearMonths,
+} from "@/lib/financial-year";
 import type { Allocation, BudgetPlanData, BudgetSuggestion } from "@/types/api";
 import type { EmptyGenerateReason } from "@/lib/auto-budget";
 import {
@@ -70,6 +74,8 @@ import { byUrgency } from "./_components/budget-row";
 import { BudgetPlanTabs } from "./_components/budget-plan-tabs";
 import { BudgetPlanDialog } from "./_components/budget-plan-dialog";
 import { SimpleHero } from "./_components/simple-hero";
+import { YearlyAllocationRow } from "./_components/yearly-allocation-row";
+import { LedgerCalculating, YearlyStats } from "./_components/yearly-stats";
 
 const MONTH_OFFSETS = [0, 1, 2, 3] as const;
 type MonthOffset = (typeof MONTH_OFFSETS)[number];
@@ -238,6 +244,26 @@ export default function BudgetsPage() {
   const [planDialogOpen, setPlanDialogOpen] = useState(false);
   const [editingPlan, setEditingPlan] = useState<BudgetPlanData | null>(null);
 
+  // Yearly plans navigate by financial year and by month inside it; monthly
+  // plans keep the rolling month-offset picker. Null = "whatever is current",
+  // resolved by the server so the client never has to know the start day.
+  const isYearly = activePlan?.period === "yearly";
+  const [selectedYear, setSelectedYear] = useState<number | null>(null);
+  const [selectedMonthIndex, setSelectedMonthIndex] = useState<number | null>(null);
+
+  // Which financial month is live right now — for a yearly plan this decides
+  // whether the view is editable, the same way monthOffset === 0 does for a
+  // monthly one.
+  const liveSlot = useMemo(
+    () => currentFinancialSlot(startDay),
+    [startDay],
+  );
+  // Four financial years back, which is as far as anyone browses in practice.
+  const yearOptions = useMemo(
+    () => Array.from({ length: 4 }, (_, i) => liveSlot.year - i),
+    [liveSlot.year],
+  );
+
   const { dateFrom, dateTo, monthOptions, daysLeft } = useMemo(() => {
     const now = new Date();
     const options = MONTH_OFFSETS.map((offset) => {
@@ -276,7 +302,39 @@ export default function BudgetsPage() {
     dateTo,
     budgetId: activePlanId,
     noScale: true,
+    ...(isYearly
+      ? {
+          year: selectedYear ?? undefined,
+          monthIndex: selectedMonthIndex ?? undefined,
+        }
+      : {}),
   });
+  const yearly = data?.yearly ?? null;
+
+  // A yearly plan is editable while the month on screen is the one being
+  // lived in, the same rule monthOffset === 0 encodes for monthly plans.
+  const isCurrentPeriod = isYearly
+    ? !!yearly &&
+      yearly.year === liveSlot.year &&
+      yearly.monthIndex === liveSlot.monthIndex
+    : monthOffset === 0;
+
+  // Month labels for the selected financial year. With a start day of 1 these
+  // are plain month names; otherwise they show the actual window.
+  const monthNamesInYear = useMemo(() => {
+    const year = yearly?.year ?? liveSlot.year;
+    return getFinancialYearMonths(year, startDay).map((slot) =>
+      startDay === 1
+        ? new Date(`${slot.from}T00:00:00`).toLocaleDateString(intlLocale, {
+            month: "long",
+          })
+        : formatFinancialMonthLabel(
+            new Date(`${slot.from}T00:00:00`),
+            startDay,
+            intlLocale,
+          ),
+    );
+  }, [yearly?.year, liveSlot.year, startDay, intlLocale]);
   const { data: categoriesData } = useCategories();
   const categories = categoriesData ?? [];
   const createBudget = useCreateBudget();
@@ -404,8 +462,21 @@ export default function BudgetsPage() {
 
   const hasSuggestions = data.suggestions.length > 0;
   const showRegenBanner =
-    isCurrentMonth && data.automation.regenerationDue && !hasSuggestions && !simple;
+    isCurrentPeriod && data.automation.regenerationDue && !hasSuggestions && !simple;
   const allocationsCount = data.allocations.length;
+
+  // Yearly rows carry their own totals; the header still reconciles with the
+  // list under it, just against this month's allowance rather than a flat cap.
+  const allocByCategory = new Map(data.allocations.map((a) => [a.categoryId, a]));
+  const yearlyRows = yearly
+    ? [...yearly.categories].sort((a, b) => {
+        const rank = { "year-over": 0, "month-over": 1, ok: 2 } as const;
+        if (rank[a.status] !== rank[b.status]) return rank[a.status] - rank[b.status];
+        return b.spentMonth - a.spentMonth;
+      })
+    : [];
+  const showYearlyEmptyState =
+    !!yearly && !yearly.hasData && yearly.categories.length === 0;
 
   return (
     <div className="space-y-6">
@@ -505,7 +576,10 @@ export default function BudgetsPage() {
           <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
             <div className="min-w-0">
               <p className="text-sm text-muted-foreground">
-                {data.month.label} &middot;{" "}
+                {yearly
+                  ? `${monthNamesInYear[yearly.monthIndex]} ${yearly.year}`
+                  : data.month.label}{" "}
+                &middot;{" "}
                 <Link
                   href="/settings/recurring"
                   className="inline-flex items-center gap-1 text-primary hover:underline"
@@ -532,22 +606,62 @@ export default function BudgetsPage() {
               )}
             </div>
             <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-              <Select
-                value={String(monthOffset)}
-                onValueChange={(v) => setMonthOffset(Number(v) as MonthOffset)}
-              >
-                <SelectTrigger className="w-full sm:w-[160px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {monthOptions.map((opt) => (
-                    <SelectItem key={opt.offset} value={String(opt.offset)}>
-                      {opt.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {isCurrentMonth && !simple && (
+              {isYearly && yearly ? (
+                <>
+                  <Select
+                    value={String(yearly.year)}
+                    onValueChange={(v) => {
+                      setSelectedYear(Number(v));
+                      // Moving to another year lands on its current month —
+                      // or its last, for a year that is already over.
+                      setSelectedMonthIndex(null);
+                    }}
+                  >
+                    <SelectTrigger className="w-full sm:w-[110px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {yearOptions.map((y) => (
+                        <SelectItem key={y} value={String(y)}>
+                          {y}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={String(yearly.monthIndex)}
+                    onValueChange={(v) => setSelectedMonthIndex(Number(v))}
+                  >
+                    <SelectTrigger className="w-full sm:w-[150px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {monthNamesInYear.map((label, index) => (
+                        <SelectItem key={index} value={String(index)}>
+                          {label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </>
+              ) : (
+                <Select
+                  value={String(monthOffset)}
+                  onValueChange={(v) => setMonthOffset(Number(v) as MonthOffset)}
+                >
+                  <SelectTrigger className="w-full sm:w-[160px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {monthOptions.map((opt) => (
+                      <SelectItem key={opt.offset} value={String(opt.offset)}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              {isCurrentPeriod && !simple && (
                 <Button
                   variant="outline"
                   className="flex-1 sm:flex-none"
@@ -565,7 +679,7 @@ export default function BudgetsPage() {
                   {hasSuggestions ? t("budgets.regenerate") : t("budgets.generateFromHistory")}
                 </Button>
               )}
-              {isCurrentMonth && (
+              {isCurrentPeriod && (
                 <AllocationDialog
                   key={editingAlloc?.id ?? "new"}
                   open={dialogOpen}
@@ -577,6 +691,7 @@ export default function BudgetsPage() {
                   availableCategories={availableCategories}
                   categoryAverages={data.categoryAverages}
                   unallocated={data.unallocated}
+                  yearly={isYearly}
                   onCreate={(categoryId, amount) =>
                     createBudget
                       .mutateAsync({ categoryId, amount, budgetId: activePlanId })
@@ -607,13 +722,30 @@ export default function BudgetsPage() {
             />
           )}
 
-          {/* Simple mode swaps the five-stat strip for one friendly readout. */}
-          {simple && allocLimit > 0 && (
-            <SimpleHero spent={allocSpent} limit={allocLimit} daysLeft={daysLeft} />
-          )}
+          {/* A yearly plan being rebuilt in the background says so, but only
+              when there is nothing to show — a routine refresh must not blank
+              a page that already has correct figures. */}
+          {showYearlyEmptyState && <LedgerCalculating />}
+
+          {/* Simple mode swaps the five-stat strip for one friendly readout.
+              A yearly plan measures the month against its carry-over-adjusted
+              allowance, which is the number that actually constrains today. */}
+          {simple &&
+            (yearly
+              ? yearly.totals.allowanceThisMonth > 0 && (
+                  <SimpleHero
+                    spent={yearly.totals.spentThisMonth}
+                    limit={yearly.totals.allowanceThisMonth}
+                    daysLeft={daysLeft}
+                  />
+                )
+              : allocLimit > 0 && (
+                  <SimpleHero spent={allocSpent} limit={allocLimit} daysLeft={daysLeft} />
+                ))}
 
           {/* Stat strip — the plan, without the donut */}
-          {!simple && (
+          {!simple && yearly && <YearlyStats view={yearly} />}
+          {!simple && !yearly && (
           <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 lg:grid-cols-5">
             <Stat label={t("budgets.stat.income")} value={formatCurrency(data.monthlyIncome)} />
             <Stat
@@ -663,8 +795,9 @@ export default function BudgetsPage() {
           </dl>
           )}
 
-          {/* Split bar + legend */}
-          {!simple && (
+          {/* Split bar + legend. Fixed-vs-allocated is a monthly split; the
+              yearly view answers the same question with its own stat strip. */}
+          {!simple && !yearly && (
           <div>
             <div className="flex h-2 overflow-hidden rounded-full bg-muted">
               <div className="bg-slate-400" style={{ width: `${fixedPct}%` }} />
@@ -690,11 +823,23 @@ export default function BudgetsPage() {
           </div>
           )}
 
-          {data.unallocated < 0 && (
+          {!yearly && data.unallocated < 0 && (
             <div className="flex items-center gap-2 rounded-lg border border-red-300 bg-red-100 px-3 py-2 text-sm font-medium text-red-900 dark:border-red-800 dark:bg-red-950 dark:text-red-100">
               <AlertTriangle className="h-4 w-4 shrink-0" />
               {t("budgets.overAllocatedBy", {
                 amount: formatCurrency(Math.abs(data.unallocated)),
+              })}
+            </div>
+          )}
+
+          {/* The yearly equivalent: a pot bigger than the year's income. */}
+          {yearly && yearly.totals.annualPot > yearly.income.total && (
+            <div className="flex items-center gap-2 rounded-lg border border-red-300 bg-red-100 px-3 py-2 text-sm font-medium text-red-900 dark:border-red-800 dark:bg-red-950 dark:text-red-100">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              {t("budgets.yearly.overAllocatedBy", {
+                amount: formatCurrency(
+                  yearly.totals.annualPot - yearly.income.total,
+                ),
               })}
             </div>
           )}
@@ -705,17 +850,23 @@ export default function BudgetsPage() {
             <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
               {t("budgets.allocationsHeading", { count: allocationsCount })}
             </span>
-            <span className="text-xs text-muted-foreground tabular-nums">
+            <span className="flex items-center gap-2 text-xs text-muted-foreground tabular-nums">
               {allocationsCount > 0 && (
-                <>
+                <span>
                   {t("budgets.allocationsSpent", {
-                    spent: formatCurrency(allocSpent),
-                    limit: formatCurrency(allocLimit),
+                    spent: formatCurrency(
+                      yearly ? yearly.totals.spentThisMonth : allocSpent,
+                    ),
+                    limit: formatCurrency(
+                      yearly ? yearly.totals.allowanceThisMonth : allocLimit,
+                    ),
                   })}
-                  &nbsp;&middot;{" "}
-                </>
+                  &nbsp;&middot;
+                </span>
               )}
-              {t("budgets.allocationsHint")}
+              <span>{t("budgets.allocationsHint")}</span>
+              {/* A refresh of figures already on screen is a quiet aside. */}
+              {yearly?.recomputing && yearly.hasData && <LedgerCalculating compact />}
             </span>
           </div>
 
@@ -735,7 +886,7 @@ export default function BudgetsPage() {
           ) : (
             <ul className="divide-y sm:px-3">
               {/* Suggestion rows on top with inline accept/reject */}
-              {isCurrentMonth &&
+              {isCurrentPeriod &&
                 !simple &&
                 data.suggestions.map((s) => (
                   <SuggestionRow
@@ -746,17 +897,37 @@ export default function BudgetsPage() {
                     onReject={() => handleRejectOne(s)}
                   />
                 ))}
-              {allocations.map((alloc) => (
-                <AllocationRow
-                  key={alloc.id}
-                  alloc={alloc}
-                  readOnly={!isCurrentMonth}
-                  deletePending={deleteBudget.isPending}
-                  onHistory={() => setHistoryAlloc(alloc)}
-                  onEdit={() => openEdit(alloc)}
-                  onDelete={() => deleteBudget.mutateAsync(alloc.id).then(() => {})}
-                />
-              ))}
+              {yearly
+                ? yearlyRows.map((category) => {
+                    const alloc = allocByCategory.get(category.categoryId);
+                    return (
+                      <YearlyAllocationRow
+                        key={category.categoryId}
+                        category={category}
+                        alloc={alloc}
+                        readOnly={!isCurrentPeriod}
+                        deletePending={deleteBudget.isPending}
+                        onHistory={() => alloc && setHistoryAlloc(alloc)}
+                        onEdit={() => alloc && openEdit(alloc)}
+                        onDelete={() =>
+                          alloc
+                            ? deleteBudget.mutateAsync(alloc.id).then(() => {})
+                            : Promise.resolve()
+                        }
+                      />
+                    );
+                  })
+                : allocations.map((alloc) => (
+                    <AllocationRow
+                      key={alloc.id}
+                      alloc={alloc}
+                      readOnly={!isCurrentPeriod}
+                      deletePending={deleteBudget.isPending}
+                      onHistory={() => setHistoryAlloc(alloc)}
+                      onEdit={() => openEdit(alloc)}
+                      onDelete={() => deleteBudget.mutateAsync(alloc.id).then(() => {})}
+                    />
+                  ))}
             </ul>
           )}
         </div>

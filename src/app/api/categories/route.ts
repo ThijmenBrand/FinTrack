@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { categories, categoryRules, transactions } from "@/db/schema";
 import { eq, sql, and, asc, count } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
+import { touchAllLedgers } from "@/lib/budget-jobs";
 import { logDataEvent } from "@/lib/audit";
 
 // GET /api/categories — list all categories with transaction counts
@@ -175,6 +176,9 @@ export async function DELETE(request: NextRequest) {
       .where(and(eq(transactions.categoryId, id), eq(transactions.userId, userId)));
 
     await db.delete(categories).where(and(eq(categories.id, id), eq(categories.userId, userId)));
+
+    // The category's allocation and its ledger rows go with it.
+    await touchAllLedgers(userId);
 
     logDataEvent({ userId, action: "category_delete", targetId: id, targetType: "category" });
 

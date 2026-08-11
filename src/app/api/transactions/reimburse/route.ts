@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { transactions, reimbursementLinks } from "@/db/schema";
 import { eq, and, sql, inArray } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
+import { touchAllLedgers } from "@/lib/budget-jobs";
 
 /**
  * POST /api/transactions/reimburse
@@ -85,6 +86,9 @@ export async function POST(request: NextRequest) {
       .set({ type: "reimbursement" })
       .where(and(eq(transactions.id, transactionId), eq(transactions.userId, userId)));
 
+    // A reimbursement changes the effective spend of the expense it covers.
+    await touchAllLedgers(userId);
+
     return NextResponse.json({ success: true });
   }, "Failed to link reimbursement");
 }
@@ -156,6 +160,9 @@ export async function DELETE(request: NextRequest) {
         .set({ type: "income" })
         .where(and(eq(transactions.id, id), eq(transactions.userId, userId)));
     }
+
+    // Unlinking restores the expense to its full amount.
+    await touchAllLedgers(userId);
 
     return NextResponse.json({ success: true });
   }, "Failed to unlink reimbursement");

@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { transactionGroups, transactions, categories } from "@/db/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
+import { touchAllLedgers } from "@/lib/budget-jobs";
 
 // GET /api/pots — list all pots with net amount, transaction count, category info
 export async function GET() {
@@ -150,6 +151,9 @@ export async function PUT(request: NextRequest) {
       await db.update(transactionGroups).set(updates).where(and(eq(transactionGroups.id, id), eq(transactionGroups.userId, userId)));
     }
 
+    // Repointing a pot moves all of its spend to another category.
+    await touchAllLedgers(userId);
+
     return NextResponse.json({ success: true });
   }, "Failed to update pot");
 }
@@ -171,6 +175,9 @@ export async function DELETE(request: NextRequest) {
 
     // Delete the pot
     await db.delete(transactionGroups).where(and(eq(transactionGroups.id, id), eq(transactionGroups.userId, userId)));
+
+    // Its members now count as ordinary spend in their own categories.
+    await touchAllLedgers(userId);
 
     return NextResponse.json({ success: true });
   }, "Failed to delete pot");

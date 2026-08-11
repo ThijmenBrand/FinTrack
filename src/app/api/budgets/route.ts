@@ -18,9 +18,23 @@ import { toMonthly, getCurrentMonthRange } from "@/lib/month-money";
 import { isFiniteNumber } from "@/lib/validation";
 import { getStatsCutoff } from "@/lib/stat-reset";
 import { accountScopeFilter, resolveBudgetPlan } from "@/lib/budget-plan";
+import { financialYearOf } from "@/lib/financial-year";
+import { touchAllLedgers } from "@/lib/budget-jobs";
+import {
+  getYearlyBudgetView,
+  normaliseMonthIndex,
+} from "@/lib/yearly-budget-view";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const AVG_DAYS_PER_MONTH = 30.4375;
+
+/** A whole number inside `[min, max]`, or null when absent or unusable. */
+function parseIntParam(raw: string | null, min: number, max: number): number | null {
+  if (raw === null) return null;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < min || value > max) return null;
+  return value;
+}
 
 function rangeLabel(from: string, to: string, intlLocale: string): string {
   const fromDate = new Date(from + "T00:00:00");
@@ -75,6 +89,11 @@ export async function GET(request: NextRequest) {
     const budgetIdParam = searchParams.get("budgetId");
     const noScaleParam = searchParams.get("noScale");
     const noScale = noScaleParam === "1" || noScaleParam === "true";
+    // Yearly plans only: which financial year to show, and which month inside
+    // it. Both default to "now" and are clamped, so junk in the URL can't
+    // produce a nonsense window.
+    const yearParam = parseIntParam(searchParams.get("year"), 1970, 2200);
+    const monthIndexParam = parseIntParam(searchParams.get("monthIndex"), 0, 11);
 
     const [prefs, plan] = await Promise.all([
       getUserPreferences(userId),
@@ -525,8 +544,29 @@ export async function GET(request: NextRequest) {
         prefs.autoBudgetIntervalMonths,
       );
 
+    // A yearly plan gets an extra block: one annual envelope per category with
+    // the carry-over chain resolved. The monthly figures above stay as they
+    // are so every other consumer of this endpoint is unaffected.
+    const yearly =
+      plan?.period === "yearly"
+        ? await getYearlyBudgetView(
+            userId,
+            plan,
+            yearParam ?? financialYearOf(new Date(), prefs.financialMonthStartDay),
+            normaliseMonthIndex(
+              monthIndexParam,
+              yearParam ?? financialYearOf(new Date(), prefs.financialMonthStartDay),
+              prefs.financialMonthStartDay,
+            ),
+            prefs.financialMonthStartDay,
+          )
+        : null;
+
     return NextResponse.json({
-      plan: plan ? { id: plan.id, name: plan.name, isMain: plan.isMain } : null,
+      plan: plan
+        ? { id: plan.id, name: plan.name, isMain: plan.isMain, period: plan.period }
+        : null,
+      yearly,
       monthlyIncome: Math.round(scaledMonthlyIncome * 100) / 100,
       totalFixedCosts: Math.round(scaledTotalFixedCosts * 100) / 100,
       availableToAllocate: Math.round(availableToAllocate * 100) / 100,
@@ -620,6 +660,8 @@ export async function POST(request: NextRequest) {
         targetType: "budget",
         details: { categoryId, amount },
       });
+      // A changed allocation resizes the annual envelope from here on.
+      await touchAllLedgers(userId);
       return NextResponse.json({ success: true, id: existing[0].id });
     }
 
@@ -644,6 +686,10 @@ export async function POST(request: NextRequest) {
       targetType: "budget",
       details: { categoryId, amount },
     });
+
+    // A category added mid-year gets a prorated envelope — computed in the
+    // background so this response doesn't wait for it.
+    await touchAllLedgers(userId);
 
     return NextResponse.json({ success: true, id }, { status: 201 });
   }, "Failed to create/update allocation");
@@ -681,6 +727,9 @@ export async function PUT(request: NextRequest) {
       details: { amount },
     });
 
+    // Closed months keep their old target; the new one applies from now on.
+    await touchAllLedgers(userId);
+
     return NextResponse.json({ success: true });
   }, "Failed to update allocation");
 }
@@ -708,6 +757,8 @@ export async function DELETE(request: NextRequest) {
       targetId: id,
       targetType: "budget",
     });
+
+    await touchAllLedgers(userId);
 
     return NextResponse.json({ success: true });
   }, "Failed to delete allocation");

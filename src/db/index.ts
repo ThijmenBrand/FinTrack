@@ -14,6 +14,8 @@ const TENANT_TABLES = [
   "category_rules",
   "budgets",
   "budget_plans",
+  "budget_ledger",
+  "budget_ledger_jobs",
   "user_preferences",
   "recurring_transactions",
   "import_batches",

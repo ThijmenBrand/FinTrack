@@ -31,9 +31,14 @@ interface AllocationDialogProps {
   availableCategories: CategoryWithDetails[];
   categoryAverages: Record<string, number>;
   unallocated: number;
+  /** Yearly plans enter and display the annual figure; storage stays monthly. */
+  yearly?: boolean;
   onCreate: (categoryId: string, amount: number) => Promise<void>;
   onUpdate: (id: string, amount: number) => Promise<void>;
 }
+
+/** Twelve months make a year — the only conversion in the whole feature. */
+const MONTHS_PER_YEAR = 12;
 
 export function AllocationDialog({
   open,
@@ -42,23 +47,30 @@ export function AllocationDialog({
   availableCategories,
   categoryAverages,
   unallocated,
+  yearly = false,
   onCreate,
   onUpdate,
 }: AllocationDialogProps) {
   const { t, formatCurrency } = useI18n();
+
+  // Allocations are always stored per month; a yearly plan just talks in
+  // annual figures. Converting only at the edges keeps ×12 and ÷12 from
+  // meeting in the middle and drifting.
+  const toDisplay = (monthly: number) => (yearly ? monthly * MONTHS_PER_YEAR : monthly);
+  const toStored = (shown: number) => (yearly ? shown / MONTHS_PER_YEAR : shown);
+  const initialAmount = editingAlloc ? String(toDisplay(editingAlloc.amount)) : "";
+
   // Initial fields come from the edit target; the parent remounts this
   // component (via `key`) whenever the target changes, so no sync effect.
   const [categoryId, setCategoryId] = useState(editingAlloc?.categoryId ?? "");
-  const [amount, setAmount] = useState(
-    editingAlloc ? String(editingAlloc.amount) : "",
-  );
+  const [amount, setAmount] = useState(initialAmount);
 
   // Reset to the edit target's values (empty for add) when closing, so a
   // reopened "add" dialog starts clean without a sync effect.
   const handleOpenChange = (next: boolean) => {
     if (!next) {
       setCategoryId(editingAlloc?.categoryId ?? "");
-      setAmount(editingAlloc ? String(editingAlloc.amount) : "");
+      setAmount(initialAmount);
     }
     onOpenChange(next);
   };
@@ -66,16 +78,20 @@ export function AllocationDialog({
   const handleSubmit = async () => {
     const amt = parseFloat(amount);
     if (!amt || amt <= 0) return;
-    await (editingAlloc ? onUpdate(editingAlloc.id, amt) : onCreate(categoryId, amt));
+    const stored = toStored(amt);
+    await (editingAlloc
+      ? onUpdate(editingAlloc.id, stored)
+      : onCreate(categoryId, stored));
     onOpenChange(false);
   };
 
-  // Average monthly spend to offer as an autofill; same hint for add and edit.
-  const avg = editingAlloc
+  // Past spend to offer as an autofill, in whichever unit is on screen.
+  const avgMonthly = editingAlloc
     ? editingAlloc.avgMonthly
     : categoryId
       ? categoryAverages[categoryId] ?? 0
       : 0;
+  const avg = Math.round(toDisplay(avgMonthly) * 100) / 100;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -125,7 +141,9 @@ export function AllocationDialog({
             </div>
           )}
           <div className="grid gap-2">
-            <Label>{t("budgets.alloc.monthlyAmount")}</Label>
+            <Label>
+              {t(yearly ? "budgets.alloc.yearlyAmount" : "budgets.alloc.monthlyAmount")}
+            </Label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
                 &euro;
@@ -150,7 +168,18 @@ export function AllocationDialog({
                 >
                   {formatCurrency(avg)}
                 </button>
-                {t("budgets.alloc.avgHintSuffix")}
+                {t(
+                  yearly
+                    ? "budgets.alloc.avgHintSuffixYearly"
+                    : "budgets.alloc.avgHintSuffix",
+                )}
+              </p>
+            )}
+            {yearly && parseFloat(amount) > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {t("budgets.alloc.perMonthEquivalent", {
+                  amount: formatCurrency(parseFloat(amount) / MONTHS_PER_YEAR),
+                })}
               </p>
             )}
           </div>

@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { transactions, transactionGroups } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
+import { touchAllLedgers } from "@/lib/budget-jobs";
 
 // POST /api/pots/transactions — add transaction to pot
 export async function POST(request: NextRequest) {
@@ -30,6 +31,9 @@ export async function POST(request: NextRequest) {
       .update(transactions)
       .set({ groupId: potId })
       .where(and(eq(transactions.id, transactionId), eq(transactions.userId, userId)));
+
+    // Spend moves from its own category to the pot's.
+    await touchAllLedgers(userId);
 
     return NextResponse.json({ success: true });
   }, "Failed to add transaction to pot");
@@ -59,6 +63,9 @@ export async function DELETE(request: NextRequest) {
           eq(transactions.userId, userId)
         )
       );
+
+    // …and back again when it leaves the pot.
+    await touchAllLedgers(userId);
 
     return NextResponse.json({ success: true });
   }, "Failed to remove transaction from pot");

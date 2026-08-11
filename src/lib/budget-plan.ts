@@ -6,6 +6,10 @@ export interface ResolvedBudgetPlan {
   id: string;
   name: string;
   isMain: boolean;
+  /** "yearly" plans carry one annual envelope per category — see budget-ledger.ts. */
+  period: "monthly" | "yearly";
+  /** First financial month the yearly envelope covers; null while monthly. */
+  periodStartedAt: string | null;
   accountIds: string[];
 }
 
@@ -39,6 +43,8 @@ export async function resolveBudgetPlan(
     id: plan.id,
     name: plan.name,
     isMain: plan.isMain,
+    period: plan.period,
+    periodStartedAt: plan.periodStartedAt,
     accountIds: rows.map((r) => r.id),
   };
 }

@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { budgets } from "@/db/schema";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
+import { touchAllLedgers } from "@/lib/budget-jobs";
 import { logDataEvent } from "@/lib/audit";
 
 interface AcceptItem {
@@ -113,6 +114,10 @@ export async function POST(request: NextRequest) {
     });
 
     logDataEvent({ userId, action: "budget_suggestion_accept", targetType: "budget", details: { count: accepted } });
+
+    // Accepted suggestions are allocations, so the envelopes change with them.
+    await touchAllLedgers(userId);
+
     return NextResponse.json({ success: true, count: accepted });
   }, "Failed to process budget suggestion");
 }

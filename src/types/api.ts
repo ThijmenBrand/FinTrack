@@ -320,9 +320,81 @@ export interface UnbudgetedSpending {
   spent: number;
 }
 
+export type BudgetPlanPeriod = "monthly" | "yearly";
+
+/** How a category's yearly envelope is doing — see budget-ledger.ts. */
+export type EnvelopeStatus = "ok" | "month-over" | "year-over";
+
+/** One month of a yearly envelope, as stored in the ledger. */
+export interface LedgerMonthView {
+  monthIndex: number;
+  from: string;
+  to: string;
+  closed: boolean;
+  target: number;
+  spent: number;
+  rolloverIn: number;
+  rolloverOut: number;
+  /** `target + rolloverIn` — what this month may actually spend. */
+  allowance: number;
+}
+
+export interface YearlyCategoryView {
+  categoryId: string;
+  categoryName: string | null;
+  categoryColor: string | null;
+  annualAmount: number;
+  monthTarget: number;
+  rolloverIn: number;
+  allowance: number;
+  spentMonth: number;
+  spentYear: number;
+  remainingYear: number;
+  status: EnvelopeStatus;
+  months: LedgerMonthView[];
+}
+
+export interface AnnualIncomeView {
+  actual: number;
+  projected: number;
+  total: number;
+  monthsBanked: number;
+  monthsProjected: number;
+}
+
+/** Present only for yearly plans; the whole carry-over view of one year. */
+export interface YearlyBudgetView {
+  year: number;
+  monthIndex: number;
+  from: string;
+  to: string;
+  monthFrom: string;
+  monthTo: string;
+  recomputing: boolean;
+  hasData: boolean;
+  computedAt: string | null;
+  income: AnnualIncomeView;
+  totals: {
+    annualPot: number;
+    spentYear: number;
+    remainingYear: number;
+    allowanceThisMonth: number;
+    spentThisMonth: number;
+    rolloverIntoThisMonth: number;
+  };
+  categories: YearlyCategoryView[];
+}
+
 export interface BudgetData {
   /** The plan these numbers are scoped to; null for pre-plan users. */
-  plan: { id: string; name: string; isMain: boolean } | null;
+  plan: {
+    id: string;
+    name: string;
+    isMain: boolean;
+    period: BudgetPlanPeriod;
+  } | null;
+  /** Null unless the plan is yearly. */
+  yearly: YearlyBudgetView | null;
   monthlyIncome: number;
   totalFixedCosts: number;
   availableToAllocate: number;
@@ -346,6 +418,9 @@ export interface BudgetPlanData {
   id: string;
   name: string;
   isMain: boolean;
+  period: BudgetPlanPeriod;
+  /** First financial month the yearly envelope covers; null while monthly. */
+  periodStartedAt: string | null;
   createdAt: string;
   accounts: { id: string; name: string; type: string }[];
 }

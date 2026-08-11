@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { transactions, importBatches, categoryRules, accounts } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
+import { touchLedger } from "@/lib/budget-jobs";
 import Papa from "papaparse";
 
 // Backstop against unbounded uploads — a real bank CSV is far smaller.
@@ -194,6 +195,10 @@ export async function POST(request: NextRequest) {
       const chunk = importedTransactions.slice(i, i + chunkSize);
       await db.insert(transactions).values(chunk);
     }
+
+    // One ledger job for the whole import, not one per row — and the
+    // recompute itself runs after this response is sent.
+    await touchLedger(userId, importedTransactions);
 
     return NextResponse.json({
       success: true,
