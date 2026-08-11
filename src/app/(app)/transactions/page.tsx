@@ -1,6 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useState, useMemo, useRef, Suspense } from "react";
+import {
+  useCallback,
+  useEffect,
+  useState,
+  useMemo,
+  useRef,
+  Suspense,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -60,8 +69,9 @@ function TransactionsPage() {
   const { data: categories = [] } = useCategories();
   const { data: pots = [] } = usePots();
   const { data: preferences } = usePreferences();
-  // Simple mode: just the list — name, date, category, amount. No filter bar,
-  // totals, bulk actions, pots or transfer detection.
+  // Simple mode: the totals, then the list — name, date, category, amount,
+  // with one dropdown each for period, category and type. No query syntax, no
+  // sorting, no bulk actions, no pots and no transfer detection.
   const simple = preferences?.simpleMode ?? false;
 
   // Mutations
@@ -450,7 +460,7 @@ function TransactionsPage() {
 
   // Simple mode filters are single-select; "all" clears the underlying list.
   const setSingleFilter = (
-    setter: typeof setCategoryFilters,
+    setter: Dispatch<SetStateAction<string[]>>,
     value: string,
   ) => {
     setter(value === "all" ? [] : [value]);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -39,6 +39,7 @@ export function RecurringFormDialog({
   accounts,
   categories,
   onSubmit,
+  trigger,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -46,15 +47,19 @@ export function RecurringFormDialog({
   accounts: Account[];
   categories: CategoryWithDetails[];
   onSubmit: (payload: Record<string, unknown>) => Promise<void>;
+  /** Page-level default is a primary button; list sections pass a quieter one. */
+  trigger?: ReactNode;
 }) {
   const { t } = useI18n();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger asChild>
-        <Button>
-          <Plus className="mr-2 h-4 w-4" />
-          {t("recurring.add")}
-        </Button>
+        {trigger ?? (
+          <Button>
+            <Plus className="mr-2 h-4 w-4" />
+            {t("recurring.add")}
+          </Button>
+        )}
       </DialogTrigger>
       <DialogContent className="sm:max-w-lg">
         {/* Remount on open/edit-target change so fields re-derive from `editing` without an effect. */}

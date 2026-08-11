@@ -3,7 +3,6 @@ import { db } from "@/db";
 import { importBatches, transactions, accounts } from "@/db/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
-import { touchAllLedgers } from "@/lib/budget-jobs";
 
 /**
  * GET /api/import-batches
@@ -115,9 +114,6 @@ export async function DELETE(request: NextRequest) {
         .delete(importBatches)
         .where(and(eq(importBatches.id, batchId), eq(importBatches.userId, userId)));
     });
-
-    // Rolling back an import removes spend from every year it covered.
-    await touchAllLedgers(userId);
 
     return NextResponse.json({ success: true });
   }, "Failed to roll back import batch");

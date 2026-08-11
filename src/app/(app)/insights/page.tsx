@@ -353,7 +353,18 @@ export default function InsightsPage() {
   // The vs-actual chart looks back twelve months, which straddles two
   // financial years on a yearly plan. Only fetch the previous year when there
   // is a yearly envelope to fetch it for.
-  const chartIsYearly = planMonthlyData?.plan?.period === "yearly";
+  //
+  // The chart's bars are calendar months (the insights endpoint buckets its
+  // dailies by `YYYY-MM`), so a per-month allowance can only be laid over them
+  // when a financial month *is* a calendar month. With a custom start day the
+  // two windows differ by a few weeks and the marker would be judging January's
+  // spend against 25 Jan – 24 Feb's allowance, so the chart falls back to the
+  // plan's flat monthly reference instead.
+  // ponytail: gated rather than fixed — a financial-month series alongside
+  // `monthlyTotals` is the upgrade path, and `spending-by-period` still wants
+  // the calendar one.
+  const chartIsYearly =
+    planMonthlyData?.plan?.period === "yearly" && startDay === 1;
   const previousYear = (planMonthlyData?.yearly?.year ?? 0) - 1;
   const { data: previousYearData } = useBudgets({
     budgetId: chartPlan?.id,
@@ -369,11 +380,14 @@ export default function InsightsPage() {
     const fixed = planMonthlyData?.totalFixedCosts ?? 0;
     const out: Record<string, number> = {};
     for (const view of [previousYearData?.yearly, planMonthlyData?.yearly]) {
-      if (!view?.hasData) continue;
+      if (!view) continue;
       for (const category of view.categories) {
         for (const month of category.months) {
           const key = month.from.slice(0, 7);
-          out[key] = (out[key] ?? fixed) + month.allowance;
+          // Floored: a category that already spent its pot has a negative
+          // allowance, which is a debt to later months, not a licence for
+          // the others to overspend by that much.
+          out[key] = (out[key] ?? fixed) + Math.max(0, month.allowance);
         }
       }
     }

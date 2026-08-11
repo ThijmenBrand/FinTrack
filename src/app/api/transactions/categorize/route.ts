@@ -3,7 +3,6 @@ import { db } from "@/db";
 import { transactions, categoryRules, categories } from "@/db/schema";
 import { eq, and, inArray } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
-import { touchAllLedgers } from "@/lib/budget-jobs";
 import { validatePattern, isMatchType } from "@/lib/validation";
 import { applyRuleToTransactions } from "@/lib/apply-rule";
 
@@ -79,9 +78,6 @@ export async function PUT(request: NextRequest) {
         userId,
       });
     }
-
-    // Moving spend between categories reshapes the yearly envelopes.
-    await touchAllLedgers(userId);
 
     return NextResponse.json({
       success: true,

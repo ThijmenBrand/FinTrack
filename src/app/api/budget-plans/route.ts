@@ -1,19 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import {
-  accounts,
-  budgetLedger,
-  budgetLedgerJobs,
-  budgetPlans,
-  budgets,
-} from "@/db/schema";
+import { accounts, budgetMonthTargets, budgetPlans, budgets } from "@/db/schema";
 import { eq, and, asc, inArray, isNull, notInArray } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
 import { BUDGETABLE_ACCOUNT_TYPES } from "@/lib/account-scope";
 import { getUserPreferences } from "@/lib/preferences";
 import { getFinancialMonthRange } from "@/lib/financial-month";
-import { touchAllLedgers } from "@/lib/budget-jobs";
 import { clearLedger } from "@/lib/budget-ledger-db";
 
 const MAX_NAME_LENGTH = 60;
@@ -312,12 +305,6 @@ export async function PUT(request: NextRequest) {
       details: { name, isMain, accountIds, period },
     });
 
-    // Account membership and the period both change what the envelope counts,
-    // so the ledger is rebuilt — in the background, after this response.
-    if (accountIds !== undefined || period !== undefined) {
-      await touchAllLedgers(userId);
-    }
-
     return NextResponse.json({ success: true });
   }, "Failed to update budget plan");
 }
@@ -346,12 +333,12 @@ export async function DELETE(request: NextRequest) {
     await db.transaction(async (tx) => {
       await tx.delete(budgets).where(and(eq(budgets.budgetId, id), eq(budgets.userId, userId)));
       await tx
-        .delete(budgetLedger)
-        .where(and(eq(budgetLedger.budgetId, id), eq(budgetLedger.userId, userId)));
-      await tx
-        .delete(budgetLedgerJobs)
+        .delete(budgetMonthTargets)
         .where(
-          and(eq(budgetLedgerJobs.budgetId, id), eq(budgetLedgerJobs.userId, userId)),
+          and(
+            eq(budgetMonthTargets.budgetId, id),
+            eq(budgetMonthTargets.userId, userId),
+          ),
         );
       await tx
         .update(accounts)

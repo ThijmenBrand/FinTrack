@@ -12,7 +12,6 @@ import {
 } from "@/db/schema";
 import { eq, and, lt, inArray } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
-import { touchLedger } from "@/lib/budget-jobs";
 import { detectTransfers, findTransferCategory } from "@/lib/detect-transfers";
 import { logDataEvent } from "@/lib/audit";
 import {
@@ -348,10 +347,6 @@ export async function POST(request: NextRequest) {
       const chunk = allRecords.slice(i, i + chunkSize);
       await db.insert(transactions).values(chunk);
     }
-
-    // One ledger job for the whole import, covering every financial year the
-    // imported rows land in. The recompute runs after the response.
-    await touchLedger(userId, allRecords);
 
     // Link reimbursements to their expenses; only user-owned negative-amount
     // transactions qualify (same rules as /api/transactions/reimburse)

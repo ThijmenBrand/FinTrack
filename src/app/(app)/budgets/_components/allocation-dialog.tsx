@@ -56,7 +56,13 @@ export function AllocationDialog({
   // Allocations are always stored per month; a yearly plan just talks in
   // annual figures. Converting only at the edges keeps ×12 and ÷12 from
   // meeting in the middle and drifting.
-  const toDisplay = (monthly: number) => (yearly ? monthly * MONTHS_PER_YEAR : monthly);
+  // Rounded to cents on the way out, because both directions can land on a
+  // figure the field should never show: a yearly amount is stored as
+  // `entered / 12` and multiplying it back is only exact for whole euros
+  // (€100.01 a year would reopen as "100.00999999999999"), and an average is
+  // whatever the division of past spend produced.
+  const toDisplay = (monthly: number) =>
+    Math.round((yearly ? monthly * MONTHS_PER_YEAR : monthly) * 100) / 100;
   const toStored = (shown: number) => (yearly ? shown / MONTHS_PER_YEAR : shown);
   const initialAmount = editingAlloc ? String(toDisplay(editingAlloc.amount)) : "";
 
@@ -91,13 +97,13 @@ export function AllocationDialog({
     : categoryId
       ? categoryAverages[categoryId] ?? 0
       : 0;
-  const avg = Math.round(toDisplay(avgMonthly) * 100) / 100;
+  const avg = toDisplay(avgMonthly);
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <Button data-tour="budget-add" className="flex-1 sm:flex-none">
-          <Plus className="mr-2 h-4 w-4" />
+        <Button data-tour="budget-add" variant="ghost" size="sm">
+          <Plus className="mr-1.5 h-3.5 w-3.5" />
           {t("budgets.addManually")}
         </Button>
       </DialogTrigger>

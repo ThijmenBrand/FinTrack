@@ -37,10 +37,6 @@ export function useBudgets(opts?: {
     ],
     queryFn: () => apiFetch<BudgetData>(qs ? `/api/budgets?${qs}` : "/api/budgets"),
     enabled: opts?.enabled ?? true,
-    // While a ledger rebuild is in flight the figures are not final yet, so
-    // poll until the background job lands rather than making the user reload.
-    refetchInterval: (query) =>
-      query.state.data?.yearly?.recomputing ? 2000 : false,
   });
 }
 

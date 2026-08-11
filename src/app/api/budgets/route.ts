@@ -19,7 +19,6 @@ import { isFiniteNumber } from "@/lib/validation";
 import { getStatsCutoff } from "@/lib/stat-reset";
 import { accountScopeFilter, resolveBudgetPlan } from "@/lib/budget-plan";
 import { financialYearOf } from "@/lib/financial-year";
-import { touchAllLedgers } from "@/lib/budget-jobs";
 import {
   getYearlyBudgetView,
   normaliseMonthIndex,
@@ -547,18 +546,16 @@ export async function GET(request: NextRequest) {
     // A yearly plan gets an extra block: one annual envelope per category with
     // the carry-over chain resolved. The monthly figures above stay as they
     // are so every other consumer of this endpoint is unaffected.
+    const startDay = prefs.financialMonthStartDay;
+    const year = yearParam ?? financialYearOf(new Date(), startDay);
     const yearly =
       plan?.period === "yearly"
         ? await getYearlyBudgetView(
             userId,
             plan,
-            yearParam ?? financialYearOf(new Date(), prefs.financialMonthStartDay),
-            normaliseMonthIndex(
-              monthIndexParam,
-              yearParam ?? financialYearOf(new Date(), prefs.financialMonthStartDay),
-              prefs.financialMonthStartDay,
-            ),
-            prefs.financialMonthStartDay,
+            year,
+            normaliseMonthIndex(monthIndexParam, year, startDay),
+            startDay,
           )
         : null;
 
@@ -660,8 +657,6 @@ export async function POST(request: NextRequest) {
         targetType: "budget",
         details: { categoryId, amount },
       });
-      // A changed allocation resizes the annual envelope from here on.
-      await touchAllLedgers(userId);
       return NextResponse.json({ success: true, id: existing[0].id });
     }
 
@@ -686,10 +681,6 @@ export async function POST(request: NextRequest) {
       targetType: "budget",
       details: { categoryId, amount },
     });
-
-    // A category added mid-year gets a prorated envelope — computed in the
-    // background so this response doesn't wait for it.
-    await touchAllLedgers(userId);
 
     return NextResponse.json({ success: true, id }, { status: 201 });
   }, "Failed to create/update allocation");
@@ -727,9 +718,6 @@ export async function PUT(request: NextRequest) {
       details: { amount },
     });
 
-    // Closed months keep their old target; the new one applies from now on.
-    await touchAllLedgers(userId);
-
     return NextResponse.json({ success: true });
   }, "Failed to update allocation");
 }
@@ -757,8 +745,6 @@ export async function DELETE(request: NextRequest) {
       targetId: id,
       targetType: "budget",
     });
-
-    await touchAllLedgers(userId);
 
     return NextResponse.json({ success: true });
   }, "Failed to delete allocation");

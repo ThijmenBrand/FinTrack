@@ -2,7 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
-import { Pause, Pencil, Play } from "lucide-react";
+import { Pause, Pencil, Play, Wallet } from "lucide-react";
 import { toMonthly } from "@/lib/recurring";
 import type { RecurringTx } from "@/types/api";
 import { relativeDay } from "./dates";
@@ -32,6 +32,7 @@ export function RecurringItem({
   onEdit,
   onDelete,
   onToggle,
+  className = "",
 }: {
   item: RecurringTx;
   /** Off when every plan is on the same account — the column says nothing then. */
@@ -39,6 +40,8 @@ export function RecurringItem({
   onEdit: (item: RecurringTx) => void;
   onDelete: (id: string) => void;
   onToggle: (item: RecurringTx) => void;
+  /** Extra row classes — the budgets page indents these under a category. */
+  className?: string;
 }) {
   const { t, formatCurrency, formatDayMonth } = useI18n();
   const isIncome = item.type === "income";
@@ -46,7 +49,7 @@ export function RecurringItem({
   const soon = item.nextOccurrence ? relativeDay(t, item.nextOccurrence) : null;
 
   return (
-    <li className={`group transition-colors hover:bg-muted/50 ${ROW_GRID}`}>
+    <li className={`group transition-colors hover:bg-muted/50 ${ROW_GRID} ${className}`}>
       <span
         className={`h-2.5 w-2.5 shrink-0 rounded-full ${item.isActive ? "" : "opacity-40"}`}
         style={{ backgroundColor: item.categoryColor || (isIncome ? "#10b981" : "#94a3b8") }}
@@ -64,6 +67,18 @@ export function RecurringItem({
               {t("recurring.paused")}
             </span>
           )}
+          {/* Which account gets debited sits on the title line, not the meta
+              line: it's the detail that decides whether a plan is affordable,
+              and at the end of the meta line it was the first thing to truncate. */}
+          {showAccount && item.accountName && (
+            <span
+              className="flex min-w-0 max-w-[9rem] shrink items-center gap-1 rounded border px-1.5 py-px text-[10px] text-muted-foreground"
+              title={`${t("common.account")}: ${item.accountName}`}
+            >
+              <Wallet className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
+              <span className="truncate">{item.accountName}</span>
+            </span>
+          )}
         </div>
         {/* Frequency and next date first: on a phone the line has room for
             little else, and the trailing detail is what can safely truncate. */}
@@ -77,9 +92,6 @@ export function RecurringItem({
             </>
           )}
           {item.categoryName && <span className="hidden sm:inline"> · {item.categoryName}</span>}
-          {showAccount && item.accountName && (
-            <span className="hidden sm:inline"> · {item.accountName}</span>
-          )}
         </div>
       </div>
 

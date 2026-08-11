@@ -25,6 +25,9 @@ export function useCreateRecurring() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["recurring"] });
       qc.invalidateQueries({ queryKey: ["recurring-forecast"] });
+      // Fixed costs and monthly income on the budgets page are derived
+      // entirely from these rows, so they go stale with every edit.
+      qc.invalidateQueries({ queryKey: ["budgets"] });
     },
   });
 }
@@ -37,6 +40,9 @@ export function useUpdateRecurring() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["recurring"] });
       qc.invalidateQueries({ queryKey: ["recurring-forecast"] });
+      // Fixed costs and monthly income on the budgets page are derived
+      // entirely from these rows, so they go stale with every edit.
+      qc.invalidateQueries({ queryKey: ["budgets"] });
     },
   });
 }
@@ -48,6 +54,9 @@ export function useDeleteRecurring() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["recurring"] });
       qc.invalidateQueries({ queryKey: ["recurring-forecast"] });
+      // Fixed costs and monthly income on the budgets page are derived
+      // entirely from these rows, so they go stale with every edit.
+      qc.invalidateQueries({ queryKey: ["budgets"] });
     },
   });
 }

@@ -48,7 +48,7 @@ export function BudgetPerformance({ data, accountLabel }: BudgetPerformanceProps
   // the flat allocation: a month funded by earlier thrift is not over budget,
   // and one that already spent the pot is over by more than the allocation
   // suggests. Fixed costs sit outside the envelope and count as themselves.
-  const yearly = data.yearly?.hasData ? data.yearly : null;
+  const yearly = data.yearly?.categories.length ? data.yearly : null;
   const caps = yearly
     ? yearly.categories.map((c) => ({
         spent: c.spentMonth,

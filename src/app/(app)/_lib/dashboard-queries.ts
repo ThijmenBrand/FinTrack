@@ -18,7 +18,7 @@ import {
   type ResolvedBudgetPlan,
 } from "@/lib/budget-plan";
 import { currentFinancialSlot } from "@/lib/financial-year";
-import { readLedgerYear } from "@/lib/budget-ledger-db";
+import { buildLedgerYear } from "@/lib/budget-ledger-db";
 import { getPaySchedule, paydaysBetween, type PaySchedule } from "@/lib/pay-schedule";
 import { getMonthMoneyMath, toMonthly } from "@/lib/month-money";
 import { classifyOnTrack } from "@/lib/on-track";
@@ -270,10 +270,9 @@ function mergeUnbudgeted(
 // ─── Per-widget queries ─────────────────────────────────────────────
 
 /**
- * This month's spendable amount per category for a yearly plan: the ledger's
- * `target + rolloverIn`. Null for monthly plans, where the allocation itself
- * is the cap, and for a yearly plan whose ledger has not been built yet — in
- * both cases callers fall back to the stored monthly amount.
+ * This month's spendable amount per category for a yearly plan: its share of
+ * the envelope plus the carry-over, `target + rolloverIn`. Null for monthly
+ * plans, where the allocation itself is the cap and callers use it directly.
  */
 async function yearlyAllowances(
   userId: string,
@@ -282,7 +281,16 @@ async function yearlyAllowances(
 ): Promise<Map<string, number> | null> {
   if (plan?.period !== "yearly") return null;
   const slot = currentFinancialSlot(startDay);
-  const ledger = await readLedgerYear(userId, plan.id, slot.year);
+  // Read-only: this runs while the dashboard renders, and a render should not
+  // write. The budgets page freezes the same months when it is opened.
+  const ledger = await buildLedgerYear(
+    userId,
+    plan,
+    slot.year,
+    startDay,
+    new Date(),
+    false,
+  );
   if (ledger.length === 0) return null;
 
   const out = new Map<string, number>();

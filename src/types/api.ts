@@ -370,9 +370,6 @@ export interface YearlyBudgetView {
   to: string;
   monthFrom: string;
   monthTo: string;
-  recomputing: boolean;
-  hasData: boolean;
-  computedAt: string | null;
   income: AnnualIncomeView;
   totals: {
     annualPot: number;
