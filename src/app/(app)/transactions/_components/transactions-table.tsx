@@ -29,6 +29,54 @@ import { useI18n } from "@/lib/i18n/client";
 
 type Option = { value: string; label: string; color?: string | null };
 
+/** Page counter + prev/next — shared by the full table and the simple list. */
+export function PaginationBar({
+  pagination,
+  setPagination,
+}: {
+  pagination: Pagination;
+  setPagination: Dispatch<SetStateAction<Pagination>>;
+}) {
+  const { t } = useI18n();
+  return (
+    <div className="flex flex-col sm:flex-row items-center justify-between gap-2 border-t px-4 py-3">
+      <p className="text-xs sm:text-sm text-muted-foreground">
+        {t("tx.table.showing", {
+          from: (pagination.page - 1) * pagination.limit + 1,
+          to: Math.min(pagination.page * pagination.limit, pagination.total),
+          total: pagination.total,
+        })}
+      </p>
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={pagination.page <= 1}
+          onClick={() => setPagination((p) => ({ ...p, page: p.page - 1 }))}
+        >
+          <ChevronLeft className="h-4 w-4" />
+          <span className="hidden sm:inline">{t("common.previous")}</span>
+        </Button>
+        <span className="text-xs sm:text-sm text-muted-foreground px-2">
+          {t("tx.table.pageOf", {
+            page: pagination.page,
+            total: pagination.totalPages,
+          })}
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={pagination.page >= pagination.totalPages}
+          onClick={() => setPagination((p) => ({ ...p, page: p.page + 1 }))}
+        >
+          <span className="hidden sm:inline">{t("common.next")}</span>
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 interface TransactionsTableProps {
   pagination: Pagination;
   setPagination: Dispatch<SetStateAction<Pagination>>;
@@ -222,42 +270,7 @@ export function TransactionsTable({
               {renderRows("card")}
             </div>
 
-            {/* Pagination */}
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-2 border-t px-4 py-3">
-              <p className="text-xs sm:text-sm text-muted-foreground">
-                {t("tx.table.showing", {
-                  from: (pagination.page - 1) * pagination.limit + 1,
-                  to: Math.min(pagination.page * pagination.limit, pagination.total),
-                  total: pagination.total,
-                })}
-              </p>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={pagination.page <= 1}
-                  onClick={() => setPagination((p) => ({ ...p, page: p.page - 1 }))}
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                  <span className="hidden sm:inline">{t("common.previous")}</span>
-                </Button>
-                <span className="text-xs sm:text-sm text-muted-foreground px-2">
-                  {t("tx.table.pageOf", {
-                    page: pagination.page,
-                    total: pagination.totalPages,
-                  })}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={pagination.page >= pagination.totalPages}
-                  onClick={() => setPagination((p) => ({ ...p, page: p.page + 1 }))}
-                >
-                  <span className="hidden sm:inline">{t("common.next")}</span>
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
+            <PaginationBar pagination={pagination} setPagination={setPagination} />
         </div>
       )}
     </div>

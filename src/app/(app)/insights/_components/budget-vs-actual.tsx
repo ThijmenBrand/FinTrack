@@ -46,9 +46,10 @@ function monthLabel(i18n: I18n, month: string): string {
 }
 
 interface BudgetVsActualProps {
-  planName: string;
+  /** Null when no plan scopes the series — every account is included. */
+  planName: string | null;
   /** The plan whose accounts (and transfer rules) scope the series. */
-  budgetId: string;
+  budgetId?: string;
   /** The plan's current monthly budget (fixed costs + allocations). */
   monthlyBudget: number;
 }
@@ -87,10 +88,14 @@ export function BudgetVsActual({
       <CardHeader className="pb-2">
         <CardTitle>{t("insights.vsActual.title")}</CardTitle>
         <CardDescription>
-          {t("insights.vsActual.description", {
-            name: planName,
-            amount: formatCurrency(monthlyBudget),
-          })}
+          {planName
+            ? t("insights.vsActual.description", {
+                name: planName,
+                amount: formatCurrency(monthlyBudget),
+              })
+            : t("insights.vsActual.descriptionAll", {
+                amount: formatCurrency(monthlyBudget),
+              })}
         </CardDescription>
       </CardHeader>
       <CardContent>
