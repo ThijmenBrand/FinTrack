@@ -1,6 +1,15 @@
 "use client";
 
-import { useEffect, useState, useMemo, useRef, Suspense } from "react";
+import {
+  useCallback,
+  useEffect,
+  useState,
+  useMemo,
+  useRef,
+  Suspense,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -39,6 +48,7 @@ import {
 import { TransactionTotals } from "./_components/transaction-totals";
 import { TransactionBulkBar } from "./_components/transaction-bulk-bar";
 import { TransactionsTable } from "./_components/transactions-table";
+import { SimpleTransactionList } from "./_components/simple-transaction-list";
 
 // --- Main Page ---
 export default function TransactionsPageWrapper() {
@@ -59,6 +69,10 @@ function TransactionsPage() {
   const { data: categories = [] } = useCategories();
   const { data: pots = [] } = usePots();
   const { data: preferences } = usePreferences();
+  // Simple mode: the totals, then the list — name, date, category, amount,
+  // with one dropdown each for period, category and type. No query syntax, no
+  // sorting, no bulk actions, no pots and no transfer detection.
+  const simple = preferences?.simpleMode ?? false;
 
   // Mutations
   const deleteTx = useDeleteTransaction();
@@ -438,6 +452,76 @@ function TransactionsPage() {
         />
       )
     );
+
+  const handleSimpleSearch = useCallback((value: string) => {
+    setSearch(value);
+    setPagination((p) => ({ ...p, page: 1 }));
+  }, []);
+
+  // Simple mode filters are single-select; "all" clears the underlying list.
+  const setSingleFilter = (
+    setter: Dispatch<SetStateAction<string[]>>,
+    value: string,
+  ) => {
+    setter(value === "all" ? [] : [value]);
+    setPagination((p) => ({ ...p, page: 1 }));
+  };
+
+  if (simple) {
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">{t("tx.title")}</h1>
+            <p className="text-muted-foreground">{t("tx.simple.subtitle")}</p>
+          </div>
+          <Button data-tour="import-csv" size="sm" onClick={() => setUploadOpen(true)}>
+            <Upload className="mr-2 h-4 w-4" />
+            {t("tx.importCsv")}
+          </Button>
+        </div>
+
+        {totals && <TransactionTotals totals={totals} />}
+
+        <SimpleTransactionList
+          transactions={transactions}
+          pagination={pagination}
+          setPagination={setPagination}
+          loading={loading}
+          fetching={fetching}
+          search={search}
+          onSearchChange={handleSimpleSearch}
+          period={periodFilter}
+          onPeriodChange={(value) => {
+            setPeriodFilter(value);
+            setDateFromOverride("");
+            setDateToOverride("");
+            setPagination((p) => ({ ...p, page: 1 }));
+          }}
+          category={categoryFilters[0] ?? "all"}
+          onCategoryChange={(value) => setSingleFilter(setCategoryFilters, value)}
+          categories={categories}
+          type={typeFilters[0] ?? "all"}
+          onTypeChange={(value) => setSingleFilter(setTypeFilters, value)}
+          typeOptions={availableTypeOptions}
+          onOpen={setSelectedTransaction}
+          onUpload={() => setUploadOpen(true)}
+        />
+
+        <CsvUploadDialog
+          open={uploadOpen}
+          onOpenChange={setUploadOpen}
+          accounts={accounts}
+        />
+
+        <TransactionDetailDialog
+          transaction={liveSelectedTransaction}
+          onOpenChange={(open) => { if (!open) setSelectedTransaction(null); }}
+          categories={categories}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

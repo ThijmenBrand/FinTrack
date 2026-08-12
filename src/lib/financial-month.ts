@@ -2,7 +2,7 @@
 
 import { toIsoDate } from "@/lib/utils";
 
-function clampStartDay(startDay: number): number {
+export function clampStartDay(startDay: number): number {
   if (!Number.isFinite(startDay)) return 1;
   return Math.max(1, Math.min(28, Math.round(startDay)));
 }

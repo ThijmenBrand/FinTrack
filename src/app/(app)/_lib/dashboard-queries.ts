@@ -12,7 +12,13 @@ import {
 } from "@/db/schema";
 import { eq, and, asc, gte, lte, sql, sum, inArray, isNotNull, notInArray } from "drizzle-orm";
 import { defaultCategoryNames, TRANSFER_CATEGORY } from "@/lib/default-categories";
-import { accountScopeFilter, resolveBudgetPlan } from "@/lib/budget-plan";
+import {
+  accountScopeFilter,
+  resolveBudgetPlan,
+  type ResolvedBudgetPlan,
+} from "@/lib/budget-plan";
+import { currentFinancialSlot } from "@/lib/financial-year";
+import { buildLedgerYear } from "@/lib/budget-ledger-db";
 import { getPaySchedule, paydaysBetween, type PaySchedule } from "@/lib/pay-schedule";
 import { getMonthMoneyMath, toMonthly } from "@/lib/month-money";
 import { classifyOnTrack } from "@/lib/on-track";
@@ -263,6 +269,38 @@ function mergeUnbudgeted(
 
 // ─── Per-widget queries ─────────────────────────────────────────────
 
+/**
+ * This month's spendable amount per category for a yearly plan: its share of
+ * the envelope plus the carry-over, `target + rolloverIn`. Null for monthly
+ * plans, where the allocation itself is the cap and callers use it directly.
+ */
+async function yearlyAllowances(
+  userId: string,
+  plan: ResolvedBudgetPlan | null,
+  startDay: number,
+): Promise<Map<string, number> | null> {
+  if (plan?.period !== "yearly") return null;
+  const slot = currentFinancialSlot(startDay);
+  // Read-only: this runs while the dashboard renders, and a render should not
+  // write. The budgets page freezes the same months when it is opened.
+  const ledger = await buildLedgerYear(
+    userId,
+    plan,
+    slot.year,
+    startDay,
+    new Date(),
+    false,
+  );
+  if (ledger.length === 0) return null;
+
+  const out = new Map<string, number>();
+  for (const { categoryId, months } of ledger) {
+    const month = months.find((m) => m.monthIndex === slot.monthIndex);
+    if (month) out.set(categoryId, month.allowance);
+  }
+  return out;
+}
+
 export const getBudgetOverview = cache(async (
   userId: string,
   startDay: number = 1,
@@ -424,10 +462,18 @@ export const getBudgetOverview = cache(async (
     )
   );
 
+  // On a yearly plan a category's cap this month is not a flat twelfth: it is
+  // its share plus whatever the earlier months of the year left behind. Using
+  // the ledger's allowance keeps these bars agreeing with the budgets page —
+  // otherwise the dashboard would call a month "over" that the envelope is
+  // comfortably funding out of earlier savings.
+  const allowanceByCategory = await yearlyAllowances(userId, plan, startDay);
+
   const budgetItems = allBudgets
     .map((b) => {
       const spent = spendingByCategory.get(b.categoryId) || 0;
-      const pct = b.amount > 0 ? (spent / b.amount) * 100 : 0;
+      const limit = allowanceByCategory?.get(b.categoryId) ?? b.amount;
+      const pct = limit > 0 ? (spent / limit) * 100 : 0;
       return {
         categoryId: b.categoryId,
         categoryName: b.categoryName,
@@ -435,7 +481,7 @@ export const getBudgetOverview = cache(async (
         categoryIcon: b.categoryIcon,
         period: b.period,
         spent,
-        limit: b.amount,
+        limit,
         percentage: Math.round(pct),
         status: (pct >= 100
           ? "exceeded"
@@ -451,7 +497,10 @@ export const getBudgetOverview = cache(async (
   // should reflect both committed envelopes and recurring bills. `spent`
   // counts every expense (and net pot outflow) in the period, not just
   // spending in budgeted categories.
-  const totalAllocated = allBudgets.reduce((s, b) => s + b.amount, 0);
+  const totalAllocated = allBudgets.reduce(
+    (s, b) => s + (allowanceByCategory?.get(b.categoryId) ?? b.amount),
+    0,
+  );
   const totalFixedCosts = recurringExpenses.reduce(
     (s, r) => s + toMonthly(r.amount, r.frequency),
     0,

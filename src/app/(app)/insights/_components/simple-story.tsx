@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import Link from "next/link";
 import type { InsightsData } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
@@ -23,8 +24,6 @@ const FLAT_RATIO = 0.03;
 const MIN_SWING = 25;
 /** A merchant has to be this share of spending before it's worth naming. */
 const MIN_MERCHANT_SHARE = 0.08;
-/** Categories listed by name; the rest collapse into one line. */
-const TOP_CATEGORIES = 4;
 
 export interface Beat {
   key: string;
@@ -178,6 +177,8 @@ interface SimpleStoryProps {
   /** Translated name of the comparison period, e.g. "last month". */
   previousLabel: string | null;
   onCategoryClick: (categoryId: string | null) => void;
+  /** Rendered at the bottom, above the full-view note. */
+  footer?: ReactNode;
 }
 
 export function SimpleStory({
@@ -185,8 +186,9 @@ export function SimpleStory({
   totalExpenses,
   previousLabel,
   onCategoryClick,
+  footer,
 }: SimpleStoryProps) {
-  const { t, plural, formatCurrency } = useI18n();
+  const { t, formatCurrency } = useI18n();
   const { totalIncome: income, totalExpenses: expenses, net, txCount } = data.summary;
   const mood = income > 0 ? moodFor(expenses / income) : null;
 
@@ -235,9 +237,6 @@ export function SimpleStory({
   const spending = data.categoryBreakdown
     .filter((c) => c.total > 0)
     .sort((a, b) => b.total - a.total);
-  const top = spending.slice(0, TOP_CATEGORIES);
-  const rest = spending.slice(TOP_CATEGORIES);
-  const restTotal = rest.reduce((s, c) => s + c.total, 0);
   const share = (value: number) =>
     totalExpenses > 0 ? (value / totalExpenses) * 100 : 0;
 
@@ -315,7 +314,7 @@ export function SimpleStory({
       )}
 
       {/* Where it went: one bar, then the names behind it. */}
-      {top.length > 0 && (
+      {spending.length > 0 && (
         <section>
           <h2 className="text-base font-semibold">
             {t("insights.simple.whereTitle")}
@@ -324,21 +323,19 @@ export function SimpleStory({
             className="animate-bar-wipe mt-3 flex h-3 gap-0.5 overflow-hidden rounded-full bg-muted"
             aria-hidden="true"
           >
-            {[...top, ...(restTotal > 0 ? [{ categoryId: "rest", categoryColor: "", total: restTotal }] : [])].map(
-              (c) => (
-                <div
-                  key={c.categoryId ?? "none"}
-                  className="h-full first:rounded-l-full last:rounded-r-full"
-                  style={{
-                    width: `${share(c.total)}%`,
-                    backgroundColor: c.categoryColor || undefined,
-                  }}
-                />
-              ),
-            )}
+            {spending.map((c) => (
+              <div
+                key={c.categoryId ?? "none"}
+                className="h-full first:rounded-l-full last:rounded-r-full"
+                style={{
+                  width: `${share(c.total)}%`,
+                  backgroundColor: c.categoryColor || undefined,
+                }}
+              />
+            ))}
           </div>
           <ul className="mt-4 space-y-0.5">
-            {top.map((c) => (
+            {spending.map((c) => (
               <li key={c.categoryId ?? "none"}>
                 <button
                   type="button"
@@ -359,22 +356,11 @@ export function SimpleStory({
                 </button>
               </li>
             ))}
-            {rest.length > 0 && (
-              <li className="flex items-baseline gap-3 px-2 py-1.5 text-sm text-muted-foreground">
-                <span className="size-2.5 shrink-0 rounded-full bg-muted" aria-hidden="true" />
-                <span className="min-w-0 flex-1 truncate">
-                  {plural(
-                    rest.length,
-                    "insights.simple.whereRest.one",
-                    "insights.simple.whereRest.other",
-                  )}
-                </span>
-                <span className="tabular-nums">{formatCurrency(restTotal)}</span>
-              </li>
-            )}
           </ul>
         </section>
       )}
+
+      {footer}
 
       <p className="text-xs text-muted-foreground">
         {t("insights.simple.fullViewPrefix")}{" "}

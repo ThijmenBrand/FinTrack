@@ -37,18 +37,34 @@ export function BudgetPerformance({ data, accountLabel }: BudgetPerformanceProps
   const hasAnyBudget =
     data.totalBudget > 0 ||
     data.allocations.length > 0 ||
-    data.fixedCosts.length > 0;
+    data.fixedCosts.length > 0 ||
+    (data.yearly?.categories.length ?? 0) > 0;
 
   if (!hasAnyBudget) return null;
 
-  const { totalBudget, totalSpentThisMonth, unbudgetedSpending } = data;
+  const { totalSpentThisMonth, unbudgetedSpending } = data;
+
+  // On a yearly plan the month's cap is its carry-over-adjusted allowance, not
+  // the flat allocation: a month funded by earlier thrift is not over budget,
+  // and one that already spent the pot is over by more than the allocation
+  // suggests. Fixed costs sit outside the envelope and count as themselves.
+  const yearly = data.yearly?.categories.length ? data.yearly : null;
+  const caps = yearly
+    ? yearly.categories.map((c) => ({
+        spent: c.spentMonth,
+        cap: Math.max(0, c.allowance),
+      }))
+    : data.allocations.map((a) => ({ spent: a.spent, cap: a.amount }));
+  const totalBudget = yearly
+    ? Math.max(0, yearly.totals.allowanceThisMonth) + data.totalFixedCosts
+    : data.totalBudget;
 
   // Budgeted spending split into within-cap and over-cap parts
   let withinBudget = 0;
   let overBudgetOnTracked = 0;
-  for (const a of data.allocations) {
-    withinBudget += Math.min(a.spent, a.amount);
-    overBudgetOnTracked += Math.max(0, a.spent - a.amount);
+  for (const c of caps) {
+    withinBudget += Math.min(c.spent, c.cap);
+    overBudgetOnTracked += Math.max(0, c.spent - c.cap);
   }
   for (const fc of data.fixedCosts) {
     withinBudget += Math.min(fc.spent, fc.monthlyAmount);

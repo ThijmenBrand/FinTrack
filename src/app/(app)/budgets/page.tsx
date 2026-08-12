@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import {
   useBudgets,
@@ -21,206 +21,50 @@ import {
   formatFinancialMonthLabel,
   getFinancialMonthRange,
 } from "@/lib/financial-month";
+import {
+  currentFinancialSlot,
+  getFinancialYearMonths,
+  MONTHS_PER_YEAR,
+} from "@/lib/financial-year";
 import type { Allocation, BudgetPlanData, BudgetSuggestion } from "@/types/api";
 import type { EmptyGenerateReason } from "@/lib/auto-budget";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  AlertTriangle,
-  Loader2,
-  Lock,
-  Coins,
-  Sparkles,
-  ChevronRight,
-  ArrowRight,
-  Info,
-  Wallet,
-  X,
-} from "lucide-react";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { AlertTriangle, Loader2, Coins, Sparkles, Wallet, X } from "lucide-react";
 import { BudgetHistoryDialog } from "@/components/budget-history-dialog";
 import { BudgetSuggestionsDialog } from "@/components/budget-suggestions-dialog";
 import { useI18n } from "@/lib/i18n/client";
-import type { I18n } from "@/lib/i18n/translate";
-import { AllocationRow } from "./_components/allocation-row";
+import { AllocationRow, YearlyAllocationRow } from "./_components/allocation-row";
 import { SuggestionRow } from "./_components/suggestion-row";
 import { AllocationDialog } from "./_components/allocation-dialog";
 import { BudgetsSkeleton } from "./_components/budgets-skeleton";
 import { RegenerateConfirmDialog } from "./_components/regenerate-confirm-dialog";
-import { CategoryProgressRow } from "./_components/category-progress-row";
-import { UsageTotal, UsageBar } from "./_components/usage-summary";
+import { RecurringSections } from "./_components/recurring-sections";
+import { SectionHeader } from "./_components/section-header";
 import { byUrgency } from "./_components/budget-row";
-import { BudgetPlanTabs } from "./_components/budget-plan-tabs";
+import { BudgetSwitcher } from "./_components/budget-switcher";
+import { PeriodNav, type PeriodScope } from "./_components/period-nav";
 import { BudgetPlanDialog } from "./_components/budget-plan-dialog";
 import { SimpleHero } from "./_components/simple-hero";
+import { MonthStats, YearStats } from "./_components/budget-stats";
+import { NoticeLine } from "./_components/notice-line";
+import { EmptyGenerateNotice } from "./_components/empty-generate-notice";
+import { formatRelative, getFinancialMonthForOffset } from "./_components/dates";
 
-const MONTH_OFFSETS = [0, 1, 2, 3] as const;
-type MonthOffset = (typeof MONTH_OFFSETS)[number];
-
-// Resolve the financial-month range for `offset` periods before the one
-// containing `now`. Walks backward in calendar months from the current FM
-// start so each offset lands on a real FM boundary regardless of startDay.
-function getFinancialMonthForOffset(
-  now: Date,
-  startDay: number,
-  offset: number,
-): { from: string; to: string; reference: Date } {
-  const currentRange = getFinancialMonthRange(now, startDay);
-  const currentStart = new Date(currentRange.from + "T00:00:00");
-  const targetStart = new Date(
-    currentStart.getFullYear(),
-    currentStart.getMonth() - offset,
-    currentStart.getDate(),
-  );
-  const range = getFinancialMonthRange(targetStart, startDay);
-  return { ...range, reference: targetStart };
-}
-
-// ponytail: kept hand-rolled — Intl.RelativeTimeFormat would change the
-// output (its month bucketing differs from this days/30 approximation).
-function formatRelative(i18n: I18n, iso: string | null): string {
-  const { t, plural } = i18n;
-  if (!iso) return t("budgets.relative.never");
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return t("budgets.relative.never");
-  const days = Math.floor((Date.now() - date.getTime()) / (1000 * 60 * 60 * 24));
-  if (days <= 0) return t("budgets.relative.today");
-  if (days === 1) return t("budgets.relative.yesterday");
-  if (days < 30) return t("budgets.relative.daysAgo", { count: days });
-  const months = Math.floor(days / 30);
-  return plural(months, "budgets.relative.monthsAgo.one", "budgets.relative.monthsAgo.other");
-}
-
-/** One cell of the ledger's stat strip. */
-function Stat({
-  label,
-  value,
-  note,
-  tone = "",
-  className = "",
-}: {
-  label: ReactNode;
-  value: string;
-  note?: string;
-  tone?: string;
-  className?: string;
-}) {
-  return (
-    <div className={className}>
-      <dt className="flex items-center gap-1 text-xs text-muted-foreground">
-        {label}
-      </dt>
-      <dd className={`text-lg font-semibold tabular-nums ${tone}`}>
-        {value}
-        {note && (
-          <span className="ml-1 text-xs font-normal text-muted-foreground">
-            {note}
-          </span>
-        )}
-      </dd>
-    </div>
-  );
-}
-
-/**
- * Explains an empty "generate from history" run, with the one action that
- * would make the next run work. Sits under the header, next to the button
- * that produced it.
- */
-function EmptyGenerateNotice({
-  reason,
-  onLinkAccounts,
-  onDismiss,
-  i18n,
-}: {
-  reason: EmptyGenerateReason;
-  /** Opens the plan dialog — the only place accounts get attached to a plan. */
-  onLinkAccounts?: () => void;
-  onDismiss: () => void;
-  i18n: I18n;
-}) {
-  const { t } = i18n;
-  const COPY = {
-    "no-accounts": {
-      title: t("budgets.empty.noAccounts.title"),
-      body: t("budgets.empty.noAccounts.body"),
-    },
-    "no-history": {
-      title: t("budgets.empty.noHistory.title"),
-      body: t("budgets.empty.noHistory.body"),
-    },
-    "up-to-date": {
-      title: t("budgets.empty.upToDate.title"),
-      body: t("budgets.empty.upToDate.body"),
-    },
-  }[reason];
-
-  const linkClass = "font-medium underline underline-offset-2";
-  const action =
-    reason === "no-accounts" && onLinkAccounts ? (
-      <button type="button" onClick={onLinkAccounts} className={linkClass}>
-        {t("budgets.empty.linkAccounts")}
-      </button>
-    ) : reason === "no-history" ? (
-      <Link href="/transactions" className={linkClass}>
-        {t("budgets.empty.linkImport")}
-      </Link>
-    ) : null;
-
-  return (
-    <div
-      role="status"
-      className="flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 dark:border-amber-800 dark:bg-amber-950"
-    >
-      <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
-      <div className="min-w-0 flex-1 space-y-0.5">
-        <p className="text-sm font-medium text-amber-950 dark:text-amber-50">
-          {COPY.title}
-        </p>
-        <p className="text-xs text-amber-900 dark:text-amber-200">
-          {COPY.body}
-          {action && <> {action}</>}
-        </p>
-      </div>
-      <button
-        type="button"
-        onClick={onDismiss}
-        aria-label={t("budgets.empty.dismiss")}
-        className="shrink-0 rounded p-0.5 text-amber-700 hover:bg-amber-200 dark:text-amber-300 dark:hover:bg-amber-900"
-      >
-        <X className="h-4 w-4" />
-      </button>
-    </div>
-  );
-}
+/** How far back the month stepper walks — a year of history is plenty. */
+const OLDEST_MONTH_OFFSET = 11;
+/** How far back the year stepper walks. Three years of history is plenty. */
+const OLDEST_YEAR_OFFSET = 3;
 
 export default function BudgetsPage() {
   const i18n = useI18n();
   const { t, plural, formatCurrency, formatDate, intlLocale } = i18n;
-  const [monthOffset, setMonthOffset] = useState<MonthOffset>(0);
-  const isCurrentMonth = monthOffset === 0;
+  const [monthOffset, setMonthOffset] = useState(0);
 
   const { data: prefs } = usePreferences();
   const startDay = prefs?.financialMonthStartDay ?? 1;
   // Simple mode: main plan only, no suggestion machinery, no planning stats —
-  // just the allocation list and the month picker.
+  // just the allocation list and the period picker.
   const simple = prefs?.simpleMode ?? false;
 
   // Which plan the page shows. Null until the user picks one → main plan.
@@ -238,45 +82,120 @@ export default function BudgetsPage() {
   const [planDialogOpen, setPlanDialogOpen] = useState(false);
   const [editingPlan, setEditingPlan] = useState<BudgetPlanData | null>(null);
 
-  const { dateFrom, dateTo, monthOptions, daysLeft } = useMemo(() => {
+  // Yearly plans navigate by financial year and by month inside it; monthly
+  // plans keep the rolling month-offset stepper. Null = "whatever is current",
+  // resolved by the server so the client never has to know the start day.
+  const isYearly = activePlan?.period === "yearly";
+  const [selectedYear, setSelectedYear] = useState<number | null>(null);
+  const [selectedMonthIndex, setSelectedMonthIndex] = useState<number | null>(null);
+  // Only a yearly plan has a year to zoom out to.
+  const [scope, setScope] = useState<PeriodScope>("month");
+  const yearScope = isYearly && scope === "year";
+
+  // Which financial month is live right now — for a yearly plan this decides
+  // whether the view is editable, the same way monthOffset === 0 does for a
+  // monthly one.
+  const liveSlot = useMemo(
+    () => currentFinancialSlot(startDay),
+    [startDay],
+  );
+
+  // Where the yearly stepper currently is. Held locally rather than read back
+  // off the response so a second click lands while the first is still loading.
+  const viewYear = selectedYear ?? liveSlot.year;
+  const viewMonthIndex = selectedMonthIndex ?? liveSlot.monthIndex;
+
+  // Switching plans starts the period picker over: a month offset or a year
+  // picked while looking at another budget describes a window this one is not
+  // showing, and leaving it in place would pair one plan's envelope with
+  // another plan's fixed costs. Reset during render — the React-documented way
+  // to adjust state to a changed input without an effect.
+  const [planKey, setPlanKey] = useState(activePlanId);
+  if (planKey !== activePlanId) {
+    setPlanKey(activePlanId);
+    setMonthOffset(0);
+    setSelectedYear(null);
+    setSelectedMonthIndex(null);
+    setScope("month");
+  }
+
+  // The financial month the request asks about. A yearly plan's stepper moves
+  // this too: the response's monthly half (fixed costs, income, the month's
+  // spend) has to describe the same window as its yearly half, or the list
+  // header stops reconciling with the rows under it.
+  const { dateFrom, dateTo, monthLabel, daysLeftNow } = useMemo(() => {
     const now = new Date();
-    const options = MONTH_OFFSETS.map((offset) => {
-      const { from, to, reference } = getFinancialMonthForOffset(
-        now,
-        startDay,
-        offset,
-      );
-      let label: string;
-      if (offset === 0) label = t("budgets.thisMonth");
-      else if (offset === 1) label = t("budgets.lastMonth");
-      else label = formatFinancialMonthLabel(reference, startDay, intlLocale);
-      return { offset, label, from, to };
-    });
-    const selected = options[monthOffset];
+    const live = getFinancialMonthRange(now, startDay);
+    // Countdown for the "left this month" stat; only the live month has one.
+    const daysLeftNow = Math.max(
+      0,
+      Math.ceil(
+        (new Date(live.to + "T23:59:59").getTime() - now.getTime()) / 86400000,
+      ),
+    );
+
+    if (isYearly) {
+      const slot = getFinancialYearMonths(viewYear, startDay)[viewMonthIndex];
+      return {
+        dateFrom: slot.from,
+        dateTo: slot.to,
+        monthLabel: formatFinancialMonthLabel(
+          new Date(`${slot.from}T00:00:00`),
+          startDay,
+          intlLocale,
+        ),
+        daysLeftNow,
+      };
+    }
+
+    const { from, to, reference } = getFinancialMonthForOffset(
+      now,
+      startDay,
+      monthOffset,
+    );
     return {
-      dateFrom: selected.from,
-      dateTo: selected.to,
-      monthOptions: options,
-      // Countdown for simple mode's hero; past months don't get one.
-      daysLeft:
-        monthOffset === 0
-          ? Math.max(
-              0,
-              Math.ceil(
-                (new Date(selected.to + "T23:59:59").getTime() - now.getTime()) /
-                  86400000,
-              ),
-            )
-          : null,
+      dateFrom: from,
+      dateTo: to,
+      monthLabel: formatFinancialMonthLabel(reference, startDay, intlLocale),
+      daysLeftNow,
     };
-  }, [monthOffset, startDay, t, intlLocale]);
+  }, [isYearly, viewYear, viewMonthIndex, monthOffset, startDay, intlLocale]);
 
   const { data: data = null, isLoading: loading } = useBudgets({
     dateFrom,
     dateTo,
     budgetId: activePlanId,
     noScale: true,
+    ...(isYearly ? { year: viewYear, monthIndex: viewMonthIndex } : {}),
   });
+  const yearly = data?.yearly ?? null;
+
+  // A yearly plan is editable while the month on screen is the one being
+  // lived in, the same rule monthOffset === 0 encodes for monthly plans.
+  // In the year view the whole live year counts — every month of it is still
+  // being planned.
+  const isLiveYear = isYearly && viewYear === liveSlot.year;
+  const isCurrentPeriod = isYearly
+    ? isLiveYear && (yearScope || viewMonthIndex === liveSlot.monthIndex)
+    : monthOffset === 0;
+
+  // Month labels for the selected financial year. With a start day of 1 these
+  // are plain month names; otherwise they show the actual window.
+  const monthNamesInYear = useMemo(
+    () =>
+      getFinancialYearMonths(viewYear, startDay).map((slot) =>
+        startDay === 1
+          ? new Date(`${slot.from}T00:00:00`).toLocaleDateString(intlLocale, {
+              month: "long",
+            })
+          : formatFinancialMonthLabel(
+              new Date(`${slot.from}T00:00:00`),
+              startDay,
+              intlLocale,
+            ),
+      ),
+    [viewYear, startDay, intlLocale],
+  );
   const { data: categoriesData } = useCategories();
   const categories = categoriesData ?? [];
   const createBudget = useCreateBudget();
@@ -290,7 +209,6 @@ export default function BudgetsPage() {
   const [editingAlloc, setEditingAlloc] = useState<Allocation | null>(null);
   const [historyAlloc, setHistoryAlloc] = useState<Allocation | null>(null);
   const [suggestionsDialogOpen, setSuggestionsDialogOpen] = useState(false);
-  const [fixedCostsOpen, setFixedCostsOpen] = useState(false);
   const [regenerateConfirmOpen, setRegenerateConfirmOpen] = useState(false);
   // Why the last generate run came back empty. Without this the button just
   // does nothing and the user is left guessing.
@@ -330,6 +248,33 @@ export default function BudgetsPage() {
 
   const handleRejectOne = async (s: BudgetSuggestion) => {
     await rejectSuggestions.mutateAsync([s.id]);
+  };
+
+  // One step back or forward through whatever the stepper is currently
+  // walking: rolling months, months inside a financial year, or years. Both
+  // steppers stop at the live period — the future is not something either kind
+  // of plan can report on.
+  const oldestYear = liveSlot.year - OLDEST_YEAR_OFFSET;
+  const step = (dir: -1 | 1) => {
+    if (!isYearly) {
+      setMonthOffset((o) => Math.min(OLDEST_MONTH_OFFSET, Math.max(0, o - dir)));
+      return;
+    }
+    if (yearScope) {
+      setSelectedYear(
+        Math.min(liveSlot.year, Math.max(oldestYear, viewYear + dir)),
+      );
+      setSelectedMonthIndex(null);
+      return;
+    }
+    // Months roll over into the neighbouring year, then clamp at both ends.
+    const absolute = viewYear * MONTHS_PER_YEAR + viewMonthIndex + dir;
+    const clamped = Math.min(
+      liveSlot.year * MONTHS_PER_YEAR + liveSlot.monthIndex,
+      Math.max(oldestYear * MONTHS_PER_YEAR, absolute),
+    );
+    setSelectedYear(Math.floor(clamped / MONTHS_PER_YEAR));
+    setSelectedMonthIndex(clamped % MONTHS_PER_YEAR);
   };
 
   if (loading || accountsLoading) {
@@ -374,47 +319,93 @@ export default function BudgetsPage() {
       !NON_BUDGETABLE_CATEGORY_NAMES.includes(c.name)
   );
 
-  const totalPlanned = data.totalFixedCosts + data.totalAllocated;
-
-  // The strip's split bar is a share of monthly income — or of the plan itself
-  // when there's no income on record.
-  const planBase = data.monthlyIncome > 0 ? data.monthlyIncome : totalPlanned;
-  const pctOf = (value: number) => (planBase > 0 ? (value / planBase) * 100 : 0);
-  const fixedPct = Math.min(100, pctOf(data.totalFixedCosts));
-  const allocPct = Math.min(100 - fixedPct, pctOf(data.totalAllocated));
-  const unallocPct = Math.max(0, 100 - fixedPct - allocPct);
-
-  const periodDays =
-    Math.round(
-      (new Date(data.month.to + "T00:00:00").getTime() -
-        new Date(data.month.from + "T00:00:00").getTime()) /
-        86400000,
-    ) + 1;
-  const perDay = periodDays > 0 ? totalPlanned / periodDays : 0;
-
   // Card totals are summed from the rows themselves so the header always
   // reconciles with the list under it.
   const allocSpent = data.allocations.reduce((sum, a) => sum + a.spent, 0);
   const allocLimit = data.allocations.reduce((sum, a) => sum + a.amount, 0);
-  const fixedSpent = data.fixedCosts.reduce((sum, fc) => sum + fc.spent, 0);
-  const fixedLimit = data.fixedCosts.reduce((sum, fc) => sum + fc.monthlyAmount, 0);
+  // What the bills still want out of this month, and how many plans produce it.
+  const fixedDue = data.fixedCosts.reduce(
+    (sum, fc) => sum + Math.max(0, fc.monthlyAmount - fc.spent),
+    0,
+  );
+  const fixedPayments = data.fixedCosts.reduce((sum, fc) => sum + fc.items.length, 0);
 
   // Over budget first, then by how much of the budget is used.
   const allocations = [...data.allocations].sort(byUrgency);
 
   const hasSuggestions = data.suggestions.length > 0;
   const showRegenBanner =
-    isCurrentMonth && data.automation.regenerationDue && !hasSuggestions && !simple;
-  const allocationsCount = data.allocations.length;
+    isCurrentPeriod && data.automation.regenerationDue && !hasSuggestions && !simple;
+  // One count for the heading, the stat and the empty state. A yearly plan
+  // draws its rows from the envelope rather than the flat allocations, so it
+  // has to be counted there or the three disagree the moment they diverge.
+  const allocationsCount = yearly
+    ? yearly.categories.length
+    : data.allocations.length;
+
+  // Yearly rows carry their own totals; the header still reconciles with the
+  // list under it, just against this month's allowance rather than a flat cap.
+  const allocByCategory = new Map(data.allocations.map((a) => [a.categoryId, a]));
+  const yearlyRows = yearly
+    ? [...yearly.categories].sort((a, b) => {
+        const rank = { "year-over": 0, "month-over": 1, ok: 2 } as const;
+        if (rank[a.status] !== rank[b.status]) return rank[a.status] - rank[b.status];
+        return yearScope ? b.spentYear - a.spentYear : b.spentMonth - a.spentMonth;
+      })
+    : [];
+  // What the list header reconciles against, in the unit currently on screen.
+  const listSpent = yearly
+    ? yearScope
+      ? yearly.totals.spentYear
+      : yearly.totals.spentThisMonth
+    : allocSpent;
+  const listLimit = yearly
+    ? yearScope
+      ? yearly.totals.annualPot
+      : yearly.totals.allowanceThisMonth
+    : allocLimit;
+
+  const periodLabel = isYearly
+    ? yearScope
+      ? String(viewYear)
+      : `${monthNamesInYear[viewMonthIndex]} ${viewYear}`
+    : monthLabel;
+
+  // Both ends of the yearly stepper, in the unit the current scope walks.
+  const prevDisabled = isYearly
+    ? yearScope
+      ? viewYear <= oldestYear
+      : viewYear <= oldestYear && viewMonthIndex === 0
+    : monthOffset >= OLDEST_MONTH_OFFSET;
+  const nextDisabled = isYearly
+    ? yearScope
+      ? viewYear >= liveSlot.year
+      : isLiveYear && viewMonthIndex >= liveSlot.monthIndex
+    : monthOffset === 0;
+
+  // The carry-over story behind this month's allowance, for the stat's subline.
+  const carried = yearly
+    ? Math.round(yearly.totals.rolloverIntoThisMonth * 100) / 100
+    : 0;
+  const allowanceNote =
+    yearly && carried !== 0
+      ? carried > 0
+        ? t("budgets.yearly.stat.carriedSavedNote", {
+            amount: formatCurrency(carried),
+          })
+        : t("budgets.yearly.stat.carriedOwedNote", {
+            amount: formatCurrency(Math.abs(carried)),
+          })
+      : undefined;
 
   return (
     <div className="space-y-6">
-      {/* Which budget the page is about. Everything below follows this tab.
+      {/* Which budget the page is about. Everything below follows this title.
           Plan management stays available in simple mode too. */}
       {plansData && (
-        <BudgetPlanTabs
+        <BudgetSwitcher
           plans={plans}
-          activeId={activePlanId}
+          active={activePlan}
           onSelect={setSelectedPlanId}
           onEdit={(p) => {
             setEditingPlan(p);
@@ -427,300 +418,218 @@ export default function BudgetsPage() {
         />
       )}
 
-      {/* Suggestion banner */}
-      {isCurrentMonth && hasSuggestions && !simple && (
-        <Card className="border-blue-200 bg-blue-50/40 dark:border-blue-900/60 dark:bg-blue-950/20">
-          <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
-            <div className="flex items-start gap-3">
-              <div className="rounded-full bg-blue-100 p-2 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300">
-                <Sparkles className="h-4 w-4" />
-              </div>
-              <div>
-                <p className="text-sm font-medium">
-                  {plural(
-                    data.suggestions.length,
-                    "budgets.suggestionsReady.one",
-                    "budgets.suggestionsReady.other",
-                  )}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {plural(
-                    data.automation.lookbackMonths,
-                    "budgets.suggestionsBasis.one",
-                    "budgets.suggestionsBasis.other",
-                  )}
-                </p>
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <Button
-                variant="ghost"
-                onClick={() =>
-                  rejectSuggestions.mutate(data.suggestions.map((s) => s.id))
-                }
-                disabled={rejectSuggestions.isPending}
-              >
-                {t("budgets.dismissAll")}
-              </Button>
-              <Button onClick={() => setSuggestionsDialogOpen(true)}>
-                {t("budgets.reviewApply")}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+      <PeriodNav
+        scope={scope}
+        onScopeChange={isYearly ? setScope : undefined}
+        label={periodLabel}
+        onPrev={() => step(-1)}
+        onNext={() => step(1)}
+        prevDisabled={prevDisabled}
+        nextDisabled={nextDisabled}
+      />
+
+      {/* The plan in four numbers. Simple mode swaps them for one friendly
+          readout: a yearly plan measures the month against its
+          carry-over-adjusted allowance, which is what constrains today. */}
+      <div className="space-y-3 border-b pb-6">
+        {simple ? (
+          listLimit > 0 && (
+            <SimpleHero
+              spent={listSpent}
+              limit={listLimit}
+              // Days left in the month, so only offered when the month is what
+              // the figures beside it describe.
+              daysLeft={isCurrentPeriod && !yearScope ? daysLeftNow : null}
+            />
+          )
+        ) : yearly && yearScope ? (
+          <YearStats view={yearly} isLiveYear={isLiveYear} />
+        ) : (
+          <MonthStats
+            toSpend={listLimit}
+            spent={listSpent}
+            daysLeft={isCurrentPeriod ? daysLeftNow : null}
+            fixedDue={fixedDue}
+            fixedPayments={fixedPayments}
+            categories={allocationsCount}
+            allowanceNote={yearly ? allowanceNote : undefined}
+          />
+        )}
+
+        {/* Every "avg /mo" in the rows below is computed from this date
+            onward. Saying so once here beats repeating it on each row. */}
+        {data.statsCutoff && (
+          <p className="text-xs text-muted-foreground">
+            {t("budgets.averagesFrom", { date: formatDate(data.statsCutoff) })}{" "}
+            <Link href="/settings/general" className="text-primary hover:underline">
+              {t("budgets.change")}
+            </Link>
+          </p>
+        )}
+      </div>
+
+      {!yearly && data.unallocated < 0 && (
+        <NoticeLine icon={AlertTriangle}>
+          {t("budgets.overAllocatedBy", {
+            amount: formatCurrency(Math.abs(data.unallocated)),
+          })}
+        </NoticeLine>
       )}
 
-      {/* Regen-due banner (no current suggestions) */}
-      {showRegenBanner && (
-        <Card className="border-dashed">
-          <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
-            <div className="flex items-start gap-3">
-              <div className="rounded-full bg-muted p-2 text-muted-foreground">
-                <Sparkles className="h-4 w-4" />
-              </div>
-              <div>
-                <p className="text-sm font-medium">{t("budgets.refreshTitle")}</p>
-                <p className="text-xs text-muted-foreground">
-                  {plural(
-                    data.automation.lookbackMonths,
-                    "budgets.refreshBody.one",
-                    "budgets.refreshBody.other",
-                    { when: formatRelative(i18n, data.automation.lastCheckAt) },
-                  )}
-                </p>
-              </div>
-            </div>
-            <Button onClick={handleGenerate} disabled={generateBudgets.isPending}>
-              {generateBudgets.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {t("budgets.generateSuggestions")}
+      {/* The yearly equivalent: a pot bigger than the year's income. */}
+      {yearly && yearly.totals.annualPot > yearly.income.total && (
+        <NoticeLine icon={AlertTriangle}>
+          {t("budgets.yearly.overAllocatedBy", {
+            amount: formatCurrency(yearly.totals.annualPot - yearly.income.total),
+          })}
+        </NoticeLine>
+      )}
+
+      {isCurrentPeriod && hasSuggestions && !simple && (
+        <NoticeLine icon={Sparkles} filled iconTone="text-primary">
+          <span className="text-muted-foreground">
+            {plural(
+              data.suggestions.length,
+              "budgets.suggestionsReady.one",
+              "budgets.suggestionsReady.other",
+            )}
+          </span>
+          <span className="ml-auto flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setSuggestionsDialogOpen(true)}
+            >
+              {t("budgets.reviewApply")}
             </Button>
-          </CardContent>
-        </Card>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              aria-label={t("budgets.dismissAll")}
+              disabled={rejectSuggestions.isPending}
+              onClick={() =>
+                rejectSuggestions.mutate(data.suggestions.map((s) => s.id))
+              }
+            >
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          </span>
+        </NoticeLine>
       )}
 
-      {/* The ledger: plan summary and the allocation list in one card. */}
-      <Card className="py-6">
-        <div className="space-y-5 px-4 sm:px-7">
-          {/* Header */}
-          <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
-            <div className="min-w-0">
-              <p className="text-sm text-muted-foreground">
-                {data.month.label} &middot;{" "}
-                <Link
-                  href="/settings/recurring"
-                  className="inline-flex items-center gap-1 text-primary hover:underline"
-                >
-                  {t("budgets.viewRecurring")}
-                  <ArrowRight className="h-3.5 w-3.5" />
-                </Link>
-              </p>
-              <h1 className="text-2xl font-bold tracking-tight">
-                {activePlan ? activePlan.name : t("budgets.fallbackTitle")}
-              </h1>
-              {/* Every "avg /mo" below is computed from this date onward. Saying
-                  so once here beats repeating it on each row. */}
-              {data.statsCutoff && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {t("budgets.averagesFrom", { date: formatDate(data.statsCutoff) })}{" "}
-                  <Link
-                    href="/settings/general"
-                    className="text-primary hover:underline"
-                  >
-                    {t("budgets.change")}
-                  </Link>
-                </p>
-              )}
-            </div>
-            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-              <Select
-                value={String(monthOffset)}
-                onValueChange={(v) => setMonthOffset(Number(v) as MonthOffset)}
-              >
-                <SelectTrigger className="w-full sm:w-[160px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {monthOptions.map((opt) => (
-                    <SelectItem key={opt.offset} value={String(opt.offset)}>
-                      {opt.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {isCurrentMonth && !simple && (
-                <Button
-                  variant="outline"
-                  className="flex-1 sm:flex-none"
-                  onClick={handleGenerate}
-                  disabled={generateBudgets.isPending || !data.automation.enabled}
-                  title={
-                    data.automation.enabled ? undefined : t("budgets.generateDisabled")
-                  }
-                >
-                  {generateBudgets.isPending ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Sparkles className="mr-2 h-4 w-4" />
-                  )}
-                  {hasSuggestions ? t("budgets.regenerate") : t("budgets.generateFromHistory")}
-                </Button>
-              )}
-              {isCurrentMonth && (
-                <AllocationDialog
-                  key={editingAlloc?.id ?? "new"}
-                  open={dialogOpen}
-                  onOpenChange={(open) => {
-                    setDialogOpen(open);
-                    if (!open) setEditingAlloc(null);
-                  }}
-                  editingAlloc={editingAlloc}
-                  availableCategories={availableCategories}
-                  categoryAverages={data.categoryAverages}
-                  unallocated={data.unallocated}
-                  onCreate={(categoryId, amount) =>
-                    createBudget
-                      .mutateAsync({ categoryId, amount, budgetId: activePlanId })
-                      .then(() => {})
-                  }
-                  onUpdate={(id, amount) =>
-                    updateBudget.mutateAsync({ id, amount }).then(() => {})
-                  }
-                />
-              )}
-            </div>
-          </div>
+      {showRegenBanner && (
+        <NoticeLine icon={Sparkles} filled iconTone="text-primary">
+          <span className="text-muted-foreground">
+            {plural(
+              data.automation.lookbackMonths,
+              "budgets.refreshBody.one",
+              "budgets.refreshBody.other",
+              { when: formatRelative(i18n, data.automation.lastCheckAt) },
+            )}
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-auto"
+            onClick={handleGenerate}
+            disabled={generateBudgets.isPending}
+          >
+            {generateBudgets.isPending && (
+              <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+            )}
+            {t("budgets.generateSuggestions")}
+          </Button>
+        </NoticeLine>
+      )}
 
-          {emptyReason && (
-            <EmptyGenerateNotice
-              reason={emptyReason}
-              i18n={i18n}
-              onLinkAccounts={
-                activePlan
-                  ? () => {
-                      setEmptyReason(null);
-                      setEditingPlan(activePlan);
-                      setPlanDialogOpen(true);
+      {emptyReason && (
+        <EmptyGenerateNotice
+          reason={emptyReason}
+          i18n={i18n}
+          onLinkAccounts={
+            activePlan
+              ? () => {
+                  setEmptyReason(null);
+                  setEditingPlan(activePlan);
+                  setPlanDialogOpen(true);
+                }
+              : undefined
+          }
+          onDismiss={() => setEmptyReason(null)}
+        />
+      )}
+
+      {/* The whole plan as one list, most-decided-by-you first: the flexible
+          spending you steer day to day, then the income and fixed costs that
+          are already settled. Fixed costs used to sit in a card of their own
+          below this one, which read as an appendix — they are budget lines
+          like any other and belong in the same list, at full length, with the
+          same columns. */}
+      <Card className="overflow-hidden">
+        <ul className="divide-y">
+          <SectionHeader
+            icon={Coins}
+            label={t("budgets.allocationsHeading", { count: allocationsCount })}
+            note={
+              allocationsCount > 0
+                ? t("budgets.allocationsSpent", {
+                    spent: formatCurrency(listSpent),
+                    limit: formatCurrency(listLimit),
+                  })
+                : undefined
+            }
+            action={
+              <>
+                {isCurrentPeriod && !simple && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleGenerate}
+                    disabled={generateBudgets.isPending || !data.automation.enabled}
+                    title={
+                      data.automation.enabled ? undefined : t("budgets.generateDisabled")
                     }
-                  : undefined
-              }
-              onDismiss={() => setEmptyReason(null)}
-            />
-          )}
-
-          {/* Simple mode swaps the five-stat strip for one friendly readout. */}
-          {simple && allocLimit > 0 && (
-            <SimpleHero spent={allocSpent} limit={allocLimit} daysLeft={daysLeft} />
-          )}
-
-          {/* Stat strip — the plan, without the donut */}
-          {!simple && (
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 lg:grid-cols-5">
-            <Stat label={t("budgets.stat.income")} value={formatCurrency(data.monthlyIncome)} />
-            <Stat
-              label={t("budgets.stat.fixed")}
-              value={formatCurrency(data.totalFixedCosts)}
-              tone="text-muted-foreground"
-            />
-            <Stat
-              label={t("budgets.stat.allocated")}
-              value={formatCurrency(data.totalAllocated)}
-              tone="text-primary"
-            />
-            <Stat
-              label={
-                <>
-                  {data.unallocated < 0
-                    ? t("budgets.stat.overAllocated")
-                    : t("budgets.stat.unallocated")}
-                  <Popover>
-                    <PopoverTrigger
-                      aria-label={t("budgets.info.label")}
-                      className="text-muted-foreground transition-colors hover:text-foreground"
-                    >
-                      <Info className="h-3.5 w-3.5" />
-                    </PopoverTrigger>
-                    <PopoverContent align="start" className="w-80 space-y-2 text-sm">
-                      <p className="font-medium">{t("budgets.info.title")}</p>
-                      <p className="text-muted-foreground">{t("budgets.info.body1")}</p>
-                      <p className="text-muted-foreground">{t("budgets.info.body2")}</p>
-                    </PopoverContent>
-                  </Popover>
-                </>
-              }
-              value={formatCurrency(Math.abs(data.unallocated))}
-              tone={
-                data.unallocated < 0
-                  ? "text-red-600 dark:text-red-400"
-                  : "text-muted-foreground"
-              }
-            />
-            <Stat
-              label={t("budgets.stat.plannedToSpend")}
-              value={formatCurrency(totalPlanned)}
-              note={t("budgets.stat.perDayNote", { amount: formatCurrency(perDay) })}
-              className="col-span-2 sm:col-span-1"
-            />
-          </dl>
-          )}
-
-          {/* Split bar + legend */}
-          {!simple && (
-          <div>
-            <div className="flex h-2 overflow-hidden rounded-full bg-muted">
-              <div className="bg-slate-400" style={{ width: `${fixedPct}%` }} />
-              <div className="bg-primary" style={{ width: `${allocPct}%` }} />
-            </div>
-            <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-sm bg-slate-400" aria-hidden="true" />
-                {t("budgets.legend.fixed", { pct: Math.round(fixedPct) })}
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-sm bg-primary" aria-hidden="true" />
-                {t("budgets.legend.allocated", { pct: Math.round(allocPct) })}
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span
-                  className="h-2 w-2 rounded-sm bg-muted ring-1 ring-border"
-                  aria-hidden="true"
-                />
-                {t("budgets.legend.unallocated", { pct: Math.round(unallocPct) })}
-              </span>
-            </div>
-          </div>
-          )}
-
-          {data.unallocated < 0 && (
-            <div className="flex items-center gap-2 rounded-lg border border-red-300 bg-red-100 px-3 py-2 text-sm font-medium text-red-900 dark:border-red-800 dark:bg-red-950 dark:text-red-100">
-              <AlertTriangle className="h-4 w-4 shrink-0" />
-              {t("budgets.overAllocatedBy", {
-                amount: formatCurrency(Math.abs(data.unallocated)),
-              })}
-            </div>
-          )}
-        </div>
-
-        <div className="mt-6 border-t pt-4">
-          <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-4 pb-1 sm:px-7">
-            <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              {t("budgets.allocationsHeading", { count: allocationsCount })}
-            </span>
-            <span className="text-xs text-muted-foreground tabular-nums">
-              {allocationsCount > 0 && (
-                <>
-                  {t("budgets.allocationsSpent", {
-                    spent: formatCurrency(allocSpent),
-                    limit: formatCurrency(allocLimit),
-                  })}
-                  &nbsp;&middot;{" "}
-                </>
-              )}
-              {t("budgets.allocationsHint")}
-            </span>
-          </div>
+                  >
+                    {generateBudgets.isPending ? (
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+                    )}
+                    {hasSuggestions
+                      ? t("budgets.regenerate")
+                      : t("budgets.generateFromHistory")}
+                  </Button>
+                )}
+                {isCurrentPeriod && (
+                  <AllocationDialog
+                    key={editingAlloc?.id ?? "new"}
+                    open={dialogOpen}
+                    onOpenChange={(open) => {
+                      setDialogOpen(open);
+                      if (!open) setEditingAlloc(null);
+                    }}
+                    editingAlloc={editingAlloc}
+                    availableCategories={availableCategories}
+                    categoryAverages={data.categoryAverages}
+                    unallocated={data.unallocated}
+                    yearly={isYearly}
+                    onCreate={(categoryId, amount) =>
+                      createBudget
+                        .mutateAsync({ categoryId, amount, budgetId: activePlanId })
+                        .then(() => {})
+                    }
+                    onUpdate={(id, amount) =>
+                      updateBudget.mutateAsync({ id, amount }).then(() => {})
+                    }
+                  />
+                )}
+              </>
+            }
+          />
 
           {allocationsCount === 0 ? (
-            <div className="flex flex-col items-center justify-center px-6 py-10 text-center">
+            <li className="flex flex-col items-center justify-center px-6 py-10 text-center">
               {simple ? (
                 <span className="mb-3 text-4xl" aria-hidden="true">
                   🪴
@@ -731,11 +640,11 @@ export default function BudgetsPage() {
               <p className="max-w-sm text-sm text-muted-foreground">
                 {simple ? t("budgets.emptySimple") : t("budgets.emptyFull")}
               </p>
-            </div>
+            </li>
           ) : (
-            <ul className="divide-y sm:px-3">
+            <>
               {/* Suggestion rows on top with inline accept/reject */}
-              {isCurrentMonth &&
+              {isCurrentPeriod &&
                 !simple &&
                 data.suggestions.map((s) => (
                   <SuggestionRow
@@ -746,128 +655,52 @@ export default function BudgetsPage() {
                     onReject={() => handleRejectOne(s)}
                   />
                 ))}
-              {allocations.map((alloc) => (
-                <AllocationRow
-                  key={alloc.id}
-                  alloc={alloc}
-                  readOnly={!isCurrentMonth}
-                  deletePending={deleteBudget.isPending}
-                  onHistory={() => setHistoryAlloc(alloc)}
-                  onEdit={() => openEdit(alloc)}
-                  onDelete={() => deleteBudget.mutateAsync(alloc.id).then(() => {})}
-                />
-              ))}
-            </ul>
-          )}
-        </div>
-      </Card>
-
-      {/* Fixed Costs — collapsible */}
-      <Card>
-        <CardHeader className="pb-4">
-          <button
-            type="button"
-            onClick={() => setFixedCostsOpen((o) => !o)}
-            aria-expanded={fixedCostsOpen}
-            aria-controls="fixed-costs-list"
-            className="flex w-full flex-wrap items-end justify-between gap-x-4 gap-y-2 rounded-md text-left"
-          >
-            <div className="flex min-w-0 items-center gap-2">
-              <ChevronRight
-                className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 ${fixedCostsOpen ? "rotate-90" : ""}`}
-              />
-              <Lock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              <div className="min-w-0">
-                <CardTitle className="text-base">{t("budgets.fixedCostsTitle")}</CardTitle>
-                <CardDescription>
-                  {plural(
-                    data.fixedCosts.length,
-                    "budgets.fixedCostsCount.one",
-                    "budgets.fixedCostsCount.other",
-                  )}
-                </CardDescription>
-              </div>
-            </div>
-            {data.fixedCosts.length > 0 && (
-              <UsageTotal
-                spent={fixedSpent}
-                limit={fixedLimit}
-                remainingLabel={t("budgets.due")}
-              />
-            )}
-          </button>
-          {data.fixedCosts.length > 0 && (
-            <UsageBar spent={fixedSpent} limit={fixedLimit} />
-          )}
-          {fixedCostsOpen && (
-            <CardDescription className="pt-1 text-xs">
-              {t("budgets.fixedCostsHintPrefix")}{" "}
-              <Link href="/settings/recurring" className="text-primary hover:underline">
-                {t("settings.tabs.recurring")}
-              </Link>
-              {t("budgets.fixedCostsHintSuffix")}
-            </CardDescription>
-          )}
-        </CardHeader>
-        {fixedCostsOpen && (
-          <CardContent id="fixed-costs-list" className="px-0 sm:px-3">
-            {data.fixedCosts.length === 0 ? (
-              <p className="py-4 text-center text-sm text-muted-foreground">
-                {t("budgets.noRecurringYet")}
-              </p>
-            ) : (
-              <ul className="divide-y border-t">
-                {data.fixedCosts.map((fc) => {
-                  const pct = fc.monthlyAmount > 0 ? Math.min(100, (fc.spent / fc.monthlyAmount) * 100) : 0;
-                  const outstanding = fc.monthlyAmount - fc.spent;
-                  const over = outstanding <= -0.01;
-                  const settled = Math.abs(outstanding) < 0.01;
-                  return (
-                    <CategoryProgressRow
-                      key={fc.categoryId}
-                      categoryId={fc.categoryId}
-                      color={fc.categoryColor}
-                      name={fc.categoryName}
-                      progressPct={pct}
-                      barClassName={over ? "bg-red-500" : "bg-slate-400"}
-                      subtitle={
-                        <div className="truncate text-xs text-muted-foreground">
-                          {fc.items
-                            .slice(0, 3)
-                            .map((i) => i.description)
-                            .join(" · ")}
-                          {fc.items.length > 3 ? ` +${fc.items.length - 3}` : ""}
-                        </div>
-                      }
-                      amount={
-                        <>
-                          <span className="font-medium">{formatCurrency(fc.spent)}</span>
-                          <span className="text-muted-foreground">
-                            {" / "}
-                            {formatCurrency(fc.monthlyAmount)}
-                          </span>
-                        </>
-                      }
-                      delta={
-                        <span
-                          className={
-                            over ? "text-red-600 dark:text-red-400" : "text-muted-foreground"
-                          }
-                        >
-                          {over
-                            ? t("budgets.overAmount", { amount: formatCurrency(-outstanding) })
-                            : settled
-                              ? t("budgets.paid")
-                              : t("budgets.dueAmount", { amount: formatCurrency(outstanding) })}
-                        </span>
-                      }
+              {yearly
+                ? yearlyRows.map((category) => {
+                    const alloc = allocByCategory.get(category.categoryId);
+                    return (
+                      <YearlyAllocationRow
+                        key={category.categoryId}
+                        category={category}
+                        alloc={alloc}
+                        scope={yearScope ? "year" : "month"}
+                        readOnly={!isCurrentPeriod}
+                        deletePending={deleteBudget.isPending}
+                        onHistory={() => alloc && setHistoryAlloc(alloc)}
+                        onEdit={() => alloc && openEdit(alloc)}
+                        onDelete={() =>
+                          alloc
+                            ? deleteBudget.mutateAsync(alloc.id).then(() => {})
+                            : Promise.resolve()
+                        }
+                      />
+                    );
+                  })
+                : allocations.map((alloc) => (
+                    <AllocationRow
+                      key={alloc.id}
+                      alloc={alloc}
+                      readOnly={!isCurrentPeriod}
+                      deletePending={deleteBudget.isPending}
+                      onHistory={() => setHistoryAlloc(alloc)}
+                      onEdit={() => openEdit(alloc)}
+                      onDelete={() => deleteBudget.mutateAsync(alloc.id).then(() => {})}
                     />
-                  );
-                })}
-              </ul>
-            )}
-          </CardContent>
-        )}
+                  ))}
+            </>
+          )}
+
+          {/* ponytail: month scope only — these are monthly figures and would
+              not reconcile inside a year-scoped list. */}
+          {!yearScope && (
+            <RecurringSections
+              fixedCosts={data.fixedCosts}
+              planAccountIds={activePlan ? activePlan.accounts.map((a) => a.id) : null}
+              accounts={accountsData ?? []}
+              categories={categories}
+            />
+          )}
+        </ul>
       </Card>
 
       <BudgetHistoryDialog

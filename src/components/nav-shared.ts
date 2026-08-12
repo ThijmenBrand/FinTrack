@@ -1,7 +1,7 @@
 "use client";
 
 import type { LucideIcon } from "lucide-react";
-import { LayoutDashboard, Upload, PieChart, Wallet, PiggyBank } from "lucide-react";
+import { LayoutDashboard, Upload, PieChart, Wallet, PiggyBank, RefreshCcw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useSession, signOut } from "@/lib/auth-client";
 import { usePreferences } from "@/hooks/use-preferences";
@@ -11,6 +11,8 @@ export interface NavItem {
   labelKey: MessageKey;
   href: string;
   icon: LucideIcon;
+  /** Simple mode drops this item. Recurring stays — it feeds the budget. */
+  hideInSimple?: boolean;
 }
 
 /** Primary tabs shown in the bottom bar and top of the sidebar. */
@@ -23,13 +25,16 @@ export const PRIMARY_NAV: NavItem[] = [
 
 /** Secondary items — sidebar lists them inline, bottom nav tucks them under "More". */
 export const SECONDARY_NAV: NavItem[] = [
-  { labelKey: "nav.pots", href: "/pots", icon: PiggyBank },
+  { labelKey: "nav.recurring", href: "/recurring", icon: RefreshCcw },
+  { labelKey: "nav.pots", href: "/pots", icon: PiggyBank, hideInSimple: true },
 ];
 
 /** Secondary items minus the ones simple mode hides (currently: pots). */
 export function useSecondaryNav(): NavItem[] {
   const { data: prefs } = usePreferences();
-  return prefs?.simpleMode ? [] : SECONDARY_NAV;
+  return prefs?.simpleMode
+    ? SECONDARY_NAV.filter((i) => !i.hideInSimple)
+    : SECONDARY_NAV;
 }
 
 export interface SessionUser {

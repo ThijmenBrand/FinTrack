@@ -99,6 +99,13 @@
       "when": 1786392750227,
       "tag": "0013_short_zzzax",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1786486675581,
+      "tag": "0014_yearly_budgets",
+      "breakpoints": true
     }
   ]
 }

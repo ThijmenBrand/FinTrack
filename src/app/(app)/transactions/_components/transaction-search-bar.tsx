@@ -15,7 +15,7 @@ export const TYPE_OPTIONS: { value: string; labelKey: MessageKey }[] = [
   { value: "reimbursement", labelKey: "tx.type.reimbursement" },
 ];
 
-const PERIOD_OPTIONS: { value: string; labelKey: MessageKey }[] = [
+export const PERIOD_OPTIONS: { value: string; labelKey: MessageKey }[] = [
   { value: "this-month", labelKey: "tx.period.thisMonth" },
   { value: "last-month", labelKey: "tx.period.lastMonth" },
   { value: "last-3-months", labelKey: "tx.period.last3Months" },

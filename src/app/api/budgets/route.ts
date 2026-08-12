@@ -18,9 +18,22 @@ import { toMonthly, getCurrentMonthRange } from "@/lib/month-money";
 import { isFiniteNumber } from "@/lib/validation";
 import { getStatsCutoff } from "@/lib/stat-reset";
 import { accountScopeFilter, resolveBudgetPlan } from "@/lib/budget-plan";
+import { financialYearOf } from "@/lib/financial-year";
+import {
+  getYearlyBudgetView,
+  normaliseMonthIndex,
+} from "@/lib/yearly-budget-view";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const AVG_DAYS_PER_MONTH = 30.4375;
+
+/** A whole number inside `[min, max]`, or null when absent or unusable. */
+function parseIntParam(raw: string | null, min: number, max: number): number | null {
+  if (raw === null) return null;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < min || value > max) return null;
+  return value;
+}
 
 function rangeLabel(from: string, to: string, intlLocale: string): string {
   const fromDate = new Date(from + "T00:00:00");
@@ -75,6 +88,11 @@ export async function GET(request: NextRequest) {
     const budgetIdParam = searchParams.get("budgetId");
     const noScaleParam = searchParams.get("noScale");
     const noScale = noScaleParam === "1" || noScaleParam === "true";
+    // Yearly plans only: which financial year to show, and which month inside
+    // it. Both default to "now" and are clamped, so junk in the URL can't
+    // produce a nonsense window.
+    const yearParam = parseIntParam(searchParams.get("year"), 1970, 2200);
+    const monthIndexParam = parseIntParam(searchParams.get("monthIndex"), 0, 11);
 
     const [prefs, plan] = await Promise.all([
       getUserPreferences(userId),
@@ -525,8 +543,27 @@ export async function GET(request: NextRequest) {
         prefs.autoBudgetIntervalMonths,
       );
 
+    // A yearly plan gets an extra block: one annual envelope per category with
+    // the carry-over chain resolved. The monthly figures above stay as they
+    // are so every other consumer of this endpoint is unaffected.
+    const startDay = prefs.financialMonthStartDay;
+    const year = yearParam ?? financialYearOf(new Date(), startDay);
+    const yearly =
+      plan?.period === "yearly"
+        ? await getYearlyBudgetView(
+            userId,
+            plan,
+            year,
+            normaliseMonthIndex(monthIndexParam, year, startDay),
+            startDay,
+          )
+        : null;
+
     return NextResponse.json({
-      plan: plan ? { id: plan.id, name: plan.name, isMain: plan.isMain } : null,
+      plan: plan
+        ? { id: plan.id, name: plan.name, isMain: plan.isMain, period: plan.period }
+        : null,
+      yearly,
       monthlyIncome: Math.round(scaledMonthlyIncome * 100) / 100,
       totalFixedCosts: Math.round(scaledTotalFixedCosts * 100) / 100,
       availableToAllocate: Math.round(availableToAllocate * 100) / 100,

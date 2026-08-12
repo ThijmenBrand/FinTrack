@@ -49,6 +49,15 @@ export const budgetPlans = sqliteTable("budget_plans", {
   userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   isMain: integer("is_main", { mode: "boolean" }).notNull().default(false),
+  // "monthly" — every month stands alone, the classic behaviour.
+  // "yearly" — the plan's allocations form one annual envelope per category:
+  // each month gets amount/12 plus whatever the earlier months left over
+  // (or owe). Derived on read — see budget-ledger-db.ts.
+  period: text("period", { enum: ["monthly", "yearly"] }).notNull().default("monthly"),
+  // First financial month the yearly envelope covers, as `YYYY-MM-DD` (the FM
+  // start). Switching a plan to yearly mid-year starts fresh here rather than
+  // backfilling carry-over the user never saw. Null while the plan is monthly.
+  periodStartedAt: text("period_started_at"),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
@@ -212,6 +221,46 @@ export const budgets = sqliteTable("budgets", {
   index("idx_budgets_user_active").on(table.userId, table.isActive),
   index("idx_budgets_user_status").on(table.userId, table.status),
   index("idx_budgets_plan").on(table.budgetId),
+]);
+
+// ─── Budget Month Targets ────────────────────────────────────────────────────
+// The one thing about a yearly envelope that cannot be recomputed: what a
+// category's monthly target *was* at the time a financial month closed.
+//
+// Everything else the yearly view shows — spend, carry-over in and out, the
+// month's allowance — is a pure function of the transactions and the live
+// allocations, so it is derived on read (see budget-ledger-db.ts) rather than
+// materialised here. Only closed months get a row, and a row is written once
+// and never updated: raising an allocation in July must not retroactively
+// rewrite what January was allowed to spend.
+export const budgetMonthTargets = sqliteTable("budget_month_targets", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  budgetId: text("budget_id")
+    .notNull()
+    .references(() => budgetPlans.id, { onDelete: "cascade" }),
+  categoryId: text("category_id")
+    .notNull()
+    .references(() => categories.id, { onDelete: "cascade" }),
+  // Financial year: the calendar year the year's first financial month starts
+  // in. With financialMonthStartDay = 1 this is just the calendar year.
+  year: integer("year").notNull(),
+  // 0–11, the month's position inside that financial year.
+  monthIndex: integer("month_index").notNull(),
+  target: real("target").notNull(),
+  frozenAt: text("frozen_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  uniqueIndex("idx_budget_month_targets_slot").on(
+    table.budgetId,
+    table.categoryId,
+    table.year,
+    table.monthIndex,
+  ),
+  index("idx_budget_month_targets_lookup").on(table.userId, table.budgetId, table.year),
 ]);
 
 // ─── User Preferences ────────────────────────────────────────────────────────
@@ -546,6 +595,8 @@ export type Budget = typeof budgets.$inferSelect;
 export type NewBudget = typeof budgets.$inferInsert;
 export type BudgetPlan = typeof budgetPlans.$inferSelect;
 export type NewBudgetPlan = typeof budgetPlans.$inferInsert;
+export type BudgetMonthTarget = typeof budgetMonthTargets.$inferSelect;
+export type NewBudgetMonthTarget = typeof budgetMonthTargets.$inferInsert;
 export type RecurringTransaction = typeof recurringTransactions.$inferSelect;
 export type NewRecurringTransaction = typeof recurringTransactions.$inferInsert;
 export type ImportBatch = typeof importBatches.$inferSelect;

@@ -523,7 +523,7 @@ describe("regenerateBudgetSuggestions", () => {
     const suggestions = await regenerateBudgetSuggestions(TEST_USER_ID, 3, {
       id: "plan-1",
       name: "Main",
-      isMain: true,
+      isMain: true, period: "monthly" as const, periodStartedAt: null,
       accountIds: ["acct-1"],
     });
 
@@ -549,7 +549,7 @@ describe("regenerateBudgetSuggestions", () => {
     const suggestions = await regenerateBudgetSuggestions(TEST_USER_ID, 3, {
       id: "plan-empty",
       name: "Empty",
-      isMain: false,
+      isMain: false, period: "monthly" as const, periodStartedAt: null,
       accountIds: [],
     });
     expect(suggestions).toHaveLength(0);
@@ -562,7 +562,7 @@ describe("regenerateBudgetSuggestions", () => {
     const reason = await explainEmptyGenerate(TEST_USER_ID, 3, {
       id: "plan-empty",
       name: "Empty",
-      isMain: false,
+      isMain: false, period: "monthly" as const, periodStartedAt: null,
       accountIds: [],
     });
     expect(reason).toBe("no-accounts");

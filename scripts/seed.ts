@@ -1,10 +1,16 @@
 /**
- * Seed the database with a year of realistic dummy data so the app has
- * something to show on first run: accounts, transactions, rules, budgets,
- * recurring plans, pots and reimbursements.
+ * Seed the database with eighteen months of realistic dummy data so the app has
+ * something to show on first run: accounts, transactions, rules, a yearly
+ * budget plan with its ledger, recurring plans, pots and reimbursements.
  *
- *   npm run db:seed                    # 12 months for the "demo" user
+ * The default history spans 1.5 financial years, which is what makes the
+ * yearly envelope worth looking at: one finished year of carry-over behind the
+ * current, half-finished one, and lumpy once-a-year costs (holiday, APK,
+ * Sinterklaas, eigen risico) landing in months the monthly view can't explain.
+ *
+ *   npm run db:seed                    # 18 months, yearly main plan
  *   npm run db:seed -- --months 6      # shorter history
+ *   npm run db:seed -- --period monthly # classic month-at-a-time plan
  *   npm run db:seed -- --user alice    # a different user
  *   npm run db:seed -- --email a@b.com # sign-in address (default user@local.test)
  *
@@ -22,6 +28,8 @@ import { eq, sql } from "drizzle-orm";
 import { db } from "../src/db";
 import {
   accounts,
+  budgetMonthTargets,
+  budgetPlans,
   budgets,
   categories,
   categoryRules,
@@ -34,6 +42,8 @@ import {
   userPreferences,
 } from "../src/db/schema";
 import { hashPassword, seedCategoriesForUser } from "../src/db/migrate";
+import { buildLedgerYear } from "@/lib/budget-ledger-db";
+import { financialYearOf } from "@/lib/financial-year";
 
 // ── Args ───────────────────────────────────────────────────────────────────
 
@@ -45,7 +55,8 @@ function arg(name: string, fallback: string): string {
 const USERNAME = arg("user", process.env.SEED_USERNAME || "demo");
 const PASSWORD = arg("password", process.env.SEED_PASSWORD || "demo");
 const EMAIL = arg("email", process.env.SEED_EMAIL || `${USERNAME}@local.test`);
-const MONTHS = Math.max(1, Math.min(60, Number(arg("months", "12")) || 12));
+const MONTHS = Math.max(1, Math.min(60, Number(arg("months", "18")) || 18));
+const PERIOD = arg("period", "yearly") === "monthly" ? "monthly" : "yearly";
 
 // ── Deterministic randomness ───────────────────────────────────────────────
 // mulberry32 — same seed, same dataset, so screenshots and bug reports match.
@@ -125,13 +136,45 @@ const RULES: Array<[string, string]> = [
   ["Salaris", "Salary"],
 ];
 
+/**
+ * Once-a-year costs, by calendar month — the whole reason a yearly envelope
+ * beats twelve monthly ones. Each lands in a category that also has everyday
+ * spending, so the month it hits blows its own target while the year stays on
+ * track from what the quiet months carried over.
+ */
+const ANNUAL: Array<{ month: number; day: number; name: string; desc: string; amount: [number, number]; cat: string }> = [
+  { month: 0, day: 14, name: "Zilveren Kruis", desc: "Eigen risico zorg", amount: [385, 385], cat: "Health" },
+  { month: 1, day: 20, name: "Gemeente Amsterdam", desc: "Gemeentebelasting", amount: [420, 480], cat: "Housing" },
+  { month: 2, day: 11, name: "Garage Van Dijk", desc: "APK en onderhoud", amount: [260, 520], cat: "Transport" },
+  { month: 3, day: 6, name: "Zalando", desc: "Voorjaarskleding", amount: [180, 320], cat: "Shopping" },
+  { month: 5, day: 18, name: "Ticketmaster", desc: "Festivaltickets", amount: [120, 210], cat: "Entertainment" },
+  { month: 6, day: 9, name: "Transavia", desc: "Vluchten zomervakantie", amount: [380, 620], cat: "Other" },
+  { month: 7, day: 2, name: "Booking.com", desc: "Verblijf zomervakantie", amount: [540, 880], cat: "Other" },
+  { month: 8, day: 24, name: "Garage Van Dijk", desc: "Winterbanden", amount: [140, 240], cat: "Transport" },
+  { month: 10, day: 29, name: "bol.com", desc: "Sinterklaascadeaus", amount: [160, 260], cat: "Shopping" },
+  { month: 11, day: 15, name: "MediaMarkt", desc: "Kerstcadeaus", amount: [240, 420], cat: "Shopping" },
+  { month: 11, day: 22, name: "Albert Heijn", desc: "Kerstdiner boodschappen", amount: [90, 160], cat: "Groceries" },
+];
+
+/**
+ * Monthly allocations, one per spending category. The yearly ledger counts
+ * every categorised expense in the plan's accounts — fixed costs included, and
+ * the joint account's groceries alongside the checking account's — so these are
+ * sized against the real total, not just the discretionary part. Together they
+ * sit comfortably under the salary; the year should end in the black.
+ */
 const BUDGETS: Array<[string, number]> = [
-  ["Groceries", 480],
-  ["Dining Out", 200],
-  ["Coffee", 55],
-  ["Shopping", 175],
-  ["Entertainment", 80],
-  ["Transport", 130],
+  ["Housing", 1320],
+  ["Groceries", 710],
+  ["Health", 240],
+  ["Shopping", 265],
+  ["Utilities", 215],
+  ["Dining Out", 205],
+  ["Transport", 175],
+  ["Other", 110],
+  ["Entertainment", 46],
+  ["Coffee", 42],
+  ["Subscriptions", 26],
 ];
 
 // ── Row builders ───────────────────────────────────────────────────────────
@@ -194,11 +237,13 @@ async function main() {
   await db.delete(importBatches).where(eq(importBatches.userId, userId));
   await db.delete(recurringTransactions).where(eq(recurringTransactions.userId, userId));
   await db.delete(transactionGroups).where(eq(transactionGroups.userId, userId));
+  await db.delete(budgetMonthTargets).where(eq(budgetMonthTargets.userId, userId));
   await db.delete(budgets).where(eq(budgets.userId, userId));
   await db.delete(categoryRules).where(eq(categoryRules.userId, userId));
   await db.delete(statResets).where(eq(statResets.userId, userId));
   await db.delete(userPreferences).where(eq(userPreferences.userId, userId));
   await db.delete(accounts).where(eq(accounts.userId, userId));
+  await db.delete(budgetPlans).where(eq(budgetPlans.userId, userId));
   await db.delete(categories).where(eq(categories.userId, userId));
 
   // ── Categories ───────────────────────────────────────────────────────────
@@ -213,6 +258,26 @@ async function main() {
     if (!found) throw new Error(`Missing seeded category "${name}"`);
     return found;
   };
+
+  // ── Budget plan ──────────────────────────────────────────────────────────
+  // The history window doubles as the plan's start: the envelope covers every
+  // month there is data for, so the oldest financial year is prorated exactly
+  // the way a plan started mid-year is in the app.
+  const today = new Date();
+  const firstMonth = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - (MONTHS - 1), 1));
+  const startDate = iso(firstMonth.getUTCFullYear(), firstMonth.getUTCMonth(), 1);
+
+  const plan = { id: id(), name: "Huishouden" };
+  await db.insert(budgetPlans).values({
+    id: plan.id,
+    userId,
+    name: plan.name,
+    isMain: true,
+    period: PERIOD,
+    periodStartedAt: PERIOD === "yearly" ? startDate : null,
+    createdAt: `${startDate}T00:00:00.000Z`,
+    updatedAt: `${startDate}T00:00:00.000Z`,
+  });
 
   // ── Accounts ─────────────────────────────────────────────────────────────
   // Checking starts with a month of fixed costs in hand: the current month is
@@ -234,14 +299,12 @@ async function main() {
       currency: "EUR",
       initialBalance: a.initialBalance,
       sortOrder: i,
+      // Everyday money counts toward the budget; savings sits outside it.
+      budgetId: a.type === "savings" ? null : plan.id,
     })),
   );
 
   // ── Recurring plans (fixed costs + salary) ───────────────────────────────
-  const today = new Date();
-  const firstMonth = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - (MONTHS - 1), 1));
-  const startDate = iso(firstMonth.getUTCFullYear(), firstMonth.getUTCMonth(), 1);
-
   const plans = [
     { ...SALARY, planId: id(), type: "income" as const },
     ...FIXED.map((f) => ({ ...f, planId: id(), type: "expense" as const })),
@@ -348,6 +411,20 @@ async function main() {
           cat: v.cat,
         });
       }
+    }
+
+    // The once-a-year costs that fall in this calendar month.
+    for (const a of ANNUAL.filter((a) => a.month === m)) {
+      const date = iso(y, m, Math.min(a.day, daysInMonth));
+      if (!notFuture(date)) continue;
+      spend({
+        accountId: checking.id,
+        date,
+        name: a.name,
+        desc: a.desc,
+        amount: -between(a.amount[0], a.amount[1]),
+        cat: a.cat,
+      });
     }
 
     // Monthly transfers out of checking — a linked pair per destination.
@@ -521,25 +598,71 @@ async function main() {
     })),
   );
 
+  // Allocations are always a monthly amount — the plan's own `period` decides
+  // whether twelve of them form one envelope. `createdAt` is backdated to the
+  // start of the history so the ledger doesn't treat every category as having
+  // joined the envelope today (see buildLedgerYear's proration).
   await db.insert(budgets).values(
     BUDGETS.map(([category, amount]) => ({
       id: id(),
       userId,
+      budgetId: plan.id,
       categoryId: cat(category),
       amount,
       period: "monthly" as const,
       isActive: true,
       status: "active" as const,
       source: "manual" as const,
+      createdAt: `${startDate}T00:00:00.000Z`,
     })),
   );
 
+  const startDay = 1;
   await db.insert(userPreferences).values({
     id: id(),
     userId,
     defaultAccountId: checking.id,
-    financialMonthStartDay: 1,
+    financialMonthStartDay: startDay,
   });
+
+  // ── Ledger ───────────────────────────────────────────────────────────────
+  // Walk every financial year the history touches. Nothing is materialised —
+  // the chain is derived on read — but building it here freezes the targets of
+  // the closed months and checks the seeded data produces a sane chain.
+  const years: number[] = [];
+  if (PERIOD === "yearly") {
+    const resolved = {
+      id: plan.id,
+      name: plan.name,
+      isMain: true,
+      period: "yearly" as const,
+      periodStartedAt: startDate,
+      accountIds: [checking.id, savings.id, joint.id],
+    };
+    const firstYear = financialYearOf(new Date(`${startDate}T00:00:00`), startDay);
+    for (let y = firstYear; y <= financialYearOf(today, startDay); y++) {
+      years.push(y);
+
+      // The chain is the point of the whole feature — a seed that emits a
+      // broken one demos a bug as if it were the design.
+      const ledger = await buildLedgerYear(userId, resolved, y, startDay);
+      assert(ledger.length > 0, `no ledger rows for ${y}`);
+      for (const { categoryId, months } of ledger) {
+        let carry = 0;
+        for (const month of months) {
+          assert(
+            Math.abs(month.rolloverIn - carry) < 0.011,
+            `rollover chain breaks at ${y}-${month.monthIndex} for ${categoryId}`,
+          );
+          carry = month.target + month.rolloverIn - month.spent;
+          assert(
+            Math.abs(month.rolloverOut - carry) < 0.011,
+            `rolloverOut wrong at ${y}-${month.monthIndex} for ${categoryId}`,
+          );
+        }
+      }
+    }
+  }
 
   const balances = [checking, savings, joint]
     .map((a) => `${a.name} €${(running.get(a.id) ?? 0).toFixed(2)}`)
@@ -550,7 +673,12 @@ async function main() {
   );
   console.log(`Balances: ${balances}`);
   console.log(
-    `Also: ${plans.length} recurring plans, ${RULES.length} rules, ${BUDGETS.length} budgets, 3 pots, ${links.length} reimbursements.`,
+    `Also: ${plans.length} recurring plans, ${RULES.length} rules, ${BUDGETS.length} allocations, 3 pots, ${links.length} reimbursements.`,
+  );
+  console.log(
+    PERIOD === "yearly"
+      ? `Budget "${plan.name}" is yearly from ${startDate}; chain verified for ${years.join(", ")}.`
+      : `Budget "${plan.name}" is monthly.`,
   );
 }
 

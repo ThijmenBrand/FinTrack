@@ -13,7 +13,7 @@ import { useLinkRecurringTransaction } from "@/hooks/use-transactions";
 
 import type { RecurringTx } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
-import { FREQ_LABEL_KEYS } from "@/app/(app)/settings/recurring/_components/recurring-item";
+import { FREQ_LABEL_KEYS } from "@/app/(app)/recurring/_components/recurring-item";
 
 interface RecurringLinkPopoverProps {
   transactionId: string;

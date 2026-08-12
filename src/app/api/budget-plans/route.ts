@@ -1,15 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { accounts, budgetPlans, budgets } from "@/db/schema";
+import { accounts, budgetMonthTargets, budgetPlans, budgets } from "@/db/schema";
 import { eq, and, asc, inArray, isNull, notInArray } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
 import { BUDGETABLE_ACCOUNT_TYPES } from "@/lib/account-scope";
+import { getUserPreferences } from "@/lib/preferences";
+import { getFinancialMonthRange } from "@/lib/financial-month";
+import { clearLedger } from "@/lib/budget-ledger-db";
 
 const MAX_NAME_LENGTH = 60;
+const PERIODS = ["monthly", "yearly"] as const;
+type PlanPeriod = (typeof PERIODS)[number];
 
 function validName(v: unknown): v is string {
   return typeof v === "string" && v.trim().length > 0 && v.trim().length <= MAX_NAME_LENGTH;
+}
+
+function isPeriod(v: unknown): v is PlanPeriod {
+  return typeof v === "string" && (PERIODS as readonly string[]).includes(v);
+}
+
+/**
+ * The financial month a yearly envelope starts in when a plan is switched
+ * today. Switching mid-year starts the carry-over here rather than
+ * backfilling months the user never budgeted — see planStartMonthIndex.
+ */
+async function currentMonthStart(userId: string): Promise<string> {
+  const prefs = await getUserPreferences(userId);
+  return getFinancialMonthRange(new Date(), prefs.financialMonthStartDay).from;
 }
 
 async function listPlans(userId: string) {
@@ -35,6 +54,8 @@ async function listPlans(userId: string) {
     id: p.id,
     name: p.name,
     isMain: p.isMain,
+    period: p.period,
+    periodStartedAt: p.periodStartedAt,
     createdAt: p.createdAt,
     accounts: memberAccounts
       .filter((a) => a.budgetId === p.id)
@@ -99,7 +120,11 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   return withUser(async (userId) => {
     const body = await request.json();
-    const { name, accountIds } = body as { name?: unknown; accountIds?: unknown };
+    const { name, accountIds, period } = body as {
+      name?: unknown;
+      accountIds?: unknown;
+      period?: unknown;
+    };
 
     if (!validName(name)) {
       return NextResponse.json(
@@ -107,6 +132,13 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
+    if (period !== undefined && !isPeriod(period)) {
+      return NextResponse.json(
+        { error: "period must be 'monthly' or 'yearly'" },
+        { status: 400 },
+      );
+    }
+    const planPeriod: PlanPeriod = isPeriod(period) ? period : "monthly";
     const ids = Array.isArray(accountIds)
       ? accountIds.filter((v): v is string => typeof v === "string")
       : [];
@@ -142,6 +174,9 @@ export async function POST(request: NextRequest) {
       userId,
       name: name.trim(),
       isMain: existing.length === 0,
+      period: planPeriod,
+      periodStartedAt:
+        planPeriod === "yearly" ? await currentMonthStart(userId) : null,
     });
 
     const accountError = await setPlanAccounts(userId, id, ids);
@@ -176,11 +211,12 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   return withUser(async (userId) => {
     const body = await request.json();
-    const { id, name, accountIds, isMain } = body as {
+    const { id, name, accountIds, isMain, period } = body as {
       id?: unknown;
       name?: unknown;
       accountIds?: unknown;
       isMain?: unknown;
+      period?: unknown;
     };
 
     if (typeof id !== "string" || !id) {
@@ -236,13 +272,39 @@ export async function PUT(request: NextRequest) {
       }
     }
 
+    // Switching between monthly and yearly. Turning yearly on starts the
+    // envelope at the current month — earlier months of this year were never
+    // budgeted as one pot, so inventing carry-over for them would be fiction.
+    // Turning it off throws the ledger away; nothing else reads it.
+    if (period !== undefined) {
+      if (!isPeriod(period)) {
+        return NextResponse.json(
+          { error: "period must be 'monthly' or 'yearly'" },
+          { status: 400 },
+        );
+      }
+      if (period !== plan.period) {
+        await db
+          .update(budgetPlans)
+          .set({
+            period,
+            periodStartedAt:
+              period === "yearly" ? await currentMonthStart(userId) : null,
+            updatedAt: new Date().toISOString(),
+          })
+          .where(and(eq(budgetPlans.id, id), eq(budgetPlans.userId, userId)));
+        if (period === "monthly") await clearLedger(userId, id);
+      }
+    }
+
     logDataEvent({
       userId,
       action: "budget_plan_update",
       targetId: id,
       targetType: "budget_plan",
-      details: { name, isMain, accountIds },
+      details: { name, isMain, accountIds, period },
     });
+
     return NextResponse.json({ success: true });
   }, "Failed to update budget plan");
 }
@@ -270,6 +332,14 @@ export async function DELETE(request: NextRequest) {
     // don't guarantee foreign_keys=ON.
     await db.transaction(async (tx) => {
       await tx.delete(budgets).where(and(eq(budgets.budgetId, id), eq(budgets.userId, userId)));
+      await tx
+        .delete(budgetMonthTargets)
+        .where(
+          and(
+            eq(budgetMonthTargets.budgetId, id),
+            eq(budgetMonthTargets.userId, userId),
+          ),
+        );
       await tx
         .update(accounts)
         .set({ budgetId: null, updatedAt: new Date().toISOString() })

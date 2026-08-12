@@ -26,6 +26,7 @@ const TABLES = [
   "reimbursement_links",
   "transactions",
   "transaction_groups",
+  "budget_month_targets",
   "budgets",
   "budget_plans",
   "recurring_transactions",
@@ -71,9 +72,23 @@ export async function setupTestDb(name: string): Promise<TestDb> {
       user_id TEXT NOT NULL,
       name TEXT NOT NULL,
       is_main INTEGER NOT NULL DEFAULT 0,
+      period TEXT NOT NULL DEFAULT 'monthly',
+      period_started_at TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )`,
+    `CREATE TABLE IF NOT EXISTS budget_month_targets (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      budget_id TEXT NOT NULL,
+      category_id TEXT NOT NULL,
+      year INTEGER NOT NULL,
+      month_index INTEGER NOT NULL,
+      target REAL NOT NULL,
+      frozen_at TEXT NOT NULL
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_budget_month_targets_slot
+      ON budget_month_targets (budget_id, category_id, year, month_index)`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_budget_plans_user_main
       ON budget_plans (user_id) WHERE is_main = 1`,
     `CREATE TABLE IF NOT EXISTS categories (

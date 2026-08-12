@@ -10,21 +10,31 @@ export function useBudgets(opts?: {
   budgetId?: string;
   noScale?: boolean;
   enabled?: boolean;
+  /** Yearly plans: which financial year and which month inside it. */
+  year?: number;
+  monthIndex?: number;
 }) {
   const dateFrom = opts?.dateFrom || "";
   const dateTo = opts?.dateTo || "";
   const accountId = opts?.accountId || "";
   const budgetId = opts?.budgetId || "";
   const noScale = !!opts?.noScale;
+  const year = opts?.year ?? null;
+  const monthIndex = opts?.monthIndex ?? null;
   const params = new URLSearchParams();
   if (dateFrom) params.set("dateFrom", dateFrom);
   if (dateTo) params.set("dateTo", dateTo);
   if (accountId) params.set("accountId", accountId);
   if (budgetId) params.set("budgetId", budgetId);
   if (noScale) params.set("noScale", "1");
+  if (year !== null) params.set("year", String(year));
+  if (monthIndex !== null) params.set("monthIndex", String(monthIndex));
   const qs = params.toString();
   return useQuery({
-    queryKey: ["budgets", { dateFrom, dateTo, accountId, budgetId, noScale }],
+    queryKey: [
+      "budgets",
+      { dateFrom, dateTo, accountId, budgetId, noScale, year, monthIndex },
+    ],
     queryFn: () => apiFetch<BudgetData>(qs ? `/api/budgets?${qs}` : "/api/budgets"),
     enabled: opts?.enabled ?? true,
   });

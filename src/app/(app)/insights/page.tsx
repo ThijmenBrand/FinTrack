@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import {
@@ -262,6 +262,11 @@ export default function InsightsPage() {
   // Simple mode keeps the switcher (a second budget is useless if you can't
   // reach it) but hides it when there's nothing to switch between.
   const showBudgetTabs = plans.length > 0 && (!simple || plans.length > 1);
+  // Which plan the budget-vs-actual chart follows. Simple mode hides the tabs
+  // when there's one plan, so an Overall selection (saved from before, or from
+  // the full view) would silently drop the chart with no way to get it back.
+  const chartPlan =
+    selectedPlan ?? (simple ? plans.find((p) => p.isMain) ?? plans[0] ?? null : null);
   // The view's transaction scope: a plan's accounts, or everything on Overall.
   const selectedAccountIds = selectedPlan
     ? selectedPlan.accounts.map((a) => a.id)
@@ -336,12 +341,58 @@ export default function InsightsPage() {
     enabled: !!selectedPlan && !simple,
   });
   // The plan's unscaled monthly budget for the vs-actual chart — independent
-  // of the page's date preset.
+  // of the page's date preset. Shown in simple mode too.
   const { data: planMonthlyData } = useBudgets({
-    budgetId: selectedPlan?.id,
+    budgetId: chartPlan?.id,
     noScale: true,
-    enabled: !!selectedPlan && !simple,
+    // Simple mode always charts: budget allocations exist without a plan row,
+    // and with no budgetId the API totals them across every account.
+    enabled: simple || !!chartPlan,
   });
+
+  // The vs-actual chart looks back twelve months, which straddles two
+  // financial years on a yearly plan. Only fetch the previous year when there
+  // is a yearly envelope to fetch it for.
+  //
+  // The chart's bars are calendar months (the insights endpoint buckets its
+  // dailies by `YYYY-MM`), so a per-month allowance can only be laid over them
+  // when a financial month *is* a calendar month. With a custom start day the
+  // two windows differ by a few weeks and the marker would be judging January's
+  // spend against 25 Jan – 24 Feb's allowance, so the chart falls back to the
+  // plan's flat monthly reference instead.
+  // ponytail: gated rather than fixed — a financial-month series alongside
+  // `monthlyTotals` is the upgrade path, and `spending-by-period` still wants
+  // the calendar one.
+  const chartIsYearly =
+    planMonthlyData?.plan?.period === "yearly" && startDay === 1;
+  const previousYear = (planMonthlyData?.yearly?.year ?? 0) - 1;
+  const { data: previousYearData } = useBudgets({
+    budgetId: chartPlan?.id,
+    noScale: true,
+    year: previousYear,
+    enabled: chartIsYearly && previousYear > 0,
+  });
+
+  // Each month's real ceiling: the categories' carry-over-adjusted allowances
+  // plus the plan's recurring fixed costs, which sit outside the envelope.
+  const allowanceByMonth = useMemo(() => {
+    if (!chartIsYearly) return undefined;
+    const fixed = planMonthlyData?.totalFixedCosts ?? 0;
+    const out: Record<string, number> = {};
+    for (const view of [previousYearData?.yearly, planMonthlyData?.yearly]) {
+      if (!view) continue;
+      for (const category of view.categories) {
+        for (const month of category.months) {
+          const key = month.from.slice(0, 7);
+          // Floored: a category that already spent its pot has a negative
+          // allowance, which is a debt to later months, not a licence for
+          // the others to overspend by that much.
+          out[key] = (out[key] ?? fixed) + Math.max(0, month.allowance);
+        }
+      }
+    }
+    return Object.keys(out).length > 0 ? out : undefined;
+  }, [chartIsYearly, planMonthlyData, previousYearData]);
 
   const handlePresetChange = (value: string) => {
     const key = value as PresetKey;
@@ -532,6 +583,15 @@ export default function InsightsPage() {
           totalExpenses={totalExpenses}
           previousLabel={prevLabelKey ? t(prevLabelKey) : null}
           onCategoryClick={navigateToCategory}
+          // The one chart simple mode keeps: months against the plan's budget.
+          footer={
+            <BudgetVsActual
+              planName={chartPlan?.name ?? null}
+              budgetId={chartPlan?.id}
+              monthlyBudget={planMonthlyData?.totalBudget ?? 0}
+              allowanceByMonth={allowanceByMonth}
+            />
+          }
         />
       ) : (
         <>
@@ -619,6 +679,7 @@ export default function InsightsPage() {
               planName={selectedPlan.name}
               budgetId={selectedPlan.id}
               monthlyBudget={planMonthlyData?.totalBudget ?? 0}
+              allowanceByMonth={allowanceByMonth}
             />
           )}
 

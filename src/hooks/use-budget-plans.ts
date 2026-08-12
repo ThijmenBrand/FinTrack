@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
-import type { BudgetPlanData } from "@/types/api";
+import type { BudgetPlanData, BudgetPlanPeriod } from "@/types/api";
 
 export function useBudgetPlans() {
   return useQuery({
@@ -23,7 +23,11 @@ function useInvalidatePlans() {
 export function useCreateBudgetPlan() {
   const invalidate = useInvalidatePlans();
   return useMutation({
-    mutationFn: (payload: { name: string; accountIds?: string[] }) =>
+    mutationFn: (payload: {
+      name: string;
+      accountIds?: string[];
+      period?: BudgetPlanPeriod;
+    }) =>
       apiFetch<{ success: boolean; id: string }>("/api/budget-plans", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -41,6 +45,7 @@ export function useUpdateBudgetPlan() {
       name?: string;
       accountIds?: string[];
       isMain?: boolean;
+      period?: BudgetPlanPeriod;
     }) =>
       apiFetch("/api/budget-plans", {
         method: "PUT",
