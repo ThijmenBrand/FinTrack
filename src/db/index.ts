@@ -15,6 +15,7 @@ const TENANT_TABLES = [
   "budgets",
   "budget_plans",
   "budget_month_targets",
+  "budget_sub_lines",
   "user_preferences",
   "recurring_transactions",
   "import_batches",
@@ -85,11 +86,10 @@ function getClient(): Client {
   const tursoUrl = process.env.TURSO_DATABASE_URL?.trim();
   const isProduction = Boolean(tursoUrl);
 
+  // Don't log the Turso URL: logs ship to Sentry and the URL is effectively a secret.
   console.log(
     `Using database: ${isProduction ? "Turso" : "SQLite (local file)"}`,
-    isProduction
-      ? `URL: ${process.env.TURSO_DATABASE_URL}`
-      : `File: ${path.join(process.cwd(), "data", "finance.db")}`,
+    isProduction ? "" : `File: ${path.join(process.cwd(), "data", "finance.db")}`,
   );
 
   _client = createClient(

@@ -2,12 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import {
   budgets,
+  budgetSubLines,
   categories,
   transactions,
   recurringTransactions,
   transactionGroups,
 } from "@/db/schema";
 import { eq, and, gte, lte, sql, inArray } from "drizzle-orm";
+import type { BudgetSubLine } from "@/types/api";
 import { withUser } from "@/lib/auth";
 import { getI18n } from "@/lib/i18n/server";
 import { logDataEvent } from "@/lib/audit";
@@ -15,7 +17,8 @@ import { effectiveExpenseAmount, potSpentAmount } from "@/lib/reimbursement-sql"
 import { isRegenerationDue } from "@/lib/auto-budget";
 import { getUserPreferences } from "@/lib/preferences";
 import { toMonthly, getCurrentMonthRange } from "@/lib/month-money";
-import { isFiniteNumber } from "@/lib/validation";
+import { isFiniteNumber, MONEY_EPSILON } from "@/lib/validation";
+import { SUB_LINE_ERROR, SUB_LINE_ERROR_MESSAGE, sumSiblings } from "@/lib/budget-sub-lines";
 import { getStatsCutoff } from "@/lib/stat-reset";
 import { accountScopeFilter, resolveBudgetPlan } from "@/lib/budget-plan";
 import { financialYearOf } from "@/lib/financial-year";
@@ -65,6 +68,14 @@ function rangeLabel(from: string, to: string, intlLocale: string): string {
   });
   return `${fromStr} – ${toStr}`;
 }
+
+/**
+ * Sum of an allocation's root sub-lines. Shrinking an allocation below this
+ * would leave the sub-lines it already funds over-budget, so both write paths
+ * block that edit.
+ */
+const sumRootSubLines = (allocationId: string, userId: string) =>
+  sumSiblings(db, allocationId, userId, null);
 
 /**
  * GET /api/budgets — unified budget view
@@ -326,6 +337,53 @@ export async function GET(request: NextRequest) {
       monthSpendByCategory.set(row.categoryId, row.total ?? 0);
     }
 
+    // 3c. Sub-lines: nested breakdown under each allocation. Scaled by the
+    // same monthsScale factor as the allocation's own amount above, so a
+    // sub-line and its parent stay comparable in the same response.
+    const allAllocationIds = allAllocations.map((a) => a.id);
+    const subLineRows =
+      allAllocationIds.length > 0
+        ? await db
+            .select()
+            .from(budgetSubLines)
+            .where(
+              and(
+                inArray(budgetSubLines.allocationId, allAllocationIds),
+                eq(budgetSubLines.userId, userId),
+              ),
+            )
+            .orderBy(budgetSubLines.createdAt)
+        : [];
+    const subLineRowsByAllocation = new Map<string, typeof subLineRows>();
+    for (const row of subLineRows) {
+      const list = subLineRowsByAllocation.get(row.allocationId);
+      if (list) list.push(row);
+      else subLineRowsByAllocation.set(row.allocationId, [row]);
+    }
+    function buildSubLineTree(allocationId: string): BudgetSubLine[] {
+      const rows = subLineRowsByAllocation.get(allocationId) ?? [];
+      const nodes = new Map<string, BudgetSubLine>();
+      for (const r of rows) {
+        nodes.set(r.id, {
+          id: r.id,
+          parentId: r.parentId,
+          name: r.name,
+          amount: r.amount * monthsScale,
+          children: [],
+        });
+      }
+      const roots: BudgetSubLine[] = [];
+      for (const r of rows) {
+        const node = nodes.get(r.id)!;
+        if (r.parentId && nodes.has(r.parentId)) {
+          nodes.get(r.parentId)!.children.push(node);
+        } else {
+          roots.push(node);
+        }
+      }
+      return roots;
+    }
+
     const allocationsWithSpending = allAllocations.map((alloc) => {
       const scaledAmount = alloc.amount * monthsScale;
       const txSpent = monthSpendByCategory.get(alloc.categoryId) || 0;
@@ -344,6 +402,7 @@ export async function GET(request: NextRequest) {
             : percentage >= 80
               ? "warning"
               : ("ok" as "ok" | "warning" | "exceeded"),
+        subLines: buildSubLineTree(alloc.id),
       };
     });
 
@@ -646,6 +705,16 @@ export async function POST(request: NextRequest) {
 
     if (existing.length > 0) {
       // Update existing
+      const rootSubLineSum = await sumRootSubLines(existing[0].id, userId);
+      if (amount < rootSubLineSum - MONEY_EPSILON) {
+        return NextResponse.json(
+          {
+            error: SUB_LINE_ERROR_MESSAGE[SUB_LINE_ERROR.belowChildren],
+            code: SUB_LINE_ERROR.belowChildren,
+          },
+          { status: 400 },
+        );
+      }
       await db
         .update(budgets)
         .set({ amount, source: "manual" })
@@ -705,6 +774,17 @@ export async function PUT(request: NextRequest) {
       );
     }
 
+    const rootSubLineSum = await sumRootSubLines(id, userId);
+    if (amount < rootSubLineSum - MONEY_EPSILON) {
+      return NextResponse.json(
+        {
+          error: SUB_LINE_ERROR_MESSAGE[SUB_LINE_ERROR.belowChildren],
+          code: SUB_LINE_ERROR.belowChildren,
+        },
+        { status: 400 },
+      );
+    }
+
     await db
       .update(budgets)
       .set({ amount })
@@ -735,9 +815,18 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    await db
-      .delete(budgets)
-      .where(and(eq(budgets.id, id), eq(budgets.userId, userId)));
+    // Explicit cleanup instead of relying on FK cascades — libsql connections
+    // don't guarantee foreign_keys=ON.
+    await db.transaction(async (tx) => {
+      await tx
+        .delete(budgetSubLines)
+        .where(
+          and(eq(budgetSubLines.allocationId, id), eq(budgetSubLines.userId, userId)),
+        );
+      await tx
+        .delete(budgets)
+        .where(and(eq(budgets.id, id), eq(budgets.userId, userId)));
+    });
 
     logDataEvent({
       userId,

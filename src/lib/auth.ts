@@ -1,3 +1,4 @@
+import * as Sentry from "@sentry/nextjs";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { admin, twoFactor } from "better-auth/plugins";
@@ -296,6 +297,7 @@ async function runWithAuth<T>(
     return await handler(auth);
   } catch (error) {
     if (error instanceof Response) return error;
+    Sentry.captureException(error);
     console.error(`${errorMessage}:`, error);
     return NextResponse.json({ error: errorMessage }, { status: 500 });
   }

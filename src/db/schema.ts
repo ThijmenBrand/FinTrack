@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real, uniqueIndex, index } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, uniqueIndex, index, type AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import { relations, sql } from "drizzle-orm";
 export {
   user,
@@ -221,6 +221,31 @@ export const budgets = sqliteTable("budgets", {
   index("idx_budgets_user_active").on(table.userId, table.isActive),
   index("idx_budgets_user_status").on(table.userId, table.status),
   index("idx_budgets_plan").on(table.budgetId),
+]);
+
+// ─── Budget Sub-Lines ────────────────────────────────────────────────────────
+// Planning-only subdivisions of a budget allocation (e.g. Transport → Gas,
+// Train). Pure labels: no spend tracking, no icon/color. They hang off a
+// `budgets` row, so each plan slices a category its own way. Nesting is capped
+// at 3 levels in the API.
+export const budgetSubLines = sqliteTable("budget_sub_lines", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  allocationId: text("allocation_id")
+    .notNull()
+    .references(() => budgets.id, { onDelete: "cascade" }),
+  // null = directly under the allocation
+  parentId: text("parent_id").references((): AnySQLiteColumn => budgetSubLines.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  // Stored monthly, like budgets.amount
+  amount: real("amount").notNull(),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_budget_sub_lines_allocation").on(table.allocationId),
 ]);
 
 // ─── Budget Month Targets ────────────────────────────────────────────────────

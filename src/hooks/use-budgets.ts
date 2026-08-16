@@ -127,6 +127,32 @@ export function useRejectBudgetSuggestions() {
   });
 }
 
+export function useCreateSubLine() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { allocationId: string; parentId?: string | null; name: string; amount: number }) =>
+      apiFetch("/api/budgets/sub-lines", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["budgets"] }); },
+  });
+}
+
+export function useUpdateSubLine() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { id: string; name?: string; amount?: number }) =>
+      apiFetch("/api/budgets/sub-lines", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["budgets"] }); },
+  });
+}
+
+export function useDeleteSubLine() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiFetch(`/api/budgets/sub-lines?id=${id}`, { method: "DELETE" }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["budgets"] }); },
+  });
+}
+
 export function useBudgetMonthTransactions(categoryId: string, dateFrom: string, dateTo: string, enabled: boolean) {
   return useQuery({
     queryKey: ["transactions", { categoryId, dateFrom, dateTo, type: "expense" }],

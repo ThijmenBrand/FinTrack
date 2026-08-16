@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { accounts, budgetMonthTargets, budgetPlans, budgets } from "@/db/schema";
+import { accounts, budgetMonthTargets, budgetPlans, budgets, budgetSubLines } from "@/db/schema";
 import { eq, and, asc, inArray, isNull, notInArray } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
@@ -331,6 +331,18 @@ export async function DELETE(request: NextRequest) {
     // Explicit cleanup instead of relying on FK cascades — libsql connections
     // don't guarantee foreign_keys=ON.
     await db.transaction(async (tx) => {
+      await tx.delete(budgetSubLines).where(
+        and(
+          eq(budgetSubLines.userId, userId),
+          inArray(
+            budgetSubLines.allocationId,
+            tx
+              .select({ id: budgets.id })
+              .from(budgets)
+              .where(and(eq(budgets.budgetId, id), eq(budgets.userId, userId))),
+          ),
+        ),
+      );
       await tx.delete(budgets).where(and(eq(budgets.budgetId, id), eq(budgets.userId, userId)));
       await tx
         .delete(budgetMonthTargets)

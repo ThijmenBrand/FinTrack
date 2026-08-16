@@ -1,3 +1,4 @@
+import { withSentryConfig } from "@sentry/nextjs";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
@@ -37,4 +38,13 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default withSentryConfig(nextConfig, {
+  // Org/project come from SENTRY_ORG / SENTRY_PROJECT env vars. Without
+  // SENTRY_AUTH_TOKEN the source-map upload is skipped and the build still works.
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+  // Browser events POST same-origin through this route, so the strict
+  // `connect-src 'self'` CSP holds and ad-blockers can't drop them.
+  tunnelRoute: "/monitoring",
+  widenClientFileUpload: true,
+  silent: !process.env.CI,
+});

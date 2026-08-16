@@ -27,6 +27,7 @@ const TABLES = [
   "transactions",
   "transaction_groups",
   "budget_month_targets",
+  "budget_sub_lines",
   "budgets",
   "budget_plans",
   "recurring_transactions",
@@ -156,6 +157,15 @@ export async function setupTestDb(name: string): Promise<TestDb> {
       status TEXT NOT NULL DEFAULT 'active',
       source TEXT NOT NULL DEFAULT 'manual',
       generated_at TEXT,
+      created_at TEXT NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS budget_sub_lines (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      allocation_id TEXT NOT NULL,
+      parent_id TEXT,
+      name TEXT NOT NULL,
+      amount REAL NOT NULL,
       created_at TEXT NOT NULL
     )`,
     `CREATE TABLE IF NOT EXISTS reimbursement_links (

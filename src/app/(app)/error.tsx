@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import * as Sentry from "@sentry/nextjs";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/lib/i18n/client";
 
@@ -19,6 +20,7 @@ export default function AppError({
 }) {
   const { t } = useI18n();
   useEffect(() => {
+    Sentry.captureException(error);
     console.error("App error boundary:", error);
   }, [error]);
 
