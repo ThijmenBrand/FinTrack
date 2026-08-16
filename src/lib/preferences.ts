@@ -10,6 +10,8 @@ export interface AutoBudgetPreferences {
   lastAutoBudgetCheckAt: string | null;
   financialMonthStartDay: number;
   defaultAccountId: string | null;
+  /** Dashboard main-plan override — may be a plan shared with the user. Null = own is_main plan. */
+  mainBudgetPlanId: string | null;
   hideInternalTransfers: boolean;
   countCrossBudgetTransfers: boolean;
   locale: Locale;
@@ -23,6 +25,7 @@ const DEFAULTS: AutoBudgetPreferences = {
   lastAutoBudgetCheckAt: null,
   financialMonthStartDay: 1,
   defaultAccountId: null,
+  mainBudgetPlanId: null,
   hideInternalTransfers: false,
   countCrossBudgetTransfers: false,
   locale: DEFAULT_LOCALE,
@@ -37,6 +40,7 @@ function toAutoBudget(row: UserPreferences): AutoBudgetPreferences {
     lastAutoBudgetCheckAt: row.lastAutoBudgetCheckAt,
     financialMonthStartDay: row.financialMonthStartDay,
     defaultAccountId: row.defaultAccountId ?? null,
+    mainBudgetPlanId: row.mainBudgetPlanId ?? null,
     hideInternalTransfers: row.hideInternalTransfers,
     countCrossBudgetTransfers: row.countCrossBudgetTransfers,
     locale: isLocale(row.locale) ? row.locale : DEFAULT_LOCALE,
@@ -95,6 +99,9 @@ export async function updateUserPreferences(
   }
   if (patch.defaultAccountId !== undefined) {
     updates.defaultAccountId = patch.defaultAccountId;
+  }
+  if (patch.mainBudgetPlanId !== undefined) {
+    updates.mainBudgetPlanId = patch.mainBudgetPlanId;
   }
   if (patch.hideInternalTransfers !== undefined) {
     updates.hideInternalTransfers = patch.hideInternalTransfers;

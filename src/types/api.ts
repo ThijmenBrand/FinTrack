@@ -1,5 +1,8 @@
 import type { Locale } from "@/lib/i18n";
 
+/** A share member's standing on an account; "owner" only appears synthesized. */
+export type AccountRole = "owner" | "editor" | "viewer";
+
 export interface Account {
   id: string;
   name: string;
@@ -15,6 +18,24 @@ export interface Account {
   budgetId: string | null;
   createdAt: string;
   updatedAt: string;
+  /** The caller's standing on this account. "owner" for the user's own accounts. */
+  role: AccountRole;
+  /** Display name of the sharing owner; null for the user's own accounts. */
+  ownerName: string | null;
+  /** People this account is shared with (pending invites included); 0 unless you own it. */
+  sharedWith: number;
+}
+
+/** One row of GET /api/accounts/{id}/members — the synthesized owner, then invited members. */
+export interface AccountMember {
+  id: string;
+  email: string | null;
+  role: AccountRole;
+  status: "pending" | "accepted" | "expired";
+  memberName: string | null;
+  createdAt: string;
+  /** True on the caller's own membership row; absent on the owner entry. */
+  isMe?: boolean;
 }
 
 export interface Category {
@@ -75,6 +96,9 @@ export interface Transaction {
   groupName: string | null;
   recurringTransactionId: string | null;
   recurringDescription: string | null;
+  /** Who created/last edited the row; non-null only on shared accounts (null created_by = the owner). */
+  createdByName: string | null;
+  modifiedByName: string | null;
   notes: string | null;
   isManual: boolean;
   importBatchId: string | null;
@@ -398,6 +422,8 @@ export interface BudgetData {
     name: string;
     isMain: boolean;
     period: BudgetPlanPeriod;
+    role: AccountRole;
+    ownerName: string | null;
   } | null;
   /** Null unless the plan is yearly. */
   yearly: YearlyBudgetView | null;
@@ -429,6 +455,10 @@ export interface BudgetPlanData {
   periodStartedAt: string | null;
   createdAt: string;
   accounts: { id: string; name: string; type: string }[];
+  /** "owner" for the user's own plans; "editor"/"viewer" for plans reached through a shared account. */
+  role: AccountRole;
+  /** Display name of the sharing owner; null for the user's own plans. */
+  ownerName: string | null;
 }
 
 export interface UserPreferencesData {
@@ -445,6 +475,8 @@ export interface UserPreferencesData {
   locale: Locale;
   /** Simple mode: hide advanced features on dashboard, budgets and insights. */
   simpleMode: boolean;
+  /** A shared plan chosen as the dashboard budget; null = the user's own main plan. */
+  mainBudgetPlanId: string | null;
 }
 
 /** A dated line in the sand after which averages start counting again. */

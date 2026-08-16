@@ -76,6 +76,9 @@ function planFor(periodStartedAt: string | null = null) {
     period: "yearly" as const,
     periodStartedAt,
     accountIds: ["acct-1"],
+    ownerId: USER,
+    role: "owner" as const,
+    ownerName: null,
   };
 }
 

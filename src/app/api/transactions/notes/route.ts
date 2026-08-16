@@ -4,6 +4,7 @@ import { transactions } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { sanitizeNote } from "@/lib/validation";
+import { requireAccountAccess } from "@/lib/account-access";
 
 // PUT /api/transactions/notes — set or clear a transaction's note
 export async function PUT(request: NextRequest) {
@@ -23,15 +24,21 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    const clean = sanitizeNote(notes);
-    const result = await db
-      .update(transactions)
-      .set({ notes: clean })
-      .where(and(eq(transactions.id, transactionId), eq(transactions.userId, userId)));
-
-    if (result.rowsAffected === 0) {
+    const [tx] = await db
+      .select({ accountId: transactions.accountId, userId: transactions.userId })
+      .from(transactions)
+      .where(eq(transactions.id, transactionId));
+    if (!tx) {
       return NextResponse.json({ error: "Transaction not found" }, { status: 404 });
     }
+    const access = await requireAccountAccess(userId, tx.accountId, "write");
+    const ownerId = access.account.userId;
+
+    const clean = sanitizeNote(notes);
+    await db
+      .update(transactions)
+      .set({ notes: clean, modifiedBy: userId })
+      .where(and(eq(transactions.id, transactionId), eq(transactions.userId, ownerId)));
 
     return NextResponse.json({ success: true, notes: clean });
   }, "Failed to update notes");

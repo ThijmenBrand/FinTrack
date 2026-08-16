@@ -4,6 +4,7 @@ import { categoryRules, accounts, recurringTransactions, transactions as transac
 import { eq, and } from "drizzle-orm";
 import { findTransferCategory } from "@/lib/detect-transfers";
 import { withUser } from "@/lib/auth";
+import { requireAccountAccess } from "@/lib/account-access";
 import { bankHasSeparateFeeColumn } from "@/lib/banks";
 import Papa from "papaparse";
 import {
@@ -46,14 +47,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "File too large (max 10 MB)" }, { status: 400 });
     }
 
-    const [ownedAccount] = await db
-      .select({ id: accounts.id, bank: accounts.bank })
-      .from(accounts)
-      .where(and(eq(accounts.id, accountId), eq(accounts.userId, userId)))
-      .limit(1);
-    if (!ownedAccount) {
-      return NextResponse.json({ error: "Account not found" }, { status: 404 });
-    }
+    // Write access to the target account — 404 if the caller can't see it,
+    // 403 if they're a viewer. Rules, existing rows and recurring plans below
+    // all read from the ACCOUNT OWNER's space, same as commit will write to.
+    const access = await requireAccountAccess(userId, accountId, "write");
+    const ownedAccount = access.account;
+    const ownerId = ownedAccount.userId;
 
     const mapping: ColumnMapping = JSON.parse(mappingJson);
 
@@ -96,10 +95,10 @@ export async function POST(request: NextRequest) {
     const rules = await db
       .select()
       .from(categoryRules)
-      .where(and(eq(categoryRules.isActive, true), eq(categoryRules.userId, userId)));
+      .where(and(eq(categoryRules.isActive, true), eq(categoryRules.userId, ownerId)));
 
     // Build IBAN → account lookup for internal transfer detection
-    const allAccounts = await db.select().from(accounts).where(eq(accounts.userId, userId));
+    const allAccounts = await db.select().from(accounts).where(eq(accounts.userId, ownerId));
     const ibanToAccount = new Map<string, { id: string; name: string }>();
     for (const acc of allAccounts) {
       if (acc.iban) {
@@ -108,7 +107,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Get the "Internal Transfer" category
-    const transferCategory = await findTransferCategory(db, userId);
+    const transferCategory = await findTransferCategory(db, ownerId);
 
     // Active recurring plans — used to auto-link rows that look like a
     // recurring bill so they don't double-count in Free to Spend.
@@ -124,7 +123,7 @@ export async function POST(request: NextRequest) {
       .from(recurringTransactions)
       .where(
         and(
-          eq(recurringTransactions.userId, userId),
+          eq(recurringTransactions.userId, ownerId),
           eq(recurringTransactions.isActive, true),
         )
       );
@@ -288,7 +287,7 @@ export async function POST(request: NextRequest) {
         description: transactionsTable.description,
       })
       .from(transactionsTable)
-      .where(and(eq(transactionsTable.accountId, accountId), eq(transactionsTable.userId, userId)));
+      .where(and(eq(transactionsTable.accountId, accountId), eq(transactionsTable.userId, ownerId)));
     const { unique, duplicates } = splitDuplicates(existingRows, transactions);
 
     return NextResponse.json({

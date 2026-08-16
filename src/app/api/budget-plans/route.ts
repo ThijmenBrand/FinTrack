@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { accounts, budgetMonthTargets, budgetPlans, budgets, budgetSubLines } from "@/db/schema";
+import { accountMembers, accounts, budgetMonthTargets, budgetPlans, budgets, budgetSubLines, user } from "@/db/schema";
 import { eq, and, asc, inArray, isNull, notInArray } from "drizzle-orm";
+import { activeMembership } from "@/lib/account-access";
 import { withUser } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
 import { BUDGETABLE_ACCOUNT_TYPES } from "@/lib/account-scope";
@@ -50,17 +51,62 @@ async function listPlans(userId: string) {
       .orderBy(asc(accounts.sortOrder), asc(accounts.createdAt)),
   ]);
 
-  return plans.map((p) => ({
+  const own = plans.map((p) => ({
     id: p.id,
     name: p.name,
     isMain: p.isMain,
     period: p.period,
     periodStartedAt: p.periodStartedAt,
     createdAt: p.createdAt,
+    role: "owner" as "owner" | "viewer",
+    ownerName: null as string | null,
     accounts: memberAccounts
       .filter((a) => a.budgetId === p.id)
-      .map(({ id, name, type }) => ({ id, name, type })),
+      .map(({ id, name, type }) => ({ id, name: name as string | null, type })),
   }));
+
+  // Plans reached through accounts shared with the user — read-only. The
+  // plan's other accounts appear by EXISTENCE only: their names are nulled
+  // unless that account itself is shared with the user.
+  const sharedRows = await db
+    .selectDistinct({ plan: budgetPlans, ownerName: user.name })
+    .from(accountMembers)
+    .innerJoin(accounts, eq(accounts.id, accountMembers.accountId))
+    .innerJoin(budgetPlans, eq(budgetPlans.id, accounts.budgetId))
+    .innerJoin(user, eq(user.id, budgetPlans.userId))
+    .where(activeMembership(userId));
+  const accessibleIds = new Set(
+    (await db
+      .select({ id: accountMembers.accountId })
+      .from(accountMembers)
+      .where(activeMembership(userId))).map((r) => r.id),
+  );
+  const shared = await Promise.all(
+    sharedRows.map(async ({ plan, ownerName }) => {
+      const planAccounts = await db
+        .select({ id: accounts.id, name: accounts.name, type: accounts.type })
+        .from(accounts)
+        .where(and(eq(accounts.userId, plan.userId), eq(accounts.budgetId, plan.id)))
+        .orderBy(asc(accounts.sortOrder), asc(accounts.createdAt));
+      return {
+        id: plan.id,
+        name: plan.name,
+        isMain: false,
+        period: plan.period,
+        periodStartedAt: plan.periodStartedAt,
+        createdAt: plan.createdAt,
+        role: "viewer" as const,
+        ownerName,
+        accounts: planAccounts.map(({ id, name, type }) => ({
+          id,
+          name: accessibleIds.has(id) ? name : null,
+          type,
+        })),
+      };
+    }),
+  );
+
+  return [...own, ...shared];
 }
 
 /**

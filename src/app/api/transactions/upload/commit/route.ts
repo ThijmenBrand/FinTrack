@@ -12,6 +12,7 @@ import {
 } from "@/db/schema";
 import { eq, and, lt, inArray } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
+import { requireAccountAccess } from "@/lib/account-access";
 import { detectTransfers, findTransferCategory } from "@/lib/detect-transfers";
 import { logDataEvent } from "@/lib/audit";
 import {
@@ -81,27 +82,30 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Ownership sets: every id the client references must belong to this user.
-    const userAccounts = await db
+    // Write access to the target account — 404 if the caller can't see it,
+    // 403 if they're a viewer. Every id the client references below must
+    // belong to the ACCOUNT OWNER's space, not necessarily the caller's own —
+    // imported rows land there regardless of who's importing.
+    const access = await requireAccountAccess(userId, accountId, "write");
+    const ownerId = access.account.userId;
+
+    const ownerAccounts = await db
       .select({ id: accounts.id })
       .from(accounts)
-      .where(eq(accounts.userId, userId));
-    const userAccountIds = new Set(userAccounts.map((a) => a.id));
-    if (!userAccountIds.has(accountId)) {
-      return NextResponse.json({ error: "Account not found" }, { status: 404 });
-    }
+      .where(eq(accounts.userId, ownerId));
+    const ownerAccountIds = new Set(ownerAccounts.map((a) => a.id));
 
-    const userPlans = await db
+    const ownerPlans = await db
       .select({ id: recurringTransactions.id })
       .from(recurringTransactions)
-      .where(eq(recurringTransactions.userId, userId));
-    const userPlanIds = new Set(userPlans.map((p) => p.id));
+      .where(eq(recurringTransactions.userId, ownerId));
+    const ownerPlanIds = new Set(ownerPlans.map((p) => p.id));
 
-    const userCategoryRows = await db
+    const ownerCategoryRows = await db
       .select({ id: categories.id })
       .from(categories)
-      .where(eq(categories.userId, userId));
-    const userCategoryIds = new Set(userCategoryRows.map((c) => c.id));
+      .where(eq(categories.userId, ownerId));
+    const ownerCategoryIds = new Set(ownerCategoryRows.map((c) => c.id));
 
     // Validate every row before writing anything — no partial imports.
     for (const [i, tx] of txList.entries()) {
@@ -124,13 +128,13 @@ export async function POST(request: NextRequest) {
       if (tx.name != null && typeof tx.name !== "string") {
         return NextResponse.json({ error: `Invalid name on ${row}` }, { status: 400 });
       }
-      if (tx.categoryId && !userCategoryIds.has(tx.categoryId)) {
+      if (tx.categoryId && !ownerCategoryIds.has(tx.categoryId)) {
         return NextResponse.json({ error: `Unknown category on ${row}` }, { status: 400 });
       }
-      if (tx.targetAccountId && !userAccountIds.has(tx.targetAccountId)) {
+      if (tx.targetAccountId && !ownerAccountIds.has(tx.targetAccountId)) {
         return NextResponse.json({ error: `Unknown target account on ${row}` }, { status: 400 });
       }
-      if (tx.recurringTransactionId && !userPlanIds.has(tx.recurringTransactionId)) {
+      if (tx.recurringTransactionId && !ownerPlanIds.has(tx.recurringTransactionId)) {
         return NextResponse.json({ error: `Unknown recurring plan on ${row}` }, { status: 400 });
       }
     }
@@ -139,7 +143,7 @@ export async function POST(request: NextRequest) {
     const cleanRules: NewRule[] = [];
     for (const rule of newRules || []) {
       if (!rule.pattern || !rule.categoryId) continue;
-      if (!userCategoryIds.has(rule.categoryId)) {
+      if (!ownerCategoryIds.has(rule.categoryId)) {
         return NextResponse.json({ error: "Unknown category on rule" }, { status: 400 });
       }
       const validated = validatePattern(rule.pattern);
@@ -167,15 +171,16 @@ export async function POST(request: NextRequest) {
         description: transactions.description,
       })
       .from(transactions)
-      .where(and(eq(transactions.accountId, accountId), eq(transactions.userId, userId)));
+      .where(and(eq(transactions.accountId, accountId), eq(transactions.userId, ownerId)));
     const { unique: uniqueTxList, duplicates } = splitDuplicates(existingRows, txList);
 
-    // Create import batch
+    // Create import batch — kept in the OWNER's import history regardless of
+    // who's importing; the audit log records the actor.
     const batchId = crypto.randomUUID();
     if (uniqueTxList.length > 0) {
       await db.insert(importBatches).values({
         id: batchId,
-        userId,
+        userId: ownerId,
         accountId,
         fileName: fileName || "import.csv",
         transactionCount: uniqueTxList.length,
@@ -184,14 +189,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Get the "Internal Transfer" category for mirror transactions
-    const transferCategory = await findTransferCategory(db, userId);
+    const transferCategory = await findTransferCategory(db, ownerId);
 
-    // Only allow pot assignments to pots the user actually owns
-    const userPots = await db
+    // Only allow pot assignments to pots the owner actually owns
+    const ownerPots = await db
       .select({ id: transactionGroups.id })
       .from(transactionGroups)
-      .where(eq(transactionGroups.userId, userId));
-    const userPotIds = new Set(userPots.map((p) => p.id));
+      .where(eq(transactionGroups.userId, ownerId));
+    const ownerPotIds = new Set(ownerPots.map((p) => p.id));
 
     // Pre-fetch active rules so we can detect, per row, whether an incoming
     // categoryId is the result of a rule match (auto) or a user override during
@@ -199,7 +204,7 @@ export async function POST(request: NextRequest) {
     const activeRules = await db
       .select()
       .from(categoryRules)
-      .where(and(eq(categoryRules.isActive, true), eq(categoryRules.userId, userId)));
+      .where(and(eq(categoryRules.isActive, true), eq(categoryRules.userId, ownerId)));
 
     const sourceForReviewedTx = (
       name: string | null,
@@ -233,6 +238,7 @@ export async function POST(request: NextRequest) {
       linkedTransactionId: string | null;
       recurringTransactionId: string | null;
       notes: string | null;
+      createdBy: string;
       isManual: boolean;
       importBatchId: string | null;
       createdAt: string;
@@ -262,7 +268,7 @@ export async function POST(request: NextRequest) {
         // Source transaction (in the importing account)
         records.push({
           id: sourceId,
-          userId,
+          userId: ownerId,
           accountId,
           date: tx.date,
           name: tx.name,
@@ -276,6 +282,7 @@ export async function POST(request: NextRequest) {
           linkedTransactionId: mirrorId,
           recurringTransactionId: null,
           notes: note,
+          createdBy: userId,
           isManual: false,
           importBatchId: batchId,
           createdAt: new Date().toISOString(),
@@ -283,7 +290,7 @@ export async function POST(request: NextRequest) {
         // Mirror transaction (in the target account)
         mirrorRecords.push({
           id: mirrorId,
-          userId,
+          userId: ownerId,
           accountId: tx.targetAccountId!,
           date: tx.date,
           name: tx.name,
@@ -297,6 +304,7 @@ export async function POST(request: NextRequest) {
           linkedTransactionId: sourceId,
           recurringTransactionId: null,
           notes: note,
+          createdBy: userId,
           isManual: true,
           importBatchId: null,
           createdAt: new Date().toISOString(),
@@ -307,7 +315,7 @@ export async function POST(request: NextRequest) {
         ).find((t) => t === tx.type) ?? "expense";
         records.push({
           id: sourceId,
-          userId,
+          userId: ownerId,
           accountId,
           date: tx.date,
           name: tx.name,
@@ -317,7 +325,7 @@ export async function POST(request: NextRequest) {
           categoryId: tx.categoryId,
           categorySource: sourceForReviewedTx(tx.name, tx.description, tx.categoryId),
           type: txType,
-          groupId: tx.groupId && userPotIds.has(tx.groupId) ? tx.groupId : null,
+          groupId: tx.groupId && ownerPotIds.has(tx.groupId) ? tx.groupId : null,
           linkedTransactionId: null,
           // Only carry the recurring link for income/expense rows; transfers
           // don't represent fixed-cost spending.
@@ -326,6 +334,7 @@ export async function POST(request: NextRequest) {
               ? tx.recurringTransactionId
               : null,
           notes: note,
+          createdBy: userId,
           isManual: false,
           importBatchId: batchId,
           createdAt: new Date().toISOString(),
@@ -365,7 +374,7 @@ export async function POST(request: NextRequest) {
         .where(
           and(
             inArray(transactions.id, resolvedReimbursements.map((p) => p.expenseId)),
-            eq(transactions.userId, userId),
+            eq(transactions.userId, ownerId),
             lt(transactions.amount, 0)
           )
         );
@@ -391,7 +400,7 @@ export async function POST(request: NextRequest) {
       const ruleId = crypto.randomUUID();
       await db.insert(categoryRules).values({
         id: ruleId,
-        userId,
+        userId: ownerId,
         pattern: rule.pattern,
         categoryId: rule.categoryId,
         matchType: rule.matchType || "contains",
@@ -406,11 +415,15 @@ export async function POST(request: NextRequest) {
         pattern: rule.pattern,
         categoryId: rule.categoryId,
         matchType: rule.matchType || "contains",
-        userId,
+        userId: ownerId,
       });
     }
 
-    // Auto-detect internal transfers among all transactions
+    // Auto-detect internal transfers among all transactions. Run as the
+    // IMPORTER, not the owner: their writable scope spans their own accounts
+    // plus this shared one, so a move between the two gets paired. Pairs that
+    // need an owner account the importer can't see are left to the owner's own
+    // run — we don't reach into accounts the actor can't access.
     const transferResult = await detectTransfers(db, userId);
 
     logDataEvent({
@@ -418,7 +431,12 @@ export async function POST(request: NextRequest) {
       action: "csv_import",
       targetId: batchId,
       targetType: "import_batch",
-      details: { fileName: fileName || "import.csv", transactionCount: records.length, accountId },
+      details: {
+        fileName: fileName || "import.csv",
+        transactionCount: records.length,
+        accountId,
+        ...(ownerId !== userId ? { accountOwnerId: ownerId } : {}),
+      },
     });
 
     return NextResponse.json({

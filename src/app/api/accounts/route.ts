@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { accounts, transactions } from "@/db/schema";
-import { eq, sum, asc, count, and } from "drizzle-orm";
+import { eq, sum, count, and } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
 import { isFiniteNumber } from "@/lib/validation";
 import { isBank, bankLabel } from "@/lib/banks";
+import { getAccessibleAccounts, requireAccountAccess, visibleTransactions } from "@/lib/account-access";
 
 const ACCOUNT_TYPES = ["checking", "savings", "joint", "credit", "other"] as const;
 type AccountType = (typeof ACCOUNT_TYPES)[number];
@@ -14,16 +15,19 @@ function isAccountType(v: unknown): v is AccountType {
   return typeof v === "string" && (ACCOUNT_TYPES as readonly string[]).includes(v);
 }
 
-// GET /api/accounts — list all accounts with computed balances
+// GET /api/accounts — list all accessible accounts with computed balances.
+// Own accounts first (sortOrder), then accounts shared with the user, which
+// additionally carry role ("viewer"|"editor") and ownerName.
 export async function GET() {
   return withUser(async (userId) => {
-    const allAccounts = await db.select().from(accounts).where(eq(accounts.userId, userId)).orderBy(asc(accounts.sortOrder), asc(accounts.createdAt));
+    const allAccounts = await getAccessibleAccounts(userId);
 
     // One grouped query for all account balances instead of one per account.
+    // Shared-account rows carry the owner's user_id, hence the visibility filter.
     const balanceRows = await db
       .select({ accountId: transactions.accountId, total: sum(transactions.amount) })
       .from(transactions)
-      .where(eq(transactions.userId, userId))
+      .where(visibleTransactions(userId))
       .groupBy(transactions.accountId);
     const balanceByAccount = new Map(
       balanceRows.map((r) => [r.accountId, Number(r.total) || 0])
@@ -123,6 +127,11 @@ export async function PUT(request: NextRequest) {
       );
     }
 
+    // Editors get field-edit parity with the owner; viewers are 403'd, an
+    // unshared/nonexistent account 404s.
+    const access = await requireAccountAccess(userId, id, "write");
+    const ownerId = access.account.userId;
+
     // Only set fields the client actually sent — a partial update must not
     // clobber iban/initialBalance/etc. with defaults.
     const updates: Partial<typeof accounts.$inferInsert> = {
@@ -143,14 +152,20 @@ export async function PUT(request: NextRequest) {
     await db
       .update(accounts)
       .set(updates)
-      .where(and(eq(accounts.id, id), eq(accounts.userId, userId)));
+      .where(and(eq(accounts.id, id), eq(accounts.userId, ownerId)));
 
     const [updated] = await db
       .select()
       .from(accounts)
-      .where(and(eq(accounts.id, id), eq(accounts.userId, userId)));
+      .where(and(eq(accounts.id, id), eq(accounts.userId, ownerId)));
 
-    logDataEvent({ userId, action: "account_update", targetId: id, targetType: "account", details: { name, type } });
+    logDataEvent({
+      userId,
+      action: "account_update",
+      targetId: id,
+      targetType: "account",
+      details: { name, type, ...(ownerId !== userId ? { accountOwnerId: ownerId } : {}) },
+    });
 
     return NextResponse.json(updated);
   }, "Failed to update account");
@@ -192,6 +207,9 @@ export async function DELETE(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    // Deleting the account is "manage" — owner-only, even for editors.
+    await requireAccountAccess(userId, id, "manage");
 
     await db.delete(accounts).where(and(eq(accounts.id, id), eq(accounts.userId, userId)));
 

@@ -9,6 +9,7 @@ type Db = ReturnType<typeof drizzle<typeof schema>>;
 // it has no user_id and is scoped through the transactions it references.
 const TENANT_TABLES = [
   "accounts",
+  "account_members",
   "transactions",
   "categories",
   "category_rules",

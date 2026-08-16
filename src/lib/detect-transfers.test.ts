@@ -7,11 +7,27 @@ const testDb = await setupTestDb("detect-transfers");
 
 const { db } = await import("@/db");
 const { detectTransfers } = await import("./detect-transfers");
-const { transactions, categories } = await import("@/db/schema");
+const { transactions, categories, accounts, accountMembers } = await import("@/db/schema");
 const { eq } = await import("drizzle-orm");
 
 const USER = "user-1";
 const OTHER_USER = "user-2";
+
+/** OTHER_USER owns "shared", shared with USER at `role`; USER owns "mine". */
+async function shareAccount(role: "editor" | "viewer") {
+  await db.insert(accounts).values([
+    { id: "shared", userId: OTHER_USER, name: "Joint", type: "joint" },
+    { id: "mine", userId: USER, name: "Mine", type: "checking" },
+  ]);
+  await db.insert(accountMembers).values({
+    id: "am-1",
+    accountId: "shared",
+    userId: USER,
+    email: "user1@example.com",
+    role,
+    acceptedAt: new Date().toISOString(),
+  });
+}
 
 let seq = 0;
 
@@ -160,6 +176,50 @@ describe("detectTransfers", () => {
     });
     expect((await detectTransfers(db, USER)).matchedPairs).toBe(0);
     expect((await getTx(otherCredit)).type).toBe("income");
+  });
+
+  it("pairs a private account with an editor-shared one, each side keeping its own transfer category", async () => {
+    await shareAccount("editor");
+    const myCat = await insertCategory("Internal Transfer");
+    const ownerCat = await insertCategory("Internal Transfer", OTHER_USER);
+    const debit = await insertTx({ accountId: "mine", date: "2026-05-01", amount: -100 });
+    const credit = await insertTx({
+      accountId: "shared",
+      date: "2026-05-02",
+      amount: 100,
+      userId: OTHER_USER,
+    });
+
+    expect((await detectTransfers(db, USER)).matchedPairs).toBe(1);
+
+    const d = await getTx(debit);
+    const c = await getTx(credit);
+    expect([d.type, c.type]).toEqual(["internal_transfer", "internal_transfer"]);
+    expect(d.categoryId).toBe(myCat);
+    expect(c.categoryId).toBe(ownerCat);
+    expect(d.linkedTransactionId).toBe(credit);
+    expect(c.linkedTransactionId).toBe(debit);
+  });
+
+  it("leaves the pair alone when the other side has no transfer category", async () => {
+    await shareAccount("editor");
+    await insertCategory("Internal Transfer");
+    const debit = await insertTx({ accountId: "mine", date: "2026-05-01", amount: -100 });
+    await insertTx({ accountId: "shared", date: "2026-05-01", amount: 100, userId: OTHER_USER });
+
+    expect((await detectTransfers(db, USER)).matchedPairs).toBe(0);
+    expect((await getTx(debit)).type).toBe("expense");
+  });
+
+  it("ignores viewer-shared accounts — half a pair is worse than none", async () => {
+    await shareAccount("viewer");
+    await insertCategory("Internal Transfer");
+    await insertCategory("Internal Transfer", OTHER_USER);
+    const debit = await insertTx({ accountId: "mine", date: "2026-05-01", amount: -100 });
+    await insertTx({ accountId: "shared", date: "2026-05-01", amount: 100, userId: OTHER_USER });
+
+    expect((await detectTransfers(db, USER)).matchedPairs).toBe(0);
+    expect((await getTx(debit)).type).toBe("expense");
   });
 
   it("is idempotent — a second run finds nothing new", async () => {

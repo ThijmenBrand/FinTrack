@@ -119,8 +119,10 @@ export function TransactionDetailDialog({ transaction, onOpenChange, categories,
           <DialogDescription asChild>
             <div className="flex items-center gap-2 pt-1">
               <Badge variant={typeInfo.variant} className="text-xs">
-                {isTransfer && tx.linkedAccountName
-                  ? t("tx.row.transferTo", { account: tx.linkedAccountName })
+                {isTransfer && tx.linkedTransactionId
+                  ? t("tx.row.transferTo", {
+                      account: tx.linkedAccountName || t("tx.row.anotherAccount"),
+                    })
                   : t(typeInfo.labelKey)}
               </Badge>
               <span className="text-xs text-muted-foreground">
@@ -287,7 +289,15 @@ export function TransactionDetailDialog({ transaction, onOpenChange, categories,
 
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             <Clock className="h-3.5 w-3.5 shrink-0" />
-            <span>{t("txDetail.added", { date: formatDateTime(tx.createdAt) })}</span>
+            <span>
+              {/* Only set on shared-account rows — a solo account never needs to say who. */}
+              {tx.createdByName
+                ? t("txDetail.addedBy", {
+                    date: formatDateTime(tx.createdAt),
+                    name: tx.createdByName,
+                  })
+                : t("txDetail.added", { date: formatDateTime(tx.createdAt) })}
+            </span>
             {tx.isManual && (
               <Badge variant="outline" className="text-[10px] px-1.5 py-0">
                 {t("txDetail.manual")}

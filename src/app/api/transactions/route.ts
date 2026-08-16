@@ -6,9 +6,16 @@ import { withUser } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
 import { parseSearchTerm } from "@/lib/search-query";
 import { effectiveExpenseAmount } from "@/lib/reimbursement-sql";
+import { requireAccountAccess, visibleTransactions } from "@/lib/account-access";
+import { isFiniteNumber, isIsoDate, sanitizeNote } from "@/lib/validation";
 
 const VALID_TX_TYPES = ["income", "expense", "internal_transfer", "reimbursement"] as const;
 type TxType = (typeof VALID_TX_TYPES)[number];
+// A manual entry is a plain income/expense row — transfers and reimbursements
+// are created through their own dedicated flows (CSV transfer detection,
+// /api/transactions/reimburse) that keep a linked counterpart in sync.
+const MANUAL_TX_TYPES = ["income", "expense"] as const;
+type ManualTxType = (typeof MANUAL_TX_TYPES)[number];
 
 // GET /api/transactions — list transactions with filtering, sorting, pagination
 export async function GET(request: NextRequest) {
@@ -40,7 +47,9 @@ export async function GET(request: NextRequest) {
     // because a pot's contribution is a NET: summing it over only the rows a
     // type filter keeps strips the income/reimbursement legs and reports gross
     // spend instead.
-    const scopeConditions = [eq(transactions.userId, userId)];
+    // Own rows plus rows on accounts shared with the caller. An accountId
+    // filter naming an inaccessible account just intersects to nothing.
+    const scopeConditions = [visibleTransactions(userId)];
     if (accountIds.length) scopeConditions.push(inArray(transactions.accountId, accountIds));
     if (groupId) scopeConditions.push(eq(transactions.groupId, groupId));
     if (dateFrom) scopeConditions.push(gte(transactions.date, dateFrom));
@@ -155,10 +164,16 @@ export async function GET(request: NextRequest) {
         categoryIcon: categories.icon,
         type: transactions.type,
         linkedTransactionId: transactions.linkedTransactionId,
+        // Caller-visibility, not row-owner visibility: a transfer counterpart
+        // on an account the CALLER can't see must come back null ("another
+        // account"), or a shared row would leak the owner's private account names.
         linkedAccountName: sql<string | null>`(
           SELECT a.name FROM transactions lt
-          JOIN accounts a ON lt.account_id = a.id AND a.user_id = "transactions"."user_id"
+          JOIN accounts a ON lt.account_id = a.id
           WHERE lt.id = ${transactions.linkedTransactionId}
+            AND (a.user_id = ${userId} OR a.id IN (
+              SELECT am.account_id FROM account_members am
+              WHERE am.user_id = ${userId} AND am.accepted_at IS NOT NULL AND am.revoked_at IS NULL))
         )`,
         reimbursesTransactionId: transactions.reimbursesTransactionId,
         reimbursesDescription: sql<string | null>`(
@@ -195,6 +210,22 @@ export async function GET(request: NextRequest) {
           SELECT r.description FROM recurring_transactions r
           WHERE r.id = ${transactions.recurringTransactionId} AND r.user_id = "transactions"."user_id"
         )`,
+        // Who touched the row — only meaningful on shared accounts. created_by
+        // NULL means the account owner; resolve that to a name only when the
+        // account actually has active members, so solo accounts stay quiet.
+        createdByName: sql<string | null>`(CASE
+          WHEN ${transactions.createdBy} IS NOT NULL
+            THEN (SELECT u.name FROM "user" u WHERE u.id = ${transactions.createdBy})
+          WHEN EXISTS (
+            SELECT 1 FROM account_members am
+            WHERE am.account_id = ${transactions.accountId}
+              AND am.user_id IS NOT NULL AND am.accepted_at IS NOT NULL AND am.revoked_at IS NULL)
+            THEN (SELECT u.name FROM "user" u WHERE u.id = ${transactions.userId})
+          ELSE NULL END)`,
+        modifiedByName: sql<string | null>`(CASE
+          WHEN ${transactions.modifiedBy} IS NOT NULL
+            THEN (SELECT u.name FROM "user" u WHERE u.id = ${transactions.modifiedBy})
+          ELSE NULL END)`,
         notes: transactions.notes,
         isManual: transactions.isManual,
         importBatchId: transactions.importBatchId,
@@ -212,7 +243,7 @@ export async function GET(request: NextRequest) {
     const distinctTypes = await db
       .selectDistinct({ type: transactions.type })
       .from(transactions)
-      .where(eq(transactions.userId, userId));
+      .where(visibleTransactions(userId));
 
     // Sum totals for the filtered set. Pot members are NOT counted individually;
     // each pot contributes one net, split by sign: net > 0 → income, net < 0 →
@@ -260,10 +291,13 @@ export async function GET(request: NextRequest) {
             groupId: transactions.groupId,
             net: sql<number>`COALESCE(SUM(${transactions.amount}), 0)`,
             memberCount: sql<number>`COUNT(*)`,
+            // Correlated to the row's owner, not the caller: a pot on a shared
+            // account belongs to the account owner. Every row in a group shares
+            // one pot (hence one owner), so the bare column is deterministic.
             totalMemberCount: sql<number>`(
               SELECT COUNT(*) FROM transactions t2
               WHERE t2.group_id = ${transactions.groupId}
-                AND t2.user_id = ${userId}
+                AND t2.user_id = "transactions"."user_id"
                 AND t2.type != 'internal_transfer'
             )`,
           })
@@ -322,6 +356,98 @@ export async function GET(request: NextRequest) {
   }, "Failed to fetch transactions");
 }
 
+// POST /api/transactions — manually create a single income/expense transaction
+export async function POST(request: NextRequest) {
+  return withUser(async (userId) => {
+    const body = await request.json();
+    const { accountId, date, name, description, amount, type, categoryId, notes } = body;
+
+    if (typeof accountId !== "string" || !accountId) {
+      return NextResponse.json({ error: "accountId is required" }, { status: 400 });
+    }
+    if (!isIsoDate(date)) {
+      return NextResponse.json({ error: "date must be YYYY-MM-DD" }, { status: 400 });
+    }
+    if (typeof description !== "string" || !description.trim()) {
+      return NextResponse.json({ error: "description is required" }, { status: 400 });
+    }
+    if (!isFiniteNumber(amount)) {
+      return NextResponse.json({ error: "amount must be a finite number" }, { status: 400 });
+    }
+    if (!MANUAL_TX_TYPES.includes(type as ManualTxType)) {
+      return NextResponse.json(
+        { error: `type must be one of: ${MANUAL_TX_TYPES.join(", ")}` },
+        { status: 400 },
+      );
+    }
+    if (name != null && typeof name !== "string") {
+      return NextResponse.json({ error: "name must be a string" }, { status: 400 });
+    }
+
+    // Write access to the account — 404 if the caller can't see it at all,
+    // 403 if they can see it but are a viewer.
+    const access = await requireAccountAccess(userId, accountId, "write");
+    const ownerId = access.account.userId;
+
+    // Category references on a shared account live in the OWNER's category
+    // space — the acting member's own categoryIds are invalid there.
+    let validCategoryId: string | null = null;
+    if (categoryId != null) {
+      if (typeof categoryId !== "string") {
+        return NextResponse.json({ error: "categoryId must be a string" }, { status: 400 });
+      }
+      const [owned] = await db
+        .select({ id: categories.id })
+        .from(categories)
+        .where(and(eq(categories.id, categoryId), eq(categories.userId, ownerId)))
+        .limit(1);
+      if (!owned) {
+        return NextResponse.json({ error: "Category not found" }, { status: 404 });
+      }
+      validCategoryId = categoryId;
+    }
+
+    const id = crypto.randomUUID();
+    await db.insert(transactions).values({
+      id,
+      // Data rows on a shared account always keep the OWNER's user_id;
+      // attribution goes in createdBy/modifiedBy.
+      userId: ownerId,
+      accountId,
+      date,
+      name: name || null,
+      description: description.trim(),
+      amount,
+      balance: null,
+      categoryId: validCategoryId,
+      categorySource: validCategoryId ? "manual" : null,
+      type: type as ManualTxType,
+      linkedTransactionId: null,
+      notes: sanitizeNote(notes),
+      createdBy: userId,
+      isManual: true,
+      importBatchId: null,
+      createdAt: new Date().toISOString(),
+    });
+
+    logDataEvent({
+      userId,
+      action: "transaction_create",
+      targetId: id,
+      targetType: "transaction",
+      details: {
+        accountId,
+        amount,
+        type,
+        ...(ownerId !== userId ? { accountOwnerId: ownerId } : {}),
+      },
+    });
+
+    const [created] = await db.select().from(transactions).where(eq(transactions.id, id));
+    return NextResponse.json(created, { status: 201 });
+  }, "Failed to create transaction");
+}
+
 // DELETE /api/transactions — delete a transaction
 export async function DELETE(request: NextRequest) {
   return withUser(async (userId) => {
@@ -335,44 +461,62 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    // Check for linked transfer transaction
+    // Row lookup is unscoped by caller — the write-access check below (via
+    // the row's account) decides who may delete it, not row ownership.
     const [tx] = await db
-      .select({ linkedTransactionId: transactions.linkedTransactionId })
+      .select({ accountId: transactions.accountId, linkedTransactionId: transactions.linkedTransactionId, userId: transactions.userId })
       .from(transactions)
-      .where(and(eq(transactions.id, id), eq(transactions.userId, userId)));
+      .where(eq(transactions.id, id));
+    if (!tx) {
+      return NextResponse.json({ error: "Transaction not found" }, { status: 404 });
+    }
+    const access = await requireAccountAccess(userId, tx.accountId, "write");
+    const ownerId = access.account.userId;
 
-    if (tx?.linkedTransactionId) {
+    if (tx.linkedTransactionId) {
+      // Scoped by the counterpart's OWN user_id, not this row's owner: transfer
+      // detection pairs a private account with a shared one, so the two legs can
+      // belong to different users. Leaving the far leg linked to a deleted row
+      // would keep it typed internal_transfer forever.
       const [linkedTx] = await db
-        .select({ id: transactions.id, isManual: transactions.isManual })
+        .select({
+          id: transactions.id,
+          isManual: transactions.isManual,
+          amount: transactions.amount,
+          userId: transactions.userId,
+        })
         .from(transactions)
-        .where(and(eq(transactions.id, tx.linkedTransactionId), eq(transactions.userId, userId)));
+        .where(eq(transactions.id, tx.linkedTransactionId));
 
       if (linkedTx) {
         if (linkedTx.isManual) {
           // Mirror was auto-created, delete it
-          await db.delete(transactions).where(and(eq(transactions.id, linkedTx.id), eq(transactions.userId, userId)));
+          await db.delete(transactions).where(and(eq(transactions.id, linkedTx.id), eq(transactions.userId, linkedTx.userId)));
         } else {
           // Linked tx came from CSV, revert it to normal
-          const [linkedFull] = await db
-            .select({ amount: transactions.amount })
-            .from(transactions)
-            .where(and(eq(transactions.id, linkedTx.id), eq(transactions.userId, userId)));
           await db
             .update(transactions)
             .set({
-              type: (linkedFull?.amount ?? 0) >= 0 ? "income" : "expense",
+              type: linkedTx.amount >= 0 ? "income" : "expense",
               linkedTransactionId: null,
               categoryId: null,
               categorySource: null,
+              modifiedBy: userId,
             })
-            .where(and(eq(transactions.id, linkedTx.id), eq(transactions.userId, userId)));
+            .where(and(eq(transactions.id, linkedTx.id), eq(transactions.userId, linkedTx.userId)));
         }
       }
     }
 
-    await db.delete(transactions).where(and(eq(transactions.id, id), eq(transactions.userId, userId)));
+    await db.delete(transactions).where(and(eq(transactions.id, id), eq(transactions.userId, ownerId)));
 
-    logDataEvent({ userId, action: "transaction_delete", targetId: id, targetType: "transaction" });
+    logDataEvent({
+      userId,
+      action: "transaction_delete",
+      targetId: id,
+      targetType: "transaction",
+      details: ownerId !== userId ? { accountOwnerId: ownerId } : undefined,
+    });
 
     return NextResponse.json({ success: true });
   }, "Failed to delete transaction");

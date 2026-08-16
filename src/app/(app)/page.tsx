@@ -84,6 +84,14 @@ export default async function DashboardPage() {
   // Free-to-spend math follows the main budget's accounts; without plans it
   // falls back to the same all-checking scope.
   const mainPlanAccountIds = mainPlan ? mainPlan.accountIds : accountIds;
+  // A shared main plan runs its card as the OWNER (their data, their financial
+  // month) so both parties see identical numbers. The other cards keep the
+  // member's own identity and startDay.
+  const planIsForeign = mainPlan !== null && mainPlan.ownerId !== userId;
+  const planUserId = planIsForeign ? mainPlan.ownerId : userId;
+  const planStartDay = planIsForeign
+    ? (await getUserPreferences(mainPlan.ownerId)).financialMonthStartDay
+    : startDay;
 
   return (
     <div className="space-y-4">
@@ -110,8 +118,8 @@ export default async function DashboardPage() {
             <>
               <Suspense fallback={<ComingUpThisMonthCardSkeleton />}>
                 <ComingUpThisMonthCard
-                  userId={userId}
-                  startDay={startDay}
+                  userId={planUserId}
+                  startDay={planStartDay}
                   accountIds={mainPlanAccountIds}
                 />
               </Suspense>

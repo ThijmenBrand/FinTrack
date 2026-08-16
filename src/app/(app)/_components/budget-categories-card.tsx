@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, PiggyBank, Star } from "lucide-react";
+import { ArrowRight, PiggyBank, Star, Users } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -41,6 +41,8 @@ interface PlanOption {
   id: string;
   name: string;
   isMain: boolean;
+  /** Display name of the sharing owner; null for the user's own plans. */
+  ownerName: string | null;
 }
 
 interface BudgetCategoriesCardProps {
@@ -106,6 +108,12 @@ export function BudgetCategoriesCard({
                   aria-label={t("dashboard.budgetCard.mainBudgetStar")}
                 />
               )}
+              {p.ownerName && (
+                <Users
+                  className="h-3 w-3 text-violet-500"
+                  aria-label={t("sharing.sharedByTooltip", { name: p.ownerName })}
+                />
+              )}
             </span>
           </SelectItem>
         ))}
@@ -114,12 +122,17 @@ export function BudgetCategoriesCard({
   );
 
   const planLabel = selectedPlan
-    ? t(
-        selectedPlan.isMain
-          ? "dashboard.budgetCard.planMain"
-          : "dashboard.budgetCard.planOther",
-        { name: selectedPlan.name },
-      )
+    ? [
+        t(
+          selectedPlan.isMain
+            ? "dashboard.budgetCard.planMain"
+            : "dashboard.budgetCard.planOther",
+          { name: selectedPlan.name },
+        ),
+        selectedPlan.ownerName ? t("sharing.sharedBy", { name: selectedPlan.ownerName }) : null,
+      ]
+        .filter(Boolean)
+        .join(" · ")
     : null;
 
   if (!data || (viewingOther && switching)) {

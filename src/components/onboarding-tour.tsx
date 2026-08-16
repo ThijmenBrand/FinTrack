@@ -21,7 +21,7 @@ interface TourStep {
 const STEPS: TourStep[] = [
   { href: "/", titleKey: "tour.welcome.title", bodyKey: "tour.welcome.body" },
   {
-    href: "/settings/accounts",
+    href: "/accounts",
     anchor: "account-add",
     titleKey: "tour.account.title",
     bodyKey: "tour.account.body",

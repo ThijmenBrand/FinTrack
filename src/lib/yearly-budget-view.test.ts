@@ -29,6 +29,9 @@ const PLAN = {
   period: "yearly" as const,
   periodStartedAt: null,
   accountIds: ["acct-1"],
+  ownerId: USER,
+  role: "owner" as const,
+  ownerName: null,
 };
 
 async function expense(date: string, amount: number, categoryId = "c-food") {

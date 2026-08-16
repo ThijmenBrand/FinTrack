@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { transactions, importBatches, categoryRules, accounts } from "@/db/schema";
+import { transactions, importBatches, categoryRules } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
+import { requireAccountAccess } from "@/lib/account-access";
 import Papa from "papaparse";
 
 // Backstop against unbounded uploads — a real bank CSV is far smaller.
@@ -38,14 +39,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "File too large (max 10 MB)" }, { status: 400 });
     }
 
-    const [ownedAccount] = await db
-      .select({ id: accounts.id })
-      .from(accounts)
-      .where(and(eq(accounts.id, accountId), eq(accounts.userId, userId)))
-      .limit(1);
-    if (!ownedAccount) {
-      return NextResponse.json({ error: "Account not found" }, { status: 404 });
-    }
+    const access = await requireAccountAccess(userId, accountId, "write");
+    const ownerId = access.account.userId;
 
     const mapping: ColumnMapping = JSON.parse(mappingJson);
     // Strip UTF-8 BOM that bank exports often include
@@ -81,13 +76,13 @@ export async function POST(request: NextRequest) {
     const rules = await db
       .select()
       .from(categoryRules)
-      .where(and(eq(categoryRules.isActive, true), eq(categoryRules.userId, userId)));
+      .where(and(eq(categoryRules.isActive, true), eq(categoryRules.userId, ownerId)));
 
     // Create import batch
     const batchId = crypto.randomUUID();
     await db.insert(importBatches).values({
       id: batchId,
-      userId,
+      userId: ownerId,
       accountId,
       fileName: file.name,
       transactionCount: parsed.data.length,
@@ -170,7 +165,7 @@ export async function POST(request: NextRequest) {
       const txId = crypto.randomUUID();
       importedTransactions.push({
         id: txId,
-        userId,
+        userId: ownerId,
         accountId,
         date,
         name,
@@ -182,6 +177,7 @@ export async function POST(request: NextRequest) {
         type,
         linkedTransactionId: null,
         notes: null,
+        createdBy: userId,
         isManual: false,
         importBatchId: batchId,
         createdAt: new Date().toISOString(),

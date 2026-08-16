@@ -131,6 +131,11 @@ export const transactions = sqliteTable("transactions", {
   // Link to the expense this transaction reimburses (for split bills)
   reimbursesTransactionId: text("reimburses_transaction_id"),
   notes: text("notes"),
+  // Actor attribution for shared accounts. Null = the account owner (all rows
+  // predating sharing). transactions.userId always stays the account owner's
+  // id so every existing per-user query keeps working.
+  createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
+  modifiedBy: text("modified_by").references(() => user.id, { onDelete: "set null" }),
   isManual: integer("is_manual", { mode: "boolean" }).notNull().default(false),
   importBatchId: text("import_batch_id"), // Track which CSV upload this came from
   groupId: text("group_id"),
@@ -316,6 +321,10 @@ export const userPreferences = sqliteTable("user_preferences", {
   // Simple mode: dashboard, budgets and insights hide advanced features
   // (budget plans, suggestions, deep-dive charts) behind this one switch.
   simpleMode: integer("simple_mode", { mode: "boolean" }).notNull().default(false),
+  // Which budget plan drives the dashboard. May point at a plan shared with
+  // this user (via account_members), so it can't be a flag on the plan row —
+  // the is_main unique index belongs to the plan's owner. Null = own main plan.
+  mainBudgetPlanId: text("main_budget_plan_id").references(() => budgetPlans.id, { onDelete: "set null" }),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
@@ -605,6 +614,56 @@ export const invites = sqliteTable(
   (table) => [index("idx_invites_email").on(table.email)],
 );
 
+// ─── Account Members (shared accounts) ───────────────────────────────────
+// One row per invite/membership on a bank account. Pending invite and active
+// membership live in the same row: userId is null until the invitee accepts
+// (they may not have a FinTrack account yet), and status is derived —
+// revokedAt set = revoked, acceptedAt null = pending, else active. Same
+// token-hash pattern as `invites`: the emailed link carries the raw token,
+// only its SHA-256 is stored.
+export const accountMembers = sqliteTable(
+  "account_members",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    accountId: text("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    // The member. Null while the invite is pending.
+    userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
+    // Invitee address, lowercased. Kept after accept for the members list.
+    email: text("email").notNull(),
+    role: text("role", { enum: ["viewer", "editor"] }).notNull(),
+    tokenHash: text("token_hash").unique(),
+    expiresAt: text("expires_at"),
+    acceptedAt: text("accepted_at"),
+    revokedAt: text("revoked_at"),
+    createdAt: text("created_at")
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+  },
+  (table) => [
+    index("idx_account_members_user").on(table.userId),
+    index("idx_account_members_account").on(table.accountId),
+    // One live (pending or active) invite per address per account.
+    uniqueIndex("idx_account_members_account_email")
+      .on(table.accountId, table.email)
+      .where(sql`revoked_at IS NULL`),
+  ],
+);
+
+export const accountMembersRelations = relations(accountMembers, ({ one }) => ({
+  account: one(accounts, {
+    fields: [accountMembers.accountId],
+    references: [accounts.id],
+  }),
+  member: one(user, {
+    fields: [accountMembers.userId],
+    references: [user.id],
+  }),
+}));
+
 // ─── Type Exports ────────────────────────────────────────────────────────────
 export type User = typeof user.$inferSelect;
 export type NewUser = typeof user.$inferInsert;
@@ -638,3 +697,5 @@ export type UserPreferences = typeof userPreferences.$inferSelect;
 export type NewUserPreferences = typeof userPreferences.$inferInsert;
 export type StatReset = typeof statResets.$inferSelect;
 export type NewStatReset = typeof statResets.$inferInsert;
+export type AccountMember = typeof accountMembers.$inferSelect;
+export type NewAccountMember = typeof accountMembers.$inferInsert;

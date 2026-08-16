@@ -10,7 +10,7 @@ FORCE_SEED=false
 [ "${1:-}" = "--seed" ] && FORCE_SEED=true
 
 echo "==> Installing dependencies..."
-npm install
+pnpm install
 
 if [ ! -f .env ]; then
   echo "==> Creating .env from .env.example..."
@@ -22,20 +22,20 @@ fi
 mkdir -p data
 
 echo "==> Applying migrations and seeding the admin user..."
-npx tsx scripts/migrate.ts
+pnpm tsx scripts/migrate.ts
 
 # Only seed a database that has no transactions yet, so re-running setup on a
 # workspace with real imported data can't wipe it.
-TX_COUNT=$(npx tsx -e 'import{createClient}from"@libsql/client";const c=createClient({url:"file:data/finance.db"});c.execute("SELECT COUNT(*) AS n FROM transactions").then(r=>{console.log(r.rows[0].n);process.exit(0)}).catch(()=>{console.log(0);process.exit(0)})')
+TX_COUNT=$(pnpm tsx -e 'import{createClient}from"@libsql/client";const c=createClient({url:"file:data/finance.db"});c.execute("SELECT COUNT(*) AS n FROM transactions").then(r=>{console.log(r.rows[0].n);process.exit(0)}).catch(()=>{console.log(0);process.exit(0)})')
 
 if [ "$TX_COUNT" = "0" ] || [ "$FORCE_SEED" = true ]; then
   echo "==> Seeding dummy data..."
   npx tsx scripts/seed.ts
 else
-  echo "==> Database already has $TX_COUNT transactions, skipping seed (use 'npm run db:seed' to overwrite)."
+  echo "==> Database already has $TX_COUNT transactions, skipping seed (use 'pnpm db:seed' to overwrite)."
 fi
 
 echo ""
-echo "Setup complete. Run 'npm run dev', then:"
+echo "Setup complete. Run 'pnpm dev', then:"
 echo "  demo / demo    the finance app, with a year of dummy data"
 echo "  admin / admin  /backoffice (admins cannot open the finance app)"

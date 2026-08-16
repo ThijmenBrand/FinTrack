@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { importBatches, transactions, accounts } from "@/db/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
+import { requireAccountAccess } from "@/lib/account-access";
 
 /**
  * GET /api/import-batches
@@ -43,11 +44,12 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    // Verify batch belongs to user
+    // Unscoped by caller — the write-access check below (via the batch's
+    // account) decides who may roll it back, not row ownership.
     const [batch] = await db
-      .select({ id: importBatches.id })
+      .select({ id: importBatches.id, accountId: importBatches.accountId, userId: importBatches.userId })
       .from(importBatches)
-      .where(and(eq(importBatches.id, batchId), eq(importBatches.userId, userId)));
+      .where(eq(importBatches.id, batchId));
 
     if (!batch) {
       return NextResponse.json(
@@ -55,6 +57,8 @@ export async function DELETE(request: NextRequest) {
         { status: 404 }
       );
     }
+    const access = await requireAccountAccess(userId, batch.accountId, "write");
+    const ownerId = access.account.userId;
 
     // Wrap the entire rollback in a transaction for atomicity
     await db.transaction(async (tx) => {
@@ -65,7 +69,7 @@ export async function DELETE(request: NextRequest) {
           linkedTransactionId: transactions.linkedTransactionId,
         })
         .from(transactions)
-        .where(and(eq(transactions.importBatchId, batchId), eq(transactions.userId, userId)));
+        .where(and(eq(transactions.importBatchId, batchId), eq(transactions.userId, ownerId)));
 
       const batchTxIds = new Set(batchTxs.map((t) => t.id));
 
@@ -75,14 +79,18 @@ export async function DELETE(request: NextRequest) {
         // Skip if the linked tx is also in this batch (will be deleted anyway)
         if (batchTxIds.has(btx.linkedTransactionId)) continue;
 
+        // Scoped by the counterpart's OWN user_id: transfer detection pairs a
+        // private account with a shared one, so the far leg may belong to
+        // another user and must still be unlinked.
         const [linkedTx] = await tx
           .select({
             id: transactions.id,
             isManual: transactions.isManual,
             amount: transactions.amount,
+            userId: transactions.userId,
           })
           .from(transactions)
-          .where(and(eq(transactions.id, btx.linkedTransactionId), eq(transactions.userId, userId)));
+          .where(eq(transactions.id, btx.linkedTransactionId));
 
         if (!linkedTx) continue;
 
@@ -90,7 +98,7 @@ export async function DELETE(request: NextRequest) {
           // Auto-created mirror — delete it
           await tx
             .delete(transactions)
-            .where(and(eq(transactions.id, linkedTx.id), eq(transactions.userId, userId)));
+            .where(and(eq(transactions.id, linkedTx.id), eq(transactions.userId, linkedTx.userId)));
         } else {
           // Came from another CSV import — revert to normal
           await tx
@@ -100,19 +108,19 @@ export async function DELETE(request: NextRequest) {
               linkedTransactionId: null,
               categoryId: null,
             })
-            .where(and(eq(transactions.id, linkedTx.id), eq(transactions.userId, userId)));
+            .where(and(eq(transactions.id, linkedTx.id), eq(transactions.userId, linkedTx.userId)));
         }
       }
 
       // Delete all transactions in this batch
       await tx
         .delete(transactions)
-        .where(and(eq(transactions.importBatchId, batchId), eq(transactions.userId, userId)));
+        .where(and(eq(transactions.importBatchId, batchId), eq(transactions.userId, ownerId)));
 
       // Delete the batch record
       await tx
         .delete(importBatches)
-        .where(and(eq(importBatches.id, batchId), eq(importBatches.userId, userId)));
+        .where(and(eq(importBatches.id, batchId), eq(importBatches.userId, ownerId)));
     });
 
     return NextResponse.json({ success: true });

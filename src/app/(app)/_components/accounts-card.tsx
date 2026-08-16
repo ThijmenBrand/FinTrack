@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Landmark, Plus } from "lucide-react";
+import { Landmark, Plus, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -76,7 +76,7 @@ export async function AccountsCard({ userId }: { userId: string }) {
               {t("dashboard.accounts.empty")}
             </p>
             <Button asChild>
-              <Link href="/settings/accounts?new=1">
+              <Link href="/accounts?new=1">
                 <Plus className="mr-2 h-4 w-4" />
                 {t("accounts.add")}
               </Link>
@@ -100,7 +100,7 @@ export async function AccountsCard({ userId }: { userId: string }) {
             {accountBalances.map((account) => (
               <Link
                 key={account.id}
-                href="/settings/accounts"
+                href="/accounts"
                 className="flex items-center justify-between rounded-lg border p-3 transition-colors hover:bg-muted/50"
               >
                 <div className="flex min-w-0 items-center gap-3">
@@ -110,9 +110,20 @@ export async function AccountsCard({ userId }: { userId: string }) {
                   />
                   <BankLogo bank={account.bank} size={36} />
                   <div className="min-w-0">
-                    <p className="font-medium text-sm truncate">
-                      {account.name}
-                    </p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="font-medium text-sm truncate">
+                        {account.name}
+                      </p>
+                      {account.ownerName && (
+                        <span
+                          className="inline-flex shrink-0 items-center gap-1 rounded-full border border-violet-300 bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-medium text-violet-600 dark:border-violet-800 dark:text-violet-400"
+                          title={t("sharing.sharedByTooltip", { name: account.ownerName })}
+                        >
+                          <Users className="h-2.5 w-2.5" />
+                          {t("sharing.sharedBy", { name: account.ownerName })}
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs text-muted-foreground truncate">
                       {t(TYPE_LABEL_KEYS[account.type] ?? "accounts.type.other")}
                       {account.bankName ? ` \u00b7 ${account.bankName}` : ""}

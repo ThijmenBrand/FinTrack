@@ -9,14 +9,24 @@ import {
   categories,
   recurringTransactions,
   transactionGroups,
+  accountMembers,
+  user,
 } from "@/db/schema";
-import { eq, and, asc, gte, lte, sql, sum, inArray, isNotNull, notInArray } from "drizzle-orm";
+import { eq, and, or, asc, gte, lte, sql, sum, inArray, isNotNull, notInArray } from "drizzle-orm";
 import { defaultCategoryNames, TRANSFER_CATEGORY } from "@/lib/default-categories";
 import {
   accountScopeFilter,
   resolveBudgetPlan,
+  resolveMainPlan,
   type ResolvedBudgetPlan,
 } from "@/lib/budget-plan";
+import {
+  activeMembership,
+  memberAccountIds,
+  visibleAccounts,
+  visibleTransactions,
+} from "@/lib/account-access";
+import { getUserPreferences } from "@/lib/preferences";
 import { currentFinancialSlot } from "@/lib/financial-year";
 import { buildLedgerYear } from "@/lib/budget-ledger-db";
 import { getPaySchedule, paydaysBetween, type PaySchedule } from "@/lib/pay-schedule";
@@ -108,17 +118,22 @@ export const getScopeAccountRows = cache(async (userId: string) =>
   db
     .select({ id: accounts.id, type: accounts.type })
     .from(accounts)
-    .where(eq(accounts.userId, userId)),
+    .where(visibleAccounts(userId)),
 );
 
-/** The user's main budget plan with its account ids. Cached per render pass. */
-export const getMainPlan = cache(async (userId: string) =>
-  resolveBudgetPlan(userId, null),
-);
+/**
+ * The user's dashboard budget plan (their own main, or the shared plan chosen
+ * via userPreferences.mainBudgetPlanId). Cached per render pass.
+ */
+export const getMainPlan = cache(async (userId: string) => resolveMainPlan(userId));
 
-/** All budget plans, oldest first — drives the budget card's switcher. */
-export const getUserPlans = cache(async (userId: string) =>
-  db
+/**
+ * All plans the user can read, own plans first (oldest first), then plans
+ * reached through shared accounts (labeled with ownerName) — drives the budget
+ * card's switcher.
+ */
+export const getUserPlans = cache(async (userId: string) => {
+  const own = await db
     .select({
       id: budgetPlans.id,
       name: budgetPlans.name,
@@ -126,8 +141,23 @@ export const getUserPlans = cache(async (userId: string) =>
     })
     .from(budgetPlans)
     .where(eq(budgetPlans.userId, userId))
-    .orderBy(asc(budgetPlans.createdAt)),
-);
+    .orderBy(asc(budgetPlans.createdAt));
+  const shared = await db
+    .selectDistinct({
+      id: budgetPlans.id,
+      name: budgetPlans.name,
+      ownerName: user.name,
+    })
+    .from(accountMembers)
+    .innerJoin(accounts, eq(accounts.id, accountMembers.accountId))
+    .innerJoin(budgetPlans, eq(budgetPlans.id, accounts.budgetId))
+    .innerJoin(user, eq(user.id, budgetPlans.userId))
+    .where(activeMembership(userId));
+  return [
+    ...own.map((p) => ({ ...p, ownerName: null as string | null })),
+    ...shared.map((p) => ({ ...p, isMain: false })),
+  ];
+});
 
 /**
  * Expand the scoped accounts to the set whose activity should count toward
@@ -313,6 +343,13 @@ export const getBudgetOverview = cache(async (
     planId === undefined
       ? await getMainPlan(userId)
       : await resolveBudgetPlan(userId, planId);
+  // Foreign (shared) plan: every plan-scoped number runs as the OWNER — their
+  // allocations, categories and financial-month window — so owner and member
+  // see identical figures. Own plans: dataUserId === userId.
+  const dataUserId = plan?.ownerId ?? userId;
+  if (plan && plan.ownerId !== userId) {
+    startDay = (await getUserPreferences(plan.ownerId)).financialMonthStartDay;
+  }
   const scopeAccountIds = plan ? plan.accountIds : undefined;
   const txScope = accountScopeFilter(scopeAccountIds);
   const recurringScope =
@@ -341,7 +378,7 @@ export const getBudgetOverview = cache(async (
           and(
             eq(budgets.isActive, true),
             eq(budgets.status, "active"),
-            eq(budgets.userId, userId),
+            eq(budgets.userId, dataUserId),
             ...(plan ? [eq(budgets.budgetId, plan.id)] : []),
           ),
         ),
@@ -357,7 +394,7 @@ export const getBudgetOverview = cache(async (
           and(
             eq(recurringTransactions.type, "expense"),
             eq(recurringTransactions.isActive, true),
-            eq(recurringTransactions.userId, userId),
+            eq(recurringTransactions.userId, dataUserId),
             ...(recurringScope ? [recurringScope] : []),
           ),
         ),
@@ -377,7 +414,7 @@ export const getBudgetOverview = cache(async (
         .leftJoin(categories, eq(transactions.categoryId, categories.id))
         .where(
           and(
-            eq(transactions.userId, userId),
+            eq(transactions.userId, dataUserId),
             eq(transactions.type, "expense"),
             sql`${transactions.groupId} IS NULL`,
             gte(transactions.date, monthStart),
@@ -387,7 +424,7 @@ export const getBudgetOverview = cache(async (
         )
         .groupBy(transactions.categoryId),
 
-      getPotSpendByCategory(userId, monthStart, monthEnd, scopeAccountIds),
+      getPotSpendByCategory(dataUserId, monthStart, monthEnd, scopeAccountIds),
     ]);
 
   // Per-budgeted-category spending — drives the per-category chips.
@@ -434,7 +471,7 @@ export const getBudgetOverview = cache(async (
             .from(transactions)
             .where(
               and(
-                eq(transactions.userId, userId),
+                eq(transactions.userId, dataUserId),
                 inArray(transactions.categoryId, categoryIds),
                 eq(transactions.type, "expense"),
                 sql`${transactions.groupId} IS NULL`,
@@ -444,7 +481,7 @@ export const getBudgetOverview = cache(async (
               )
             )
             .groupBy(transactions.categoryId),
-          getPotSpendByCategory(userId, from, to, scopeAccountIds),
+          getPotSpendByCategory(dataUserId, from, to, scopeAccountIds),
         ]);
         for (const r of results) {
           if (r.categoryId) {
@@ -467,7 +504,7 @@ export const getBudgetOverview = cache(async (
   // the ledger's allowance keeps these bars agreeing with the budgets page —
   // otherwise the dashboard would call a month "over" that the envelope is
   // comfortably funding out of earlier savings.
-  const allowanceByCategory = await yearlyAllowances(userId, plan, startDay);
+  const allowanceByCategory = await yearlyAllowances(dataUserId, plan, startDay);
 
   const budgetItems = allBudgets
     .map((b) => {
@@ -533,7 +570,15 @@ export const getBudgetOverview = cache(async (
   );
 
   return {
-    plan: plan ? { id: plan.id, name: plan.name, isMain: plan.isMain } : null,
+    plan: plan
+      ? {
+          id: plan.id,
+          name: plan.name,
+          isMain: plan.isMain,
+          role: plan.role,
+          ownerName: plan.ownerName,
+        }
+      : null,
     budgetItems,
     unbudgetedItems,
     unbudgetedTotal: unbudgetedItems.reduce((s, r) => s + r.spent, 0),
@@ -546,30 +591,44 @@ export const getBudgetOverview = cache(async (
 export type BudgetOverview = Awaited<ReturnType<typeof getBudgetOverview>>;
 
 export const getAccountBalances = cache(async (userId: string) => {
-  const accountBalanceRows = await db
-    .select({
-      id: accounts.id,
-      userId: accounts.userId,
-      name: accounts.name,
-      type: accounts.type,
-      bank: accounts.bank,
-      bankName: accounts.bankName,
-      iban: accounts.iban,
-      currency: accounts.currency,
-      initialBalance: accounts.initialBalance,
-      sortOrder: accounts.sortOrder,
-      createdAt: accounts.createdAt,
-      updatedAt: accounts.updatedAt,
-      txTotal: sql<number>`COALESCE(SUM(${transactions.amount}), 0)`,
-    })
-    .from(accounts)
-    .leftJoin(transactions, eq(accounts.id, transactions.accountId))
-    .where(eq(accounts.userId, userId))
-    .groupBy(accounts.id);
+  const [accountBalanceRows, ownerRows] = await Promise.all([
+    db
+      .select({
+        id: accounts.id,
+        userId: accounts.userId,
+        name: accounts.name,
+        type: accounts.type,
+        bank: accounts.bank,
+        bankName: accounts.bankName,
+        iban: accounts.iban,
+        currency: accounts.currency,
+        initialBalance: accounts.initialBalance,
+        sortOrder: accounts.sortOrder,
+        createdAt: accounts.createdAt,
+        updatedAt: accounts.updatedAt,
+        txTotal: sql<number>`COALESCE(SUM(${transactions.amount}), 0)`,
+      })
+      .from(accounts)
+      .leftJoin(transactions, eq(accounts.id, transactions.accountId))
+      // Own accounts plus shared ones; a shared account's rows all belong to its
+      // owner, so joining by account id already sums the right transactions.
+      .where(visibleAccounts(userId))
+      .groupBy(accounts.id),
+    // Separate query: joining accountMembers/user onto the aggregate above
+    // would multiply rows before the SUM groups them.
+    db
+      .select({ accountId: accountMembers.accountId, ownerName: user.name })
+      .from(accountMembers)
+      .innerJoin(accounts, eq(accounts.id, accountMembers.accountId))
+      .innerJoin(user, eq(user.id, accounts.userId))
+      .where(activeMembership(userId)),
+  ]);
+  const ownerByAccount = new Map(ownerRows.map((r) => [r.accountId, r.ownerName]));
 
   return accountBalanceRows.map((row) => ({
     ...row,
     currentBalance: row.initialBalance + Number(row.txTotal),
+    ownerName: ownerByAccount.get(row.id) ?? null,
   }));
 });
 
@@ -601,7 +660,7 @@ export const getAccountBalanceSeries = cache(async (
     })
     .from(transactions)
     .where(
-      and(eq(transactions.userId, userId), gte(transactions.date, from)),
+      and(visibleTransactions(userId), gte(transactions.date, from)),
     )
     .groupBy(transactions.accountId, transactions.date);
 
@@ -672,7 +731,7 @@ export async function getMonthSummary(
         .from(transactions)
         .where(
           and(
-            eq(transactions.userId, userId),
+            visibleTransactions(userId),
             eq(transactions.type, "income"),
             sql`${transactions.groupId} IS NULL`,
             gte(transactions.date, monthStart),
@@ -688,7 +747,7 @@ export async function getMonthSummary(
         .from(transactions)
         .where(
           and(
-            eq(transactions.userId, userId),
+            visibleTransactions(userId),
             eq(transactions.type, "expense"),
             sql`${transactions.groupId} IS NULL`,
             gte(transactions.date, monthStart),
@@ -705,7 +764,11 @@ export async function getMonthSummary(
         .innerJoin(transactions, eq(transactions.groupId, transactionGroups.id))
         .where(
           and(
-            eq(transactionGroups.userId, userId),
+            // Own pots, plus owner pots reached through rows on shared accounts.
+            or(
+              eq(transactionGroups.userId, userId),
+              inArray(transactions.accountId, memberAccountIds(userId)),
+            ),
             sql`${transactions.type} != 'internal_transfer'`,
             gte(transactions.date, monthStart),
             lte(transactions.date, monthEnd),
@@ -1014,7 +1077,7 @@ export async function getTopCategories(userId: string, startDay: number = 1) {
       .leftJoin(accounts, eq(transactions.accountId, accounts.id))
       .where(
         and(
-          eq(transactions.userId, userId),
+          visibleTransactions(userId),
           eq(transactions.type, "expense"),
           notInArray(
             sql`COALESCE(${categories.name}, '')`,

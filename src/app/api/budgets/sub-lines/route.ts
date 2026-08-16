@@ -4,6 +4,7 @@ import { budgets, budgetSubLines } from "@/db/schema";
 import { eq, and, inArray } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
+import { resolveBudgetRowAccess } from "@/lib/budget-plan";
 import { isFiniteNumber, validateName, MONEY_EPSILON } from "@/lib/validation";
 import {
   MAX_SUB_LINE_DEPTH,
@@ -48,20 +49,28 @@ export async function POST(request: NextRequest) {
     }
 
     const [allocation] = await db
-      .select({ id: budgets.id, amount: budgets.amount })
+      .select({ id: budgets.id, amount: budgets.amount, userId: budgets.userId, budgetId: budgets.budgetId })
       .from(budgets)
-      .where(and(eq(budgets.id, allocationId), eq(budgets.userId, userId)))
+      .where(eq(budgets.id, allocationId))
       .limit(1);
     if (!allocation) {
       return NextResponse.json({ error: "Budget not found" }, { status: 404 });
     }
+    const access = await resolveBudgetRowAccess(userId, allocation);
+    if (!access.ok) {
+      return NextResponse.json(
+        { error: access.status === 403 ? "Read-only access" : "Budget not found" },
+        { status: access.status },
+      );
+    }
+    const dataUserId = access.dataUserId;
 
     // Cap check and insert share one transaction: read-then-write across two
     // connections lets two concurrent creates both see room that only one of
     // them can actually have.
     const id = crypto.randomUUID();
     const outcome = await db.transaction(async (tx) => {
-      if ((await countSubLines(tx, allocationId, userId)) >= MAX_SUB_LINES_PER_ALLOCATION) {
+      if ((await countSubLines(tx, allocationId, dataUserId)) >= MAX_SUB_LINES_PER_ALLOCATION) {
         return SUB_LINE_ERROR.tooMany;
       }
 
@@ -76,11 +85,11 @@ export async function POST(request: NextRequest) {
             allocationId: budgetSubLines.allocationId,
           })
           .from(budgetSubLines)
-          .where(and(eq(budgetSubLines.id, parentId), eq(budgetSubLines.userId, userId)))
+          .where(and(eq(budgetSubLines.id, parentId), eq(budgetSubLines.userId, dataUserId)))
           .limit(1);
         if (!parent || parent.allocationId !== allocationId) return "parent_not_found";
 
-        if ((await subLineDepth(tx, parent.id, userId)) + 1 > MAX_SUB_LINE_DEPTH) {
+        if ((await subLineDepth(tx, parent.id, dataUserId)) + 1 > MAX_SUB_LINE_DEPTH) {
           return SUB_LINE_ERROR.tooDeep;
         }
 
@@ -88,12 +97,12 @@ export async function POST(request: NextRequest) {
         resolvedParentId = parent.id;
       }
 
-      const siblingSum = await sumSiblings(tx, allocationId, userId, resolvedParentId);
+      const siblingSum = await sumSiblings(tx, allocationId, dataUserId, resolvedParentId);
       if (siblingSum + amount > cap + MONEY_EPSILON) return SUB_LINE_ERROR.exceedsParent;
 
       await tx.insert(budgetSubLines).values({
         id,
-        userId,
+        userId: dataUserId,
         allocationId,
         parentId: resolvedParentId,
         name: validatedName.value,
@@ -118,13 +127,14 @@ export async function POST(request: NextRequest) {
         parentId: outcome.parentId,
         name: validatedName.value,
         amount,
+        ...(dataUserId !== userId ? { accountOwnerId: dataUserId } : {}),
       },
     });
 
     const [created] = await db
       .select()
       .from(budgetSubLines)
-      .where(and(eq(budgetSubLines.id, id), eq(budgetSubLines.userId, userId)))
+      .where(and(eq(budgetSubLines.id, id), eq(budgetSubLines.userId, dataUserId)))
       .limit(1);
 
     return NextResponse.json(created, { status: 201 });
@@ -157,13 +167,38 @@ export async function PUT(request: NextRequest) {
       updates.amount = amount;
     }
 
+    const [subLine] = await db
+      .select({ allocationId: budgetSubLines.allocationId, userId: budgetSubLines.userId })
+      .from(budgetSubLines)
+      .where(eq(budgetSubLines.id, id))
+      .limit(1);
+    if (!subLine) {
+      return NextResponse.json({ error: "Sub-line not found" }, { status: 404 });
+    }
+    const [allocation] = await db
+      .select({ userId: budgets.userId, budgetId: budgets.budgetId })
+      .from(budgets)
+      .where(eq(budgets.id, subLine.allocationId))
+      .limit(1);
+    if (!allocation) {
+      return NextResponse.json({ error: "Sub-line not found" }, { status: 404 });
+    }
+    const access = await resolveBudgetRowAccess(userId, allocation);
+    if (!access.ok) {
+      return NextResponse.json(
+        { error: access.status === 403 ? "Read-only access" : "Sub-line not found" },
+        { status: access.status },
+      );
+    }
+    const dataUserId = access.dataUserId;
+
     // Same reasoning as POST: the caps are only meaningful if the row they
     // describe can't move between the check and the write.
     const outcome = await db.transaction(async (tx) => {
       const [existing] = await tx
         .select()
         .from(budgetSubLines)
-        .where(and(eq(budgetSubLines.id, id), eq(budgetSubLines.userId, userId)))
+        .where(and(eq(budgetSubLines.id, id), eq(budgetSubLines.userId, dataUserId)))
         .limit(1);
       if (!existing) return "not_found";
 
@@ -176,7 +211,7 @@ export async function PUT(request: NextRequest) {
             .where(
               and(
                 eq(budgetSubLines.id, existing.parentId),
-                eq(budgetSubLines.userId, userId),
+                eq(budgetSubLines.userId, dataUserId),
               ),
             )
             .limit(1);
@@ -188,7 +223,7 @@ export async function PUT(request: NextRequest) {
             .where(
               and(
                 eq(budgets.id, existing.allocationId),
-                eq(budgets.userId, userId),
+                eq(budgets.userId, dataUserId),
               ),
             )
             .limit(1);
@@ -198,7 +233,7 @@ export async function PUT(request: NextRequest) {
         const siblingSum = await sumSiblings(
           tx,
           existing.allocationId,
-          userId,
+          dataUserId,
           existing.parentId,
           existing.id,
         );
@@ -206,7 +241,7 @@ export async function PUT(request: NextRequest) {
           return SUB_LINE_ERROR.exceedsParent;
         }
 
-        const childrenSum = await sumChildren(tx, existing.id, userId);
+        const childrenSum = await sumChildren(tx, existing.id, dataUserId);
         if (updates.amount < childrenSum - MONEY_EPSILON) {
           return SUB_LINE_ERROR.belowChildren;
         }
@@ -216,7 +251,7 @@ export async function PUT(request: NextRequest) {
         await tx
           .update(budgetSubLines)
           .set(updates)
-          .where(and(eq(budgetSubLines.id, id), eq(budgetSubLines.userId, userId)));
+          .where(and(eq(budgetSubLines.id, id), eq(budgetSubLines.userId, dataUserId)));
       }
       return "ok";
     });
@@ -232,14 +267,14 @@ export async function PUT(request: NextRequest) {
         action: "budget_subline_update",
         targetId: id,
         targetType: "budget_sub_line",
-        details: updates,
+        details: { ...updates, ...(dataUserId !== userId ? { accountOwnerId: dataUserId } : {}) },
       });
     }
 
     const [updated] = await db
       .select()
       .from(budgetSubLines)
-      .where(and(eq(budgetSubLines.id, id), eq(budgetSubLines.userId, userId)))
+      .where(and(eq(budgetSubLines.id, id), eq(budgetSubLines.userId, dataUserId)))
       .limit(1);
 
     return NextResponse.json(updated);
@@ -257,11 +292,36 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "Sub-line ID is required" }, { status: 400 });
     }
 
+    const [subLine] = await db
+      .select({ allocationId: budgetSubLines.allocationId, userId: budgetSubLines.userId })
+      .from(budgetSubLines)
+      .where(eq(budgetSubLines.id, id))
+      .limit(1);
+    if (!subLine) {
+      return NextResponse.json({ error: "Sub-line not found" }, { status: 404 });
+    }
+    const [allocation] = await db
+      .select({ userId: budgets.userId, budgetId: budgets.budgetId })
+      .from(budgets)
+      .where(eq(budgets.id, subLine.allocationId))
+      .limit(1);
+    if (!allocation) {
+      return NextResponse.json({ error: "Sub-line not found" }, { status: 404 });
+    }
+    const access = await resolveBudgetRowAccess(userId, allocation);
+    if (!access.ok) {
+      return NextResponse.json(
+        { error: access.status === 403 ? "Read-only access" : "Sub-line not found" },
+        { status: access.status },
+      );
+    }
+    const dataUserId = access.dataUserId;
+
     const found = await db.transaction(async (tx) => {
       const [existing] = await tx
         .select({ id: budgetSubLines.id })
         .from(budgetSubLines)
-        .where(and(eq(budgetSubLines.id, id), eq(budgetSubLines.userId, userId)))
+        .where(and(eq(budgetSubLines.id, id), eq(budgetSubLines.userId, dataUserId)))
         .limit(1);
       if (!existing) return false;
 
@@ -277,7 +337,7 @@ export async function DELETE(request: NextRequest) {
           .where(
             and(
               inArray(budgetSubLines.parentId, frontier),
-              eq(budgetSubLines.userId, userId),
+              eq(budgetSubLines.userId, dataUserId),
             ),
           );
         frontier = children.map((c) => c.id);
@@ -289,7 +349,7 @@ export async function DELETE(request: NextRequest) {
       await tx
         .delete(budgetSubLines)
         .where(
-          and(inArray(budgetSubLines.id, doomed), eq(budgetSubLines.userId, userId)),
+          and(inArray(budgetSubLines.id, doomed), eq(budgetSubLines.userId, dataUserId)),
         );
       return true;
     });
@@ -303,6 +363,7 @@ export async function DELETE(request: NextRequest) {
       action: "budget_subline_delete",
       targetId: id,
       targetType: "budget_sub_line",
+      details: dataUserId !== userId ? { accountOwnerId: dataUserId } : undefined,
     });
 
     return NextResponse.json({ success: true });
