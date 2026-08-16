@@ -95,6 +95,20 @@ export async function POST(
       return NextResponse.json({ error: "You already own this account" }, { status: 400 });
     }
 
+    // Sharing is invite-only for people who already signed up — the link never
+    // creates an account, so an unknown address would get a dead invite.
+    const invitee = await db
+      .select({ id: user.id })
+      .from(user)
+      .where(eq(user.email, cleanEmail))
+      .get();
+    if (!invitee) {
+      return NextResponse.json(
+        { error: "No FinTrack account uses that email — ask them to sign up first" },
+        { status: 404 },
+      );
+    }
+
     if ((await countLiveMembers(id, ownerId)) >= MAX_MEMBERS_PER_ACCOUNT) {
       return NextResponse.json(
         { error: `An account can be shared with at most ${MAX_MEMBERS_PER_ACCOUNT} people` },

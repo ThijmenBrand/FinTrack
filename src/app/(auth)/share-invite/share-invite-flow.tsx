@@ -5,14 +5,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Users } from "lucide-react";
 import { useSession } from "@/lib/auth-client";
-import { MIN_PASSWORD_LENGTH } from "@/lib/validation";
 import { useI18n } from "@/lib/i18n/client";
 import type { MessageKey } from "@/lib/i18n/translate";
 import {
   AuthHeading,
   AuthShell,
   authButtonClass,
-  authInputClass,
   authSecondaryButtonClass,
 } from "../_components/auth-shell";
 
@@ -21,7 +19,6 @@ interface ShareInviteInfo {
   ownerName: string | null;
   email: string;
   role: "viewer" | "editor";
-  userExists: boolean;
 }
 
 const ROLE_LABEL: Record<ShareInviteInfo["role"], MessageKey> = {
@@ -42,8 +39,6 @@ export default function ShareInviteFlow() {
   // be read during render.
   const [tokenParam, setTokenParam] = useState("");
   const [invite, setInvite] = useState<ShareInviteInfo | null>(null);
-  const [name, setName] = useState("");
-  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -85,47 +80,6 @@ export default function ShareInviteFlow() {
         }
         return;
       }
-      setStatus("done");
-      router.push("/accounts");
-    } catch {
-      setError(t("auth.genericError"));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleSignupSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError("");
-
-    if (password.length < MIN_PASSWORD_LENGTH) {
-      setError(t("auth.passwordMinChars", { count: MIN_PASSWORD_LENGTH }));
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const res = await fetch("/api/shares/accept", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token: token.current, name: name.trim(), password }),
-      });
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        if (res.status === 410) {
-          setStatus("invalid");
-        } else {
-          setError(data.error || t("auth.genericError"));
-        }
-        return;
-      }
-
-      if (data.signedIn === false) {
-        router.push("/login");
-        return;
-      }
-
       setStatus("done");
       router.push("/accounts");
     } catch {
@@ -181,68 +135,13 @@ export default function ShareInviteFlow() {
                 {loading ? t("common.saving") : t("sharing.invite.accept")}
               </button>
             </div>
-          ) : invite.userExists ? (
+          ) : (
             <div className="space-y-4">
               <p className="text-muted-foreground">{t("sharing.invite.logInFirst")}</p>
               <Link href={loginRedirect} className={authButtonClass}>
                 {t("auth.signIn")}
               </Link>
             </div>
-          ) : (
-            <form onSubmit={handleSignupSubmit} className="space-y-5">
-              <div className="space-y-2">
-                <label className="text-sm font-medium leading-none text-foreground">
-                  {t("auth.email")}
-                </label>
-                <p className="text-sm text-muted-foreground">{invite.email}</p>
-              </div>
-
-              <div className="space-y-2">
-                <label
-                  htmlFor="displayName"
-                  className="text-sm font-medium leading-none text-foreground"
-                >
-                  {t("auth.displayName")}
-                </label>
-                <input
-                  id="displayName"
-                  type="text"
-                  autoComplete="name"
-                  autoFocus
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className={authInputClass}
-                  placeholder={t("auth.displayNamePlaceholder")}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label
-                  htmlFor="password"
-                  className="text-sm font-medium leading-none text-foreground"
-                >
-                  {t("auth.password")}
-                </label>
-                <input
-                  id="password"
-                  type="password"
-                  autoComplete="new-password"
-                  required
-                  minLength={MIN_PASSWORD_LENGTH}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className={authInputClass}
-                  placeholder={t("auth.passwordMinChars", { count: MIN_PASSWORD_LENGTH })}
-                />
-              </div>
-
-              {error && <p className="text-sm text-destructive">{error}</p>}
-
-              <button type="submit" disabled={loading} className={authButtonClass}>
-                {loading ? t("auth.creatingAccount") : t("sharing.invite.accept")}
-              </button>
-            </form>
           )}
         </div>
       )}
