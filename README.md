@@ -64,7 +64,7 @@ internal transfers between accounts, category rules, budgets, three pots
 ```bash
 pnpm run db:seed                      # 12 months for "demo"
 pnpm run db:seed -- --months 3        # shorter history
-pnpm run db:seed -- --user alice --password hunter2   # a second user, created if missing
+pnpm run db:seed -- --user alice --password '<password>'   # a second user, created if missing
 pnpm run db:reset                     # delete the DB, migrate, reseed from scratch
 ```
 
