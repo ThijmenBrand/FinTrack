@@ -84,9 +84,12 @@ export async function getYearlyBudgetView(
   monthIndex: number,
   startDay: number,
   now: Date = new Date(),
+  // A member viewing a shared plan must not freeze the owner's month targets —
+  // reads stay reads. The owner's own visit freezes as before.
+  freeze: boolean = true,
 ): Promise<YearlyBudgetView> {
   const [ledger, income, categoryRows] = await Promise.all([
-    buildLedgerYear(userId, plan, year, startDay, now),
+    buildLedgerYear(userId, plan, year, startDay, now, freeze),
     getAnnualIncome(userId, year, startDay, plan.accountIds, now),
     db
       .select({ id: categories.id, name: categories.name, color: categories.color })

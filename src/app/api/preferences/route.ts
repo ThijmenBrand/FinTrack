@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { accounts } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { isLocale } from "@/lib/i18n";
+import { resolveBudgetPlan } from "@/lib/budget-plan";
 
 export async function GET() {
   return withUser(async (userId) => {
@@ -42,6 +43,19 @@ export async function PUT(request: NextRequest) {
           return NextResponse.json({ error: "Invalid defaultAccountId" }, { status: 400 });
         }
         patch.defaultAccountId = raw;
+      }
+    }
+    if ("mainBudgetPlanId" in (body ?? {})) {
+      const raw = body.mainBudgetPlanId;
+      if (raw === null || raw === "") {
+        patch.mainBudgetPlanId = null;
+      } else if (typeof raw === "string") {
+        // Accessible = own plan, or a plan with ≥1 account shared with the user.
+        const plan = await resolveBudgetPlan(userId, raw);
+        if (!plan) {
+          return NextResponse.json({ error: "Invalid mainBudgetPlanId" }, { status: 400 });
+        }
+        patch.mainBudgetPlanId = raw;
       }
     }
     const prefs = await updateUserPreferences(userId, patch);

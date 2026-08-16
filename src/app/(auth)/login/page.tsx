@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Fingerprint } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
@@ -27,11 +27,18 @@ export default function LoginPage() {
   const [signupsEnabled, setSignupsEnabled] = useState(false);
   const [justVerified, setJustVerified] = useState(false);
   const router = useRouter();
+  // Where a successful sign-in lands — e.g. back to a share invite the user
+  // had to log in first to accept. Only same-origin paths are honored.
+  const redirectTo = useRef("/");
 
   useEffect(() => {
     // window.location instead of useSearchParams to avoid a Suspense boundary
-    const verified =
-      new URLSearchParams(window.location.search).get("verified") === "1";
+    const params = new URLSearchParams(window.location.search);
+    const verified = params.get("verified") === "1";
+    const redirect = params.get("redirect") || "";
+    if (redirect.startsWith("/") && !redirect.startsWith("//")) {
+      redirectTo.current = redirect;
+    }
     fetch("/api/signup-status")
       .then((r) => r.json())
       .then((d) => setSignupsEnabled(!!d.enabled))
@@ -85,7 +92,7 @@ export default function LoginPage() {
       // ponytail: the lockscreen key predates email login — it holds an email now.
       localStorage.setItem("lockscreen_username", email.trim());
       localStorage.setItem("lockscreen_last_active", String(Date.now()));
-      router.push("/");
+      router.push(redirectTo.current);
     } catch {
       setError(t("auth.genericError"));
     } finally {
@@ -107,7 +114,7 @@ export default function LoginPage() {
         localStorage.setItem("lockscreen_username", email.trim());
       }
       localStorage.setItem("lockscreen_last_active", String(Date.now()));
-      router.push("/");
+      router.push(redirectTo.current);
     } catch {
       setError(t("auth.biometricFailedRetry"));
     } finally {

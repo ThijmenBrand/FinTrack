@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { accounts, transactions } from "@/db/schema";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, inArray } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { toIsoDate } from "@/lib/utils";
+import { visibleAccounts, visibleTransactions } from "@/lib/account-access";
 
 /**
  * GET /api/insights/balance — daily balance time series for an account (or all accounts).
@@ -25,8 +26,8 @@ export async function GET(request: NextRequest) {
     const dateFromParam = searchParams.get("dateFrom");
     const dateToParam = searchParams.get("dateTo");
 
-    // 1. Accounts in scope
-    const acctConditions = [eq(accounts.userId, userId)];
+    // 1. Accounts in scope — own plus actively shared.
+    const acctConditions = [visibleAccounts(userId)];
     if (accountIds.length > 0)
       acctConditions.push(inArray(accounts.id, accountIds));
     const acctList = await db
@@ -49,7 +50,7 @@ export async function GET(request: NextRequest) {
     const accountName = accountIds.length === 1 ? acctList[0].name : null;
 
     // 2. Fetch all transactions for in-scope accounts
-    const txConditions = [eq(transactions.userId, userId)];
+    const txConditions = [visibleTransactions(userId)];
     if (accountIds.length > 0)
       txConditions.push(inArray(transactions.accountId, accountIds));
     const allTx = await db

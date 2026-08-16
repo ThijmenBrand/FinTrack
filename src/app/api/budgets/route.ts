@@ -20,7 +20,7 @@ import { toMonthly, getCurrentMonthRange } from "@/lib/month-money";
 import { isFiniteNumber, MONEY_EPSILON } from "@/lib/validation";
 import { SUB_LINE_ERROR, SUB_LINE_ERROR_MESSAGE, sumSiblings } from "@/lib/budget-sub-lines";
 import { getStatsCutoff } from "@/lib/stat-reset";
-import { accountScopeFilter, resolveBudgetPlan } from "@/lib/budget-plan";
+import { accountScopeFilter, resolveBudgetPlan, resolveBudgetRowAccess } from "@/lib/budget-plan";
 import { financialYearOf } from "@/lib/financial-year";
 import {
   getYearlyBudgetView,
@@ -112,6 +112,14 @@ export async function GET(request: NextRequest) {
     if (budgetIdParam && !plan) {
       return NextResponse.json({ error: "Budget not found" }, { status: 404 });
     }
+    // A shared plan reads entirely as its OWNER — allocations, categories,
+    // spending and the owner's financial-month window — so member and owner
+    // see identical numbers. Own plans: dataUserId === userId.
+    const dataUserId = plan?.ownerId ?? userId;
+    const startDay =
+      plan && plan.ownerId !== userId
+        ? (await getUserPreferences(plan.ownerId)).financialMonthStartDay
+        : prefs.financialMonthStartDay;
 
     // Every spend-derived number in this endpoint respects one scope: an
     // explicit accountId param wins, otherwise the plan's accounts (main plan
@@ -131,7 +139,7 @@ export async function GET(request: NextRequest) {
       dateFromParam <= dateToParam;
     const { from, to } = useRange
       ? { from: dateFromParam!, to: dateToParam! }
-      : getCurrentMonthRange(prefs.financialMonthStartDay);
+      : getCurrentMonthRange(startDay);
 
     // Scale monthly budget figures so they're comparable to spending in the range.
     // E.g. a 3-month range scales the monthly cap ×3 so spent-vs-budget is apples-to-apples.
@@ -160,7 +168,7 @@ export async function GET(request: NextRequest) {
           sql`${transactions.type} != 'internal_transfer'`,
           gte(transactions.date, from),
           lte(transactions.date, to),
-          eq(transactions.userId, userId),
+          eq(transactions.userId, dataUserId),
           ...(scopeFilter ? [scopeFilter] : []),
         ),
       )
@@ -192,7 +200,7 @@ export async function GET(request: NextRequest) {
         and(
           eq(recurringTransactions.type, "income"),
           eq(recurringTransactions.isActive, true),
-          eq(recurringTransactions.userId, userId),
+          eq(recurringTransactions.userId, dataUserId),
           ...(recurringScopeFilter ? [recurringScopeFilter] : []),
         ),
       );
@@ -218,7 +226,7 @@ export async function GET(request: NextRequest) {
         and(
           eq(recurringTransactions.type, "expense"),
           eq(recurringTransactions.isActive, true),
-          eq(recurringTransactions.userId, userId),
+          eq(recurringTransactions.userId, dataUserId),
           ...(recurringScopeFilter ? [recurringScopeFilter] : []),
         ),
       );
@@ -276,7 +284,7 @@ export async function GET(request: NextRequest) {
       .leftJoin(categories, eq(budgets.categoryId, categories.id))
       .where(
         and(
-          eq(budgets.userId, userId),
+          eq(budgets.userId, dataUserId),
           eq(budgets.status, "active"),
           eq(budgets.isActive, true),
           ...(plan ? [eq(budgets.budgetId, plan.id)] : []),
@@ -297,7 +305,7 @@ export async function GET(request: NextRequest) {
       .leftJoin(categories, eq(budgets.categoryId, categories.id))
       .where(
         and(
-          eq(budgets.userId, userId),
+          eq(budgets.userId, dataUserId),
           eq(budgets.status, "suggested"),
           ...(plan ? [eq(budgets.budgetId, plan.id)] : []),
         ),
@@ -314,7 +322,7 @@ export async function GET(request: NextRequest) {
       .from(transactions)
       .where(
         and(
-          eq(transactions.userId, userId),
+          eq(transactions.userId, dataUserId),
           eq(transactions.type, "expense"),
           sql`${transactions.groupId} IS NULL`,
           gte(transactions.date, from),
@@ -349,7 +357,7 @@ export async function GET(request: NextRequest) {
             .where(
               and(
                 inArray(budgetSubLines.allocationId, allAllocationIds),
-                eq(budgetSubLines.userId, userId),
+                eq(budgetSubLines.userId, dataUserId),
               ),
             )
             .orderBy(budgetSubLines.createdAt)
@@ -420,7 +428,7 @@ export async function GET(request: NextRequest) {
     // Must match the current-month logic: exclude grouped transactions, subtract reimbursements
     // A statistics reset restarts this average: months before the cutoff are
     // history, not evidence, so they neither add spend nor count as months.
-    const statsCutoff = await getStatsCutoff(userId);
+    const statsCutoff = await getStatsCutoff(dataUserId);
     const monthlySpendingByCategory = await db
       .select({
         categoryId: transactions.categoryId,
@@ -435,7 +443,7 @@ export async function GET(request: NextRequest) {
           // Exclude current month — only completed months
           sql`substr(${transactions.date}, 1, 7) < ${from.slice(0, 7)}`,
           ...(statsCutoff ? [gte(transactions.date, statsCutoff)] : []),
-          eq(transactions.userId, userId),
+          eq(transactions.userId, dataUserId),
           ...(scopeFilter ? [scopeFilter] : []),
         ),
       )
@@ -540,7 +548,7 @@ export async function GET(request: NextRequest) {
               color: categories.color,
             })
             .from(categories)
-            .where(and(inArray(categories.id, unbudgetedCatIds), eq(categories.userId, userId)))
+            .where(and(inArray(categories.id, unbudgetedCatIds), eq(categories.userId, dataUserId)))
         : [];
     const unbudgetedCategoryMeta = new Map<
       string,
@@ -605,22 +613,30 @@ export async function GET(request: NextRequest) {
     // A yearly plan gets an extra block: one annual envelope per category with
     // the carry-over chain resolved. The monthly figures above stay as they
     // are so every other consumer of this endpoint is unaffected.
-    const startDay = prefs.financialMonthStartDay;
     const year = yearParam ?? financialYearOf(new Date(), startDay);
     const yearly =
       plan?.period === "yearly"
         ? await getYearlyBudgetView(
-            userId,
+            dataUserId,
             plan,
             year,
             normaliseMonthIndex(monthIndexParam, year, startDay),
             startDay,
+            new Date(),
+            plan.role === "owner",
           )
         : null;
 
     return NextResponse.json({
       plan: plan
-        ? { id: plan.id, name: plan.name, isMain: plan.isMain, period: plan.period }
+        ? {
+            id: plan.id,
+            name: plan.name,
+            isMain: plan.isMain,
+            period: plan.period,
+            role: plan.role,
+            ownerName: plan.ownerName,
+          }
         : null,
       yearly,
       monthlyIncome: Math.round(scaledMonthlyIncome * 100) / 100,
@@ -680,11 +696,19 @@ export async function POST(request: NextRequest) {
     if (budgetId && !plan) {
       return NextResponse.json({ error: "Budget not found" }, { status: 404 });
     }
+    // Viewers on a shared plan are read-only; editors may allocate same as
+    // the owner.
+    if (plan && plan.role === "viewer") {
+      return NextResponse.json({ error: "Read-only access" }, { status: 403 });
+    }
+    // Allocations are plan-owned data: every row (and the category it
+    // references) lives in the OWNER's space — own plans: dataUserId === userId.
+    const dataUserId = plan?.ownerId ?? userId;
 
     const [ownedCategory] = await db
       .select({ id: categories.id })
       .from(categories)
-      .where(and(eq(categories.id, categoryId), eq(categories.userId, userId)))
+      .where(and(eq(categories.id, categoryId), eq(categories.userId, dataUserId)))
       .limit(1);
     if (!ownedCategory) {
       return NextResponse.json({ error: "Category not found" }, { status: 404 });
@@ -697,15 +721,21 @@ export async function POST(request: NextRequest) {
       .where(
         and(
           eq(budgets.categoryId, categoryId),
-          eq(budgets.userId, userId),
+          eq(budgets.userId, dataUserId),
           eq(budgets.status, "active"),
           plan ? eq(budgets.budgetId, plan.id) : sql`${budgets.budgetId} IS NULL`,
         ),
       );
 
+    const auditDetails = {
+      categoryId,
+      amount,
+      ...(dataUserId !== userId ? { accountOwnerId: dataUserId } : {}),
+    };
+
     if (existing.length > 0) {
       // Update existing
-      const rootSubLineSum = await sumRootSubLines(existing[0].id, userId);
+      const rootSubLineSum = await sumRootSubLines(existing[0].id, dataUserId);
       if (amount < rootSubLineSum - MONEY_EPSILON) {
         return NextResponse.json(
           {
@@ -718,13 +748,13 @@ export async function POST(request: NextRequest) {
       await db
         .update(budgets)
         .set({ amount, source: "manual" })
-        .where(and(eq(budgets.id, existing[0].id), eq(budgets.userId, userId)));
+        .where(and(eq(budgets.id, existing[0].id), eq(budgets.userId, dataUserId)));
       logDataEvent({
         userId,
         action: "budget_update",
         targetId: existing[0].id,
         targetType: "budget",
-        details: { categoryId, amount },
+        details: auditDetails,
       });
       return NextResponse.json({ success: true, id: existing[0].id });
     }
@@ -740,7 +770,7 @@ export async function POST(request: NextRequest) {
       status: "active",
       source: "manual",
       createdAt: new Date().toISOString(),
-      userId,
+      userId: dataUserId,
     });
 
     logDataEvent({
@@ -748,7 +778,7 @@ export async function POST(request: NextRequest) {
       action: "budget_create",
       targetId: id,
       targetType: "budget",
-      details: { categoryId, amount },
+      details: auditDetails,
     });
 
     return NextResponse.json({ success: true, id }, { status: 201 });
@@ -774,7 +804,24 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    const rootSubLineSum = await sumRootSubLines(id, userId);
+    const [existing] = await db
+      .select({ userId: budgets.userId, budgetId: budgets.budgetId })
+      .from(budgets)
+      .where(eq(budgets.id, id))
+      .limit(1);
+    if (!existing) {
+      return NextResponse.json({ error: "Budget not found" }, { status: 404 });
+    }
+    const access = await resolveBudgetRowAccess(userId, existing);
+    if (!access.ok) {
+      return NextResponse.json(
+        { error: access.status === 403 ? "Read-only access" : "Budget not found" },
+        { status: access.status },
+      );
+    }
+    const dataUserId = access.dataUserId;
+
+    const rootSubLineSum = await sumRootSubLines(id, dataUserId);
     if (amount < rootSubLineSum - MONEY_EPSILON) {
       return NextResponse.json(
         {
@@ -788,14 +835,14 @@ export async function PUT(request: NextRequest) {
     await db
       .update(budgets)
       .set({ amount })
-      .where(and(eq(budgets.id, id), eq(budgets.userId, userId)));
+      .where(and(eq(budgets.id, id), eq(budgets.userId, dataUserId)));
 
     logDataEvent({
       userId,
       action: "budget_update",
       targetId: id,
       targetType: "budget",
-      details: { amount },
+      details: { amount, ...(dataUserId !== userId ? { accountOwnerId: dataUserId } : {}) },
     });
 
     return NextResponse.json({ success: true });
@@ -815,17 +862,34 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
+    const [existing] = await db
+      .select({ userId: budgets.userId, budgetId: budgets.budgetId })
+      .from(budgets)
+      .where(eq(budgets.id, id))
+      .limit(1);
+    if (!existing) {
+      return NextResponse.json({ error: "Budget not found" }, { status: 404 });
+    }
+    const access = await resolveBudgetRowAccess(userId, existing);
+    if (!access.ok) {
+      return NextResponse.json(
+        { error: access.status === 403 ? "Read-only access" : "Budget not found" },
+        { status: access.status },
+      );
+    }
+    const dataUserId = access.dataUserId;
+
     // Explicit cleanup instead of relying on FK cascades — libsql connections
     // don't guarantee foreign_keys=ON.
     await db.transaction(async (tx) => {
       await tx
         .delete(budgetSubLines)
         .where(
-          and(eq(budgetSubLines.allocationId, id), eq(budgetSubLines.userId, userId)),
+          and(eq(budgetSubLines.allocationId, id), eq(budgetSubLines.userId, dataUserId)),
         );
       await tx
         .delete(budgets)
-        .where(and(eq(budgets.id, id), eq(budgets.userId, userId)));
+        .where(and(eq(budgets.id, id), eq(budgets.userId, dataUserId)));
     });
 
     logDataEvent({
@@ -833,6 +897,7 @@ export async function DELETE(request: NextRequest) {
       action: "budget_delete",
       targetId: id,
       targetType: "budget",
+      details: dataUserId !== userId ? { accountOwnerId: dataUserId } : undefined,
     });
 
     return NextResponse.json({ success: true });

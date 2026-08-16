@@ -302,7 +302,7 @@ export default function BudgetsPage() {
             {t("budgets.noAccounts.body")}
           </p>
           <Button asChild className="mt-2">
-            <Link href="/settings/accounts">{t("budgets.noAccounts.cta")}</Link>
+            <Link href="/accounts">{t("budgets.noAccounts.cta")}</Link>
           </Button>
         </CardContent>
       </Card>
@@ -335,9 +335,14 @@ export default function BudgetsPage() {
   // Over budget first, then by how much of the budget is used.
   const allocations = [...data.allocations].sort(byUrgency);
 
+  // A viewer-role shared plan is read-only everywhere below: no allocation
+  // edits, no suggestions to act on. "editor" (and the absent activePlan case,
+  // pre-plan users) stay fully editable.
+  const canEdit = activePlan ? activePlan.role !== "viewer" : true;
+
   const hasSuggestions = data.suggestions.length > 0;
   const showRegenBanner =
-    isCurrentPeriod && data.automation.regenerationDue && !hasSuggestions && !simple;
+    isCurrentPeriod && data.automation.regenerationDue && !hasSuggestions && !simple && canEdit;
   // One count for the heading, the stat and the empty state. A yearly plan
   // draws its rows from the envelope rather than the flat allocations, so it
   // has to be counted there or the three disagree the moment they diverge.
@@ -487,7 +492,7 @@ export default function BudgetsPage() {
         </NoticeLine>
       )}
 
-      {isCurrentPeriod && hasSuggestions && !simple && (
+      {isCurrentPeriod && hasSuggestions && !simple && canEdit && (
         <NoticeLine icon={Sparkles} filled iconTone="text-primary">
           <span className="text-muted-foreground">
             {plural(
@@ -583,7 +588,7 @@ export default function BudgetsPage() {
             }
             action={
               <>
-                {isCurrentPeriod && !simple && (
+                {isCurrentPeriod && !simple && canEdit && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -603,7 +608,7 @@ export default function BudgetsPage() {
                       : t("budgets.generateFromHistory")}
                   </Button>
                 )}
-                {isCurrentPeriod && (
+                {isCurrentPeriod && canEdit && (
                   <AllocationDialog
                     key={editingAlloc?.id ?? "new"}
                     open={dialogOpen}
@@ -654,6 +659,7 @@ export default function BudgetsPage() {
               {/* Suggestion rows on top with inline accept/reject */}
               {isCurrentPeriod &&
                 !simple &&
+                canEdit &&
                 data.suggestions.map((s) => (
                   <SuggestionRow
                     key={s.id}
@@ -672,7 +678,7 @@ export default function BudgetsPage() {
                           category={category}
                           alloc={alloc}
                           scope={yearScope ? "year" : "month"}
-                          readOnly={!isCurrentPeriod}
+                          readOnly={!isCurrentPeriod || !canEdit}
                           deletePending={deleteBudget.isPending}
                           onHistory={() => alloc && setHistoryAlloc(alloc)}
                           onEdit={() => alloc && openEdit(alloc)}
@@ -692,7 +698,7 @@ export default function BudgetsPage() {
                                 Math.round(stored * MONTHS_PER_YEAR * 100) / 100
                               }
                               toStored={(shown) => shown / MONTHS_PER_YEAR}
-                              readOnly={!isCurrentPeriod}
+                              readOnly={!isCurrentPeriod || !canEdit}
                             />
                           ) : (
                             // ponytail: yearly month figures are the current split
@@ -718,7 +724,7 @@ export default function BudgetsPage() {
                     <Fragment key={alloc.id}>
                       <AllocationRow
                         alloc={alloc}
-                        readOnly={!isCurrentPeriod}
+                        readOnly={!isCurrentPeriod || !canEdit}
                         deletePending={deleteBudget.isPending}
                         onHistory={() => setHistoryAlloc(alloc)}
                         onEdit={() => openEdit(alloc)}
@@ -732,7 +738,7 @@ export default function BudgetsPage() {
                           cap={alloc.amount}
                           toDisplay={(stored) => stored}
                           toStored={(shown) => shown}
-                          readOnly={!isCurrentPeriod}
+                          readOnly={!isCurrentPeriod || !canEdit}
                         />
                       )}
                     </Fragment>

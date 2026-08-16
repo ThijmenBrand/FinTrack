@@ -525,6 +525,9 @@ describe("regenerateBudgetSuggestions", () => {
       name: "Main",
       isMain: true, period: "monthly" as const, periodStartedAt: null,
       accountIds: ["acct-1"],
+      ownerId: TEST_USER_ID,
+      role: "owner" as const,
+      ownerName: null,
     });
 
     // Only acct-1's €100 counts, not acct-2's €400.
@@ -551,6 +554,9 @@ describe("regenerateBudgetSuggestions", () => {
       name: "Empty",
       isMain: false, period: "monthly" as const, periodStartedAt: null,
       accountIds: [],
+      ownerId: TEST_USER_ID,
+      role: "owner" as const,
+      ownerName: null,
     });
     expect(suggestions).toHaveLength(0);
   });
@@ -564,6 +570,9 @@ describe("regenerateBudgetSuggestions", () => {
       name: "Empty",
       isMain: false, period: "monthly" as const, periodStartedAt: null,
       accountIds: [],
+      ownerId: TEST_USER_ID,
+      role: "owner" as const,
+      ownerName: null,
     });
     expect(reason).toBe("no-accounts");
   });

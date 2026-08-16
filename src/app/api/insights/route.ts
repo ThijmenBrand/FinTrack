@@ -8,6 +8,7 @@ import { getStatsCutoff, isBeforeCutoff } from "@/lib/stat-reset";
 import { trendWindow } from "@/lib/trend-window";
 import { resolveBudgetPlan } from "@/lib/budget-plan";
 import { getUserPreferences } from "@/lib/preferences";
+import { visibleCategories, visibleTransactions } from "@/lib/account-access";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 /** Months of history the monthly bars always cover, current month included. */
@@ -40,6 +41,10 @@ export async function GET(request: NextRequest) {
     if (budgetIdParam && !plan) {
       return NextResponse.json({ error: "Budget not found" }, { status: 404 });
     }
+    // A shared plan's insights read as the plan OWNER (their rows carry the
+    // owner's user_id); everything else reads as the caller plus their shared
+    // accounts. dataUserId === userId for own plans.
+    const dataUserId = plan?.ownerId ?? userId;
 
     // accountId may be a comma-separated list of account ids
     const accountIds = plan
@@ -52,26 +57,28 @@ export async function GET(request: NextRequest) {
     // counterpart sits on an account OUTSIDE the plan is money leaving (or
     // entering) this budget. Only linked transfers qualify — an unlinked
     // internal_transfer has no known counterpart, so it stays excluded.
-    const prefs = plan ? await getUserPreferences(userId) : null;
+    const prefs = plan ? await getUserPreferences(dataUserId) : null;
     const countCrossTransfers =
       !!plan && !!prefs?.countCrossBudgetTransfers && accountIds.length > 0;
     const crossOut = countCrossTransfers
       ? sql`(${transactions.type} = 'internal_transfer' AND ${transactions.amount} < 0 AND EXISTS (
           SELECT 1 FROM transactions t2 WHERE t2.id = ${transactions.linkedTransactionId}
-            AND t2.user_id = ${userId}
+            AND t2.user_id = ${dataUserId}
             AND ${notInArray(sql`t2.account_id`, accountIds)}
         ))`
       : sql`0`;
     const crossIn = countCrossTransfers
       ? sql`(${transactions.type} = 'internal_transfer' AND ${transactions.amount} > 0 AND EXISTS (
           SELECT 1 FROM transactions t2 WHERE t2.id = ${transactions.linkedTransactionId}
-            AND t2.user_id = ${userId}
+            AND t2.user_id = ${dataUserId}
             AND ${notInArray(sql`t2.account_id`, accountIds)}
         ))`
       : sql`0`;
 
     const buildConditions = (from: string | null, to: string | null) => {
-      const conds: SQL[] = [eq(transactions.userId, userId)];
+      const conds: SQL[] = [
+        plan ? eq(transactions.userId, dataUserId) : visibleTransactions(userId),
+      ];
       if (from) conds.push(gte(transactions.date, from));
       if (to) conds.push(lte(transactions.date, to));
       if (emptyPlanScope) conds.push(sql`1=0`);
@@ -361,7 +368,8 @@ export async function GET(request: NextRequest) {
           color: categories.color,
         })
         .from(categories)
-        .where(and(inArray(categories.id, breakdownCatIds), eq(categories.userId, userId)));
+        // Owner category ids appear on shared rows; resolve their labels too.
+        .where(and(inArray(categories.id, breakdownCatIds), visibleCategories(userId)));
       for (const m of metas) {
         const entry = breakdownByCat.get(m.id);
         if (entry) {
@@ -381,7 +389,7 @@ export async function GET(request: NextRequest) {
     // delta against it would read as a real change when it is only the reset.
     // Clamping the period instead would compare a short window to a full one —
     // equally wrong. Return null and tell the client why.
-    const statsCutoff = await getStatsCutoff(userId);
+    const statsCutoff = await getStatsCutoff(dataUserId);
     const previousPredatesReset = isBeforeCutoff(prevDateFrom, statsCutoff);
     let previous: {
       totalIncome: number;

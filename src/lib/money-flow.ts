@@ -13,10 +13,17 @@ import {
   inArray,
   lte,
   not,
+  or,
   sql,
   type SQL,
 } from "drizzle-orm";
 import { effectiveExpenseAmount, potSpentAmount } from "@/lib/reimbursement-sql";
+import {
+  memberAccountIds,
+  visibleAccounts,
+  visibleCategories,
+  visibleTransactions,
+} from "@/lib/account-access";
 import type { MoneyFlowData } from "@/types/api";
 
 /** Beyond this the diagram is unreadable; the tail is merged into "Other". */
@@ -89,7 +96,7 @@ export async function buildMoneyFlow(
 ): Promise<MoneyFlowData> {
   const accountIds = range.accountIds ?? [];
 
-  const conds: SQL[] = [eq(transactions.userId, userId)];
+  const conds: SQL[] = [visibleTransactions(userId)];
   if (range.dateFrom) conds.push(gte(transactions.date, range.dateFrom));
   if (range.dateTo) conds.push(lte(transactions.date, range.dateTo));
   if (accountIds.length > 0)
@@ -97,10 +104,15 @@ export async function buildMoneyFlow(
 
   const linked = alias(transactions, "linked_tx");
   // `linked_transaction_id` is a bare id column with no foreign key, so the
-  // join is guarded to this user like every other cross-row join here.
+  // join is guarded to what this user may see — own rows plus rows on shared
+  // accounts. Counterparts outside that stay unjoined and render as
+  // "other account" without leaking a name.
   const linkedJoin = and(
     eq(linked.id, transactions.linkedTransactionId),
-    eq(linked.userId, userId),
+    or(
+      eq(linked.userId, userId),
+      inArray(linked.accountId, memberAccountIds(userId)),
+    ),
   );
   // A transfer is read from its paying side, but only when that side is inside
   // this scope and range. Everything else — an unpaired leg, or a pair booked
@@ -215,7 +227,7 @@ export async function buildMoneyFlow(
     db
       .select({ id: accounts.id, name: accounts.name })
       .from(accounts)
-      .where(eq(accounts.userId, userId))
+      .where(visibleAccounts(userId))
       .orderBy(accounts.sortOrder),
     db
       .select({
@@ -224,7 +236,7 @@ export async function buildMoneyFlow(
         color: categories.color,
       })
       .from(categories)
-      .where(eq(categories.userId, userId)),
+      .where(visibleCategories(userId)),
   ]);
 
   const acctName = new Map(acctRows.map((a) => [a.id, a.name]));

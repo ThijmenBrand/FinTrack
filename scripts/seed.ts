@@ -638,6 +638,9 @@ async function main() {
       period: "yearly" as const,
       periodStartedAt: startDate,
       accountIds: [checking.id, savings.id, joint.id],
+      ownerId: userId,
+      role: "owner" as const,
+      ownerName: null,
     };
     const firstYear = financialYearOf(new Date(`${startDate}T00:00:00`), startDay);
     for (let y = firstYear; y <= financialYearOf(today, startDay); y++) {

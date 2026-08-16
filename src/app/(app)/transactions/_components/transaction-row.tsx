@@ -173,6 +173,11 @@ export function TransactionRow({
               {t("tx.row.reimburses", { description: tx.reimbursesDescription })}
             </p>
           )}
+          {tx.createdByName && (
+            <p className="text-xs text-muted-foreground truncate mt-0.5">
+              {t("tx.row.addedBy", { name: tx.createdByName })}
+            </p>
+          )}
         </div>
 
         <div className="text-right shrink-0">
@@ -231,6 +236,12 @@ export function TransactionRow({
             {t("tx.row.reimburses", { description: tx.reimbursesDescription })}
           </div>
         )}
+        {/* Only set on shared-account rows — a solo account never needs to say who. */}
+        {tx.createdByName && (
+          <div className="text-xs text-muted-foreground truncate mt-0.5">
+            {t("tx.row.addedBy", { name: tx.createdByName })}
+          </div>
+        )}
       </TableCell>
       <TableCell className="text-sm text-muted-foreground whitespace-nowrap hidden sm:table-cell">
         <span className={isInPot ? "line-through" : ""}>{tx.accountName || "—"}</span>
@@ -249,8 +260,10 @@ export function TransactionRow({
       <TableCell className="hidden sm:table-cell">
         <div className="flex items-center gap-1">
           <Badge variant={typeInfo.variant} className="text-xs">
-            {isTransfer && tx.linkedAccountName
-              ? t("tx.row.transferTo", { account: tx.linkedAccountName })
+            {isTransfer && tx.linkedTransactionId
+              ? t("tx.row.transferTo", {
+                  account: tx.linkedAccountName || t("tx.row.anotherAccount"),
+                })
               : t(typeInfo.labelKey)}
           </Badge>
           {hasReimbursements && (

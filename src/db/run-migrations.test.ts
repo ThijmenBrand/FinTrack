@@ -104,6 +104,11 @@ describe("run-migrations pipeline", () => {
     await client.execute("DROP TABLE budget_month_targets");
     // Created by 0015.
     await client.execute("DROP TABLE budget_sub_lines");
+    // Created by 0016.
+    await client.execute("DROP TABLE account_members");
+    await client.execute("ALTER TABLE transactions DROP COLUMN created_by");
+    await client.execute("ALTER TABLE transactions DROP COLUMN modified_by");
+    await client.execute("ALTER TABLE user_preferences DROP COLUMN main_budget_plan_id");
     expect(await columnNames("user_preferences")).not.toContain("hide_internal_transfers");
 
     // Pre-0009 data for the backfill: checking, joint and savings accounts
@@ -185,5 +190,8 @@ describe("run-migrations pipeline", () => {
     expect(await columnNames("accounts")).toContain("budget_id");
     expect(await columnNames("budgets")).toContain("budget_id");
     expect(await columnNames("user_preferences")).toContain("count_cross_budget_transfers");
+    expect(await tableNames()).toContain("account_members");
+    expect(await columnNames("transactions")).toContain("created_by");
+    expect(await columnNames("user_preferences")).toContain("main_budget_plan_id");
   });
 });

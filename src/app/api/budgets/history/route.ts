@@ -27,13 +27,16 @@ export async function GET(request: NextRequest) {
     if (budgetIdParam && !plan) {
       return NextResponse.json({ error: "Budget not found" }, { status: 404 });
     }
+    // Shared plans read as their OWNER: the category, budget line and spending
+    // below all belong to the plan owner's data.
+    const dataUserId = plan?.ownerId ?? userId;
     const scopeFilter = accountScopeFilter(plan ? plan.accountIds : undefined);
 
     // Get category info
     const [category] = await db
       .select({ id: categories.id, name: categories.name, color: categories.color })
       .from(categories)
-      .where(and(eq(categories.id, categoryId), eq(categories.userId, userId)));
+      .where(and(eq(categories.id, categoryId), eq(categories.userId, dataUserId)));
 
     if (!category) {
       return NextResponse.json(
@@ -49,7 +52,7 @@ export async function GET(request: NextRequest) {
       .where(
         and(
           eq(budgets.categoryId, categoryId),
-          eq(budgets.userId, userId),
+          eq(budgets.userId, dataUserId),
           eq(budgets.status, "active"),
           ...(plan ? [eq(budgets.budgetId, plan.id)] : []),
         ),
@@ -70,7 +73,7 @@ export async function GET(request: NextRequest) {
           eq(transactions.categoryId, categoryId),
           eq(transactions.type, "expense"),
           sql`${transactions.groupId} IS NULL`,
-          eq(transactions.userId, userId),
+          eq(transactions.userId, dataUserId),
           ...(scopeFilter ? [scopeFilter] : []),
         )
       )
@@ -89,8 +92,8 @@ export async function GET(request: NextRequest) {
       .where(
         and(
           eq(transactionGroups.categoryId, categoryId),
-          eq(transactionGroups.userId, userId),
-          eq(transactions.userId, userId),
+          eq(transactionGroups.userId, dataUserId),
+          eq(transactions.userId, dataUserId),
           ...(scopeFilter ? [scopeFilter] : []),
         ),
       )

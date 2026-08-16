@@ -5,8 +5,9 @@ import {
   accounts,
   categories,
 } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, or, inArray } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
+import { memberAccountIds, requireAccountAccess } from "@/lib/account-access";
 import { getNextOccurrence } from "@/lib/recurring";
 import { isFiniteNumber, isIsoDate } from "@/lib/validation";
 
@@ -43,15 +44,7 @@ function validateRecurringFields(body: Record<string, unknown>): string | null {
   return null;
 }
 
-async function userOwnsAccount(userId: string, accountId: string): Promise<boolean> {
-  const [row] = await db
-    .select({ id: accounts.id })
-    .from(accounts)
-    .where(and(eq(accounts.id, accountId), eq(accounts.userId, userId)))
-    .limit(1);
-  return !!row;
-}
-
+/** True when `categoryOwnerId` (the recurring plan's data-owner space) owns `categoryId`. */
 async function userOwnsCategory(userId: string, categoryId: string): Promise<boolean> {
   const [row] = await db
     .select({ id: categories.id })
@@ -90,7 +83,14 @@ export async function GET() {
         categories,
         eq(recurringTransactions.categoryId, categories.id)
       )
-      .where(eq(recurringTransactions.userId, userId));
+      // Own recurring plans plus those on accounts shared with the caller
+      // (those rows keep the owner's user_id).
+      .where(
+        or(
+          eq(recurringTransactions.userId, userId),
+          inArray(recurringTransactions.accountId, memberAccountIds(userId)),
+        ),
+      );
 
     const withNextOccurrence = rows.map((r) => ({
       ...r,
@@ -138,10 +138,12 @@ export async function POST(request: NextRequest) {
     if (invalid) {
       return NextResponse.json({ error: invalid }, { status: 400 });
     }
-    if (!(await userOwnsAccount(userId, accountId))) {
-      return NextResponse.json({ error: "Account not found" }, { status: 404 });
-    }
-    if (categoryId && !(await userOwnsCategory(userId, categoryId))) {
+    // Write access to the account — 404 if the caller can't see it, 403 if
+    // they're a viewer. Data-owner space (row userId, category lookup) is the
+    // ACCOUNT OWNER, same as any other row on a shared account.
+    const access = await requireAccountAccess(userId, accountId, "write");
+    const ownerId = access.account.userId;
+    if (categoryId && !(await userOwnsCategory(ownerId, categoryId))) {
       return NextResponse.json({ error: "Category not found" }, { status: 404 });
     }
 
@@ -160,7 +162,7 @@ export async function POST(request: NextRequest) {
       startDate,
       endDate: endDate || null,
       isActive: true,
-      userId,
+      userId: ownerId,
       createdAt: new Date().toISOString(),
     });
 
@@ -186,19 +188,28 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: invalid }, { status: 400 });
     }
 
+    // Unscoped by caller — the write-access check below (via the row's
+    // account) decides who may edit it, not row ownership.
     const [existing] = await db
       .select()
       .from(recurringTransactions)
-      .where(and(eq(recurringTransactions.id, id), eq(recurringTransactions.userId, userId)))
+      .where(eq(recurringTransactions.id, id))
       .limit(1);
     if (!existing) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
+    const access = await requireAccountAccess(userId, existing.accountId, "write");
+    const ownerId = access.account.userId;
 
-    if (body.accountId && !(await userOwnsAccount(userId, body.accountId))) {
-      return NextResponse.json({ error: "Account not found" }, { status: 404 });
+    if (body.accountId) {
+      // Reassigning to another account: must be writable too, and owned by
+      // the SAME owner — a recurring plan can't cross owner spaces.
+      const newAccess = await requireAccountAccess(userId, body.accountId, "write");
+      if (newAccess.account.userId !== ownerId) {
+        return NextResponse.json({ error: "Account not found" }, { status: 404 });
+      }
     }
-    if (body.categoryId && !(await userOwnsCategory(userId, body.categoryId))) {
+    if (body.categoryId && !(await userOwnsCategory(ownerId, body.categoryId))) {
       return NextResponse.json({ error: "Category not found" }, { status: 404 });
     }
 
@@ -227,7 +238,7 @@ export async function PUT(request: NextRequest) {
       await db
         .update(recurringTransactions)
         .set(updates)
-        .where(and(eq(recurringTransactions.id, id), eq(recurringTransactions.userId, userId)));
+        .where(and(eq(recurringTransactions.id, id), eq(recurringTransactions.userId, ownerId)));
     }
 
     return NextResponse.json({ success: true });
@@ -247,9 +258,21 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
+    const [existing] = await db
+      .select({ accountId: recurringTransactions.accountId, userId: recurringTransactions.userId })
+      .from(recurringTransactions)
+      .where(eq(recurringTransactions.id, id))
+      .limit(1);
+    if (!existing) {
+      // Matches the prior idempotent-delete behavior: nothing to authorize
+      // against, nothing to delete.
+      return NextResponse.json({ success: true });
+    }
+    const access = await requireAccountAccess(userId, existing.accountId, "write");
+
     await db
       .delete(recurringTransactions)
-      .where(and(eq(recurringTransactions.id, id), eq(recurringTransactions.userId, userId)));
+      .where(and(eq(recurringTransactions.id, id), eq(recurringTransactions.userId, access.account.userId)));
 
     return NextResponse.json({ success: true });
   }, "Failed to delete recurring transaction");

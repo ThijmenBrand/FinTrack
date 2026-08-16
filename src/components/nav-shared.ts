@@ -1,7 +1,7 @@
 "use client";
 
 import type { LucideIcon } from "lucide-react";
-import { LayoutDashboard, Upload, PieChart, Wallet, PiggyBank, RefreshCcw } from "lucide-react";
+import { LayoutDashboard, Upload, PieChart, Wallet, PiggyBank, RefreshCcw, Landmark } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useSession, signOut } from "@/lib/auth-client";
 import { usePreferences } from "@/hooks/use-preferences";
@@ -25,6 +25,7 @@ export const PRIMARY_NAV: NavItem[] = [
 
 /** Secondary items — sidebar lists them inline, bottom nav tucks them under "More". */
 export const SECONDARY_NAV: NavItem[] = [
+  { labelKey: "nav.accounts", href: "/accounts", icon: Landmark },
   { labelKey: "nav.recurring", href: "/recurring", icon: RefreshCcw },
   { labelKey: "nav.pots", href: "/pots", icon: PiggyBank, hideInSimple: true },
 ];

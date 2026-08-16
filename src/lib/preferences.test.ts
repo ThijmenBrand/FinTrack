@@ -26,6 +26,7 @@ describe("user preferences", () => {
       lastAutoBudgetCheckAt: null,
       financialMonthStartDay: 1,
       defaultAccountId: null,
+      mainBudgetPlanId: null,
       hideInternalTransfers: false,
       countCrossBudgetTransfers: false,
       locale: "en",

@@ -24,6 +24,7 @@ export interface TestDb {
 
 const TABLES = [
   "reimbursement_links",
+  "account_members",
   "transactions",
   "transaction_groups",
   "budget_month_targets",
@@ -125,6 +126,8 @@ export async function setupTestDb(name: string): Promise<TestDb> {
       linked_transaction_id TEXT,
       reimburses_transaction_id TEXT,
       notes TEXT,
+      created_by TEXT,
+      modified_by TEXT,
       is_manual INTEGER NOT NULL DEFAULT 0,
       import_batch_id TEXT,
       group_id TEXT,
@@ -198,9 +201,24 @@ export async function setupTestDb(name: string): Promise<TestDb> {
       count_cross_budget_transfers INTEGER NOT NULL DEFAULT 0,
       locale TEXT NOT NULL DEFAULT 'en',
       simple_mode INTEGER NOT NULL DEFAULT 0,
+      main_budget_plan_id TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )`,
+    `CREATE TABLE IF NOT EXISTS account_members (
+      id TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL,
+      user_id TEXT,
+      email TEXT NOT NULL,
+      role TEXT NOT NULL,
+      token_hash TEXT UNIQUE,
+      expires_at TEXT,
+      accepted_at TEXT,
+      revoked_at TEXT,
+      created_at TEXT NOT NULL
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_account_members_account_email
+      ON account_members (account_id, email) WHERE revoked_at IS NULL`,
     `CREATE TABLE IF NOT EXISTS stat_resets (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,

@@ -210,6 +210,65 @@ export function sendInviteEmail(
   );
 }
 
+/** Account sharing: both mails follow the OWNER's language — it's their account. */
+export function sendShareInviteEmail(
+  to: string,
+  url: string,
+  ownerName: string,
+  accountName: string,
+  locale: Locale = DEFAULT_LOCALE,
+): Promise<void> {
+  const { t } = getI18nFor(locale);
+  const owner = escapeHtml(ownerName);
+  const account = escapeHtml(accountName);
+
+  return send(
+    to,
+    t("email.shareInviteSubject", { owner: ownerName }),
+    {
+      preheader: t("email.shareInvitePreheader", { owner, account }),
+      heading: t("email.shareInviteHeading"),
+      body: t("email.shareInviteBody", {
+        owner: `<strong style="color:#0f1729">${owner}</strong>`,
+        account: `<strong style="color:#0f1729">${account}</strong>`,
+      }),
+      url,
+      cta: t("email.shareInviteCta"),
+      note: t("email.shareInviteNote", { days: INVITE_TTL_DAYS }),
+    },
+    locale,
+  );
+}
+
+export function sendShareAcceptedEmail(
+  to: string,
+  url: string,
+  memberName: string,
+  accountName: string,
+  locale: Locale = DEFAULT_LOCALE,
+): Promise<void> {
+  const { t } = getI18nFor(locale);
+  const member = escapeHtml(memberName);
+  const account = escapeHtml(accountName);
+
+  return send(
+    to,
+    t("email.shareAcceptedSubject", { member: memberName }),
+    {
+      preheader: t("email.shareAcceptedPreheader", { member, account }),
+      heading: t("email.shareAcceptedHeading"),
+      body: t("email.shareAcceptedBody", {
+        member: `<strong style="color:#0f1729">${member}</strong>`,
+        account: `<strong style="color:#0f1729">${account}</strong>`,
+      }),
+      url,
+      cta: t("email.shareAcceptedCta"),
+      note: t("email.shareAcceptedNote"),
+    },
+    locale,
+  );
+}
+
 export function sendPasswordResetEmail(
   to: string,
   url: string,

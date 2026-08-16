@@ -202,14 +202,55 @@ export const en = {
   "accounts.viewHistoryLabel": "View balance history for {name}",
   "accounts.actionsLabel": "Actions for {name}",
   "accounts.editAccount": "Edit account",
+  "accounts.shareAccount": "Share account",
   "accounts.setDefault": "Set as default",
   "accounts.removeDefault": "Remove as default",
   "accounts.deleteAccount": "Delete account",
+  "accounts.leaveAccount": "Leave account",
+  "accounts.delete.title": "Delete {name}?",
+  "accounts.delete.body": "This permanently removes the account and its transactions. This cannot be undone.",
+  "accounts.delete.memberWarning.one": "{count} person will lose access to this account.",
+  "accounts.delete.memberWarning.other": "{count} people will lose access to this account.",
+  "accounts.leave.title": "Leave {name}?",
+  "accounts.leave.body": "You'll lose access to this account and its transactions. The owner can invite you again later.",
+  "accounts.leave.confirm": "Leave",
   "accounts.type.checking": "Checking",
   "accounts.type.savings": "Savings",
   "accounts.type.joint": "Joint",
   "accounts.type.credit": "Credit Card",
   "accounts.type.other": "Other",
+
+  // ─── Account sharing ───────────────────────────────────────────────────────
+  // The Share dialog off the card's ⋮ menu (owners only), card badges, and the
+  // public /share-invite accept flow.
+  "sharing.title": "Sharing",
+  "sharing.shared": "Shared",
+  "sharing.dialogTitle": "Share {name}",
+  "sharing.dialogDescription":
+    "Invite someone by email. Viewers can only look; editors can add and edit transactions.",
+  "sharing.memberCount.one": "{count} person has access",
+  "sharing.memberCount.other": "{count} people have access",
+  "sharing.empty": "Not shared with anyone yet.",
+  "sharing.emailPlaceholder": "Email address",
+  "sharing.roleLabel": "Role",
+  "sharing.role.viewer": "Viewer",
+  "sharing.role.editor": "Editor",
+  "sharing.invite": "Invite",
+  "sharing.inviteFailed": "Couldn't send the invite. Try again.",
+  "sharing.revoke": "Revoke access",
+  "sharing.status.pending": "Pending",
+  "sharing.status.accepted": "Active",
+  "sharing.status.expired": "Expired",
+  "sharing.sharedBy": "Shared by {name}",
+  "sharing.sharedByTooltip": "{name} shared this account with you",
+  "sharing.invite.title": "Account invite",
+  "sharing.invite.eyebrow": "You're invited",
+  "sharing.invite.invalid": "This invite link is no longer valid. Ask the account owner to send a new one.",
+  "sharing.invite.titleFrom": "{owner} shared {account} with you",
+  "sharing.invite.titleGeneric": "You've been invited to {account}",
+  "sharing.invite.roleSubtitle": "You'll have {role} access.",
+  "sharing.invite.accept": "Accept invite",
+  "sharing.invite.logInFirst": "You already have an account. Log in to accept this invite.",
 
   // ─── Categories ────────────────────────────────────────────────────────────
   // The seeded starter set — stored as data, so renaming one here only affects
@@ -499,6 +540,8 @@ export const en = {
   "tx.row.viewPot": "View pot: {name}",
   "tx.row.reimburses": "Reimburses: {description}",
   "tx.row.transferTo": "↔ Transfer → {account}",
+  "tx.row.anotherAccount": "another account",
+  "tx.row.addedBy": "Added by {name}",
   "tx.row.addToPot": "Add to pot",
   "tx.row.removeFromPot": "Remove from pot",
   "tx.row.linkToExpenses": "Link to expenses",
@@ -582,6 +625,8 @@ export const en = {
   "budgets.switcher.mainShort": "main",
   "budgets.switcher.accounts.one": "{count} account",
   "budgets.switcher.accounts.other": "{count} accounts",
+  "budgets.switcher.pin": "Use as my dashboard budget",
+  "budgets.switcher.unpin": "Reset to my own budget",
   "budgets.view.month": "Month",
   "budgets.view.year": "Year",
   "budgets.periodNav.prev": "Previous period",
@@ -1256,6 +1301,7 @@ export const en = {
   "txDetail.reimbursements": "Reimbursements",
   "txDetail.actualCost": "Your actual cost",
   "txDetail.added": "Added {date}",
+  "txDetail.addedBy": "Added {date} by {name}",
   "txDetail.manual": "Manual",
   "txDetail.imported": "Imported",
 
@@ -1541,6 +1587,25 @@ export const en = {
   "email.resetCta": "Choose a new password",
   "email.resetNote":
     "If you didn't request this, no action is needed — your password stays unchanged.",
+
+  // ─── Account sharing email ─────────────────────────────────────────────────
+  // Both mails follow the account owner's language: they invite, they get told.
+  "email.shareInviteSubject": "{owner} shared an account with you on FinTrack",
+  "email.shareInvitePreheader": "{owner} gave you access to {account}.",
+  "email.shareInviteHeading": "You've been given access",
+  "email.shareInviteBody":
+    "{owner} shared the account {account} with you on FinTrack. Accept the invite and it shows up in your own overview.",
+  "email.shareInviteCta": "Accept access",
+  "email.shareInviteNote":
+    "This invite expires in {days} days. If you weren't expecting it, you can ignore this email.",
+  "email.shareAcceptedSubject": "{member} accepted your share invite",
+  "email.shareAcceptedPreheader": "{member} now has access to {account}.",
+  "email.shareAcceptedHeading": "Invite accepted",
+  "email.shareAcceptedBody":
+    "{member} accepted your invite and can now see {account} in FinTrack. You can change or remove their access whenever you like.",
+  "email.shareAcceptedCta": "Open FinTrack",
+  "email.shareAcceptedNote":
+    "You're getting this because you shared an account from your FinTrack household.",
 } as const;
 
 export type MessageKey = keyof typeof en;

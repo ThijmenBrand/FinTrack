@@ -59,6 +59,44 @@ describe("resolveBudgetPlan", () => {
   });
 });
 
+describe("resolveBudgetPlan — foreign plan role", () => {
+  async function membership(role: "editor" | "viewer", accountId = "acc-b") {
+    await testDb.client.execute({
+      sql: `INSERT INTO account_members (id, account_id, user_id, email, role, accepted_at, created_at)
+            VALUES (?, ?, ?, 'other@test.dev', ?, ?, ?)`,
+      args: [crypto.randomUUID(), accountId, OTHER, role, new Date().toISOString(), new Date().toISOString()],
+    });
+  }
+
+  it("resolves 'editor' when the member has write access to any plan account", async () => {
+    const { resolveBudgetPlan } = await import("./budget-plan");
+    await membership("editor");
+    const plan = await resolveBudgetPlan(OTHER, "plan-joint");
+    expect(plan).toMatchObject({ id: "plan-joint", ownerId: USER, role: "editor" });
+  });
+
+  it("resolves 'viewer' when the member only has read access", async () => {
+    const { resolveBudgetPlan } = await import("./budget-plan");
+    await membership("viewer");
+    const plan = await resolveBudgetPlan(OTHER, "plan-joint");
+    expect(plan).toMatchObject({ id: "plan-joint", ownerId: USER, role: "viewer" });
+  });
+
+  it("takes the HIGHEST role across multiple accounts on the same plan", async () => {
+    // Add a second account to plan-joint, share it as viewer while acc-b is editor.
+    await testDb.client.execute({
+      sql: `INSERT INTO accounts (id, user_id, name, type, currency, initial_balance, sort_order, budget_id, created_at, updated_at)
+            VALUES ('acc-d', ?, 'D', 'joint', 'EUR', 0, 3, 'plan-joint', ?, ?)`,
+      args: [USER, new Date().toISOString(), new Date().toISOString()],
+    });
+    await membership("viewer", "acc-d");
+    await membership("editor", "acc-b");
+    const { resolveBudgetPlan } = await import("./budget-plan");
+    const plan = await resolveBudgetPlan(OTHER, "plan-joint");
+    expect(plan?.role).toBe("editor");
+  });
+});
+
 describe("accountScopeFilter", () => {
   it("matches nothing for an empty scope instead of everything", async () => {
     const { accountScopeFilter } = await import("./budget-plan");
