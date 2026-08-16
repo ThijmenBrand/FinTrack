@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   useBudgets,
@@ -35,6 +35,7 @@ import { BudgetHistoryDialog } from "@/components/budget-history-dialog";
 import { BudgetSuggestionsDialog } from "@/components/budget-suggestions-dialog";
 import { useI18n } from "@/lib/i18n/client";
 import { AllocationRow, YearlyAllocationRow } from "./_components/allocation-row";
+import { SubLineList } from "./_components/sub-line-list";
 import { SuggestionRow } from "./_components/suggestion-row";
 import { AllocationDialog } from "./_components/allocation-dialog";
 import { BudgetsSkeleton } from "./_components/budgets-skeleton";
@@ -88,8 +89,9 @@ export default function BudgetsPage() {
   const isYearly = activePlan?.period === "yearly";
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const [selectedMonthIndex, setSelectedMonthIndex] = useState<number | null>(null);
-  // Only a yearly plan has a year to zoom out to.
-  const [scope, setScope] = useState<PeriodScope>("month");
+  // Only a yearly plan has a year to zoom out to, and that is the view it opens
+  // in — the year is the thing being planned; the month is the zoom-in.
+  const [scope, setScope] = useState<PeriodScope>(isYearly ? "year" : "month");
   const yearScope = isYearly && scope === "year";
 
   // Which financial month is live right now — for a yearly plan this decides
@@ -116,7 +118,7 @@ export default function BudgetsPage() {
     setMonthOffset(0);
     setSelectedYear(null);
     setSelectedMonthIndex(null);
-    setScope("month");
+    setScope(isYearly ? "year" : "month");
   }
 
   // The financial month the request asks about. A yearly plan's stepper moves
@@ -609,7 +611,13 @@ export default function BudgetsPage() {
                       setDialogOpen(open);
                       if (!open) setEditingAlloc(null);
                     }}
-                    editingAlloc={editingAlloc}
+                    editingAlloc={
+                      // The state snapshot goes stale after a sub-line mutation;
+                      // the cache copy carries the fresh tree.
+                      editingAlloc &&
+                      (data.allocations.find((a) => a.id === editingAlloc.id) ??
+                        editingAlloc)
+                    }
                     availableCategories={availableCategories}
                     categoryAverages={data.categoryAverages}
                     unallocated={data.unallocated}
@@ -659,33 +667,75 @@ export default function BudgetsPage() {
                 ? yearlyRows.map((category) => {
                     const alloc = allocByCategory.get(category.categoryId);
                     return (
-                      <YearlyAllocationRow
-                        key={category.categoryId}
-                        category={category}
-                        alloc={alloc}
-                        scope={yearScope ? "year" : "month"}
-                        readOnly={!isCurrentPeriod}
-                        deletePending={deleteBudget.isPending}
-                        onHistory={() => alloc && setHistoryAlloc(alloc)}
-                        onEdit={() => alloc && openEdit(alloc)}
-                        onDelete={() =>
-                          alloc
-                            ? deleteBudget.mutateAsync(alloc.id).then(() => {})
-                            : Promise.resolve()
-                        }
-                      />
+                      <Fragment key={category.categoryId}>
+                        <YearlyAllocationRow
+                          category={category}
+                          alloc={alloc}
+                          scope={yearScope ? "year" : "month"}
+                          readOnly={!isCurrentPeriod}
+                          deletePending={deleteBudget.isPending}
+                          onHistory={() => alloc && setHistoryAlloc(alloc)}
+                          onEdit={() => alloc && openEdit(alloc)}
+                          onDelete={() =>
+                            alloc
+                              ? deleteBudget.mutateAsync(alloc.id).then(() => {})
+                              : Promise.resolve()
+                          }
+                        />
+                        {alloc &&
+                          alloc.subLines.length > 0 &&
+                          (yearScope ? (
+                            <SubLineList
+                              alloc={alloc}
+                              cap={alloc.amount}
+                              toDisplay={(stored) =>
+                                Math.round(stored * MONTHS_PER_YEAR * 100) / 100
+                              }
+                              toStored={(shown) => shown / MONTHS_PER_YEAR}
+                              readOnly={!isCurrentPeriod}
+                            />
+                          ) : (
+                            // ponytail: yearly month figures are the current split
+                            // scaled proportionally; per-sub frozen month targets if
+                            // history accuracy ever matters. Editing lives in year
+                            // scope and the dialog, where the units round-trip.
+                            <SubLineList
+                              alloc={alloc}
+                              cap={alloc.amount}
+                              toDisplay={(stored) =>
+                                alloc.amount > 0
+                                  ? (category.monthTarget * stored) / alloc.amount
+                                  : stored
+                              }
+                              toStored={(shown) => shown}
+                              readOnly
+                            />
+                          ))}
+                      </Fragment>
                     );
                   })
                 : allocations.map((alloc) => (
-                    <AllocationRow
-                      key={alloc.id}
-                      alloc={alloc}
-                      readOnly={!isCurrentPeriod}
-                      deletePending={deleteBudget.isPending}
-                      onHistory={() => setHistoryAlloc(alloc)}
-                      onEdit={() => openEdit(alloc)}
-                      onDelete={() => deleteBudget.mutateAsync(alloc.id).then(() => {})}
-                    />
+                    <Fragment key={alloc.id}>
+                      <AllocationRow
+                        alloc={alloc}
+                        readOnly={!isCurrentPeriod}
+                        deletePending={deleteBudget.isPending}
+                        onHistory={() => setHistoryAlloc(alloc)}
+                        onEdit={() => openEdit(alloc)}
+                        onDelete={() =>
+                          deleteBudget.mutateAsync(alloc.id).then(() => {})
+                        }
+                      />
+                      {alloc.subLines.length > 0 && (
+                        <SubLineList
+                          alloc={alloc}
+                          cap={alloc.amount}
+                          toDisplay={(stored) => stored}
+                          toStored={(shown) => shown}
+                          readOnly={!isCurrentPeriod}
+                        />
+                      )}
+                    </Fragment>
                   ))}
             </>
           )}

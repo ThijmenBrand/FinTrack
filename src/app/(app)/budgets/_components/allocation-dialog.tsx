@@ -23,6 +23,8 @@ import {
 } from "@/components/ui/select";
 import { Plus } from "lucide-react";
 import { useI18n } from "@/lib/i18n/client";
+import { MONEY_EPSILON } from "@/lib/validation";
+import { SubLineList } from "./sub-line-list";
 
 interface AllocationDialogProps {
   open: boolean;
@@ -81,6 +83,17 @@ export function AllocationDialog({
     onOpenChange(next);
   };
 
+  // An allocation cannot shrink below the split already planned inside it —
+  // the server rejects it, so the dialog says so before submit.
+  const rootSubsTotal = editingAlloc
+    ? editingAlloc.subLines.reduce((sum, l) => sum + l.amount, 0)
+    : 0;
+  const enteredStored = parseFloat(amount) > 0 ? toStored(parseFloat(amount)) : null;
+  const belowSubsTotal =
+    !!editingAlloc &&
+    enteredStored !== null &&
+    enteredStored < rootSubsTotal - MONEY_EPSILON;
+
   const handleSubmit = async () => {
     const amt = parseFloat(amount);
     if (!amt || amt <= 0) return;
@@ -126,24 +139,30 @@ export function AllocationDialog({
           {!editingAlloc && (
             <div className="grid gap-2">
               <Label>{t("common.category")}</Label>
-              <Select value={categoryId} onValueChange={setCategoryId}>
-                <SelectTrigger>
-                  <SelectValue placeholder={t("budgets.alloc.categoryPlaceholder")} />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableCategories.map((cat) => (
-                    <SelectItem key={cat.id} value={cat.id}>
-                      <span className="flex items-center gap-2">
-                        <span
-                          className="h-2 w-2 rounded-full"
-                          style={{ backgroundColor: cat.color || "#94a3b8" }}
-                        />
-                        {cat.name}
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {availableCategories.length === 0 ? (
+                <p className="rounded-md border border-dashed px-3 py-3 text-sm text-muted-foreground">
+                  {t("budgets.alloc.noCategories")}
+                </p>
+              ) : (
+                <Select value={categoryId} onValueChange={setCategoryId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder={t("budgets.alloc.categoryPlaceholder")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableCategories.map((cat) => (
+                      <SelectItem key={cat.id} value={cat.id}>
+                        <span className="flex items-center gap-2">
+                          <span
+                            className="h-2 w-2 rounded-full"
+                            style={{ backgroundColor: cat.color || "#94a3b8" }}
+                          />
+                          {cat.name}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
           )}
           <div className="grid gap-2">
@@ -188,7 +207,27 @@ export function AllocationDialog({
                 })}
               </p>
             )}
+            {belowSubsTotal && (
+              <p className="text-xs text-destructive">
+                {t("budgets.subLines.belowSubsTotal")}
+              </p>
+            )}
           </div>
+          {editingAlloc && (
+            <div className="border-t pt-3">
+              {/* The cap is the *saved* amount, not what's in the field: the
+                  server validates sub-lines against what it has stored, so
+                  offering room that only exists in an unsubmitted input would
+                  invite a request it is bound to reject. */}
+              <SubLineList
+                variant="dialog"
+                alloc={editingAlloc}
+                cap={editingAlloc.amount}
+                toDisplay={toDisplay}
+                toStored={toStored}
+              />
+            </div>
+          )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => handleOpenChange(false)}>
@@ -196,7 +235,12 @@ export function AllocationDialog({
           </Button>
           <Button
             onClick={handleSubmit}
-            disabled={!amount || parseFloat(amount) <= 0 || (!editingAlloc && !categoryId)}
+            disabled={
+              !amount ||
+              parseFloat(amount) <= 0 ||
+              (!editingAlloc && !categoryId) ||
+              belowSubsTotal
+            }
           >
             {editingAlloc ? t("common.save") : t("budgets.alloc.allocate")}
           </Button>

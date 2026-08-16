@@ -6,6 +6,13 @@ export function isFiniteNumber(v: unknown): v is number {
   return typeof v === "number" && Number.isFinite(v);
 }
 
+/**
+ * Half a cent. Money is stored as a float, so sums that should be equal can
+ * differ in the last bits — compare against this rather than exactly whenever
+ * a total is checked against a cap.
+ */
+export const MONEY_EPSILON = 0.005;
+
 /** True for a YYYY-MM-DD string naming a real calendar date. */
 export function isIsoDate(v: unknown): v is string {
   if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;

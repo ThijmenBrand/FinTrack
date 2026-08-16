@@ -1,3 +1,5 @@
 allowBuilds:
+  # Postinstall downloads the sentry-cli binary used for source-map upload.
+  "@sentry/cli": true
   esbuild: true
   sharp: true

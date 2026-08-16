@@ -209,6 +209,12 @@ export async function DELETE(request: NextRequest) {
     // Log before delete since the target user row will be cascade-deleted
     await logAdminAction(session.userId, "user_delete", id, { displayName: targetName });
 
+    // budget_sub_lines is cleaned up by hand: libsql connections don't
+    // guarantee foreign_keys=ON, so the ON DELETE CASCADE on its user_id may
+    // never fire and would leave the account's sub-line names and amounts
+    // behind. Every write path that removes a parent row does the same.
+    await db.run(sql`DELETE FROM budget_sub_lines WHERE user_id = ${id}`);
+
     // Delete user (cascade will handle related data)
     await db.run(sql`DELETE FROM "user" WHERE id = ${id}`);
 

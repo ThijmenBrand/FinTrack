@@ -4,22 +4,12 @@ import { useState, memo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "@/components/ui/select";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { CheckCircle2, Tag, StickyNote, Package, Receipt, Check } from "lucide-react";
+import { CheckCircle2, StickyNote, Receipt } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
 import type { PreviewTransaction } from "@/lib/csv-utils";
 import { useI18n } from "@/lib/i18n/client";
+import { CategoryPicker } from "@/components/category-picker";
+import { PotPicker } from "@/components/pot-picker";
 
 export interface ImportCategory {
   id: string;
@@ -61,8 +51,6 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
   const { t, formatDayMonth: formatDate } = useI18n();
   const [expanded, setExpanded] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
-  const category = categories.find((c) => c.id === tx.categoryId);
-  const pot = pots.find((p) => p.id === tx.groupId);
   const isReimbursement = tx.type === "reimbursement";
   // Reimbursement only makes sense for money coming in
   const canReimburse = tx.type === "income" || isReimbursement;
@@ -77,43 +65,18 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
       : "h-7 text-xs";
 
   const categorySelect = (
-    <Select
-      value={tx.categoryId || ""}
-      onValueChange={(v) => onCategoryChange(tx.tempId, v)}
-    >
-      <SelectTrigger className={triggerClass}>
-        {tx.categoryId ? (
-          <span className="flex items-center gap-1.5 truncate">
-            <span
-              className="h-2 w-2 rounded-full shrink-0"
-              style={{ backgroundColor: category?.color || "#94a3b8" }}
-            />
-            <span className="truncate">{category?.name}</span>
-            {isAutoMatched && (
-              <CheckCircle2 className="h-3 w-3 text-emerald-500 dark:text-emerald-400 shrink-0 ml-auto" />
-            )}
-          </span>
-        ) : (
-          <span className="flex items-center gap-1.5 text-muted-foreground">
-            <Tag className="h-3 w-3" />
-            <span>{t("csvRow.selectPlaceholder")}</span>
-          </span>
-        )}
-      </SelectTrigger>
-      <SelectContent>
-        {categories.map((cat) => (
-          <SelectItem key={cat.id} value={cat.id}>
-            <span className="flex items-center gap-2">
-              <span
-                className="h-2 w-2 rounded-full"
-                style={{ backgroundColor: cat.color || "#94a3b8" }}
-              />
-              {cat.name}
-            </span>
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <CategoryPicker
+      categories={categories}
+      value={tx.categoryId || null}
+      onChange={(v) => onCategoryChange(tx.tempId, v)}
+      className={triggerClass}
+      placeholder={tx.categoryId ? undefined : t("csvRow.selectPlaceholder")}
+      trailing={
+        isAutoMatched ? (
+          <CheckCircle2 className="h-3 w-3 text-emerald-500 dark:text-emerald-400 shrink-0 ml-auto" />
+        ) : undefined
+      }
+    />
   );
 
   return (
@@ -155,7 +118,7 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
         {/* Amount */}
         <span
           className={`text-sm font-mono font-medium text-right shrink-0 tabular-nums sm:w-24 ${
-            isReimbursement || pot
+            isReimbursement || tx.groupId
               ? "text-muted-foreground"
               : tx.amount >= 0
                 ? "text-emerald-600 dark:text-emerald-400"
@@ -184,50 +147,11 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
         </Button>
 
         {/* Pot picker */}
-        {pots.length > 0 && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 shrink-0"
-                aria-label={pot ? t("csvRow.inPot", { name: pot.name }) : t("csvRow.addToPot")}
-                title={pot ? t("csvRow.inPot", { name: pot.name }) : t("csvRow.addToPot")}
-              >
-                <Package
-                  className={cn(
-                    "h-3.5 w-3.5",
-                    pot ? "text-primary" : "text-muted-foreground"
-                  )}
-                />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {pots.map((p) => (
-                <DropdownMenuItem
-                  key={p.id}
-                  onClick={() => onPotChange(tx.tempId, p.id)}
-                >
-                  <Check
-                    className={cn(
-                      "mr-2 h-3.5 w-3.5",
-                      p.id === tx.groupId ? "opacity-100" : "opacity-0"
-                    )}
-                  />
-                  {p.name}
-                </DropdownMenuItem>
-              ))}
-              {pot && (
-                <DropdownMenuItem
-                  onClick={() => onPotChange(tx.tempId, null)}
-                  className="text-muted-foreground"
-                >
-                  <span className="ml-[22px]">{t("tx.row.removeFromPot")}</span>
-                </DropdownMenuItem>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
+        <PotPicker
+          pots={pots}
+          currentId={tx.groupId ?? null}
+          onSelect={(potId) => onPotChange(tx.tempId, potId)}
+        />
 
         {/* Reimbursement toggle — income rows only; spacer keeps columns aligned */}
         {canReimburse ? (

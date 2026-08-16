@@ -8,11 +8,11 @@
  * current, half-finished one, and lumpy once-a-year costs (holiday, APK,
  * Sinterklaas, eigen risico) landing in months the monthly view can't explain.
  *
- *   npm run db:seed                    # 18 months, yearly main plan
- *   npm run db:seed -- --months 6      # shorter history
- *   npm run db:seed -- --period monthly # classic month-at-a-time plan
- *   npm run db:seed -- --user alice    # a different user
- *   npm run db:seed -- --email a@b.com # sign-in address (default user@local.test)
+ *   pnpm run db:seed                    # 18 months, yearly main plan
+ *   pnpm run db:seed -- --months 6      # shorter history
+ *   pnpm run db:seed -- --period monthly # classic month-at-a-time plan
+ *   pnpm run db:seed -- --user alice    # a different user
+ *   pnpm run db:seed -- --email a@b.com # sign-in address (default user@local.test)
  *
  * The target user is created if it doesn't exist, as a *regular* user — the
  * seeded `admin` is role=admin and gets redirected to /backoffice by

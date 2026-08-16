@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { CheckCircle2, AlertCircle, Tag, ChevronDown, X, Zap } from "lucide-react";
+import { CheckCircle2, AlertCircle, ChevronDown, X, Zap } from "lucide-react";
 import { matchesRule, extractPattern } from "@/lib/csv-utils";
 import {
   ImportTransactionRow,
@@ -22,6 +22,7 @@ import {
   type ImportPot,
 } from "@/components/import-transaction-row";
 import { ReimbursementPicker } from "@/components/reimbursement-picker";
+import { CategoryPicker } from "@/components/category-picker";
 import type { PreviewTransaction } from "@/lib/csv-utils";
 import { useI18n } from "@/lib/i18n/client";
 
@@ -328,7 +329,7 @@ export function ImportReviewStep({
             <span className="text-right shrink-0 sm:w-24">{t("csvReview.colAmount")}</span>
             {/* Spacers matching the per-row note / pot / reimbursement buttons */}
             <span className="w-7 shrink-0" />
-            {pots.length > 0 && <span className="w-7 shrink-0" />}
+            <span className="w-7 shrink-0" />
             <span className="w-7 shrink-0" />
             <span className="w-44 shrink-0 hidden sm:block">{t("csvReview.colCategory")}</span>
           </div>
@@ -500,27 +501,15 @@ export function ImportReviewStep({
           <span className="text-sm font-medium">
             {t("csvReview.selectedCount", { count: selectedIds.size })}
           </span>
-          <Select value="" onValueChange={handleBulkCategory}>
-            <SelectTrigger className="h-8 w-52 text-xs">
-              <span className="flex items-center gap-1.5 text-muted-foreground">
-                <Tag className="h-3 w-3" />
-                <span>{t("csvReview.setCategory")}</span>
-              </span>
-            </SelectTrigger>
-            <SelectContent>
-              {categories.map((cat) => (
-                <SelectItem key={cat.id} value={cat.id}>
-                  <span className="flex items-center gap-2">
-                    <span
-                      className="h-2 w-2 rounded-full"
-                      style={{ backgroundColor: cat.color || "#94a3b8" }}
-                    />
-                    {cat.name}
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="w-52">
+            <CategoryPicker
+              categories={categories}
+              value={null}
+              onChange={handleBulkCategory}
+              className="h-8 text-xs"
+              placeholder={t("csvReview.setCategory")}
+            />
+          </div>
           <Button
             variant="ghost"
             size="sm"

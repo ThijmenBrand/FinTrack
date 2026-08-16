@@ -279,6 +279,14 @@ export interface FixedCost {
   items: { description: string; monthlyAmount: number }[];
 }
 
+export interface BudgetSubLine {
+  id: string;
+  parentId: string | null;
+  name: string;
+  amount: number;
+  children: BudgetSubLine[];
+}
+
 export interface Allocation {
   id: string;
   categoryId: string;
@@ -291,6 +299,7 @@ export interface Allocation {
   status: "ok" | "warning" | "exceeded";
   avgMonthly: number;
   avgMonths: number;
+  subLines: BudgetSubLine[];
 }
 
 export interface BudgetSuggestion {

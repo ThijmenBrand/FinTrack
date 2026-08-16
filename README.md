@@ -19,11 +19,11 @@ external services required to run it locally.
 
 ## Quick start
 
-Node 20+ and npm. Nothing else — no Docker, no external services.
+Node 20+ and pnpm. Nothing else — no Docker, no external services.
 
 ```bash
-npm run setup     # deps, .env, database schema, a year of dummy data
-npm run dev       # http://localhost:3000
+pnpm run setup     # deps, .env, database schema, a year of dummy data
+pnpm run dev       # http://localhost:3000
 ```
 
 Then log in:
@@ -41,31 +41,31 @@ as `admin` looks like the app is broken when it isn't.
 
 The local database is a SQLite file at `data/finance.db` (gitignored). `setup`
 is safe to re-run: it won't overwrite an existing `.env`, and it only seeds a
-database with no transactions in it (`npm run setup -- --seed` forces a reseed).
+database with no transactions in it (`pnpm run setup -- --seed` forces a reseed).
 
 By hand, if you prefer:
 
 ```bash
-npm install
+pnpm install
 cp .env.example .env
-npm run db:migrate   # create/upgrade tables + seed the admin user
-npm run db:seed      # create the demo user + dummy data
-npm run dev
+pnpm run db:migrate   # create/upgrade tables + seed the admin user
+pnpm run db:seed      # create the demo user + dummy data
+pnpm run dev
 ```
 
 ## Dummy data
 
-`npm run db:seed` fills the database with a plausible year of Dutch banking:
+`pnpm run db:seed` fills the database with a plausible year of Dutch banking:
 three accounts (checking, savings, joint), salary and fixed costs linked to
 recurring plans, everyday spending across all default categories, monthly
 internal transfers between accounts, category rules, budgets, three pots
 (two with savings targets), and a few reimbursed group dinners.
 
 ```bash
-npm run db:seed                      # 12 months for "demo"
-npm run db:seed -- --months 3        # shorter history
-npm run db:seed -- --user alice --password hunter2   # a second user, created if missing
-npm run db:reset                     # delete the DB, migrate, reseed from scratch
+pnpm run db:seed                      # 12 months for "demo"
+pnpm run db:seed -- --months 3        # shorter history
+pnpm run db:seed -- --user alice --password '<password>'   # a second user, created if missing
+pnpm run db:reset                     # delete the DB, migrate, reseed from scratch
 ```
 
 It's deterministic — the same flags always produce the same numbers, so
@@ -73,7 +73,7 @@ screenshots and bug reports line up. Re-running **wipes the target user's
 financial data first** so it never stacks up, and it refuses to run when
 `TURSO_DATABASE_URL` is set.
 
-> After `db:reset`, restart `npm run dev`. The dev server keeps a handle on the
+> After `db:reset`, restart `pnpm run dev`. The dev server keeps a handle on the
 > old database file and will keep serving it (logins start failing) until it is.
 
 ## Environment
@@ -97,20 +97,20 @@ Turso, otherwise the local SQLite file. Same switch drives `drizzle.config.ts`.
 
 | Command | Does |
 |---|---|
-| `npm run dev` | Dev server |
-| `npm run build` | Prod build, then applies migrations |
-| `npm start` | Serve the production build |
-| `npm test` | Run Vitest once (`test:watch` for watch mode) |
-| `npm run lint` | ESLint |
-| `npm run db:migrate` | Apply pending migrations + seed admin/categories (safe to re-run) |
-| `npm run db:generate` | Generate a new migration from `src/db/schema.ts` |
-| `npm run db:seed` | Dummy data for the demo user (see above) |
-| `npm run db:reset` | Delete the local DB, migrate, reseed |
-| `npm run db:studio` | Drizzle Studio (browse the DB) |
-| `npm run db:init` | Seed/repair step only, without migrating |
+| `pnpm run dev` | Dev server |
+| `pnpm run build` | Prod build, then applies migrations |
+| `pnpm start` | Serve the production build |
+| `pnpm test` | Run Vitest once (`test:watch` for watch mode) |
+| `pnpm run lint` | ESLint |
+| `pnpm run db:migrate` | Apply pending migrations + seed admin/categories (safe to re-run) |
+| `pnpm run db:generate` | Generate a new migration from `src/db/schema.ts` |
+| `pnpm run db:seed` | Dummy data for the demo user (see above) |
+| `pnpm run db:reset` | Delete the local DB, migrate, reseed |
+| `pnpm run db:studio` | Drizzle Studio (browse the DB) |
+| `pnpm run db:init` | Seed/repair step only, without migrating |
 
-Schema changes are versioned: edit `src/db/schema.ts`, run `npm run db:generate`,
-commit the generated `drizzle/*.sql`, then `npm run db:migrate`. There is no
+Schema changes are versioned: edit `src/db/schema.ts`, run `pnpm run db:generate`,
+commit the generated `drizzle/*.sql`, then `pnpm run db:migrate`. There is no
 `db:push` — pushing was dropped because it silently skips data-loss statements.
 
 `scripts/reset-password.ts` resets a user's password if you get locked out.
@@ -122,7 +122,7 @@ commit the generated `drizzle/*.sql`, then `npm run db:migrate`. There is no
 | Logged in, but every page bounces to `/backoffice` | You're on the `admin` account. Log in as `demo@local.test`. |
 | "Invalid email or password" for a user you just seeded | You're using the username — sign in with the full email (`demo@local.test`). Or the dev server is holding the deleted database file; restart it. |
 | Empty dashboard | Ran `db:migrate` but not `db:seed`, or you're logged in as a user with no data. |
-| `No such table` errors | Missing migrations — run `npm run db:migrate`. |
+| `No such table` errors | Missing migrations — run `pnpm run db:migrate`. |
 
 ## Deploying
 
@@ -133,7 +133,7 @@ Designed for **Vercel + Turso**, but any Node host works.
 2. **Set env vars** on the host: `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`,
    `BETTER_AUTH_SECRET` (a real 32+ char secret), and `BETTER_AUTH_URL`
    (your production domain).
-3. **Deploy.** `npm run build` applies pending migrations to Turso and seeds the
+3. **Deploy.** `pnpm run build` applies pending migrations to Turso and seeds the
    admin user automatically, so the DB is ready on first deploy. On Vercel,
    `BETTER_AUTH_URL` falls back to `VERCEL_PROJECT_PRODUCTION_URL` if unset.
 4. **Log in and change the admin password** immediately.
@@ -197,8 +197,8 @@ src/
 ## Testing
 
 ```bash
-npm test
+pnpm test
 ```
 
-Vitest, config in `vitest.config.ts`. CI runs `npm test` on every PR and on
+Vitest, config in `vitest.config.ts`. CI runs `pnpm test` on every PR and on
 pushes to `main` (`.github/workflows/test.yml`).
