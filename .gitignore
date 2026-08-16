@@ -46,3 +46,6 @@ prisma/*.db
 prisma/*.db-journal
 data/*
 .vercel
+
+# npm lockfile — this repo installs with pnpm
+package-lock.json
