@@ -56,6 +56,24 @@ export function useDeleteCategory() {
   });
 }
 
+export function useBulkDeleteCategories() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: string[]) =>
+      apiFetch<{ deleted: number }>(
+        `/api/categories?${ids.map((id) => `id=${encodeURIComponent(id)}`).join("&")}`,
+        { method: "DELETE" }
+      ),
+    // onSettled so the cache refreshes even when the delete fails partway
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["categories"] });
+      qc.invalidateQueries({ queryKey: ["category-rules"] });
+      qc.invalidateQueries({ queryKey: ["transactions"] });
+      qc.invalidateQueries({ queryKey: ["budgets"] });
+    },
+  });
+}
+
 export function useReorderCategories() {
   const qc = useQueryClient();
   return useMutation({
@@ -76,7 +94,7 @@ export function useCategoryRules() {
 export function useCreateCategoryRule() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { pattern: string; categoryId: string; matchType: string; applyToExisting?: boolean }) =>
+    mutationFn: (payload: { pattern: string; categoryId: string; matchType: string; matchField: string; applyToExisting?: boolean }) =>
       apiFetch<{ applied?: number }>("/api/categories/rules", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["category-rules"] });
@@ -89,7 +107,7 @@ export function useCreateCategoryRule() {
 export function useUpdateCategoryRule() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { id: string; pattern: string; matchType: string; categoryId: string; applyToExisting?: boolean }) =>
+    mutationFn: (payload: { id: string; pattern: string; matchType: string; matchField: string; categoryId: string; applyToExisting?: boolean }) =>
       apiFetch("/api/categories/rules", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["category-rules"] });

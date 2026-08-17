@@ -56,6 +56,7 @@ export interface CategoryRule {
   pattern: string;
   categoryId: string;
   matchType: string;
+  matchField: string;
   isActive: boolean;
   createdAt: string;
 }
@@ -67,6 +68,7 @@ export interface RuleWithCategory {
   categoryName: string | null;
   categoryColor: string | null;
   matchType: string;
+  matchField: string;
   isActive: boolean;
   createdAt: string;
 }

@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -28,7 +29,12 @@ import {
   useDeleteCategory,
 } from "@/hooks/use-categories";
 import type { CategoryWithDetails, RuleWithCategory } from "@/types/api";
-import { MATCH_TYPES, MATCH_TYPE_LABEL_KEYS } from "./match-types";
+import {
+  MATCH_TYPES,
+  MATCH_TYPE_LABEL_KEYS,
+  MATCH_FIELDS,
+  MATCH_FIELD_LABEL_KEYS,
+} from "@/lib/match-types";
 import { useI18n } from "@/lib/i18n/client";
 
 interface CategoryRowProps {
@@ -39,9 +45,19 @@ interface CategoryRowProps {
   onEdit: (category: CategoryWithDetails) => void;
   /** Drag handle rendered at the start of the header row. */
   dragHandle?: React.ReactNode;
+  selected?: boolean;
+  onToggleSelect?: (selected: boolean) => void;
 }
 
-export function CategoryRow({ category, rules, categories, onEdit, dragHandle }: CategoryRowProps) {
+export function CategoryRow({
+  category,
+  rules,
+  categories,
+  onEdit,
+  dragHandle,
+  selected,
+  onToggleSelect,
+}: CategoryRowProps) {
   const { t, plural } = useI18n();
   const updateRule = useUpdateCategoryRule();
   const deleteRule = useDeleteCategoryRule();
@@ -51,6 +67,7 @@ export function CategoryRow({ category, rules, categories, onEdit, dragHandle }:
   const [editingRule, setEditingRule] = useState<string | null>(null);
   const [editPattern, setEditPattern] = useState("");
   const [editMatchType, setEditMatchType] = useState("contains");
+  const [editMatchField, setEditMatchField] = useState("both");
   const [editCategoryId, setEditCategoryId] = useState("");
 
   const hasRules = rules.length > 0;
@@ -59,6 +76,7 @@ export function CategoryRow({ category, rules, categories, onEdit, dragHandle }:
     setEditingRule(rule.id);
     setEditPattern(rule.pattern);
     setEditMatchType(rule.matchType);
+    setEditMatchField(rule.matchField);
     setEditCategoryId(rule.categoryId);
   };
 
@@ -66,6 +84,7 @@ export function CategoryRow({ category, rules, categories, onEdit, dragHandle }:
     setEditingRule(null);
     setEditPattern("");
     setEditMatchType("contains");
+    setEditMatchField("both");
     setEditCategoryId("");
   };
 
@@ -74,6 +93,7 @@ export function CategoryRow({ category, rules, categories, onEdit, dragHandle }:
       id: ruleId,
       pattern: editPattern,
       matchType: editMatchType,
+      matchField: editMatchField,
       categoryId: editCategoryId,
       applyToExisting: true,
     });
@@ -88,6 +108,15 @@ export function CategoryRow({ category, rules, categories, onEdit, dragHandle }:
         onClick={() => hasRules && setExpanded((v) => !v)}
       >
         <div className="flex items-center gap-2">
+          {onToggleSelect && (
+            <span onClick={(e) => e.stopPropagation()} className="shrink-0">
+              <Checkbox
+                checked={selected}
+                onCheckedChange={(v) => onToggleSelect(v === true)}
+                aria-label={t("categories.bulk.selectLabel", { name: category.name })}
+              />
+            </span>
+          )}
           {dragHandle}
           <CategoryIcon icon={category.icon} color={category.color} size="sm" />
           {hasRules ? (
@@ -157,7 +186,19 @@ export function CategoryRow({ category, rules, categories, onEdit, dragHandle }:
                           if (e.key === "Escape") cancelEditRule();
                         }}
                       />
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Select value={editMatchField} onValueChange={setEditMatchField}>
+                          <SelectTrigger className="h-7 text-xs w-full sm:w-[130px]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {MATCH_FIELDS.map((f) => (
+                              <SelectItem key={f.value} value={f.value}>
+                                {t(f.labelKey)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                         <Select value={editMatchType} onValueChange={setEditMatchType}>
                           <SelectTrigger className="h-7 text-xs w-full sm:w-[130px]">
                             <SelectValue />
@@ -220,6 +261,10 @@ export function CategoryRow({ category, rules, categories, onEdit, dragHandle }:
                           variant="secondary"
                           className="text-[10px] px-1.5 py-0 shrink-0"
                         >
+                          {MATCH_FIELD_LABEL_KEYS[rule.matchField]
+                            ? t(MATCH_FIELD_LABEL_KEYS[rule.matchField])
+                            : rule.matchField}
+                          {" · "}
                           {MATCH_TYPE_LABEL_KEYS[rule.matchType]
                             ? t(MATCH_TYPE_LABEL_KEYS[rule.matchType])
                             : rule.matchType}

@@ -1,7 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { categories, categoryRules, transactions } from "@/db/schema";
-import { eq, sql, and, asc, count } from "drizzle-orm";
+import {
+  budgetMonthTargets,
+  budgets,
+  budgetSubLines,
+  categories,
+  categoryRules,
+  recurringTransactions,
+  transactionGroups,
+  transactions,
+} from "@/db/schema";
+import { eq, sql, and, asc, count, inArray } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
 
@@ -155,29 +164,110 @@ export async function PATCH(request: NextRequest) {
   }, "Failed to reorder categories");
 }
 
-// DELETE /api/categories — delete a category
+// DELETE /api/categories — delete one category (?id=x) or several (?id=x&id=y)
 export async function DELETE(request: NextRequest) {
   return withUser(async (userId) => {
     const { searchParams } = new URL(request.url);
-    const id = searchParams.get("id");
+    const ids = searchParams.getAll("id");
 
-    if (!id) {
+    if (ids.length === 0) {
       return NextResponse.json(
         { error: "Category ID is required" },
         { status: 400 }
       );
     }
 
-    // Unset category on remaining transactions
-    await db
-      .update(transactions)
-      .set({ categoryId: null })
-      .where(and(eq(transactions.categoryId, id), eq(transactions.userId, userId)));
+    const doomed = await db
+      .select({ id: categories.id, name: categories.name })
+      .from(categories)
+      .where(and(inArray(categories.id, ids), eq(categories.userId, userId)));
 
-    await db.delete(categories).where(and(eq(categories.id, id), eq(categories.userId, userId)));
+    const doomedIds = doomed.map((cat) => cat.id);
 
-    logDataEvent({ userId, action: "category_delete", targetId: id, targetType: "category" });
+    if (doomedIds.length > 0) {
+      // Drop the FK but keep the name as plain text, so history stays readable.
+      for (const cat of doomed) {
+        await db
+          .update(transactions)
+          .set({ categoryId: null, categoryLabel: cat.name, categorySource: null })
+          .where(and(eq(transactions.categoryId, cat.id), eq(transactions.userId, userId)));
+      }
 
-    return NextResponse.json({ success: true });
-  }, "Failed to delete category");
+      await db
+        .update(recurringTransactions)
+        .set({ categoryId: null })
+        .where(
+          and(
+            inArray(recurringTransactions.categoryId, doomedIds),
+            eq(recurringTransactions.userId, userId)
+          )
+        );
+
+      await db
+        .update(transactionGroups)
+        .set({ categoryId: null })
+        .where(
+          and(
+            inArray(transactionGroups.categoryId, doomedIds),
+            eq(transactionGroups.userId, userId)
+          )
+        );
+
+      await db.delete(budgetSubLines).where(
+        and(
+          eq(budgetSubLines.userId, userId),
+          inArray(
+            budgetSubLines.allocationId,
+            db
+              .select({ id: budgets.id })
+              .from(budgets)
+              .where(
+                and(
+                  inArray(budgets.categoryId, doomedIds),
+                  eq(budgets.userId, userId)
+                )
+              )
+          )
+        )
+      );
+
+      await db
+        .delete(budgets)
+        .where(
+          and(
+            inArray(budgets.categoryId, doomedIds),
+            eq(budgets.userId, userId)
+          )
+        );
+
+      await db
+        .delete(budgetMonthTargets)
+        .where(
+          and(
+            inArray(budgetMonthTargets.categoryId, doomedIds),
+            eq(budgetMonthTargets.userId, userId)
+          )
+        );
+
+      await db
+        .delete(categoryRules)
+        .where(
+          and(
+            inArray(categoryRules.categoryId, doomedIds),
+            eq(categoryRules.userId, userId)
+          )
+        );
+    }
+
+    const deleted = await db
+      .delete(categories)
+      .where(and(inArray(categories.id, ids), eq(categories.userId, userId)))
+      .returning({ id: categories.id });
+
+    for (const { id } of deleted) {
+      logDataEvent({ userId, action: "category_delete", targetId: id, targetType: "category" });
+    }
+
+    return NextResponse.json({ success: true, deleted: deleted.length });
+  }, "Failed to delete categories");
 }

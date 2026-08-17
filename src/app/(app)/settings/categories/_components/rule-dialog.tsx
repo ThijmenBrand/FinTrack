@@ -23,7 +23,7 @@ import {
 import { Zap } from "lucide-react";
 import { useCreateCategoryRule } from "@/hooks/use-categories";
 import type { CategoryWithDetails } from "@/types/api";
-import { MATCH_TYPES } from "./match-types";
+import { MATCH_TYPES, MATCH_FIELDS } from "@/lib/match-types";
 import { useI18n } from "@/lib/i18n/client";
 
 interface RuleDialogProps {
@@ -38,6 +38,7 @@ export function RuleDialog({ categories }: RuleDialogProps) {
   const [pattern, setPattern] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [matchType, setMatchType] = useState("contains");
+  const [matchField, setMatchField] = useState("both");
   const [applyExisting] = useState(true);
   const [result, setResult] = useState<string | null>(null);
 
@@ -45,6 +46,7 @@ export function RuleDialog({ categories }: RuleDialogProps) {
     setPattern("");
     setCategoryId("");
     setMatchType("contains");
+    setMatchField("both");
     setResult(null);
   };
 
@@ -53,6 +55,7 @@ export function RuleDialog({ categories }: RuleDialogProps) {
       pattern,
       categoryId,
       matchType,
+      matchField,
       applyToExisting: applyExisting,
     });
     if (data.applied && data.applied > 0) {
@@ -95,6 +98,21 @@ export function RuleDialog({ categories }: RuleDialogProps) {
               value={pattern}
               onChange={(e) => setPattern(e.target.value)}
             />
+          </div>
+          <div className="grid gap-2">
+            <Label>{t("categories.rule.matchFieldLabel")}</Label>
+            <Select value={matchField} onValueChange={setMatchField}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {MATCH_FIELDS.map((f) => (
+                  <SelectItem key={f.value} value={f.value}>
+                    {t(f.labelKey)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="grid gap-2">
             <Label>{t("categories.rule.matchTypeLabel")}</Label>

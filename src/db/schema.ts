@@ -120,6 +120,10 @@ export const transactions = sqliteTable("transactions", {
   amount: real("amount").notNull(), // Positive = income, Negative = expense
   balance: real("balance"), // Running balance if provided by bank
   categoryId: text("category_id").references(() => categories.id),
+  // Name of the category this transaction had when that category was deleted.
+  // Keeps the history readable as plain text once the FK is gone; ignored while
+  // categoryId is set.
+  categoryLabel: text("category_label"),
   // Tracks how categoryId was set so "Recalculate All" can wipe rule-applied
   // categories without destroying manual user assignments. Null when no category.
   categorySource: text("category_source", { enum: ["manual", "rule"] }),
@@ -189,6 +193,13 @@ export const categoryRules = sqliteTable("category_rules", {
   })
     .notNull()
     .default("contains"),
+  // Which text the pattern is matched against: the transaction name (title),
+  // the description, or both joined as "name — description" (legacy default).
+  matchField: text("match_field", {
+    enum: ["both", "name", "description"],
+  })
+    .notNull()
+    .default("both"),
   isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
   createdAt: text("created_at")
     .notNull()

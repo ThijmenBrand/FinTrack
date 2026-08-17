@@ -32,6 +32,7 @@ export async function POST() {
         pattern: categoryRules.pattern,
         categoryId: categoryRules.categoryId,
         matchType: categoryRules.matchType,
+        matchField: categoryRules.matchField,
       })
       .from(categoryRules)
       .where(and(eq(categoryRules.isActive, true), eq(categoryRules.userId, userId)));
@@ -45,6 +46,7 @@ export async function POST() {
         pattern: rule.pattern,
         categoryId: rule.categoryId,
         matchType: rule.matchType,
+        matchField: rule.matchField,
         userId,
       });
       totalApplied += applied;

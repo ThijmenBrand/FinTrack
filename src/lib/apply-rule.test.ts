@@ -198,6 +198,46 @@ describe("applyRuleToTransactions", () => {
     expect((await getTx(other)).categoryId).toBeNull();
   });
 
+  it("matchField 'name' looks at the title only (falling back to description)", async () => {
+    const catId = await insertCategory();
+    const inName = await insertTx({ name: "Netflix Intl", description: "invoice 9" });
+    const inDescOnly = await insertTx({ name: "Adyen", description: "netflix payment" });
+    const singleColumn = await insertTx({ description: "Netflix BV" });
+
+    expect(
+      await applyRuleToTransactions({
+        pattern: "netflix",
+        categoryId: catId,
+        matchType: "contains",
+        matchField: "name",
+        userId: USER,
+      }),
+    ).toBe(2);
+    expect((await getTx(inName)).categoryId).toBe(catId);
+    expect((await getTx(singleColumn)).categoryId).toBe(catId);
+    expect((await getTx(inDescOnly)).categoryId).toBeNull();
+  });
+
+  it("matchField 'description' ignores the title and single-column rows", async () => {
+    const catId = await insertCategory();
+    const inDesc = await insertTx({ name: "Adyen", description: "netflix payment" });
+    const inName = await insertTx({ name: "Netflix Intl", description: "invoice 9" });
+    const singleColumn = await insertTx({ description: "Netflix BV" });
+
+    expect(
+      await applyRuleToTransactions({
+        pattern: "netflix",
+        categoryId: catId,
+        matchType: "contains",
+        matchField: "description",
+        userId: USER,
+      }),
+    ).toBe(1);
+    expect((await getTx(inDesc)).categoryId).toBe(catId);
+    expect((await getTx(inName)).categoryId).toBeNull();
+    expect((await getTx(singleColumn)).categoryId).toBeNull();
+  });
+
   it("returns the number of rows updated across multiple matches", async () => {
     const catId = await insertCategory();
     await insertTx({ description: "netflix january" });

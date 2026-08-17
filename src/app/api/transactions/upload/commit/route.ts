@@ -21,13 +21,14 @@ import {
   isFiniteNumber,
   isIsoDate,
   isMatchType,
+  isMatchField,
 } from "@/lib/validation";
 const TX_TYPES = ["income", "expense", "internal_transfer", "reimbursement"] as const;
 type TxType = (typeof TX_TYPES)[number];
 
 // Backstop against unbounded request bodies — a real bank CSV is far smaller.
 const MAX_IMPORT_ROWS = 5000;
-import { matchesRule, splitDuplicates } from "@/lib/csv-utils";
+import { matchesRule, ruleMatchTarget, splitDuplicates } from "@/lib/csv-utils";
 import { applyRuleToTransactions } from "@/lib/apply-rule";
 
 interface CommitTransaction {
@@ -51,6 +52,7 @@ interface NewRule {
   pattern: string;
   categoryId: string;
   matchType: "contains" | "exact" | "starts_with";
+  matchField?: "both" | "name" | "description";
 }
 
 interface CommitRequest {
@@ -157,6 +159,7 @@ export async function POST(request: NextRequest) {
         ...rule,
         pattern: validated.value,
         matchType: isMatchType(rule.matchType) ? rule.matchType : "contains",
+        matchField: isMatchField(rule.matchField) ? rule.matchField : "both",
       });
     }
 
@@ -212,8 +215,8 @@ export async function POST(request: NextRequest) {
       categoryId: string | null
     ): "manual" | "rule" | null => {
       if (!categoryId) return null;
-      const matchTarget = name ? `${name} — ${description}` : description;
       for (const rule of activeRules) {
+        const matchTarget = ruleMatchTarget(name, description, rule.matchField);
         if (matchesRule(matchTarget, rule.pattern, rule.matchType) && rule.categoryId === categoryId) {
           return "rule";
         }
@@ -404,6 +407,7 @@ export async function POST(request: NextRequest) {
         pattern: rule.pattern,
         categoryId: rule.categoryId,
         matchType: rule.matchType || "contains",
+        matchField: rule.matchField || "both",
         isActive: true,
         createdAt: new Date().toISOString(),
       });
@@ -415,6 +419,7 @@ export async function POST(request: NextRequest) {
         pattern: rule.pattern,
         categoryId: rule.categoryId,
         matchType: rule.matchType || "contains",
+        matchField: rule.matchField || "both",
         userId: ownerId,
       });
     }
