@@ -81,6 +81,7 @@ type CategorizePayload = {
   createRule?: boolean;
   rulePattern?: string;
   ruleMatchType?: string;
+  ruleMatchField?: string;
 };
 
 type TransactionsQueryKey = readonly [string, TransactionFilters];

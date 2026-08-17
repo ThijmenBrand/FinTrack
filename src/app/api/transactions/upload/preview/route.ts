@@ -11,6 +11,7 @@ import {
   parseAmount,
   parseDate,
   matchesRule,
+  ruleMatchTarget,
   extractPattern,
   splitNameAndDescription,
   findMatchingRecurring,
@@ -225,14 +226,13 @@ export async function POST(request: NextRequest) {
       }
 
       // Auto-categorize using rules (skip if already detected as transfer).
-      // Match against the combined "name — description" so existing rules built
-      // against the previously-concatenated label keep working after the split.
-      const matchTarget = name ? `${name} — ${description}` : description;
+      // Each rule matches the text its matchField names.
       let categoryId: string | null = null;
       if (type === "internal_transfer" && transferCategory) {
         categoryId = transferCategory.id;
       } else {
         for (const rule of rules) {
+          const matchTarget = ruleMatchTarget(name, description, rule.matchField);
           if (matchesRule(matchTarget, rule.pattern, rule.matchType)) {
             categoryId = rule.categoryId;
             break;

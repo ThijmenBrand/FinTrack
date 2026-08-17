@@ -10,3 +10,14 @@ export const MATCH_TYPES: { value: string; labelKey: MessageKey }[] = [
 export const MATCH_TYPE_LABEL_KEYS: Record<string, MessageKey> = Object.fromEntries(
   MATCH_TYPES.map((m) => [m.value, m.labelKey]),
 );
+
+// Which transaction text the pattern is compared against.
+export const MATCH_FIELDS: { value: string; labelKey: MessageKey }[] = [
+  { value: "both", labelKey: "categories.matchField.both" },
+  { value: "name", labelKey: "categories.matchField.name" },
+  { value: "description", labelKey: "categories.matchField.description" },
+];
+
+export const MATCH_FIELD_LABEL_KEYS: Record<string, MessageKey> = Object.fromEntries(
+  MATCH_FIELDS.map((f) => [f.value, f.labelKey]),
+);

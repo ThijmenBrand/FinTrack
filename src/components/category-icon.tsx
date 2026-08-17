@@ -56,6 +56,7 @@ import {
   Beer,
   Globe,
   Leaf,
+  Tent,
   type LucideIcon,
 } from "lucide-react";
 
@@ -116,6 +117,7 @@ export const LUCIDE_ICON_MAP: Record<string, LucideIcon> = {
   Beer,
   Globe,
   Leaf,
+  Tent,
 };
 
 export const LUCIDE_ICON_SECTIONS: { labelKey: MessageKey; icons: string[] }[] = [
@@ -141,7 +143,7 @@ export const LUCIDE_ICON_SECTIONS: { labelKey: MessageKey; icons: string[] }[] =
   },
   {
     labelKey: "iconPicker.entertainmentShopping",
-    icons: ["Tv", "Clapperboard", "Gamepad2", "Music", "BookOpen", "Palette", "ShoppingBag", "Shirt", "Gift", "Scissors"],
+    icons: ["Tv", "Clapperboard", "Gamepad2", "Music", "BookOpen", "Palette", "Tent", "ShoppingBag", "Shirt", "Gift", "Scissors"],
   },
   {
     labelKey: "iconPicker.other",

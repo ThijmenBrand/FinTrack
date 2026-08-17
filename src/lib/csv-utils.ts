@@ -208,7 +208,7 @@ export function parseDate(raw: string): string | null {
 
   // DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY (EU order first; swap to MM/DD
   // when the middle part can't be a month, e.g. "04/25/2026")
-  const euMatch = raw.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
+  const euMatch = raw.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/);
   if (euMatch) {
     let day = Number(euMatch[1]);
     let month = Number(euMatch[2]);
@@ -227,6 +227,25 @@ export function parseDate(raw: string): string | null {
   }
 
   return null;
+}
+
+/**
+ * The text a rule matches against, per its `matchField`:
+ * - "both" (default): "name — description", so legacy rules keep working.
+ * - "name": the title. Rows imported from a single CSV column have name=null
+ *   and their lone text in description (see splitNameAndDescription) — that
+ *   text IS the displayed title, so it falls back to it.
+ * - "description": the memo only; empty for those single-column rows, since
+ *   they have no separate description.
+ */
+export function ruleMatchTarget(
+  name: string | null | undefined,
+  description: string,
+  matchField?: string | null
+): string {
+  if (matchField === "name") return name || description;
+  if (matchField === "description") return name ? description : "";
+  return name ? `${name} — ${description}` : description;
 }
 
 /**

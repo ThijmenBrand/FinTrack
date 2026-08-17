@@ -3,6 +3,7 @@ import {
   parseAmount,
   parseDate,
   matchesRule,
+  ruleMatchTarget,
   splitNameAndDescription,
   extractPattern,
   findMatchingRecurring,
@@ -162,6 +163,24 @@ describe("matchesRule", () => {
 
   it("treats an unknown matchType as 'contains'", () => {
     expect(matchesRule("Albert Heijn", "heijn", "bogus")).toBe(true);
+  });
+});
+
+describe("ruleMatchTarget", () => {
+  it("joins both fields by default (and for an unknown field)", () => {
+    expect(ruleMatchTarget("Albert Heijn", "groceries", "both")).toBe("Albert Heijn — groceries");
+    expect(ruleMatchTarget("Albert Heijn", "groceries", undefined)).toBe("Albert Heijn — groceries");
+    expect(ruleMatchTarget(null, "groceries", "bogus")).toBe("groceries");
+  });
+
+  it("'name' falls back to the description for single-column rows", () => {
+    expect(ruleMatchTarget("Albert Heijn", "groceries", "name")).toBe("Albert Heijn");
+    expect(ruleMatchTarget(null, "Albert Heijn", "name")).toBe("Albert Heijn");
+  });
+
+  it("'description' is empty when the row has no separate name", () => {
+    expect(ruleMatchTarget("Albert Heijn", "groceries", "description")).toBe("groceries");
+    expect(ruleMatchTarget(null, "Albert Heijn", "description")).toBe("");
   });
 });
 
