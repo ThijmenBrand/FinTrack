@@ -101,6 +101,8 @@ interface TransactionsTableProps {
   onCategoryChange: (v: string) => void;
   onTypeChange: (v: string) => void;
   renderRows: (layout: "table" | "card") => ReactNode;
+  /** Show the who-added-it column — only when a shared account is in view. */
+  showCreator: boolean;
 }
 
 export function TransactionsTable({
@@ -127,6 +129,7 @@ export function TransactionsTable({
   onCategoryChange,
   onTypeChange,
   renderRows,
+  showCreator,
 }: TransactionsTableProps) {
   const { t, plural } = useI18n();
   return (
@@ -204,6 +207,11 @@ export function TransactionsTable({
                         aria-label={t("tx.table.selectAll")}
                       />
                     </TableHead>
+                    {showCreator && (
+                      <TableHead className="w-[44px]">
+                        <span className="sr-only">{t("tx.table.addedBy")}</span>
+                      </TableHead>
+                    )}
                     <TableHead
                       className="cursor-pointer select-none whitespace-nowrap"
                       onClick={() => onSort("date")}

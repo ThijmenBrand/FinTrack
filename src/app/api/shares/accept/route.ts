@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiError } from "@/lib/api-errors";
 import { headers } from "next/headers";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
@@ -13,8 +14,6 @@ import {
   findPendingShareInvite,
   type PendingShareInvite,
 } from "@/lib/share-invites";
-
-const GONE = { error: "This invite link is no longer valid" };
 
 /**
  * Audit the accept and tell the owner. Both are best-effort: the membership is
@@ -61,7 +60,7 @@ export async function GET(request: NextRequest) {
   const invite = await findPendingShareInvite(
     new URL(request.url).searchParams.get("token"),
   );
-  if (!invite) return NextResponse.json(GONE, { status: 410 });
+  if (!invite) return apiError("api.inviteLinkInvalid", 410);
 
   return NextResponse.json({
     accountName: invite.accountName,
@@ -78,23 +77,20 @@ export async function POST(request: NextRequest) {
     const { token } = await request.json();
 
     const invite = await findPendingShareInvite(token);
-    if (!invite) return NextResponse.json(GONE, { status: 410 });
+    if (!invite) return apiError("api.inviteLinkInvalid", 410);
 
     const hdrs = await headers();
     const session = await auth.api.getSession({ headers: hdrs });
     if (!session?.user?.id) {
-      return NextResponse.json({ error: "Sign in to accept this invite" }, { status: 401 });
+      return apiError("api.signInToAccept", 401);
     }
 
     const access = await getAccountAccess(session.user.id, invite.member.accountId);
     if (access?.role === "owner") {
-      return NextResponse.json({ error: "You already own this account" }, { status: 400 });
+      return apiError("api.alreadyOwnAccount", 400);
     }
     if (access) {
-      return NextResponse.json(
-        { error: "You already have access to this account" },
-        { status: 409 },
-      );
+      return apiError("api.alreadyHasAccess", 409);
     }
 
     await acceptShareInvite(invite.member.id, session.user.id);
@@ -102,6 +98,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true });
   } catch (error) {
     console.error("Failed to accept share invite:", error);
-    return NextResponse.json({ error: "Failed to accept invite" }, { status: 500 });
+    return apiError("api.inviteAcceptFailed", 500);
   }
 }

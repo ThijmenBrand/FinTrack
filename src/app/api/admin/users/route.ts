@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiError } from "@/lib/api-errors";
 import { adminDb as db } from "@/db";
 import { sql } from "drizzle-orm";
 import { withAdmin, hashPassword } from "@/lib/auth";
@@ -31,7 +32,7 @@ export async function GET() {
   return withAdmin(async (session) => {
     const result = await db.run(sql`
       SELECT
-        u.id, u.name, u.role, u.created_at,
+        u.id, u.name, u.image, u.role, u.created_at,
         u.banned, u.ban_reason, u.email, u.email_verified,
         (SELECT MAX(s.updated_at) FROM session s WHERE s.user_id = u.id) AS last_active,
         (SELECT COUNT(*) FROM accounts a WHERE a.user_id = u.id) AS account_count,
@@ -46,6 +47,7 @@ export async function GET() {
       result.rows.map((row: Record<string, unknown>) => ({
         id: row.id,
         displayName: row.name,
+        imageUrl: row.image ?? null,
         email: row.email,
         emailVerified: Number(row.email_verified) === 1,
         role: row.role === "admin" ? "admin" : "user",
@@ -97,7 +99,7 @@ export async function PUT(request: NextRequest) {
     if (displayName !== undefined) {
       const displayCheck = validateName(displayName);
       if (!displayCheck.ok) {
-        return NextResponse.json({ error: `Invalid display name: ${displayCheck.error}` }, { status: 400 });
+        return apiError(displayCheck.error, 400, displayCheck.vars);
       }
       await db.run(
         sql`UPDATE "user" SET name = ${displayCheck.value}, updated_at = ${now} WHERE id = ${id}`
@@ -119,7 +121,7 @@ export async function PUT(request: NextRequest) {
           AND NOT EXISTS (SELECT 1 FROM "user" WHERE email = ${cleanEmail} AND id <> ${id})
       `);
       if (Number(updated.rowsAffected) === 0) {
-        return NextResponse.json({ error: "That email is already in use" }, { status: 409 });
+        return apiError("api.emailInUse", 409);
       }
       await logAdminAction(session.userId, "email_change", id, { email: cleanEmail });
     }
@@ -140,10 +142,7 @@ export async function PUT(request: NextRequest) {
       }
       // Prevent demoting yourself — guarantees at least one admin remains
       if (id === session.userId) {
-        return NextResponse.json(
-          { error: "Cannot change your own role" },
-          { status: 400 }
-        );
+        return apiError("api.cannotChangeOwnRole", 400);
       }
       await db.run(
         sql`UPDATE "user" SET role = ${isAdmin ? 'admin' : 'user'}, updated_at = ${now} WHERE id = ${id}`
@@ -158,10 +157,7 @@ export async function PUT(request: NextRequest) {
       // Prevent banning yourself — combined with the self-delete and self-role
       // guards, at least one working admin always remains.
       if (id === session.userId) {
-        return NextResponse.json(
-          { error: "Cannot ban your own account" },
-          { status: 400 }
-        );
+        return apiError("api.cannotBanSelf", 400);
       }
       const reason = banned && typeof banReason === "string" && banReason.trim()
         ? banReason.trim().slice(0, 500)
@@ -196,10 +192,7 @@ export async function DELETE(request: NextRequest) {
 
     // Prevent deleting yourself
     if (id === session.userId) {
-      return NextResponse.json(
-        { error: "Cannot delete your own account" },
-        { status: 400 }
-      );
+      return apiError("api.cannotDeleteSelf", 400);
     }
 
     // Look up the target user's name before deletion for the audit log

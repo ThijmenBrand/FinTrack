@@ -89,6 +89,7 @@ empty `.env` still runs.
 | `SEED_USERNAME` / `SEED_PASSWORD` / `SEED_EMAIL` | no | Defaults for `db:seed`'s target user. Default `demo`/`demo`, signing in as `demo@local.test`. |
 | `RESEND_API_KEY` / `EMAIL_FROM` | prod | Signup verification and password-reset mail. Unset locally → mail contents are logged to the console instead. |
 | `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN` | prod | Leave **unset** for local (uses the SQLite file). Set **both** to use Turso. |
+| `BLOB_READ_WRITE_TOKEN` | no | Vercel Blob store for profile pictures. Auto-injected on Vercel; unset → avatar upload returns 503 and the app falls back to initials. |
 
 The DB target is chosen at runtime: if `TURSO_DATABASE_URL` is set it uses
 Turso, otherwise the local SQLite file. Same switch drives `drizzle.config.ts`.

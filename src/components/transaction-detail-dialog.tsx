@@ -35,6 +35,7 @@ import { NotesEditor } from "@/components/notes-editor";
 
 import type { Transaction, ReimbursementDetail, Category } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
+import { UserAvatar } from "@/components/user-avatar";
 import type { MessageKey } from "@/lib/i18n/translate";
 
 const TYPE_BADGES: Record<
@@ -289,6 +290,13 @@ export function TransactionDetailDialog({ transaction, onOpenChange, categories,
 
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             <Clock className="h-3.5 w-3.5 shrink-0" />
+            {tx.createdByName && (
+              <UserAvatar
+                name={tx.createdByName}
+                image={tx.createdByImage}
+                className="h-4 w-4 text-[8px]"
+              />
+            )}
             <span>
               {/* Only set on shared-account rows — a solo account never needs to say who. */}
               {tx.createdByName

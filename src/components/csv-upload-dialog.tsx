@@ -42,6 +42,7 @@ interface Account {
   id: string;
   name: string;
   bank: string | null;
+  iban: string | null;
 }
 
 interface CsvUploadDialogProps {
@@ -87,6 +88,7 @@ export function CsvUploadDialog({
     transfersDetected: number;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [confirmClose, setConfirmClose] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Preview + review state
@@ -109,6 +111,7 @@ export function CsvUploadDialog({
     setMapping({ date: "", description: "", amount: "", name: "", balance: "", fee: "", counterpartyIban: "" });
     setResult(null);
     setError(null);
+    setConfirmClose(false);
     setPreviewData([]);
     setPreviewSkipped(0);
     setPreviewPending(0);
@@ -253,6 +256,7 @@ export function CsvUploadDialog({
         transfersDetected: data.transfersDetected || 0,
       });
       setStep("done");
+      setConfirmClose(false); // commit landed — nothing left to discard
       onUploadComplete?.();
     } catch (err) {
       console.error("CSV commit failed:", err);
@@ -264,6 +268,11 @@ export function CsvUploadDialog({
 
   const canProceedToPreview =
     mapping.date && mapping.description && mapping.amount && selectedAccountId;
+
+  // Steps holding work a close would throw away. select-file/processing/done
+  // have nothing worth keeping; committing is handled separately, since by then
+  // the write is already in flight and there is nothing left to discard.
+  const hasWorkToLose = step === "map-columns" || step === "review";
 
   // Only Revolut splits fees into their own column; the server enforces this
   // too, so an account on any other bank never sees the mapping.
@@ -280,6 +289,15 @@ export function CsvUploadDialog({
     <Dialog
       open={open}
       onOpenChange={(o) => {
+        // Every close path — X, Esc, overlay click, mobile swipe-down — lands
+        // here, so these guards cover all of them.
+        // The commit POST is already on the wire and will land either way;
+        // offering to "discard" it would be a lie, so just refuse to close.
+        if (!o && step === "committing") return;
+        if (!o && hasWorkToLose) {
+          setConfirmClose(true);
+          return;
+        }
         if (!o) reset();
         onOpenChange(o);
       }}
@@ -322,7 +340,7 @@ export function CsvUploadDialog({
         )}
 
         {/* Step 2: Map Columns */}
-        {step === "map-columns" && (
+        {step === "map-columns" && !confirmClose && (
           <div className="space-y-4 py-4">
             <div className="flex items-center gap-2 rounded-lg bg-muted/50 p-3 min-w-0">
               <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
@@ -348,6 +366,11 @@ export function CsvUploadDialog({
                         <span className="flex items-center gap-2">
                           <BankLogo bank={a.bank} size={24} />
                           {a.name}
+                          {a.iban && (
+                            <span className="text-xs text-muted-foreground/60 font-mono">
+                              {a.iban}
+                            </span>
+                          )}
                         </span>
                       </SelectItem>
                     ))}
@@ -496,8 +519,7 @@ export function CsvUploadDialog({
                       </SelectContent>
                     </Select>
                     <p className="text-xs text-muted-foreground">
-                      Revolut bills card and ATM fees separately. Mapping this
-                      subtracts each fee from its transaction.
+                      {t("csv.feeHint")}
                     </p>
                   </div>
                 )}
@@ -610,9 +632,13 @@ export function CsvUploadDialog({
         )}
 
         {/* Step 4: Review & Categorize — stays mounted (hidden) during commit
-            so a failed commit returns to the review step with edits intact */}
+            and while the discard prompt is up, so every edit survives both */}
         {(step === "review" || step === "committing") && (
-          <div className={step === "committing" ? "hidden" : undefined}>
+          <div
+            className={
+              step === "committing" || confirmClose ? "hidden" : undefined
+            }
+          >
             <ImportReviewStep
               transactions={previewData}
               categories={categories}
@@ -670,8 +696,31 @@ export function CsvUploadDialog({
           </div>
         )}
 
+        {/* Discard confirmation — rendered as a step rather than a nested
+            dialog, so it works inside the mobile drawer too */}
+        {confirmClose && (
+          <div className="space-y-4 py-4">
+            <p className="font-medium">{t("discard.title")}</p>
+            <p className="text-sm text-muted-foreground">{t("discard.body")}</p>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setConfirmClose(false)}>
+                {t("discard.keepEditing")}
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  reset();
+                  onOpenChange(false);
+                }}
+              >
+                {t("discard.confirm")}
+              </Button>
+            </DialogFooter>
+          </div>
+        )}
+
         {/* Footer — only for steps that need it (review step has its own) */}
-        {step !== "review" && (
+        {step !== "review" && !confirmClose && (
           <DialogFooter>
             {step === "map-columns" && (
               <>

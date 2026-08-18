@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  safeRedirectPath,
   validatePattern,
   MAX_PATTERN_LENGTH,
   sanitizeNote,
@@ -10,9 +11,31 @@ import {
   validatePassword,
   validateName,
   validateEmail,
+  validateFeedback,
   MAX_USERNAME_LENGTH,
   MAX_EMAIL_LENGTH,
+  MAX_FEEDBACK_LENGTH,
 } from "./validation";
+
+describe("validateFeedback", () => {
+  it("trims and accepts a message", () => {
+    expect(validateFeedback("  the pots page is slow\n ")).toEqual({
+      ok: true,
+      value: "the pots page is slow",
+    });
+  });
+
+  it("rejects empty, non-string and over-long input", () => {
+    expect(validateFeedback("   ")).toMatchObject({ ok: false });
+    expect(validateFeedback(undefined)).toMatchObject({ ok: false });
+    expect(validateFeedback("a".repeat(MAX_FEEDBACK_LENGTH + 1))).toMatchObject({
+      ok: false,
+    });
+    expect(validateFeedback("a".repeat(MAX_FEEDBACK_LENGTH))).toMatchObject({
+      ok: true,
+    });
+  });
+});
 
 describe("validateEmail", () => {
   it("accepts a normal email and trims whitespace", () => {
@@ -142,19 +165,19 @@ describe("validatePattern", () => {
   it("rejects non-string input", () => {
     expect(validatePattern(123)).toEqual({
       ok: false,
-      error: "Pattern must be a string",
+      error: "api.patternNotString",
     });
     expect(validatePattern(null)).toEqual({
       ok: false,
-      error: "Pattern must be a string",
+      error: "api.patternNotString",
     });
     expect(validatePattern(undefined)).toEqual({
       ok: false,
-      error: "Pattern must be a string",
+      error: "api.patternNotString",
     });
     expect(validatePattern({})).toEqual({
       ok: false,
-      error: "Pattern must be a string",
+      error: "api.patternNotString",
     });
   });
 
@@ -177,7 +200,8 @@ describe("validatePattern", () => {
     const pattern = "a".repeat(MAX_PATTERN_LENGTH + 1);
     expect(validatePattern(pattern)).toEqual({
       ok: false,
-      error: `Pattern must be ${MAX_PATTERN_LENGTH} characters or fewer`,
+      error: "api.patternTooLong",
+      vars: { max: MAX_PATTERN_LENGTH },
     });
   });
 
@@ -185,5 +209,33 @@ describe("validatePattern", () => {
     // 200 'a's plus 5 surrounding spaces → trimmed length = 200 → ok
     const padded = "  " + "a".repeat(MAX_PATTERN_LENGTH) + "   ";
     expect(validatePattern(padded)).toMatchObject({ ok: true });
+  });
+});
+
+describe("safeRedirectPath", () => {
+  const APP = "https://fintrack.app";
+
+  it("keeps a same-origin path with its query", () => {
+    const target = "/share-invite?token=abc&lang=nl";
+    expect(safeRedirectPath(target)).toBe(target);
+  });
+
+  // The point of the guard: whatever comes back must not leave the origin.
+  it.each([
+    "//evil.com",
+    "/\\evil.com",
+    "/\\\\evil.com",
+    "https://evil.com",
+    "javascript:alert(1)",
+    "",
+    null,
+    undefined,
+  ])("refuses to leave the origin for %j", (input) => {
+    const result = safeRedirectPath(input);
+    expect(new URL(result, APP).origin).toBe(APP);
+  });
+
+  it("honours a custom fallback", () => {
+    expect(safeRedirectPath("//evil.com", "/login")).toBe("/login");
   });
 });

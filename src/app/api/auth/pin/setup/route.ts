@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiError } from "@/lib/api-errors";
 import { auth, hashPassword, verifyPassword } from "@/lib/auth";
 import { db } from "@/db/index";
 import { userPin, account, user } from "@/db/schema";
@@ -17,17 +18,14 @@ export async function POST(req: NextRequest) {
 
     const session = await auth.api.getSession({ headers: await headers() });
     if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return apiError("api.unauthorized", 401);
     }
 
     const body = await req.json();
     const { pin, currentPassword } = body;
 
     if (!pin || !currentPassword) {
-      return NextResponse.json(
-        { error: "PIN and current password are required" },
-        { status: 400 },
-      );
+      return apiError("api.pinAndPasswordRequired", 400);
     }
 
     // Validate PIN complexity
@@ -49,12 +47,12 @@ export async function POST(req: NextRequest) {
       .get();
 
     if (!userAccount?.password) {
-      return NextResponse.json({ error: "Account not found" }, { status: 404 });
+      return apiError("api.accountNotFound", 404);
     }
 
     const passwordValid = await verifyPassword(currentPassword, userAccount.password);
     if (!passwordValid) {
-      return NextResponse.json({ error: "Invalid password" }, { status: 403 });
+      return apiError("api.invalidPassword", 403);
     }
 
     // Hash and store PIN
@@ -90,7 +88,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true });
   } catch {
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return apiError("api.serverError", 500);
   }
 }
 
@@ -103,17 +101,14 @@ export async function DELETE(req: NextRequest) {
 
     const session = await auth.api.getSession({ headers: await headers() });
     if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return apiError("api.unauthorized", 401);
     }
 
     const body = await req.json();
     const { currentPassword } = body;
 
     if (!currentPassword) {
-      return NextResponse.json(
-        { error: "Current password is required" },
-        { status: 400 },
-      );
+      return apiError("api.currentPasswordRequired", 400);
     }
 
     // Verify current password
@@ -129,12 +124,12 @@ export async function DELETE(req: NextRequest) {
       .get();
 
     if (!userAccount?.password) {
-      return NextResponse.json({ error: "Account not found" }, { status: 404 });
+      return apiError("api.accountNotFound", 404);
     }
 
     const passwordValid = await verifyPassword(currentPassword, userAccount.password);
     if (!passwordValid) {
-      return NextResponse.json({ error: "Invalid password" }, { status: 403 });
+      return apiError("api.invalidPassword", 403);
     }
 
     await db.delete(userPin).where(eq(userPin.userId, session.user.id));
@@ -149,6 +144,6 @@ export async function DELETE(req: NextRequest) {
 
     return NextResponse.json({ success: true });
   } catch {
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return apiError("api.serverError", 500);
   }
 }

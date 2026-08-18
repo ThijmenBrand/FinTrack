@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiError } from "@/lib/api-errors";
 import { db } from "@/db";
 import {
   budgets,
@@ -110,7 +111,7 @@ export async function GET(request: NextRequest) {
       resolveBudgetPlan(userId, budgetIdParam),
     ]);
     if (budgetIdParam && !plan) {
-      return NextResponse.json({ error: "Budget not found" }, { status: 404 });
+      return apiError("api.budgetNotFound", 404);
     }
     // A shared plan reads entirely as its OWNER — allocations, categories,
     // spending and the owner's financial-month window — so member and owner
@@ -694,12 +695,12 @@ export async function POST(request: NextRequest) {
     // The plan the allocation belongs to — main when the caller didn't say.
     const plan = await resolveBudgetPlan(userId, budgetId ?? null);
     if (budgetId && !plan) {
-      return NextResponse.json({ error: "Budget not found" }, { status: 404 });
+      return apiError("api.budgetNotFound", 404);
     }
     // Viewers on a shared plan are read-only; editors may allocate same as
     // the owner.
     if (plan && plan.role === "viewer") {
-      return NextResponse.json({ error: "Read-only access" }, { status: 403 });
+      return apiError("api.readOnly", 403);
     }
     // Allocations are plan-owned data: every row (and the category it
     // references) lives in the OWNER's space — own plans: dataUserId === userId.
@@ -711,7 +712,7 @@ export async function POST(request: NextRequest) {
       .where(and(eq(categories.id, categoryId), eq(categories.userId, dataUserId)))
       .limit(1);
     if (!ownedCategory) {
-      return NextResponse.json({ error: "Category not found" }, { status: 404 });
+      return apiError("api.categoryNotFound", 404);
     }
 
     // Check if an active allocation already exists (suggestions are kept separate)
@@ -810,7 +811,7 @@ export async function PUT(request: NextRequest) {
       .where(eq(budgets.id, id))
       .limit(1);
     if (!existing) {
-      return NextResponse.json({ error: "Budget not found" }, { status: 404 });
+      return apiError("api.budgetNotFound", 404);
     }
     const access = await resolveBudgetRowAccess(userId, existing);
     if (!access.ok) {
@@ -868,7 +869,7 @@ export async function DELETE(request: NextRequest) {
       .where(eq(budgets.id, id))
       .limit(1);
     if (!existing) {
-      return NextResponse.json({ error: "Budget not found" }, { status: 404 });
+      return apiError("api.budgetNotFound", 404);
     }
     const access = await resolveBudgetRowAccess(userId, existing);
     if (!access.ok) {

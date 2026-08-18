@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiError } from "@/lib/api-errors";
 import { db } from "@/db";
 import {
   transactionGroups,
@@ -43,7 +44,7 @@ export async function GET(
       .get();
 
     if (!pot) {
-      return NextResponse.json({ error: "Pot not found" }, { status: 404 });
+      return apiError("api.potNotFound", 404);
     }
 
     // Spike stats — only when both target fields are set.

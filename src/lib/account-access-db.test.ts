@@ -74,6 +74,27 @@ describe("account access", () => {
     ]);
   });
 
+  it("sharedWithUsers carries faces for the badge, email-only while pending", async () => {
+    await testDb.client.execute(
+      `UPDATE "user" SET image = 'https://x.public.blob.vercel-storage.com/b.webp' WHERE id = '${MEMBER}'`,
+    );
+    await membership({ id: "m-1" });
+    await membership({ id: "m-2", userId: null, email: "c@example.com", acceptedAt: null });
+    await membership({ id: "m-3", userId: null, email: "d@example.com", revokedAt: NOW });
+
+    const [joint] = await getAccessibleAccounts(OWNER);
+    expect(joint.sharedWithUsers).toEqual([
+      { name: "Bob", image: "https://x.public.blob.vercel-storage.com/b.webp", email: "member@example.com" },
+      // Pending invite: no user row yet, so the tile falls back to the email.
+      { name: null, image: null, email: "c@example.com" },
+    ]);
+
+    // The member's own view carries the owner's face instead.
+    const [, shared] = await getAccessibleAccounts(MEMBER);
+    expect(shared.ownerImage).toBeNull();
+    expect(shared.sharedWithUsers).toEqual([]);
+  });
+
   it("pending and revoked memberships grant nothing", async () => {
     await membership({ acceptedAt: null });
     expect(await getAccountAccess(MEMBER, "acc-1")).toBeNull();

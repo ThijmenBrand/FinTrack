@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiError } from "@/lib/api-errors";
 import { db } from "@/db";
 import { accountMembers, accounts, budgetMonthTargets, budgetPlans, budgets, budgetSubLines, user } from "@/db/schema";
 import { eq, and, asc, inArray, isNull, notInArray } from "drizzle-orm";
@@ -173,10 +174,7 @@ export async function POST(request: NextRequest) {
     };
 
     if (!validName(name)) {
-      return NextResponse.json(
-        { error: `Name is required (max ${MAX_NAME_LENGTH} characters)` },
-        { status: 400 },
-      );
+      return apiError("api.nameRequiredMax", 400, { max: MAX_NAME_LENGTH });
     }
     if (period !== undefined && !isPeriod(period)) {
       return NextResponse.json(
@@ -202,10 +200,7 @@ export async function POST(request: NextRequest) {
       )
       .limit(1);
     if (!budgetable) {
-      return NextResponse.json(
-        { error: "Add a checking or joint account before creating a budget" },
-        { status: 400 },
-      );
+      return apiError("api.needAccountForBudget", 400);
     }
 
     const existing = await db
@@ -274,15 +269,12 @@ export async function PUT(request: NextRequest) {
       .where(and(eq(budgetPlans.id, id), eq(budgetPlans.userId, userId)))
       .limit(1);
     if (!plan) {
-      return NextResponse.json({ error: "Budget plan not found" }, { status: 404 });
+      return apiError("api.budgetPlanNotFound", 404);
     }
 
     if (name !== undefined) {
       if (!validName(name)) {
-        return NextResponse.json(
-          { error: `Name must be 1–${MAX_NAME_LENGTH} characters` },
-          { status: 400 },
-        );
+        return apiError("api.nameLength", 400, { max: MAX_NAME_LENGTH });
       }
       await db
         .update(budgetPlans)
@@ -371,7 +363,7 @@ export async function DELETE(request: NextRequest) {
       .where(and(eq(budgetPlans.id, id), eq(budgetPlans.userId, userId)))
       .limit(1);
     if (!plan) {
-      return NextResponse.json({ error: "Budget plan not found" }, { status: 404 });
+      return apiError("api.budgetPlanNotFound", 404);
     }
 
     // Explicit cleanup instead of relying on FK cascades — libsql connections

@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import type { BudgetData, BudgetSuggestion, HistoryData, Transaction } from "@/types/api";
 import type { EmptyGenerateReason } from "@/lib/auto-budget";
+import type { ImportNode } from "@/lib/budget-import";
 
 export function useBudgets(opts?: {
   dateFrom?: string;
@@ -63,6 +64,27 @@ export function useDeleteBudget() {
   return useMutation({
     mutationFn: (id: string) => apiFetch(`/api/budgets?id=${id}`, { method: "DELETE" }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["budgets"] }); },
+  });
+}
+
+export interface BudgetImportResult {
+  createdCategories: number;
+  created: number;
+  updated: number;
+  subLinesCreated: number;
+  subLinesUpdated: number;
+  skipped: { name: string; reason: "notBudgetable" | "tooManySubLines" }[];
+}
+
+export function useImportBudget() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { budgetId?: string; nodes: ImportNode[] }) =>
+      apiFetch<BudgetImportResult>("/api/budgets/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["budgets"] });
+      qc.invalidateQueries({ queryKey: ["categories"] });
+    },
   });
 }
 

@@ -4,6 +4,7 @@ import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { Drawer as VaulDrawer } from "vaul";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n/client";
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = React.useState(false);
@@ -43,7 +44,9 @@ DesktopDialogOverlay.displayName = "DesktopDialogOverlay";
 const DesktopDialogContent = React.forwardRef<
   React.ComponentRef<typeof DialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
->(({ className, children, ...props }, ref) => (
+>(({ className, children, ...props }, ref) => {
+  const { t } = useI18n();
+  return (
   <DesktopDialogPortal>
     <DesktopDialogOverlay />
     <DialogPrimitive.Content
@@ -66,11 +69,12 @@ const DesktopDialogContent = React.forwardRef<
       </div>
       <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none">
         <X className="h-4 w-4" />
-        <span className="sr-only">Close</span>
+        <span className="sr-only">{t("common.closeDialog")}</span>
       </DialogPrimitive.Close>
     </DialogPrimitive.Content>
   </DesktopDialogPortal>
-));
+  );
+});
 DesktopDialogContent.displayName = "DesktopDialogContent";
 
 // ── Mobile Drawer (Vaul) ────────────────────────────────────────────

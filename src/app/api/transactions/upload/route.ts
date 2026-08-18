@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiError } from "@/lib/api-errors";
 import { db } from "@/db";
 import { transactions, importBatches, categoryRules } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
@@ -30,13 +31,10 @@ export async function POST(request: NextRequest) {
     const mappingJson = formData.get("mapping") as string | null;
 
     if (!file || !accountId || !mappingJson) {
-      return NextResponse.json(
-        { error: "File, accountId, and column mapping are required" },
-        { status: 400 }
-      );
+      return apiError("api.uploadFieldsRequired", 400);
     }
     if (file.size > MAX_FILE_BYTES) {
-      return NextResponse.json({ error: "File too large (max 10 MB)" }, { status: 400 });
+      return apiError("api.fileTooLarge", 400);
     }
 
     const access = await requireAccountAccess(userId, accountId, "write");
@@ -55,21 +53,12 @@ export async function POST(request: NextRequest) {
     });
 
     if (parsed.data.length > MAX_ROWS) {
-      return NextResponse.json(
-        { error: `Too many rows (max ${MAX_ROWS} per import)` },
-        { status: 400 }
-      );
+      return apiError("api.tooManyRows", 400, { max: MAX_ROWS });
     }
 
     // Only fail if no data was parsed; ignore non-fatal PapaParse warnings
     if (parsed.data.length === 0) {
-      return NextResponse.json(
-        {
-          error: "CSV parsing errors — no data found",
-          details: parsed.errors.slice(0, 5),
-        },
-        { status: 400 }
-      );
+      return apiError("api.csvNoData", 400, undefined, { details: parsed.errors.slice(0, 5) });
     }
 
     // Fetch active category rules for auto-categorization

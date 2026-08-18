@@ -1,4 +1,4 @@
-import { and, asc, count, eq, or, inArray, isNull, isNotNull } from "drizzle-orm";
+import { and, asc, eq, or, inArray, isNull, isNotNull } from "drizzle-orm";
 import { db } from "@/db";
 import { accounts, accountMembers, categories, transactions, user, type Account } from "@/db/schema";
 
@@ -95,12 +95,23 @@ export function visibleCategories(userId: string) {
   )!;
 }
 
+/** A person an account is shared with. Name/image stay null until they accept. */
+export type SharedWithUser = {
+  name: string | null;
+  image: string | null;
+  email: string | null;
+};
+
 export type AccessibleAccount = Account & {
   role: AccountRole;
   /** Display name of the sharing owner; null for the user's own accounts. */
   ownerName: string | null;
+  /** Profile picture of the sharing owner; null for the user's own accounts. */
+  ownerImage: string | null;
   /** People this account is shared with (pending invites included); 0 unless you own it. */
   sharedWith: number;
+  /** The same people, with faces for the card badge; empty unless you own it. */
+  sharedWithUsers: SharedWithUser[];
 };
 
 /** The user's own accounts plus accounts actively shared with them. */
@@ -111,32 +122,58 @@ export async function getAccessibleAccounts(userId: string): Promise<AccessibleA
     .where(eq(accounts.userId, userId))
     .orderBy(asc(accounts.sortOrder), asc(accounts.createdAt));
   const shared = await db
-    .select({ account: accounts, role: accountMembers.role, ownerName: user.name })
+    .select({
+      account: accounts,
+      role: accountMembers.role,
+      ownerName: user.name,
+      ownerImage: user.image,
+    })
     .from(accountMembers)
     .innerJoin(accounts, eq(accounts.id, accountMembers.accountId))
     .innerJoin(user, eq(user.id, accounts.userId))
     .where(activeMembership(userId));
-  // One grouped count for the whole grid — the card badge must not N+1 the
-  // members endpoint. Joins accounts so the statement names user_id honestly.
-  const shareCounts = await db
-    .select({ accountId: accountMembers.accountId, n: count() })
+  // One pass over every live invite on the user's accounts — the card badge
+  // must not N+1 the members endpoint. Joins accounts so the statement names
+  // user_id honestly; left-joins user because a pending invite has no user yet.
+  const shares = await db
+    .select({
+      accountId: accountMembers.accountId,
+      email: accountMembers.email,
+      name: user.name,
+      image: user.image,
+    })
     .from(accountMembers)
     .innerJoin(accounts, eq(accounts.id, accountMembers.accountId))
+    .leftJoin(user, eq(user.id, accountMembers.userId))
     .where(and(eq(accounts.userId, userId), isNull(accountMembers.revokedAt)))
-    .groupBy(accountMembers.accountId);
-  const sharedWithByAccount = new Map(shareCounts.map((r) => [r.accountId, r.n]));
+    // Stable face order on the card — id breaks ties when two invites share a
+    // created_at, which same-millisecond inserts do.
+    .orderBy(asc(accountMembers.createdAt), asc(accountMembers.id));
+  const sharedWithByAccount = new Map<string, SharedWithUser[]>();
+  for (const s of shares) {
+    const list = sharedWithByAccount.get(s.accountId) ?? [];
+    list.push({ name: s.name, image: s.image, email: s.email });
+    sharedWithByAccount.set(s.accountId, list);
+  }
   return [
-    ...own.map((a) => ({
-      ...a,
-      role: "owner" as const,
-      ownerName: null,
-      sharedWith: sharedWithByAccount.get(a.id) ?? 0,
-    })),
+    ...own.map((a) => {
+      const people = sharedWithByAccount.get(a.id) ?? [];
+      return {
+        ...a,
+        role: "owner" as const,
+        ownerName: null,
+        ownerImage: null,
+        sharedWith: people.length,
+        sharedWithUsers: people,
+      };
+    }),
     ...shared.map((s) => ({
       ...s.account,
       role: s.role,
       ownerName: s.ownerName,
+      ownerImage: s.ownerImage,
       sharedWith: 0,
+      sharedWithUsers: [],
     })),
   ];
 }

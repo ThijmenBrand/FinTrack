@@ -38,6 +38,7 @@ import { AllocationRow, YearlyAllocationRow } from "./_components/allocation-row
 import { SubLineList } from "./_components/sub-line-list";
 import { SuggestionRow } from "./_components/suggestion-row";
 import { AllocationDialog } from "./_components/allocation-dialog";
+import { ImportBudgetDialog } from "./_components/import-budget-dialog";
 import { BudgetsSkeleton } from "./_components/budgets-skeleton";
 import { RegenerateConfirmDialog } from "./_components/regenerate-confirm-dialog";
 import { RecurringSections } from "./_components/recurring-sections";
@@ -607,6 +608,9 @@ export default function BudgetsPage() {
                       ? t("budgets.regenerate")
                       : t("budgets.generateFromHistory")}
                   </Button>
+                )}
+                {isCurrentPeriod && canEdit && (
+                  <ImportBudgetDialog budgetId={activePlanId} />
                 )}
                 {isCurrentPeriod && canEdit && (
                   <AllocationDialog

@@ -65,6 +65,7 @@ import { BANKS, bankHasSeparateFeeColumn } from "@/lib/banks";
 import { useI18n } from "@/lib/i18n/client";
 import type { MessageKey } from "@/lib/i18n/translate";
 import { BankLogo } from "@/components/bank-logo";
+import { AvatarStack } from "@/components/user-avatar";
 import { AccountBalanceDialog } from "@/components/account-balance-dialog";
 import {
   DeleteAccountDialog,
@@ -79,6 +80,11 @@ const ACCOUNT_TYPES: { value: string; labelKey: MessageKey }[] = [
   { value: "credit", labelKey: "accounts.type.credit" },
   { value: "other", labelKey: "accounts.type.other" },
 ];
+
+/** Tooltip for the shared-with avatar stack: everyone, name or invited email. */
+function sharedWithNames(people: Account["sharedWithUsers"]): string {
+  return people.map((p) => p.name || p.email).filter(Boolean).join(", ");
+}
 
 const typeLabelKey = (type: string): MessageKey =>
   ACCOUNT_TYPES.find((t) => t.value === type)?.labelKey ?? "accounts.type.other";
@@ -125,7 +131,7 @@ function SortableAccountCard({
   onToggleDefault: (id: string, makeDefault: boolean) => void;
   onOpen: (account: Account) => void;
 }) {
-  const { t, plural, formatCurrency } = useI18n();
+  const { t, formatCurrency } = useI18n();
   const isOwner = account.role === "owner";
   const {
     attributes,
@@ -197,33 +203,33 @@ function SortableAccountCard({
                     {t("accounts.default")}
                   </span>
                 )}
-                {/* Two sides of the same fact: shared WITH you (owner's name)
-                    or shared BY you (headcount). Same badge either way. */}
+                {/* Two sides of the same fact: shared WITH you (the owner's
+                    face) or shared BY you (everyone you invited). Faces
+                    replaced the old count badge — the names live in the
+                    tooltip. */}
                 {account.ownerName ? (
-                  <span
-                    className="inline-flex items-center gap-1 rounded-full border border-violet-300 bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-medium text-violet-600 dark:border-violet-800 dark:text-violet-400"
+                  <AvatarStack
+                    people={[{ name: account.ownerName, image: account.ownerImage }]}
                     title={t("sharing.sharedByTooltip", { name: account.ownerName })}
-                  >
-                    <Users className="h-2.5 w-2.5" />
-                    {t("sharing.sharedBy", { name: account.ownerName })}
-                  </span>
-                ) : account.sharedWith > 0 ? (
-                  <span
-                    className="inline-flex items-center gap-1 rounded-full border border-violet-300 bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-medium text-violet-600 dark:border-violet-800 dark:text-violet-400"
-                    title={plural(
-                      account.sharedWith,
-                      "sharing.memberCount.one",
-                      "sharing.memberCount.other",
-                    )}
-                  >
-                    <Users className="h-2.5 w-2.5" />
-                    {t("sharing.shared")} · {account.sharedWith}
-                  </span>
-                ) : null}
+                  />
+                ) : (
+                  <AvatarStack
+                    people={account.sharedWithUsers.map((m) => ({
+                      name: m.name || m.email,
+                      image: m.image,
+                    }))}
+                    title={sharedWithNames(account.sharedWithUsers)}
+                  />
+                )}
               </div>
               <p className="text-xs text-muted-foreground truncate">
                 {account.bankName || t("accounts.noBank")}
               </p>
+              {account.iban && (
+                <p className="text-[11px] text-muted-foreground/60 font-mono truncate">
+                  {account.iban}
+                </p>
+              )}
             </div>
           </div>
 

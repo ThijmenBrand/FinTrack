@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiError } from "@/lib/api-errors";
 import { db } from "@/db";
 import { importBatches, transactions, accounts } from "@/db/schema";
 import { eq, and, desc } from "drizzle-orm";
@@ -52,10 +53,7 @@ export async function DELETE(request: NextRequest) {
       .where(eq(importBatches.id, batchId));
 
     if (!batch) {
-      return NextResponse.json(
-        { error: "Import batch not found" },
-        { status: 404 }
-      );
+      return apiError("api.importBatchNotFound", 404);
     }
     const access = await requireAccountAccess(userId, batch.accountId, "write");
     const ownerId = access.account.userId;

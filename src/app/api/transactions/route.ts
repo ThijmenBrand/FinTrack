@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiError } from "@/lib/api-errors";
 import { db } from "@/db";
 import { transactions, accounts, categories } from "@/db/schema";
 import { eq, desc, asc, and, gte, lte, like, or, sql, inArray, notInArray, isNull, isNotNull } from "drizzle-orm";
@@ -66,7 +67,7 @@ export async function GET(request: NextRequest) {
     }
     if (types.length) {
       if (types.some((t) => !VALID_TX_TYPES.includes(t as TxType))) {
-        return NextResponse.json({ error: "Invalid type" }, { status: 400 });
+        return apiError("api.invalidType", 400);
       }
       conditions.push(inArray(transactions.type, types as TxType[]));
     }
@@ -103,7 +104,7 @@ export async function GET(request: NextRequest) {
     }
     if (excludeTypes.length) {
       if (excludeTypes.some((t) => !VALID_TX_TYPES.includes(t as TxType))) {
-        return NextResponse.json({ error: "Invalid type" }, { status: 400 });
+        return apiError("api.invalidType", 400);
       }
       conditions.push(notInArray(transactions.type, excludeTypes as TxType[]));
     }
@@ -221,6 +222,16 @@ export async function GET(request: NextRequest) {
             WHERE am.account_id = ${transactions.accountId}
               AND am.user_id IS NOT NULL AND am.accepted_at IS NOT NULL AND am.revoked_at IS NULL)
             THEN (SELECT u.name FROM "user" u WHERE u.id = ${transactions.userId})
+          ELSE NULL END)`,
+        // Same CASE as createdByName — the face for the shared-account column.
+        createdByImage: sql<string | null>`(CASE
+          WHEN ${transactions.createdBy} IS NOT NULL
+            THEN (SELECT u.image FROM "user" u WHERE u.id = ${transactions.createdBy})
+          WHEN EXISTS (
+            SELECT 1 FROM account_members am
+            WHERE am.account_id = ${transactions.accountId}
+              AND am.user_id IS NOT NULL AND am.accepted_at IS NOT NULL AND am.revoked_at IS NULL)
+            THEN (SELECT u.image FROM "user" u WHERE u.id = ${transactions.userId})
           ELSE NULL END)`,
         modifiedByName: sql<string | null>`(CASE
           WHEN ${transactions.modifiedBy} IS NOT NULL
@@ -402,7 +413,7 @@ export async function POST(request: NextRequest) {
         .where(and(eq(categories.id, categoryId), eq(categories.userId, ownerId)))
         .limit(1);
       if (!owned) {
-        return NextResponse.json({ error: "Category not found" }, { status: 404 });
+        return apiError("api.categoryNotFound", 404);
       }
       validCategoryId = categoryId;
     }
@@ -468,7 +479,7 @@ export async function DELETE(request: NextRequest) {
       .from(transactions)
       .where(eq(transactions.id, id));
     if (!tx) {
-      return NextResponse.json({ error: "Transaction not found" }, { status: 404 });
+      return apiError("api.transactionNotFound", 404);
     }
     const access = await requireAccountAccess(userId, tx.accountId, "write");
     const ownerId = access.account.userId;

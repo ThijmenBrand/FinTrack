@@ -1,3 +1,15 @@
+import type { MessageKey, Vars } from "@/lib/i18n/translate";
+
+/**
+ * A rejected value, as a message key rather than English prose — the caller
+ * hands it to `apiError`, which renders it in the requester's language.
+ */
+export interface ValidationFailure {
+  ok: false;
+  error: MessageKey;
+  vars?: Vars;
+}
+
 export const MAX_PATTERN_LENGTH = 200;
 export const MAX_NOTE_LENGTH = 500;
 
@@ -85,13 +97,33 @@ export function validateEmail(input: unknown): string | null {
 }
 
 /** Trimmed, non-empty, length-capped display name. */
-export function validateName(input: unknown): { ok: true; value: string } | { ok: false; error: string } {
+export function validateName(input: unknown): { ok: true; value: string } | ValidationFailure {
   if (typeof input !== "string" || !input.trim()) {
-    return { ok: false, error: "Value cannot be empty" };
+    return { ok: false, error: "api.nameEmpty" };
   }
   const trimmed = input.trim();
   if (trimmed.length > MAX_USERNAME_LENGTH) {
-    return { ok: false, error: `Value must be ${MAX_USERNAME_LENGTH} characters or fewer` };
+    return { ok: false, error: "api.nameTooLong", vars: { max: MAX_USERNAME_LENGTH } };
+  }
+  return { ok: true, value: trimmed };
+}
+
+export const MAX_FEEDBACK_LENGTH = 2000;
+
+/** Trimmed, non-empty, length-capped feedback message. */
+export function validateFeedback(
+  input: unknown,
+): { ok: true; value: string } | ValidationFailure {
+  if (typeof input !== "string" || !input.trim()) {
+    return { ok: false, error: "api.feedbackEmpty" };
+  }
+  const trimmed = input.trim();
+  if (trimmed.length > MAX_FEEDBACK_LENGTH) {
+    return {
+      ok: false,
+      error: "api.feedbackTooLong",
+      vars: { max: MAX_FEEDBACK_LENGTH },
+    };
   }
   return { ok: true, value: trimmed };
 }
@@ -103,22 +135,32 @@ export function sanitizeNote(input: unknown): string | null {
   return trimmed || null;
 }
 
+/**
+ * A post-login `?redirect=` target, or the fallback when it isn't a same-origin
+ * path. Both "//" and "/\" parse as an authority — `/\evil.com` resolves to
+ * https://evil.com — so a leading-slash check alone is not enough.
+ */
+export function safeRedirectPath(input: unknown, fallback = "/"): string {
+  return typeof input === "string" && /^\/[^/\\]/.test(input) ? input : fallback;
+}
+
 export type PatternValidation =
   | { ok: true; value: string }
-  | { ok: false; error: string };
+  | ValidationFailure;
 
 export function validatePattern(pattern: unknown): PatternValidation {
   if (typeof pattern !== "string") {
-    return { ok: false, error: "Pattern must be a string" };
+    return { ok: false, error: "api.patternNotString" };
   }
   const trimmed = pattern.trim();
   if (trimmed.length === 0) {
-    return { ok: false, error: "Pattern cannot be empty" };
+    return { ok: false, error: "api.patternEmpty" };
   }
   if (trimmed.length > MAX_PATTERN_LENGTH) {
     return {
       ok: false,
-      error: `Pattern must be ${MAX_PATTERN_LENGTH} characters or fewer`,
+      error: "api.patternTooLong",
+      vars: { max: MAX_PATTERN_LENGTH },
     };
   }
   return { ok: true, value: trimmed };

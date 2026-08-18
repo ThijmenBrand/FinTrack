@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Landmark, Plus, Users } from "lucide-react";
+import { Landmark, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BankLogo } from "@/components/bank-logo";
+import { AvatarStack } from "@/components/user-avatar";
 import { PotSaldoGraph } from "@/components/pot-saldo-graph";
 import {
   getAccountBalances,
@@ -114,14 +115,23 @@ export async function AccountsCard({ userId }: { userId: string }) {
                       <p className="font-medium text-sm truncate">
                         {account.name}
                       </p>
-                      {account.ownerName && (
-                        <span
-                          className="inline-flex shrink-0 items-center gap-1 rounded-full border border-violet-300 bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-medium text-violet-600 dark:border-violet-800 dark:text-violet-400"
+                      {/* Same faces as the /accounts tile, so the two views agree. */}
+                      {account.ownerName ? (
+                        <AvatarStack
+                          people={[{ name: account.ownerName, image: account.ownerImage }]}
                           title={t("sharing.sharedByTooltip", { name: account.ownerName })}
-                        >
-                          <Users className="h-2.5 w-2.5" />
-                          {t("sharing.sharedBy", { name: account.ownerName })}
-                        </span>
+                        />
+                      ) : (
+                        <AvatarStack
+                          people={account.sharedWithUsers.map((m) => ({
+                            name: m.name || m.email,
+                            image: m.image,
+                          }))}
+                          title={account.sharedWithUsers
+                            .map((m) => m.name || m.email)
+                            .filter(Boolean)
+                            .join(", ")}
+                        />
                       )}
                     </div>
                     <p className="text-xs text-muted-foreground truncate">

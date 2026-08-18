@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiError } from "@/lib/api-errors";
 import { db } from "@/db";
 import {
   recurringTransactions,
@@ -144,7 +145,7 @@ export async function POST(request: NextRequest) {
     const access = await requireAccountAccess(userId, accountId, "write");
     const ownerId = access.account.userId;
     if (categoryId && !(await userOwnsCategory(ownerId, categoryId))) {
-      return NextResponse.json({ error: "Category not found" }, { status: 404 });
+      return apiError("api.categoryNotFound", 404);
     }
 
     const id = crypto.randomUUID();
@@ -196,7 +197,7 @@ export async function PUT(request: NextRequest) {
       .where(eq(recurringTransactions.id, id))
       .limit(1);
     if (!existing) {
-      return NextResponse.json({ error: "Not found" }, { status: 404 });
+      return apiError("api.notFound", 404);
     }
     const access = await requireAccountAccess(userId, existing.accountId, "write");
     const ownerId = access.account.userId;
@@ -206,11 +207,11 @@ export async function PUT(request: NextRequest) {
       // the SAME owner — a recurring plan can't cross owner spaces.
       const newAccess = await requireAccountAccess(userId, body.accountId, "write");
       if (newAccess.account.userId !== ownerId) {
-        return NextResponse.json({ error: "Account not found" }, { status: 404 });
+        return apiError("api.accountNotFound", 404);
       }
     }
     if (body.categoryId && !(await userOwnsCategory(ownerId, body.categoryId))) {
-      return NextResponse.json({ error: "Category not found" }, { status: 404 });
+      return apiError("api.categoryNotFound", 404);
     }
 
     // Explicit field allowlist — never spread the client body into `set`

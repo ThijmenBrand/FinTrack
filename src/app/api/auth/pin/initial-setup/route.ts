@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiError } from "@/lib/api-errors";
 import { auth, hashPassword } from "@/lib/auth";
 import { db } from "@/db/index";
 import { userPin } from "@/db/schema";
@@ -17,14 +18,14 @@ export async function POST(req: NextRequest) {
 
     const session = await auth.api.getSession({ headers: await headers() });
     if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return apiError("api.unauthorized", 401);
     }
 
     const body = await req.json();
     const { pin } = body;
 
     if (!pin) {
-      return NextResponse.json({ error: "PIN is required" }, { status: 400 });
+      return apiError("api.pinRequired", 400);
     }
 
     const pinError = validatePin(pin);
@@ -40,10 +41,7 @@ export async function POST(req: NextRequest) {
       .get();
 
     if (existing) {
-      return NextResponse.json(
-        { error: "PIN already set. Use settings to change your PIN." },
-        { status: 409 },
-      );
+      return apiError("api.pinAlreadySet", 409);
     }
 
     const pinHash = await hashPassword(pin);
@@ -63,6 +61,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true });
   } catch {
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return apiError("api.serverError", 500);
   }
 }

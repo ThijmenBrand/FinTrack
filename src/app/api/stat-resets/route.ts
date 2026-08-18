@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiError } from "@/lib/api-errors";
 import { db } from "@/db";
 import { statResets } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
@@ -18,17 +19,11 @@ export async function POST(request: NextRequest) {
   return withUser(async (userId) => {
     const body = await request.json();
     if (!isIsoDate(body?.date)) {
-      return NextResponse.json(
-        { error: "A valid date is required" },
-        { status: 400 },
-      );
+      return apiError("api.dateRequired", 400);
     }
     const rawNote = typeof body?.note === "string" ? body.note.trim() : "";
     if (rawNote.length > MAX_NOTE_LENGTH) {
-      return NextResponse.json(
-        { error: `Note must be ${MAX_NOTE_LENGTH} characters or fewer` },
-        { status: 400 },
-      );
+      return apiError("api.noteTooLong", 400, { max: MAX_NOTE_LENGTH });
     }
     // One reset per day — re-adding the same date edits the note instead of
     // stacking a duplicate marker on the charts.

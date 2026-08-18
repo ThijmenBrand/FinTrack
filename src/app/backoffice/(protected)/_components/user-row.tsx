@@ -29,6 +29,7 @@ import {
 import type { AdminUser } from "@/types/api";
 import { ApiError } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/client";
+import { UserAvatar } from "@/components/user-avatar";
 
 type AccountForm = {
   displayName: string;
@@ -162,9 +163,11 @@ export function UserRow({
     <section className="overflow-hidden rounded-lg border bg-card">
       <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
-            {user.displayName.charAt(0).toUpperCase()}
-          </div>
+          <UserAvatar
+            name={user.displayName}
+            image={user.imageUrl}
+            className="h-10 w-10 text-sm"
+          />
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <p className="truncate font-medium text-foreground">{user.displayName}</p>

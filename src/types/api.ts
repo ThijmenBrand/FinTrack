@@ -22,8 +22,19 @@ export interface Account {
   role: AccountRole;
   /** Display name of the sharing owner; null for the user's own accounts. */
   ownerName: string | null;
+  /** Profile picture of the sharing owner; null for the user's own accounts. */
+  ownerImage: string | null;
   /** People this account is shared with (pending invites included); 0 unless you own it. */
   sharedWith: number;
+  /** Faces for the shared badge — one per live invite; empty unless you own it. */
+  sharedWithUsers: SharedWithUser[];
+}
+
+/** A person an account is shared with. Name/image are null until they accept. */
+export interface SharedWithUser {
+  name: string | null;
+  image: string | null;
+  email: string | null;
 }
 
 /** One row of GET /api/accounts/{id}/members — the synthesized owner, then invited members. */
@@ -33,6 +44,7 @@ export interface AccountMember {
   role: AccountRole;
   status: "pending" | "accepted" | "expired";
   memberName: string | null;
+  memberImage: string | null;
   createdAt: string;
   /** True on the caller's own membership row; absent on the owner entry. */
   isMe?: boolean;
@@ -98,6 +110,7 @@ export interface Transaction {
   recurringDescription: string | null;
   /** Who created/last edited the row; non-null only on shared accounts (null created_by = the owner). */
   createdByName: string | null;
+  createdByImage: string | null;
   modifiedByName: string | null;
   notes: string | null;
   isManual: boolean;
@@ -213,6 +226,8 @@ export interface MonthMoneyView {
 export interface Profile {
   id: string;
   displayName: string;
+  /** Profile picture URL; null falls back to initials. */
+  imageUrl: string | null;
   isAdmin: boolean;
   twoFactorEnabled: boolean;
   createdAt: string;
@@ -221,6 +236,7 @@ export interface Profile {
 export interface AdminUser {
   id: string;
   displayName: string;
+  imageUrl: string | null;
   email: string;
   emailVerified: boolean;
   role: "admin" | "user";

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiError } from "@/lib/api-errors";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { accountMembers } from "@/db/schema";
@@ -27,10 +28,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
     const { role } = await request.json();
     if (!isShareRole(role)) {
-      return NextResponse.json(
-        { error: "Role must be viewer or editor" },
-        { status: 400 },
-      );
+      return apiError("api.invalidRole", 400);
     }
 
     const updated = await db
@@ -39,7 +37,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       .where(liveMemberOfOwned(memberId, id, ownerId))
       .returning({ email: accountMembers.email });
     if (updated.length === 0) {
-      return NextResponse.json({ error: "Member not found" }, { status: 404 });
+      return apiError("api.memberNotFound", 404);
     }
 
     logDataEvent({
@@ -68,7 +66,7 @@ export async function DELETE(_request: NextRequest, { params }: Params) {
       .where(liveMemberOfOwned(memberId, id, ownerId))
       .returning({ email: accountMembers.email });
     if (revoked.length === 0) {
-      return NextResponse.json({ error: "Member not found" }, { status: 404 });
+      return apiError("api.memberNotFound", 404);
     }
 
     logDataEvent({

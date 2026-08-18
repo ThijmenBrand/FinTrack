@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiError } from "@/lib/api-errors";
 import { db } from "@/db";
 import { transactions, transactionGroups } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
@@ -23,7 +24,7 @@ export async function POST(request: NextRequest) {
       .get();
 
     if (!pot) {
-      return NextResponse.json({ error: "Pot not found" }, { status: 404 });
+      return apiError("api.potNotFound", 404);
     }
 
     await db

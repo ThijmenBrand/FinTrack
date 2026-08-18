@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiError } from "@/lib/api-errors";
 import { db } from "@/db";
 import { budgets, categories, transactions, transactionGroups } from "@/db/schema";
 import { eq, and, sql } from "drizzle-orm";
@@ -25,7 +26,7 @@ export async function GET(request: NextRequest) {
     // the plan's own allocations and accounts (main plan when unspecified).
     const plan = await resolveBudgetPlan(userId, budgetIdParam);
     if (budgetIdParam && !plan) {
-      return NextResponse.json({ error: "Budget not found" }, { status: 404 });
+      return apiError("api.budgetNotFound", 404);
     }
     // Shared plans read as their OWNER: the category, budget line and spending
     // below all belong to the plan owner's data.
@@ -39,10 +40,7 @@ export async function GET(request: NextRequest) {
       .where(and(eq(categories.id, categoryId), eq(categories.userId, dataUserId)));
 
     if (!category) {
-      return NextResponse.json(
-        { error: "Category not found" },
-        { status: 404 }
-      );
+      return apiError("api.categoryNotFound", 404);
     }
 
     // Get current budget amount for this category

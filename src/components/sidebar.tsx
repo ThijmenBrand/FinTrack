@@ -25,12 +25,18 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { PRIMARY_NAV, useSecondaryNav, useSessionUser } from "@/components/nav-shared";
+import { NAV_SECTIONS, PRIMARY_NAV, useSecondaryNav, useSessionUser } from "@/components/nav-shared";
+import { UserAvatar } from "@/components/user-avatar";
+import { FeedbackButton } from "@/components/feedback-dialog";
 import { useI18n } from "@/lib/i18n/client";
 
 export function Sidebar() {
   const { t } = useI18n();
   const navigation = [...PRIMARY_NAV, ...useSecondaryNav()];
+  const sections = NAV_SECTIONS.map((section) => ({
+    section,
+    items: navigation.filter((i) => i.section === section),
+  })).filter((g) => g.items.length > 0);
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -62,29 +68,50 @@ export function Sidebar() {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 space-y-1 px-3 py-4">
-        {navigation.map((item) => {
-          const isActive =
-            item.href === "/"
-              ? pathname === "/"
-              : pathname.startsWith(item.href);
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                isActive
-                  ? "bg-primary/10 text-primary"
-                  : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-              )}
-            >
-              <item.icon className="h-4 w-4 shrink-0" />
-              {!collapsed && <span>{t(item.labelKey)}</span>}
-            </Link>
-          );
-        })}
+      <nav className="flex-1 px-3 py-4">
+        {sections.map((group, i) => (
+          <div
+            key={group.section}
+            className={cn(
+              "space-y-1",
+              // ponytail: collapsed hides labels, so a rule marks the seam instead
+              i > 0 && (collapsed ? "mt-3 border-t pt-3" : "mt-5")
+            )}
+          >
+            {!collapsed && (
+              <p className="px-3 pb-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                {t(group.section)}
+              </p>
+            )}
+            {group.items.map((item) => {
+              const isActive =
+                item.href === "/"
+                  ? pathname === "/"
+                  : pathname.startsWith(item.href);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                    isActive
+                      ? "bg-primary/10 text-primary"
+                      : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  )}
+                >
+                  <item.icon className="h-4 w-4 shrink-0" />
+                  {!collapsed && <span>{t(item.labelKey)}</span>}
+                </Link>
+              );
+            })}
+          </div>
+        ))}
       </nav>
+
+      {/* Feedback — sits with the nav, above the account rule */}
+      <div className="px-3 pb-3">
+        <FeedbackButton collapsed={collapsed} />
+      </div>
 
       {/* User dropdown */}
       <div className="border-t p-3">
@@ -98,9 +125,11 @@ export function Sidebar() {
                   "bg-sidebar-accent"
               )}
             >
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
-                {user.displayName.charAt(0).toUpperCase()}
-              </div>
+              <UserAvatar
+                name={user.displayName}
+                image={user.imageUrl}
+                className="h-7 w-7 text-xs"
+              />
               {!collapsed && (
                 <span className="truncate text-sm font-medium text-sidebar-foreground">
                   {user.displayName}

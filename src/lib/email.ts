@@ -269,6 +269,33 @@ export function sendShareAcceptedEmail(
   );
 }
 
+/**
+ * In-product feedback, delivered to FEEDBACK_EMAIL. Always in the default
+ * locale — it's read by us, not by the sender. The CTA is a mailto so a reply
+ * is one tap away.
+ */
+export function sendFeedbackEmail(
+  to: string,
+  message: string,
+  senderName: string,
+  senderEmail: string,
+  page: string,
+): Promise<void> {
+  const { t } = getI18nFor(DEFAULT_LOCALE);
+  const name = escapeHtml(senderName);
+  const body = escapeHtml(message).replace(/\n/g, "<br>");
+
+  return send(to, t("email.feedbackSubject", { sender: senderName }), {
+    // Slice first, escape second — escaping first could cut an entity in half.
+    preheader: escapeHtml(message.slice(0, 120)),
+    heading: t("email.feedbackHeading"),
+    body,
+    url: `mailto:${encodeURIComponent(senderEmail)}`,
+    cta: t("email.feedbackCta", { sender: name }),
+    note: t("email.feedbackNote", { sender: name, email: escapeHtml(senderEmail), page: escapeHtml(page) }),
+  });
+}
+
 export function sendPasswordResetEmail(
   to: string,
   url: string,

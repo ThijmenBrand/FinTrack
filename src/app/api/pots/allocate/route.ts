@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiError } from "@/lib/api-errors";
 import { db } from "@/db";
 import { transactionGroups } from "@/db/schema";
 import { eq, and, sql } from "drizzle-orm";
@@ -37,13 +38,10 @@ export async function POST(request: NextRequest) {
       .get();
 
     if (!pot) {
-      return NextResponse.json({ error: "Pot not found" }, { status: 404 });
+      return apiError("api.potNotFound", 404);
     }
     if (pot.targetAmount == null || !pot.targetDate) {
-      return NextResponse.json(
-        { error: "Pot has no target — set targetAmount and targetDate first" },
-        { status: 400 }
-      );
+      return apiError("api.potNoTarget", 400);
     }
     // The "cannot remove more than funded" guard lives in the UPDATE's WHERE
     // so concurrent negative allocations can't both pass a stale read check.
@@ -60,10 +58,7 @@ export async function POST(request: NextRequest) {
         )
       );
     if (result.rowsAffected === 0) {
-      return NextResponse.json(
-        { error: "Cannot remove more than is funded" },
-        { status: 400 }
-      );
+      return apiError("api.removeMoreThanFunded", 400);
     }
 
     const updated = await db

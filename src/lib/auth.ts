@@ -3,7 +3,6 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { admin, twoFactor } from "better-auth/plugins";
 import { passkey } from "@better-auth/passkey";
-import { NextResponse } from "next/server";
 import { db } from "@/db/index";
 import * as schema from "@/db/schema";
 import { userPin } from "@/db/schema";
@@ -15,6 +14,7 @@ import { logAuthEvent } from "@/lib/audit";
 import { sendVerificationEmail, sendPasswordResetEmail } from "@/lib/email";
 import { MIN_PASSWORD_LENGTH } from "@/lib/validation";
 import { seedCategoriesForUser } from "@/db/migrate";
+import { apiError } from "@/lib/api-errors";
 import { getRequestLocale } from "@/lib/i18n/request";
 import { isLocale, type Locale } from "@/lib/i18n";
 
@@ -119,10 +119,16 @@ export const auth = betterAuth({
     },
   },
   session: {
-    expiresIn: 60 * 60 * 24 * 7, // 7 days
+    // Idle timeout: the session dies an hour after the last request that
+    // reached the database. `updateAge: 0` slides that hour forward on every
+    // such request, so an active user is never logged out mid-use.
+    expiresIn: 60 * 60,
+    updateAge: 0,
     cookieCache: {
       enabled: true,
-      maxAge: 5 * 60, // 5 minutes
+      // Requests served from this cache don't slide the window, so the
+      // effective idle timeout is 1h minus (at most) this cache's age.
+      maxAge: 60,
     },
   },
   databaseHooks: {
@@ -198,10 +204,7 @@ export interface SessionData {
 export async function getUserId(): Promise<string> {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session?.user?.id) {
-    throw new Response(JSON.stringify({ error: "Unauthorized" }), {
-      status: 401,
-      headers: { "Content-Type": "application/json" },
-    });
+    throw await apiError("api.unauthorized", 401);
   }
   return session.user.id;
 }
@@ -253,10 +256,7 @@ export async function requireBackofficeAdmin(): Promise<SessionData> {
 export async function requireAdmin(): Promise<SessionData> {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session?.user?.id) {
-    throw new Response(JSON.stringify({ error: "Unauthorized" }), {
-      status: 401,
-      headers: { "Content-Type": "application/json" },
-    });
+    throw await apiError("api.unauthorized", 401);
   }
   const data: SessionData = {
     userId: session.user.id,
@@ -265,16 +265,10 @@ export async function requireAdmin(): Promise<SessionData> {
     twoFactorEnabled: (session.user as Record<string, unknown>).twoFactorEnabled === true,
   };
   if (!data.isAdmin) {
-    throw new Response(JSON.stringify({ error: "Forbidden" }), {
-      status: 403,
-      headers: { "Content-Type": "application/json" },
-    });
+    throw await apiError("api.forbidden", 403);
   }
   if (!data.twoFactorEnabled) {
-    throw new Response(JSON.stringify({ error: "Two-factor authentication is required for admin accounts" }), {
-      status: 403,
-      headers: { "Content-Type": "application/json" },
-    });
+    throw await apiError("api.adminTwoFactorRequired", 403);
   }
   return data;
 }
@@ -284,8 +278,11 @@ export async function requireAdmin(): Promise<SessionData> {
 /**
  * Resolve auth, run the handler, and normalize errors. A thrown `Response`
  * (the 401/403 that `getUserId`/`requireAdmin` throw) is returned as-is so the
- * real status reaches the client; anything else is logged and mapped to a 500
- * carrying `errorMessage`.
+ * real status reaches the client; anything else is logged and mapped to a 500.
+ *
+ * `errorMessage` labels the log and the Sentry breadcrumb only. The client is
+ * told the same translated "something went wrong" either way — which of our
+ * queries fell over is not the user's problem, and it is not translatable.
  */
 async function runWithAuth<T>(
   resolve: () => Promise<T>,
@@ -299,7 +296,7 @@ async function runWithAuth<T>(
     if (error instanceof Response) return error;
     Sentry.captureException(error);
     console.error(`${errorMessage}:`, error);
-    return NextResponse.json({ error: errorMessage }, { status: 500 });
+    return apiError("api.serverError", 500);
   }
 }
 

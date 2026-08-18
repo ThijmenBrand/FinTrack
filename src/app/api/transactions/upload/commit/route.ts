@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiError } from "@/lib/api-errors";
 import { db } from "@/db";
 import {
   transactions,
@@ -76,10 +77,7 @@ export async function POST(request: NextRequest) {
       );
     }
     if (txList.length > MAX_IMPORT_ROWS) {
-      return NextResponse.json(
-        { error: `Too many transactions (max ${MAX_IMPORT_ROWS} per import)` },
-        { status: 400 }
-      );
+      return apiError("api.tooManyTransactions", 400, { max: MAX_IMPORT_ROWS });
     }
 
     // Write access to the target account — 404 if the caller can't see it,
@@ -109,33 +107,32 @@ export async function POST(request: NextRequest) {
 
     // Validate every row before writing anything — no partial imports.
     for (const [i, tx] of txList.entries()) {
-      const row = `transaction ${i + 1}`;
       if (!TX_TYPES.includes(tx.type as TxType)) {
-        return NextResponse.json({ error: `Invalid type on ${row}` }, { status: 400 });
+        return apiError("api.invalidTypeOnRow", 400, { n: i + 1 });
       }
       if (!isFiniteNumber(tx.amount)) {
-        return NextResponse.json({ error: `Invalid amount on ${row}` }, { status: 400 });
+        return apiError("api.invalidAmountOnRow", 400, { n: i + 1 });
       }
       if (tx.balance != null && !isFiniteNumber(tx.balance)) {
-        return NextResponse.json({ error: `Invalid balance on ${row}` }, { status: 400 });
+        return apiError("api.invalidBalanceOnRow", 400, { n: i + 1 });
       }
       if (!isIsoDate(tx.date)) {
-        return NextResponse.json({ error: `Invalid date on ${row}` }, { status: 400 });
+        return apiError("api.invalidDateOnRow", 400, { n: i + 1 });
       }
       if (typeof tx.description !== "string") {
-        return NextResponse.json({ error: `Invalid description on ${row}` }, { status: 400 });
+        return apiError("api.invalidDescriptionOnRow", 400, { n: i + 1 });
       }
       if (tx.name != null && typeof tx.name !== "string") {
-        return NextResponse.json({ error: `Invalid name on ${row}` }, { status: 400 });
+        return apiError("api.invalidNameOnRow", 400, { n: i + 1 });
       }
       if (tx.categoryId && !ownerCategoryIds.has(tx.categoryId)) {
-        return NextResponse.json({ error: `Unknown category on ${row}` }, { status: 400 });
+        return apiError("api.unknownCategoryOnRow", 400, { n: i + 1 });
       }
       if (tx.targetAccountId && !ownerAccountIds.has(tx.targetAccountId)) {
-        return NextResponse.json({ error: `Unknown target account on ${row}` }, { status: 400 });
+        return apiError("api.unknownAccountOnRow", 400, { n: i + 1 });
       }
       if (tx.recurringTransactionId && !ownerPlanIds.has(tx.recurringTransactionId)) {
-        return NextResponse.json({ error: `Unknown recurring plan on ${row}` }, { status: 400 });
+        return apiError("api.unknownRecurringOnRow", 400, { n: i + 1 });
       }
     }
 
@@ -144,14 +141,11 @@ export async function POST(request: NextRequest) {
     for (const rule of newRules || []) {
       if (!rule.pattern || !rule.categoryId) continue;
       if (!ownerCategoryIds.has(rule.categoryId)) {
-        return NextResponse.json({ error: "Unknown category on rule" }, { status: 400 });
+        return apiError("api.unknownCategoryOnRule", 400);
       }
       const validated = validatePattern(rule.pattern);
       if (!validated.ok) {
-        return NextResponse.json(
-          { error: `Invalid rule pattern: ${validated.error}` },
-          { status: 400 }
-        );
+        return apiError(validated.error, 400, validated.vars);
       }
       cleanRules.push({
         ...rule,

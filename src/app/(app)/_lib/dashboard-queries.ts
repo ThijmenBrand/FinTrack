@@ -12,7 +12,7 @@ import {
   accountMembers,
   user,
 } from "@/db/schema";
-import { eq, and, or, asc, gte, lte, sql, sum, inArray, isNotNull, notInArray } from "drizzle-orm";
+import { eq, and, or, asc, gte, lte, sql, sum, inArray, isNotNull, isNull, notInArray } from "drizzle-orm";
 import { defaultCategoryNames, TRANSFER_CATEGORY } from "@/lib/default-categories";
 import {
   accountScopeFilter,
@@ -591,7 +591,7 @@ export const getBudgetOverview = cache(async (
 export type BudgetOverview = Awaited<ReturnType<typeof getBudgetOverview>>;
 
 export const getAccountBalances = cache(async (userId: string) => {
-  const [accountBalanceRows, ownerRows] = await Promise.all([
+  const [accountBalanceRows, ownerRows, shareRows] = await Promise.all([
     db
       .select({
         id: accounts.id,
@@ -617,18 +617,43 @@ export const getAccountBalances = cache(async (userId: string) => {
     // Separate query: joining accountMembers/user onto the aggregate above
     // would multiply rows before the SUM groups them.
     db
-      .select({ accountId: accountMembers.accountId, ownerName: user.name })
+      .select({
+        accountId: accountMembers.accountId,
+        ownerName: user.name,
+        ownerImage: user.image,
+      })
       .from(accountMembers)
       .innerJoin(accounts, eq(accounts.id, accountMembers.accountId))
       .innerJoin(user, eq(user.id, accounts.userId))
       .where(activeMembership(userId)),
+    // Faces for the shared badge on accounts the user owns. Left-joins user
+    // because a pending invite has no user row yet.
+    db
+      .select({
+        accountId: accountMembers.accountId,
+        email: accountMembers.email,
+        name: user.name,
+        image: user.image,
+      })
+      .from(accountMembers)
+      .innerJoin(accounts, eq(accounts.id, accountMembers.accountId))
+      .leftJoin(user, eq(user.id, accountMembers.userId))
+      .where(and(eq(accounts.userId, userId), isNull(accountMembers.revokedAt))),
   ]);
-  const ownerByAccount = new Map(ownerRows.map((r) => [r.accountId, r.ownerName]));
+  const ownerByAccount = new Map(ownerRows.map((r) => [r.accountId, r]));
+  const sharedByAccount = new Map<string, { name: string | null; image: string | null; email: string | null }[]>();
+  for (const s of shareRows) {
+    const list = sharedByAccount.get(s.accountId) ?? [];
+    list.push({ name: s.name, image: s.image, email: s.email });
+    sharedByAccount.set(s.accountId, list);
+  }
 
   return accountBalanceRows.map((row) => ({
     ...row,
     currentBalance: row.initialBalance + Number(row.txTotal),
-    ownerName: ownerByAccount.get(row.id) ?? null,
+    ownerName: ownerByAccount.get(row.id)?.ownerName ?? null,
+    ownerImage: ownerByAccount.get(row.id)?.ownerImage ?? null,
+    sharedWithUsers: sharedByAccount.get(row.id) ?? [],
   }));
 });
 

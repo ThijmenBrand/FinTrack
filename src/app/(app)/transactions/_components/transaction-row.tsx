@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import type { Transaction, Category, Pot, PotRangeTotal } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
+import { UserAvatar } from "@/components/user-avatar";
 import type { MessageKey } from "@/lib/i18n/translate";
 
 const TYPE_BADGES: Record<
@@ -65,6 +66,8 @@ interface TransactionRowProps {
   categories: Category[];
   selected: boolean;
   hasPots: boolean;
+  /** Render the who-added-it column. Off unless a shared account is in view. */
+  showCreator: boolean;
   onToggleSelect: () => void;
   onOpen: () => void;
   onAddToPot: () => void;
@@ -115,6 +118,7 @@ export function TransactionRow({
   categories,
   selected,
   hasPots,
+  showCreator,
   onToggleSelect,
   onOpen,
   onAddToPot,
@@ -174,7 +178,12 @@ export function TransactionRow({
             </p>
           )}
           {tx.createdByName && (
-            <p className="text-xs text-muted-foreground truncate mt-0.5">
+            <p className="flex items-center gap-1.5 text-xs text-muted-foreground truncate mt-0.5">
+              <UserAvatar
+                name={tx.createdByName}
+                image={tx.createdByImage}
+                className="h-4 w-4 text-[8px]"
+              />
               {t("tx.row.addedBy", { name: tx.createdByName })}
             </p>
           )}
@@ -200,6 +209,20 @@ export function TransactionRow({
           aria-label={t("tx.row.selectTransaction")}
         />
       </TableCell>
+      {showCreator && (
+        <TableCell>
+          {tx.createdByName && (
+            <UserAvatar
+              name={tx.createdByName}
+              image={tx.createdByImage}
+              // The only content in this cell, so it carries its own name.
+              alt={t("tx.row.addedBy", { name: tx.createdByName })}
+              className="h-6 w-6 text-[10px]"
+              title={t("tx.row.addedBy", { name: tx.createdByName })}
+            />
+          )}
+        </TableCell>
+      )}
       <TableCell className="whitespace-nowrap text-sm">
         <span className={isInPot ? "line-through" : ""}>{formatDate(tx.date)}</span>
       </TableCell>
@@ -335,6 +358,8 @@ interface PotRowProps {
   /** Pot net over the filtered range; falls back to the lifetime net. */
   rangeTotal?: PotRangeTotal;
   layout: Layout;
+  /** Mirrors TransactionRow — keeps the summary row's cells aligned. */
+  showCreator: boolean;
   categories: Category[];
   onAddTransactions: () => void;
   onEdit: () => void;
@@ -345,6 +370,7 @@ export function PotRow({
   pot,
   rangeTotal,
   layout,
+  showCreator,
   categories,
   onAddTransactions,
   onEdit,
@@ -436,6 +462,8 @@ export function PotRow({
   return (
     <TableRow className="bg-muted/40 hover:bg-muted/60 border-t-2">
       <TableCell />
+      {/* No colSpan anywhere in this table — every column needs its cell. */}
+      {showCreator && <TableCell />}
       <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
         —
       </TableCell>

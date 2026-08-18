@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiError } from "@/lib/api-errors";
 import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { accountMembers, user } from "@/db/schema";
@@ -28,14 +29,14 @@ export async function GET(
     const { account } = await requireAccountAccess(userId, id, "read");
 
     const rows = await db
-      .select({ member: accountMembers, memberName: user.name })
+      .select({ member: accountMembers, memberName: user.name, memberImage: user.image })
       .from(accountMembers)
       .leftJoin(user, eq(user.id, accountMembers.userId))
       .where(and(eq(accountMembers.accountId, id), isNull(accountMembers.revokedAt)))
       .orderBy(accountMembers.createdAt);
 
     const owner = await db
-      .select({ name: user.name, email: user.email })
+      .select({ name: user.name, image: user.image, email: user.email })
       .from(user)
       .where(eq(user.id, account.userId))
       .get();
@@ -47,14 +48,16 @@ export async function GET(
         role: "owner",
         status: "accepted",
         memberName: owner?.name ?? null,
+        memberImage: owner?.image ?? null,
         createdAt: account.createdAt,
       },
-      ...rows.map(({ member, memberName }) => ({
+      ...rows.map(({ member, memberName, memberImage }) => ({
         id: member.id,
         email: member.email,
         role: member.role,
         status: inviteStatus({ ...member, expiresAt: member.expiresAt ?? "" }),
         memberName: member.acceptedAt ? memberName : null,
+        memberImage: member.acceptedAt ? memberImage : null,
         createdAt: member.createdAt,
         // The caller's own row. Matching by email would miss invites accepted
         // under a different address than the one invited.
@@ -79,10 +82,7 @@ export async function POST(
       return NextResponse.json({ error: emailError }, { status: 400 });
     }
     if (!isShareRole(role)) {
-      return NextResponse.json(
-        { error: "Role must be viewer or editor" },
-        { status: 400 },
-      );
+      return apiError("api.invalidRole", 400);
     }
     const cleanEmail = (email as string).trim().toLowerCase();
 
@@ -92,7 +92,7 @@ export async function POST(
       .where(eq(user.id, ownerId))
       .get();
     if (owner && owner.email.toLowerCase() === cleanEmail) {
-      return NextResponse.json({ error: "You already own this account" }, { status: 400 });
+      return apiError("api.alreadyOwnAccount", 400);
     }
 
     // Sharing is invite-only for people who already signed up — the link never
@@ -103,17 +103,11 @@ export async function POST(
       .where(eq(user.email, cleanEmail))
       .get();
     if (!invitee) {
-      return NextResponse.json(
-        { error: "No FinTrack account uses that email — ask them to sign up first" },
-        { status: 404 },
-      );
+      return apiError("api.noAccountForEmail", 404);
     }
 
     if ((await countLiveMembers(id, ownerId)) >= MAX_MEMBERS_PER_ACCOUNT) {
-      return NextResponse.json(
-        { error: `An account can be shared with at most ${MAX_MEMBERS_PER_ACCOUNT} people` },
-        { status: 400 },
-      );
+      return apiError("api.maxMembers", 400, { max: MAX_MEMBERS_PER_ACCOUNT });
     }
 
     const token = newInviteToken();
@@ -136,10 +130,7 @@ export async function POST(
     } catch (err) {
       // Partial unique index on (account_id, email) WHERE revoked_at IS NULL.
       if (isUniqueViolation(err)) {
-        return NextResponse.json(
-          { error: "That address is already invited to this account" },
-          { status: 409 },
-        );
+        return apiError("api.alreadyInvitedAccount", 409);
       }
       throw err;
     }
@@ -165,10 +156,7 @@ export async function POST(
     } catch (err) {
       // Keep the row — the owner can revoke it and invite again.
       console.error("Share invite email failed to send:", err);
-      return NextResponse.json(
-        { error: "Invite saved, but the email failed to send. Remove it and invite again." },
-        { status: 502 },
-      );
+      return apiError("api.inviteEmailFailedShare", 502);
     }
 
     return NextResponse.json({ id: memberId, email: cleanEmail, role }, { status: 201 });

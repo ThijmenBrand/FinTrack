@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiError } from "@/lib/api-errors";
 import { db } from "@/db";
 import { budgets, budgetSubLines } from "@/db/schema";
 import { eq, and, inArray } from "drizzle-orm";
@@ -37,12 +38,12 @@ export async function POST(request: NextRequest) {
 
     const validatedName = validateName(name);
     if (!validatedName.ok) {
-      return NextResponse.json({ error: validatedName.error }, { status: 400 });
+      return apiError(validatedName.error, 400, validatedName.vars);
     }
     // A zero-amount sub-line is a label with no plan behind it; the client
     // refuses to submit one, so the endpoint agrees rather than diverging.
     if (!isFiniteNumber(amount) || amount <= 0) {
-      return NextResponse.json({ error: "Invalid amount" }, { status: 400 });
+      return apiError("api.invalidAmount", 400);
     }
     if (parentId !== undefined && parentId !== null && typeof parentId !== "string") {
       return NextResponse.json({ error: "Invalid parentId" }, { status: 400 });
@@ -54,7 +55,7 @@ export async function POST(request: NextRequest) {
       .where(eq(budgets.id, allocationId))
       .limit(1);
     if (!allocation) {
-      return NextResponse.json({ error: "Budget not found" }, { status: 404 });
+      return apiError("api.budgetNotFound", 404);
     }
     const access = await resolveBudgetRowAccess(userId, allocation);
     if (!access.ok) {
@@ -113,7 +114,7 @@ export async function POST(request: NextRequest) {
     });
 
     if (outcome === "parent_not_found") {
-      return NextResponse.json({ error: "Parent sub-line not found" }, { status: 404 });
+      return apiError("api.parentSubLineNotFound", 404);
     }
     if (typeof outcome === "string") return ruleError(outcome);
 
@@ -156,13 +157,13 @@ export async function PUT(request: NextRequest) {
     if (name !== undefined) {
       const validatedName = validateName(name);
       if (!validatedName.ok) {
-        return NextResponse.json({ error: validatedName.error }, { status: 400 });
+        return apiError(validatedName.error, 400, validatedName.vars);
       }
       updates.name = validatedName.value;
     }
     if (amount !== undefined) {
       if (!isFiniteNumber(amount) || amount <= 0) {
-        return NextResponse.json({ error: "Invalid amount" }, { status: 400 });
+        return apiError("api.invalidAmount", 400);
       }
       updates.amount = amount;
     }
@@ -173,7 +174,7 @@ export async function PUT(request: NextRequest) {
       .where(eq(budgetSubLines.id, id))
       .limit(1);
     if (!subLine) {
-      return NextResponse.json({ error: "Sub-line not found" }, { status: 404 });
+      return apiError("api.subLineNotFound", 404);
     }
     const [allocation] = await db
       .select({ userId: budgets.userId, budgetId: budgets.budgetId })
@@ -181,7 +182,7 @@ export async function PUT(request: NextRequest) {
       .where(eq(budgets.id, subLine.allocationId))
       .limit(1);
     if (!allocation) {
-      return NextResponse.json({ error: "Sub-line not found" }, { status: 404 });
+      return apiError("api.subLineNotFound", 404);
     }
     const access = await resolveBudgetRowAccess(userId, allocation);
     if (!access.ok) {
@@ -257,7 +258,7 @@ export async function PUT(request: NextRequest) {
     });
 
     if (outcome === "not_found") {
-      return NextResponse.json({ error: "Sub-line not found" }, { status: 404 });
+      return apiError("api.subLineNotFound", 404);
     }
     if (outcome !== "ok") return ruleError(outcome);
 
@@ -298,7 +299,7 @@ export async function DELETE(request: NextRequest) {
       .where(eq(budgetSubLines.id, id))
       .limit(1);
     if (!subLine) {
-      return NextResponse.json({ error: "Sub-line not found" }, { status: 404 });
+      return apiError("api.subLineNotFound", 404);
     }
     const [allocation] = await db
       .select({ userId: budgets.userId, budgetId: budgets.budgetId })
@@ -306,7 +307,7 @@ export async function DELETE(request: NextRequest) {
       .where(eq(budgets.id, subLine.allocationId))
       .limit(1);
     if (!allocation) {
-      return NextResponse.json({ error: "Sub-line not found" }, { status: 404 });
+      return apiError("api.subLineNotFound", 404);
     }
     const access = await resolveBudgetRowAccess(userId, allocation);
     if (!access.ok) {
@@ -355,7 +356,7 @@ export async function DELETE(request: NextRequest) {
     });
 
     if (!found) {
-      return NextResponse.json({ error: "Sub-line not found" }, { status: 404 });
+      return apiError("api.subLineNotFound", 404);
     }
 
     logDataEvent({

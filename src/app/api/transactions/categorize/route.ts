@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiError } from "@/lib/api-errors";
 import { db } from "@/db";
 import { transactions, categoryRules, categories } from "@/db/schema";
 import { eq, and, inArray } from "drizzle-orm";
@@ -22,10 +23,7 @@ export async function PUT(request: NextRequest) {
         : [];
 
     if (ids.length === 0 || ids.length > 500) {
-      return NextResponse.json(
-        { error: "Provide between 1 and 500 transaction IDs" },
-        { status: 400 }
-      );
+      return apiError("api.transactionIdRange", 400);
     }
 
     // A category reference must live in its ROW's owner space — on a shared
@@ -39,7 +37,7 @@ export async function PUT(request: NextRequest) {
         .from(categories)
         .where(eq(categories.id, categoryId));
       if (!targetCategory) {
-        return NextResponse.json({ error: "Category not found" }, { status: 404 });
+        return apiError("api.categoryNotFound", 404);
       }
       categoryOwnerId = targetCategory.userId;
     }
@@ -63,12 +61,15 @@ export async function PUT(request: NextRequest) {
     let ruleId: string | null = null;
     let appliedCount = 0;
 
-    // Optionally create a categorization rule — rules live in the category
-    // owner's space too, same as the category itself.
-    if (createRule && rulePattern && categoryId && categoryOwnerId) {
+    // Optionally create a categorization rule. Unlike the update above, a rule
+    // is per-owner CONFIG: applyRuleToTransactions matches on user_id alone, so
+    // it would reach every account of that owner — including ones never shared.
+    // Only the owner may create one; for anyone else the flag is silently
+    // skipped, same convention as the ids the update above drops.
+    if (createRule && rulePattern && categoryId && categoryOwnerId === userId) {
       const validated = validatePattern(rulePattern);
       if (!validated.ok) {
-        return NextResponse.json({ error: validated.error }, { status: 400 });
+        return apiError(validated.error, 400, validated.vars);
       }
       const cleanPattern = validated.value;
 
