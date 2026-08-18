@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
+import { UserAvatar } from "@/components/user-avatar";
 import { UserPlus } from "lucide-react";
 import {
   useAccountMembers,
@@ -78,13 +79,20 @@ export function AccountSharingSection({ accountId }: { accountId: string }) {
         <ul className="divide-y rounded-md border">
           {shared.map((m) => (
             <li key={m.id} className="flex items-center justify-between gap-2 p-2.5">
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium">
-                  {m.memberName || m.email}
-                </p>
-                {m.memberName && (
-                  <p className="truncate text-xs text-muted-foreground">{m.email}</p>
-                )}
+              <div className="flex min-w-0 items-center gap-2.5">
+                <UserAvatar
+                  name={m.memberName || m.email}
+                  image={m.memberImage}
+                  className="h-8 w-8 text-xs"
+                />
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">
+                    {m.memberName || m.email}
+                  </p>
+                  {m.memberName && (
+                    <p className="truncate text-xs text-muted-foreground">{m.email}</p>
+                  )}
+                </div>
               </div>
               <div className="flex shrink-0 items-center gap-1.5">
                 <span

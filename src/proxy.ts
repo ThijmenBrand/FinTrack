@@ -16,18 +16,43 @@ const publicPaths = [
   "/reset-password",
   "/invite",
   "/api/invites/accept",
+  // Share invites are opened from an email, usually signed out. The page keeps
+  // the token across the login round trip itself; a middleware redirect to
+  // /login would drop it and the invite could never be accepted.
+  "/share-invite",
+  "/api/shares/accept",
   "/two-factor",
 ];
 
 type Session = NonNullable<Awaited<ReturnType<typeof auth.api.getSession>>>;
 
-async function getValidSession(request: NextRequest): Promise<Session | null> {
+/**
+ * The session is a sliding 1h window, and better-auth slides it by re-issuing
+ * the session cookie. Read it `asResponse` so we can hand that refreshed
+ * cookie to the browser — without it the cookie would expire an hour after
+ * login no matter how active the user is.
+ */
+async function getValidSession(
+  request: NextRequest,
+): Promise<{ session: Session | null; setCookies: string[] }> {
   try {
-    const session = await auth.api.getSession({ headers: request.headers });
-    return session?.session && session?.user ? session : null;
+    const response = await auth.api.getSession({
+      headers: request.headers,
+      asResponse: true,
+    });
+    const data = (await response.json()) as Session | null;
+    return {
+      session: data?.session && data?.user ? data : null,
+      setCookies: response.headers.getSetCookie(),
+    };
   } catch {
-    return null;
+    return { session: null, setCookies: [] };
   }
+}
+
+function withCookies(response: NextResponse, setCookies: string[]): NextResponse {
+  for (const cookie of setCookies) response.headers.append("set-cookie", cookie);
+  return response;
 }
 
 function isAdminSession(session: Session): boolean {
@@ -81,7 +106,7 @@ export async function proxy(request: NextRequest) {
       return NextResponse.next();
     }
 
-    const session = await getValidSession(request);
+    const { session } = await getValidSession(request);
     if (session) {
       return NextResponse.redirect(
         new URL(isAdminSession(session) ? "/backoffice" : "/", request.url),
@@ -112,7 +137,7 @@ export async function proxy(request: NextRequest) {
     return unauthorizedResponse(request);
   }
 
-  const session = await getValidSession(request);
+  const { session, setCookies } = await getValidSession(request);
   if (!session) {
     return clearAuthCookies(unauthorizedResponse(request));
   }
@@ -124,17 +149,23 @@ export async function proxy(request: NextRequest) {
     const admin = isAdminSession(session);
     if (pathname.startsWith("/backoffice")) {
       if (!admin) {
-        return NextResponse.redirect(new URL("/", request.url));
+        return withCookies(NextResponse.redirect(new URL("/", request.url)), setCookies);
       }
       if (!hasTwoFactorEnabled(session) && pathname !== "/backoffice/security") {
-        return NextResponse.redirect(new URL("/backoffice/security", request.url));
+        return withCookies(
+          NextResponse.redirect(new URL("/backoffice/security", request.url)),
+          setCookies,
+        );
       }
     } else if (admin) {
-      return NextResponse.redirect(new URL("/backoffice", request.url));
+      return withCookies(
+        NextResponse.redirect(new URL("/backoffice", request.url)),
+        setCookies,
+      );
     }
   }
 
-  return NextResponse.next();
+  return withCookies(NextResponse.next(), setCookies);
 }
 
 export const config = {

@@ -44,12 +44,10 @@ export function LockScreen() {
         router.push("/login");
         return;
       }
-      if (err instanceof ApiError && err.status === 401) {
-        if (err.message.toLowerCase().includes("session expired")) {
-          clearLockState();
-          router.push("/login");
-          return;
-        }
+      if (err instanceof ApiError && err.status === 401 && err.code === "SESSION_EXPIRED") {
+        clearLockState();
+        router.push("/login");
+        return;
       }
       setError(err instanceof Error ? err.message : t("lock.invalidPin"));
       setPin("");

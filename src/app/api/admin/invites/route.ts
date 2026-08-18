@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiError } from "@/lib/api-errors";
 import { headers } from "next/headers";
 import { and, desc, eq, isNull, gt } from "drizzle-orm";
 import { db } from "@/db";
@@ -70,10 +71,7 @@ async function deliver(
     return null;
   } catch (err) {
     console.error("Invite email failed to send:", err);
-    return NextResponse.json(
-      { error: "Invite saved, but the email failed to send. Use Resend to retry." },
-      { status: 502 },
-    );
+    return apiError("api.inviteEmailFailedAdmin", 502);
   }
 }
 
@@ -111,10 +109,7 @@ export async function POST(request: NextRequest) {
     if (displayName !== undefined && displayName !== null && displayName !== "") {
       const check = validateName(displayName);
       if (!check.ok) {
-        return NextResponse.json(
-          { error: `Invalid display name: ${check.error}` },
-          { status: 400 },
-        );
+        return apiError(check.error, 400, check.vars);
       }
       cleanDisplayName = check.value;
     }
@@ -125,10 +120,7 @@ export async function POST(request: NextRequest) {
       .where(eq(user.email, cleanEmail))
       .get();
     if (existingUser) {
-      return NextResponse.json(
-        { error: "That email already has an account" },
-        { status: 409 },
-      );
+      return apiError("api.emailHasAccount", 409);
     }
 
     const pending = await db
@@ -144,10 +136,7 @@ export async function POST(request: NextRequest) {
       )
       .get();
     if (pending) {
-      return NextResponse.json(
-        { error: "That address already has a pending invite — use Resend instead" },
-        { status: 409 },
-      );
+      return apiError("api.alreadyInvitedPending", 409);
     }
 
     const token = newInviteToken();
@@ -185,14 +174,11 @@ export async function PUT(request: NextRequest) {
 
     const invite = await db.select().from(invites).where(eq(invites.id, id)).get();
     if (!invite) {
-      return NextResponse.json({ error: "Invite not found" }, { status: 404 });
+      return apiError("api.inviteNotFound", 404);
     }
     const status = inviteStatus(invite);
     if (status === "accepted" || status === "revoked") {
-      return NextResponse.json(
-        { error: `Cannot resend a ${status} invite` },
-        { status: 409 },
-      );
+      return apiError("api.cannotResendInvite", 409);
     }
 
     const token = newInviteToken();
@@ -227,10 +213,7 @@ export async function DELETE(request: NextRequest) {
       .returning({ email: invites.email });
 
     if (revoked.length === 0) {
-      return NextResponse.json(
-        { error: "Invite not found, or already accepted or revoked" },
-        { status: 409 },
-      );
+      return apiError("api.inviteNotPending", 409);
     }
 
     await logInviteAction(session.userId, "invite_revoked", id, {

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiError } from "@/lib/api-errors";
 import { db } from "@/db";
 import {
   budgetMonthTargets,
@@ -54,10 +55,7 @@ export async function POST(request: NextRequest) {
     const { name, icon, color } = body;
 
     if (!name) {
-      return NextResponse.json(
-        { error: "Name is required" },
-        { status: 400 }
-      );
+      return apiError("api.nameRequired", 400);
     }
 
     const id = crypto.randomUUID();
@@ -104,7 +102,7 @@ export async function PUT(request: NextRequest) {
       .where(and(eq(categories.id, id), eq(categories.userId, userId)));
 
     if (!existing) {
-      return NextResponse.json({ error: "Category not found" }, { status: 404 });
+      return apiError("api.categoryNotFound", 404);
     }
 
     const updateSet: {

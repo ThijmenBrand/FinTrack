@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiError } from "@/lib/api-errors";
 import { db } from "@/db";
 import { transactions, reimbursementLinks } from "@/db/schema";
 import { eq, and, sql, inArray } from "drizzle-orm";
@@ -31,17 +32,11 @@ export async function POST(request: NextRequest) {
       .where(and(eq(transactions.id, transactionId), eq(transactions.userId, userId)));
 
     if (!reimbursement) {
-      return NextResponse.json(
-        { error: "Reimbursement transaction not found" },
-        { status: 404 }
-      );
+      return apiError("api.reimbursementNotFound", 404);
     }
 
     if (reimbursement.amount <= 0) {
-      return NextResponse.json(
-        { error: "Reimbursement transaction must have a positive amount" },
-        { status: 400 }
-      );
+      return apiError("api.reimbursementMustBePositive", 400);
     }
 
     // Fetch and validate all expenses
@@ -51,18 +46,12 @@ export async function POST(request: NextRequest) {
       .where(and(inArray(transactions.id, expenseIds), eq(transactions.userId, userId)));
 
     if (expenses.length !== expenseIds.length) {
-      return NextResponse.json(
-        { error: "One or more expense transactions not found" },
-        { status: 404 }
-      );
+      return apiError("api.expensesNotFound", 404);
     }
 
     const invalidExpense = expenses.find((e) => e.amount >= 0);
     if (invalidExpense) {
-      return NextResponse.json(
-        { error: "All expense transactions must have a negative amount" },
-        { status: 400 }
-      );
+      return apiError("api.expensesMustBeNegative", 400);
     }
 
     // Insert links into the junction table
@@ -113,17 +102,11 @@ export async function DELETE(request: NextRequest) {
       .where(and(eq(transactions.id, id), eq(transactions.userId, userId)));
 
     if (!tx) {
-      return NextResponse.json(
-        { error: "Transaction not found" },
-        { status: 404 }
-      );
+      return apiError("api.transactionNotFound", 404);
     }
 
     if (tx.type !== "reimbursement") {
-      return NextResponse.json(
-        { error: "Transaction is not a reimbursement" },
-        { status: 400 }
-      );
+      return apiError("api.notAReimbursement", 400);
     }
 
     if (expenseId) {

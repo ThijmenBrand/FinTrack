@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiError } from "@/lib/api-errors";
 import { db } from "@/db";
 import { transactionGroups, transactions, categories } from "@/db/schema";
 import { eq, and, sql } from "drizzle-orm";
@@ -73,7 +74,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: targetError }, { status: 400 });
     }
     if (categoryId && !(await userOwnsCategory(userId, categoryId))) {
-      return NextResponse.json({ error: "Category not found" }, { status: 404 });
+      return apiError("api.categoryNotFound", 404);
     }
 
     const id = crypto.randomUUID();
@@ -100,7 +101,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "id is required" }, { status: 400 });
     }
     if (categoryId && !(await userOwnsCategory(userId, categoryId))) {
-      return NextResponse.json({ error: "Category not found" }, { status: 404 });
+      return apiError("api.categoryNotFound", 404);
     }
 
     // If either target field is being touched, validate the pair.
@@ -116,7 +117,7 @@ export async function PUT(request: NextRequest) {
         .where(and(eq(transactionGroups.id, id), eq(transactionGroups.userId, userId)))
         .get();
       if (!existing) {
-        return NextResponse.json({ error: "Pot not found" }, { status: 404 });
+        return apiError("api.potNotFound", 404);
       }
       const nextAmount = targetAmount === undefined ? existing.targetAmount : targetAmount;
       const nextDate = targetDate === undefined ? existing.targetDate : targetDate;

@@ -6,6 +6,7 @@ import { ArrowLeft, Fingerprint } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { useRouter } from "next/navigation";
 import { useI18n } from "@/lib/i18n/client";
+import { safeRedirectPath } from "@/lib/validation";
 import {
   AuthHeading,
   AuthShell,
@@ -35,10 +36,7 @@ export default function LoginPage() {
     // window.location instead of useSearchParams to avoid a Suspense boundary
     const params = new URLSearchParams(window.location.search);
     const verified = params.get("verified") === "1";
-    const redirect = params.get("redirect") || "";
-    if (redirect.startsWith("/") && !redirect.startsWith("//")) {
-      redirectTo.current = redirect;
-    }
+    redirectTo.current = safeRedirectPath(params.get("redirect"));
     fetch("/api/signup-status")
       .then((r) => r.json())
       .then((d) => setSignupsEnabled(!!d.enabled))

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiError } from "@/lib/api-errors";
 import { headers } from "next/headers";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
@@ -23,14 +24,12 @@ async function findPendingInvite(token: unknown) {
   return invite;
 }
 
-const GONE = { error: "This invite link is no longer valid" };
-
 // GET /api/invites/accept?token=X — what the accept page needs to render
 export async function GET(request: NextRequest) {
   const invite = await findPendingInvite(
     new URL(request.url).searchParams.get("token"),
   );
-  if (!invite) return NextResponse.json(GONE, { status: 410 });
+  if (!invite) return apiError("api.inviteLinkInvalid", 410);
 
   const inviter = invite.invitedBy
     ? await db
@@ -53,14 +52,11 @@ export async function POST(request: NextRequest) {
     const { token, displayName, password } = await request.json();
 
     const invite = await findPendingInvite(token);
-    if (!invite) return NextResponse.json(GONE, { status: 410 });
+    if (!invite) return apiError("api.inviteLinkInvalid", 410);
 
     const displayCheck = validateName(displayName ?? invite.displayName);
     if (!displayCheck.ok) {
-      return NextResponse.json(
-        { error: `Invalid display name: ${displayCheck.error}` },
-        { status: 400 },
-      );
+      return apiError(displayCheck.error, 400, displayCheck.vars);
     }
     const passwordError = validatePassword(password);
     if (passwordError) {
@@ -83,10 +79,7 @@ export async function POST(request: NextRequest) {
       locale,
     });
     if (!userId) {
-      return NextResponse.json(
-        { error: "That email is already registered" },
-        { status: 409 },
-      );
+      return apiError("api.emailRegistered", 409);
     }
 
     // Best-effort from here on: the account exists, so a failed bookkeeping
@@ -127,6 +120,6 @@ export async function POST(request: NextRequest) {
     }
   } catch (error) {
     console.error("Failed to accept invite:", error);
-    return NextResponse.json({ error: "Failed to accept invite" }, { status: 500 });
+    return apiError("api.inviteAcceptFailed", 500);
   }
 }

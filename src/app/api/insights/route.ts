@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiError } from "@/lib/api-errors";
 import { db } from "@/db";
 import { transactions, categories, transactionGroups } from "@/db/schema";
 import { eq, and, gte, lte, sql, inArray, notInArray, type SQL } from "drizzle-orm";
@@ -39,7 +40,7 @@ export async function GET(request: NextRequest) {
       ? await resolveBudgetPlan(userId, budgetIdParam)
       : null;
     if (budgetIdParam && !plan) {
-      return NextResponse.json({ error: "Budget not found" }, { status: 404 });
+      return apiError("api.budgetNotFound", 404);
     }
     // A shared plan's insights read as the plan OWNER (their rows carry the
     // owner's user_id); everything else reads as the caller plus their shared

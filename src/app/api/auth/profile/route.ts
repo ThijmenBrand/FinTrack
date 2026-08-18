@@ -1,47 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiError } from "@/lib/api-errors";
 import { auth, withUser, hashPassword, verifyPassword } from "@/lib/auth";
 import { db } from "@/db";
 import { sql } from "drizzle-orm";
 import { headers } from "next/headers";
 import { logAuthEvent, logDataEvent, getRequestMeta } from "@/lib/audit";
 import { validatePassword, validateName } from "@/lib/validation";
+import { createRateLimiter } from "@/lib/rate-limit";
 
-// In-memory rate limiter for password attempts per user
-const PASSWORD_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
-const PASSWORD_MAX_ATTEMPTS = 5;
-const passwordAttempts = new Map<string, { count: number; resetAt: number }>();
-
-function checkPasswordRateLimit(userId: string): boolean {
-  const now = Date.now();
-  const entry = passwordAttempts.get(userId);
-
-  if (!entry || now >= entry.resetAt) {
-    passwordAttempts.set(userId, { count: 1, resetAt: now + PASSWORD_WINDOW_MS });
-    return true;
-  }
-
-  if (entry.count >= PASSWORD_MAX_ATTEMPTS) {
-    return false;
-  }
-
-  entry.count++;
-  return true;
-}
+// Password attempts per user: 5 per 15 minutes.
+const checkPasswordRateLimit = createRateLimiter(15 * 60 * 1000, 5);
 
 export async function GET() {
   return withUser(async (userId) => {
     const result = await db.run(
-      sql`SELECT id, name, role, two_factor_enabled, created_at FROM "user" WHERE id = ${userId}`
+      sql`SELECT id, name, image, role, two_factor_enabled, created_at FROM "user" WHERE id = ${userId}`
     );
     const user = result.rows[0] as Record<string, unknown> | undefined;
 
     if (!user) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
+      return apiError("api.userNotFound", 404);
     }
 
     return NextResponse.json({
       id: user.id,
       displayName: user.name,
+      imageUrl: user.image ?? null,
       isAdmin: user.role === "admin",
       twoFactorEnabled: user.two_factor_enabled === 1 || user.two_factor_enabled === true,
       createdAt: user.created_at,
@@ -60,13 +44,13 @@ export async function PATCH(req: NextRequest) {
     const user = result.rows[0] as Record<string, unknown> | undefined;
 
     if (!user) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
+      return apiError("api.userNotFound", 404);
     }
 
     if (displayName !== undefined) {
       const displayCheck = validateName(displayName);
       if (!displayCheck.ok) {
-        return NextResponse.json({ error: `Invalid display name: ${displayCheck.error}` }, { status: 400 });
+        return apiError(displayCheck.error, 400, displayCheck.vars);
       }
       await db.run(
         sql`UPDATE "user" SET name = ${displayCheck.value}, updated_at = ${new Date().toISOString()} WHERE id = ${userId}`
@@ -76,17 +60,11 @@ export async function PATCH(req: NextRequest) {
     // Password change
     if (newPassword) {
       if (!currentPassword) {
-        return NextResponse.json(
-          { error: "Current password is required to set a new password" },
-          { status: 400 }
-        );
+        return apiError("api.currentPasswordForNewPassword", 400);
       }
 
       if (!checkPasswordRateLimit(userId)) {
-        return NextResponse.json(
-          { error: "Too many password attempts. Please try again later." },
-          { status: 429 }
-        );
+        return apiError("api.rateLimitedPassword", 429);
       }
 
       // Get password hash from auth account table
@@ -95,12 +73,12 @@ export async function PATCH(req: NextRequest) {
       );
       const acct = acctResult.rows[0] as Record<string, unknown> | undefined;
       if (!acct?.password) {
-        return NextResponse.json({ error: "No credential account found" }, { status: 400 });
+        return apiError("api.noCredentialAccount", 400);
       }
 
       const valid = await verifyPassword(currentPassword, acct.password as string);
       if (!valid) {
-        return NextResponse.json({ error: "Current password is incorrect" }, { status: 403 });
+        return apiError("api.currentPasswordIncorrect", 403);
       }
       const passwordError = validatePassword(newPassword);
       if (passwordError) {
@@ -113,7 +91,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     if (!displayName && !newPassword) {
-      return NextResponse.json({ error: "No changes provided" }, { status: 400 });
+      return apiError("api.noChanges", 400);
     }
 
     // Audit logging

@@ -415,6 +415,13 @@ function TransactionsPage() {
     setSelectedIds(new Set());
   };
 
+  // Derived from the accounts, not the rows: createdByName is only set on
+  // shared-account rows, so keying off the current page would make the column
+  // appear and disappear as you page through a mixed account.
+  const showCreator = accounts.some(
+    (a) => a.role !== "owner" || a.sharedWith > 0,
+  );
+
   // Render pot/transaction rows for a given layout — used by both the desktop
   // table and the mobile card list.
   const renderItems = (layout: "table" | "card") =>
@@ -425,6 +432,7 @@ function TransactionsPage() {
           pot={item.data}
           rangeTotal={potTotalsById.get(item.data.id)}
           layout={layout}
+          showCreator={showCreator}
           categories={categories}
           onAddTransactions={() => setAddToPotPicker(item.data)}
           onEdit={() => setEditPot(item.data)}
@@ -435,6 +443,7 @@ function TransactionsPage() {
           key={item.data.id}
           tx={item.data}
           layout={layout}
+          showCreator={showCreator}
           categories={categories}
           selected={selectedIds.has(item.data.id)}
           hasPots={pots.length > 0}
@@ -665,6 +674,7 @@ function TransactionsPage() {
         onCategoryChange={(v) => toggleInclude(setCategoryFilters, v)}
         onTypeChange={(v) => toggleInclude(setTypeFilters, v)}
         renderRows={renderItems}
+        showCreator={showCreator}
       />
 
       {/* Right-click Context Menu */}

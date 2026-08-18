@@ -1,4 +1,5 @@
 import { auth, verifyPassword } from "@/lib/auth";
+import { apiError } from "@/lib/api-errors";
 import { toNextJsHandler } from "better-auth/next-js";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db/index";
@@ -34,14 +35,14 @@ function adminTwoFactorLocked() {
  */
 async function handleSignUp(req: NextRequest) {
   if (!(await getSignupsEnabled())) {
-    return NextResponse.json({ error: "Sign-up is disabled" }, { status: 403 });
+    return apiError("api.signupDisabled", 403);
   }
 
   let body: Record<string, unknown>;
   try {
     body = await req.clone().json();
   } catch {
-    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    return apiError("api.invalidBody", 400);
   }
 
   const emailError = validateEmail(body.email);
@@ -55,10 +56,7 @@ async function handleSignUp(req: NextRequest) {
   if (body.name !== undefined) {
     const check = validateName(body.name);
     if (!check.ok) {
-      return NextResponse.json(
-        { error: `Invalid name: ${check.error}` },
-        { status: 400 },
-      );
+      return apiError(check.error, 400, check.vars);
     }
   }
 
@@ -72,17 +70,14 @@ async function handleSignUp(req: NextRequest) {
 async function handleDeletePasskey(req: NextRequest) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return apiError("api.unauthorized", 401);
   }
 
   const body = await req.json();
   const { currentPassword, id } = body;
 
   if (!currentPassword) {
-    return NextResponse.json(
-      { error: "Current password is required to delete a passkey" },
-      { status: 400 },
-    );
+    return apiError("api.currentPasswordForPasskey", 400);
   }
 
   if (!id) {
@@ -105,12 +100,12 @@ async function handleDeletePasskey(req: NextRequest) {
     .get();
 
   if (!userAccount?.password) {
-    return NextResponse.json({ error: "Account not found" }, { status: 404 });
+    return apiError("api.accountNotFound", 404);
   }
 
   const passwordValid = await verifyPassword(currentPassword, userAccount.password);
   if (!passwordValid) {
-    return NextResponse.json({ error: "Invalid password" }, { status: 403 });
+    return apiError("api.invalidPassword", 403);
   }
 
   // Password verified — forward to better-auth's delete handler

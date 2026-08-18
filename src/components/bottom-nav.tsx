@@ -28,6 +28,7 @@ import {
   useSessionUser,
 } from "@/components/nav-shared";
 import { useI18n } from "@/lib/i18n/client";
+import { UserAvatar } from "@/components/user-avatar";
 
 export function BottomNav() {
   const { t } = useI18n();
@@ -157,9 +158,11 @@ export function BottomNav() {
             <div className="border-t my-3" />
             {user && (
               <div className="flex items-center gap-3 rounded-lg px-3 py-2">
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
-                  {user.displayName.charAt(0).toUpperCase()}
-                </div>
+                <UserAvatar
+                  name={user.displayName}
+                  image={user.imageUrl}
+                  className="h-8 w-8 text-sm"
+                />
                 <div>
                   <p className="text-sm font-medium">{user.displayName}</p>
                 </div>

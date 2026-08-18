@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiError } from "@/lib/api-errors";
 import { withUser } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
 import { explainEmptyGenerate, regenerateBudgetSuggestions } from "@/lib/auto-budget";
@@ -12,12 +13,12 @@ export async function POST(request: NextRequest) {
 
     const plan = await resolveBudgetPlan(userId, budgetId);
     if (budgetId && !plan) {
-      return NextResponse.json({ error: "Budget not found" }, { status: 404 });
+      return apiError("api.budgetNotFound", 404);
     }
     // Viewers on a shared plan are read-only; editors may regenerate
     // suggestions same as the owner.
     if (plan && plan.role === "viewer") {
-      return NextResponse.json({ error: "Read-only access" }, { status: 403 });
+      return apiError("api.readOnly", 403);
     }
     // Suggestions are plan-owned data: run as the OWNER (own plans:
     // dataUserId === userId), so the rows, the automation cadence and the

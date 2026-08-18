@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiError } from "@/lib/api-errors";
 import { withUser } from "@/lib/auth";
 import { getUserPreferences } from "@/lib/preferences";
 import { getBudgetOverview } from "@/app/(app)/_lib/dashboard-queries";
@@ -21,7 +22,7 @@ export async function GET(request: NextRequest) {
       budgetId,
     );
     if (!data.plan) {
-      return NextResponse.json({ error: "Budget not found" }, { status: 404 });
+      return apiError("api.budgetNotFound", 404);
     }
     return NextResponse.json(data);
   }, "Failed to fetch budget overview");

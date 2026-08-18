@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiError } from "@/lib/api-errors";
 import { db } from "@/db";
 import { categoryRules, categories } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
@@ -45,18 +46,15 @@ export async function POST(request: NextRequest) {
     const { pattern, categoryId, matchType, matchField, applyToExisting } = body;
 
     if (!pattern || !categoryId) {
-      return NextResponse.json(
-        { error: "Pattern and categoryId are required" },
-        { status: 400 }
-      );
+      return apiError("api.patternAndCategoryRequired", 400);
     }
 
     const validated = validatePattern(pattern);
     if (!validated.ok) {
-      return NextResponse.json({ error: validated.error }, { status: 400 });
+      return apiError(validated.error, 400, validated.vars);
     }
     if (!(await userOwnsCategory(userId, categoryId))) {
-      return NextResponse.json({ error: "Category not found" }, { status: 404 });
+      return apiError("api.categoryNotFound", 404);
     }
     const cleanMatchType = isMatchType(matchType) ? matchType : "contains";
     const cleanMatchField = isMatchField(matchField) ? matchField : "both";
@@ -107,19 +105,19 @@ export async function PUT(request: NextRequest) {
     if (pattern !== undefined) {
       const validated = validatePattern(pattern);
       if (!validated.ok) {
-        return NextResponse.json({ error: validated.error }, { status: 400 });
+        return apiError(validated.error, 400, validated.vars);
       }
       validatedPattern = validated.value;
     }
 
     if (matchType !== undefined && !isMatchType(matchType)) {
-      return NextResponse.json({ error: "Invalid matchType" }, { status: 400 });
+      return apiError("api.invalidMatchType", 400);
     }
     if (matchField !== undefined && !isMatchField(matchField)) {
-      return NextResponse.json({ error: "Invalid matchField" }, { status: 400 });
+      return apiError("api.invalidMatchField", 400);
     }
     if (categoryId !== undefined && !(await userOwnsCategory(userId, categoryId))) {
-      return NextResponse.json({ error: "Category not found" }, { status: 404 });
+      return apiError("api.categoryNotFound", 404);
     }
 
     const updates: Record<string, unknown> = {};
@@ -143,7 +141,7 @@ export async function PUT(request: NextRequest) {
       .where(and(eq(categoryRules.id, id), eq(categoryRules.userId, userId)));
 
     if (!updated) {
-      return NextResponse.json({ error: "Rule not found" }, { status: 404 });
+      return apiError("api.ruleNotFound", 404);
     }
 
     let applied = 0;

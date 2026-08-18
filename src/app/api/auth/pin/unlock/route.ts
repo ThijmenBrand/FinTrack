@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiError, requestI18n } from "@/lib/api-errors";
 import { auth, verifyPassword } from "@/lib/auth";
 import { db } from "@/db/index";
 import { userPin } from "@/db/schema";
@@ -16,29 +17,22 @@ export async function POST(req: NextRequest) {
     // IP-based rate limiting — use platform-verified IP to prevent header spoofing
     const ip = getClientIp(req);
     if (isRateLimited(ip)) {
-      return NextResponse.json(
-        { error: "Too many requests. Please try again later." },
-        { status: 429 },
-      );
+      return apiError("api.rateLimited", 429);
     }
 
     // Require an existing session
     const session = await auth.api.getSession({ headers: req.headers });
     if (!session?.user) {
-      return NextResponse.json(
-        { error: "Session expired. Please sign in again." },
-        { status: 401 },
-      );
+      // The lock screen tells this 401 apart from a wrong PIN by the code —
+      // the message is translated, so it can't be matched on.
+      return apiError("api.sessionExpired", 401, undefined, { code: "SESSION_EXPIRED" });
     }
 
     const body = await req.json();
     const { pin } = body;
 
     if (!pin) {
-      return NextResponse.json(
-        { error: "PIN is required" },
-        { status: 400 },
-      );
+      return apiError("api.pinRequired", 400);
     }
 
     const userId = session.user.id;
@@ -78,29 +72,30 @@ export async function POST(req: NextRequest) {
         .get();
 
       if (!pinRecord) {
-        return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
+        return apiError("api.invalidCredentials", 401);
       }
 
       if (pinRecord.lockoutCount >= MAX_LOCKOUT_CYCLES) {
-        return NextResponse.json(
-          { error: "Too many failed attempts. Please sign in with your password.", forceReauth: true },
-          { status: 403 },
-        );
+        return apiError("api.tooManyAttemptsReauth", 403, undefined, { forceReauth: true });
       }
 
       if (pinRecord.lockedUntil && new Date(pinRecord.lockedUntil).getTime() > now) {
         const remainingMs = new Date(pinRecord.lockedUntil).getTime() - now;
         const remainingMin = Math.ceil(remainingMs / 60000);
+        const { plural } = await requestI18n();
         return NextResponse.json(
-          { error: `Too many failed attempts. Try again in ${remainingMin} minute${remainingMin === 1 ? "" : "s"}.` },
+          {
+            error: plural(
+              remainingMin,
+              "api.tooManyAttemptsMinutes.one",
+              "api.tooManyAttemptsMinutes.other",
+            ),
+          },
           { status: 429 },
         );
       }
 
-      return NextResponse.json(
-        { error: "Too many failed attempts. Try again later." },
-        { status: 429 },
-      );
+      return apiError("api.tooManyAttempts", 429);
     }
 
     const { failedAttempts: newAttempts, pinHash, lockoutCount } = claimed[0];
@@ -129,10 +124,7 @@ export async function POST(req: NextRequest) {
             })
             .where(eq(userPin.userId, userId));
 
-          return NextResponse.json(
-            { error: "Too many failed attempts. Please sign in with your password.", forceReauth: true },
-            { status: 403 },
-          );
+          return apiError("api.tooManyAttemptsReauth", 403, undefined, { forceReauth: true });
         }
 
         await db
@@ -146,13 +138,20 @@ export async function POST(req: NextRequest) {
 
       const attemptsLeft = MAX_FAILED_ATTEMPTS - newAttempts;
       if (attemptsLeft > 0 && attemptsLeft <= 2) {
+        const { plural } = await requestI18n();
         return NextResponse.json(
-          { error: `Invalid PIN. ${attemptsLeft} attempt${attemptsLeft === 1 ? "" : "s"} remaining.` },
+          {
+            error: plural(
+              attemptsLeft,
+              "api.invalidPinAttempts.one",
+              "api.invalidPinAttempts.other",
+            ),
+          },
           { status: 401 },
         );
       }
 
-      return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
+      return apiError("api.invalidCredentials", 401);
     }
 
     // PIN is valid — reset failed attempts and lockout count
@@ -170,6 +169,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true });
   } catch {
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return apiError("api.serverError", 500);
   }
 }

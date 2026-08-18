@@ -156,3 +156,95 @@ describe("POST /api/transactions", () => {
     expect(row.created_by).toBe(OWNER);
   });
 });
+
+const categorize = (body: unknown) =>
+  import("./categorize/route").then(({ PUT }) =>
+    PUT(
+      new Request("http://x/api/transactions/categorize", {
+        method: "PUT",
+        body: JSON.stringify(body),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any,
+    ),
+  );
+
+/** An uncategorized owner expense on the account that was never shared. */
+async function seedPrivateExpense() {
+  await testDb.client.execute({
+    sql: `INSERT INTO transactions (id, user_id, account_id, date, description, amount, type, created_at)
+          VALUES ('tx-private', ?, 'acc-private', '2026-08-01', 'Secret groceries', -20, 'expense', ?)`,
+    args: [OWNER, new Date().toISOString()],
+  });
+}
+
+describe("PUT /api/transactions/categorize — rule creation is owner-only", () => {
+  it("a viewer cannot plant a rule in the owner's space or touch the owner's unshared account", async () => {
+    await seedPrivateExpense();
+    actor = VIEWER;
+
+    const res = await categorize({
+      transactionIds: ["tx-private"],
+      categoryId: "cat-owner",
+      createRule: true,
+      rulePattern: "groceries",
+      ruleMatchType: "contains",
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ruleId: null, appliedCount: 0 });
+
+    const rules = await testDb.client.execute({
+      sql: `SELECT id FROM category_rules WHERE user_id = ?`,
+      args: [OWNER],
+    });
+    expect(rules.rows).toHaveLength(0);
+
+    const tx = await testDb.client.execute({
+      sql: `SELECT category_id FROM transactions WHERE id = 'tx-private' AND user_id = ?`,
+      args: [OWNER],
+    });
+    expect(tx.rows[0].category_id).toBeNull();
+  });
+
+  it("an editor on a shared account still cannot — a rule reaches accounts outside the share", async () => {
+    await seedPrivateExpense();
+    actor = EDITOR;
+
+    await categorize({
+      transactionIds: ["tx-private"],
+      categoryId: "cat-owner",
+      createRule: true,
+      rulePattern: "groceries",
+      ruleMatchType: "contains",
+    });
+
+    const rules = await testDb.client.execute({
+      sql: `SELECT id FROM category_rules WHERE user_id = ?`,
+      args: [OWNER],
+    });
+    expect(rules.rows).toHaveLength(0);
+  });
+
+  it("the owner still creates the rule and it applies to their own rows", async () => {
+    await seedPrivateExpense();
+    actor = OWNER;
+
+    const res = await categorize({
+      transactionIds: ["tx-private"],
+      categoryId: "cat-owner",
+      createRule: true,
+      rulePattern: "groceries",
+      ruleMatchType: "contains",
+    });
+
+    const body = await res.json();
+    expect(body.ruleId).not.toBeNull();
+
+    const rules = await testDb.client.execute({
+      sql: `SELECT category_id FROM category_rules WHERE user_id = ?`,
+      args: [OWNER],
+    });
+    expect(rules.rows).toHaveLength(1);
+    expect(rules.rows[0].category_id).toBe("cat-owner");
+  });
+});

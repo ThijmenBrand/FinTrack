@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiError } from "@/lib/api-errors";
 import { db } from "@/db";
 import { transactions } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
@@ -29,7 +30,7 @@ export async function PUT(request: NextRequest) {
       .from(transactions)
       .where(eq(transactions.id, transactionId));
     if (!tx) {
-      return NextResponse.json({ error: "Transaction not found" }, { status: 404 });
+      return apiError("api.transactionNotFound", 404);
     }
     const access = await requireAccountAccess(userId, tx.accountId, "write");
     const ownerId = access.account.userId;

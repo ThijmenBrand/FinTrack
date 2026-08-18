@@ -15,6 +15,7 @@ import {
 import { CategoryIcon } from "@/components/category-icon";
 import { EmojiPicker } from "@/components/emoji-picker";
 import { useCreateCategory, useUpdateCategory } from "@/hooks/use-categories";
+import { suggestEmoji } from "@/lib/category-emoji";
 import type { CategoryWithDetails } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
 
@@ -54,7 +55,19 @@ function CategoryForm({
   const [name, setName] = useState(category?.name ?? "");
   const [color, setColor] = useState(category?.color || "#3b82f6");
   const [icon, setIcon] = useState<string | null>(category?.icon ?? null);
+  const [iconTouched, setIconTouched] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // ponytail: suggestion only fills an untouched icon on create; edits keep theirs.
+  const handleNameChange = (value: string) => {
+    setName(value);
+    if (!category && !iconTouched) setIcon(suggestEmoji(value));
+  };
+
+  const handleIconSelect = (value: string | null) => {
+    setIconTouched(true);
+    setIcon(value);
+  };
 
   const isPending = createCategory.isPending || updateCategory.isPending;
 
@@ -91,7 +104,7 @@ function CategoryForm({
             <Input
               placeholder={t("categories.namePlaceholder")}
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => handleNameChange(e.target.value)}
             />
           </div>
           <div className="grid gap-2">
@@ -103,7 +116,7 @@ function CategoryForm({
               </span>
             </div>
             <div className="max-h-48 overflow-y-auto rounded-md border p-3">
-              <EmojiPicker value={icon} onSelect={setIcon} />
+              <EmojiPicker value={icon} onSelect={handleIconSelect} />
             </div>
           </div>
           <div className="grid gap-2">

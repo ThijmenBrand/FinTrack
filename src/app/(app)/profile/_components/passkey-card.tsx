@@ -40,7 +40,7 @@ export function PasskeyCard() {
     setRegisteringPasskey(true);
     try {
       await registerPasskey();
-      setPasskeyMsg({ type: "success", text: "Passkey registered successfully" });
+      setPasskeyMsg({ type: "success", text: t("profile.passkey.registered_success") });
       qc.invalidateQueries({ queryKey: ["passkeys"] });
     } catch (err) {
       setPasskeyMsg({
@@ -58,7 +58,7 @@ export function PasskeyCard() {
     setPasskeyMsg(null);
     try {
       await deletePasskey.mutateAsync({ id: deletePasskeyId, currentPassword: deletePasskeyPassword });
-      setPasskeyMsg({ type: "success", text: "Passkey removed" });
+      setPasskeyMsg({ type: "success", text: t("profile.passkey.removed") });
       setDeletePasskeyId(null);
       setDeletePasskeyPassword("");
     } catch (err) {

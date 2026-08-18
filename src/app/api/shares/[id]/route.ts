@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiError } from "@/lib/api-errors";
 import { and, eq, isNotNull, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { accountMembers } from "@/db/schema";
@@ -28,7 +29,7 @@ export async function DELETE(
       )
       .returning({ accountId: accountMembers.accountId });
     if (left.length === 0) {
-      return NextResponse.json({ error: "Share not found" }, { status: 404 });
+      return apiError("api.shareNotFound", 404);
     }
 
     logDataEvent({

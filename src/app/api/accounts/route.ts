@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiError } from "@/lib/api-errors";
 import { db } from "@/db";
 import { accounts, transactions } from "@/db/schema";
 import { eq, sum, count, and } from "drizzle-orm";
@@ -53,13 +54,10 @@ export async function POST(request: NextRequest) {
     const { name, type, bank, bankName, iban, currency, initialBalance } = body;
 
     if (!name || typeof name !== "string" || !isAccountType(type)) {
-      return NextResponse.json(
-        { error: "Name and a valid type are required" },
-        { status: 400 }
-      );
+      return apiError("api.nameAndTypeRequired", 400);
     }
     if (bank != null && !isBank(bank)) {
-      return NextResponse.json({ error: "Invalid bank" }, { status: 400 });
+      return apiError("api.invalidBank", 400);
     }
     if (initialBalance !== undefined && !isFiniteNumber(initialBalance)) {
       return NextResponse.json(
@@ -115,10 +113,10 @@ export async function PUT(request: NextRequest) {
       );
     }
     if (type !== undefined && !isAccountType(type)) {
-      return NextResponse.json({ error: "Invalid account type" }, { status: 400 });
+      return apiError("api.invalidAccountType", 400);
     }
     if (bank !== undefined && bank !== null && !isBank(bank)) {
-      return NextResponse.json({ error: "Invalid bank" }, { status: 400 });
+      return apiError("api.invalidBank", 400);
     }
     if (initialBalance !== undefined && !isFiniteNumber(initialBalance)) {
       return NextResponse.json(
