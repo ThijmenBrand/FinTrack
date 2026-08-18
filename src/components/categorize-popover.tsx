@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/select";
 import { Tag, Check } from "lucide-react";
 import { extractPattern } from "@/lib/csv-utils";
+import { MATCH_TYPES, MATCH_FIELDS } from "@/lib/match-types";
 import { CategoryIcon } from "@/components/category-icon";
 import { CategorySelect } from "@/components/category-select";
 import { useCategorizeTransaction } from "@/hooks/use-transactions";
@@ -54,6 +55,7 @@ export function CategorizePopover({
   const [createRule, setCreateRule] = useState(false);
   const [rulePattern, setRulePattern] = useState("");
   const [ruleMatchType, setRuleMatchType] = useState("contains");
+  const [ruleMatchField, setRuleMatchField] = useState("both");
   const categorize = useCategorizeTransaction();
 
   // Extract a sensible default pattern from the description
@@ -73,6 +75,7 @@ export function CategorizePopover({
         createRule,
         rulePattern: createRule ? rulePattern : undefined,
         ruleMatchType: createRule ? ruleMatchType : undefined,
+        ruleMatchField: createRule ? ruleMatchField : undefined,
       },
       {
         onError: (err) => {
@@ -153,6 +156,21 @@ export function CategorizePopover({
                   />
                 </div>
                 <div className="space-y-1">
+                  <Label className="text-xs">{t("categorize.matchField")}</Label>
+                  <Select value={ruleMatchField} onValueChange={setRuleMatchField}>
+                    <SelectTrigger className="h-8 text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MATCH_FIELDS.map((f) => (
+                        <SelectItem key={f.value} value={f.value}>
+                          {t(f.labelKey)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
                   <Label className="text-xs">{t("categorize.matchType")}</Label>
                   <Select
                     value={ruleMatchType}
@@ -162,15 +180,11 @@ export function CategorizePopover({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="contains">
-                        {t("categorize.descContains")}
-                      </SelectItem>
-                      <SelectItem value="starts_with">
-                        {t("categorize.descStartsWith")}
-                      </SelectItem>
-                      <SelectItem value="exact">
-                        {t("categorize.exactMatch")}
-                      </SelectItem>
+                      {MATCH_TYPES.map((m) => (
+                        <SelectItem key={m.value} value={m.value}>
+                          {t(m.labelKey)}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>

@@ -14,6 +14,7 @@ import {
   parseAmount,
   parseDate,
   matchesRule,
+  ruleMatchTarget,
   splitNameAndDescription,
   type ColumnMapping,
 } from "@/lib/csv-utils";
@@ -139,11 +140,10 @@ export async function POST(request: NextRequest) {
       const balance = balanceRaw ? parseAmount(balanceRaw) : null;
       const type: "income" | "expense" = amount >= 0 ? "income" : "expense";
 
-      // Auto-categorize using rules. Match against combined "name — description"
-      // so legacy rules continue to match after the split.
-      const matchTarget = name ? `${name} — ${description}` : description;
+      // Auto-categorize using rules, each against the text its matchField names.
       let categoryId: string | null = null;
       for (const rule of rules) {
+        const matchTarget = ruleMatchTarget(name, description, rule.matchField);
         const matches = matchesRule(matchTarget, rule.pattern, rule.matchType);
         if (matches) {
           categoryId = rule.categoryId;

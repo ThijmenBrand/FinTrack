@@ -4,7 +4,7 @@ import { db } from "@/db";
 import { transactions, categoryRules, categories } from "@/db/schema";
 import { eq, and, inArray } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
-import { validatePattern, isMatchType } from "@/lib/validation";
+import { validatePattern, isMatchType, isMatchField } from "@/lib/validation";
 import { applyRuleToTransactions } from "@/lib/apply-rule";
 import { writableTransactions } from "@/lib/account-access";
 
@@ -14,7 +14,15 @@ import { writableTransactions } from "@/lib/account-access";
 export async function PUT(request: NextRequest) {
   return withUser(async (userId) => {
     const body = await request.json();
-    const { transactionId, transactionIds, categoryId, createRule, rulePattern, ruleMatchType } = body;
+    const {
+      transactionId,
+      transactionIds,
+      categoryId,
+      createRule,
+      rulePattern,
+      ruleMatchType,
+      ruleMatchField,
+    } = body;
 
     const ids: string[] = Array.isArray(transactionIds)
       ? transactionIds.filter((id): id is string => typeof id === "string")
@@ -54,6 +62,8 @@ export async function PUT(request: NextRequest) {
       .set({
         categoryId: categoryId || null,
         categorySource: categoryId ? "manual" : null,
+        // Any manual (re)categorization retires the deleted-category label.
+        categoryLabel: null,
         modifiedBy: userId,
       })
       .where(and(...rowConditions));
@@ -75,12 +85,14 @@ export async function PUT(request: NextRequest) {
 
       ruleId = crypto.randomUUID();
       const matchType = isMatchType(ruleMatchType) ? ruleMatchType : "contains";
+      const matchField = isMatchField(ruleMatchField) ? ruleMatchField : "both";
 
       await db.insert(categoryRules).values({
         id: ruleId,
         pattern: cleanPattern,
         categoryId,
         matchType,
+        matchField,
         isActive: true,
         userId: categoryOwnerId,
         createdAt: new Date().toISOString(),
@@ -92,6 +104,7 @@ export async function PUT(request: NextRequest) {
         pattern: cleanPattern,
         categoryId,
         matchType,
+        matchField,
         userId: categoryOwnerId,
       });
     }

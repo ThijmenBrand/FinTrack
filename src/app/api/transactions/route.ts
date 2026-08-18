@@ -160,7 +160,8 @@ export async function GET(request: NextRequest) {
         amount: transactions.amount,
         balance: transactions.balance,
         categoryId: transactions.categoryId,
-        categoryName: categories.name,
+        // Falls back to the name kept when the category was deleted.
+        categoryName: sql<string | null>`COALESCE(${categories.name}, ${transactions.categoryLabel})`,
         categoryColor: categories.color,
         categoryIcon: categories.icon,
         type: transactions.type,

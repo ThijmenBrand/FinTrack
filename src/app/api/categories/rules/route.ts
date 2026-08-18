@@ -4,7 +4,7 @@ import { db } from "@/db";
 import { categoryRules, categories } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
-import { validatePattern, isMatchType } from "@/lib/validation";
+import { validatePattern, isMatchType, isMatchField } from "@/lib/validation";
 
 async function userOwnsCategory(userId: string, categoryId: string): Promise<boolean> {
   const [row] = await db
@@ -27,6 +27,7 @@ export async function GET() {
         categoryName: categories.name,
         categoryColor: categories.color,
         matchType: categoryRules.matchType,
+        matchField: categoryRules.matchField,
         isActive: categoryRules.isActive,
         createdAt: categoryRules.createdAt,
       })
@@ -42,7 +43,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   return withUser(async (userId) => {
     const body = await request.json();
-    const { pattern, categoryId, matchType, applyToExisting } = body;
+    const { pattern, categoryId, matchType, matchField, applyToExisting } = body;
 
     if (!pattern || !categoryId) {
       return apiError("api.patternAndCategoryRequired", 400);
@@ -56,6 +57,7 @@ export async function POST(request: NextRequest) {
       return apiError("api.categoryNotFound", 404);
     }
     const cleanMatchType = isMatchType(matchType) ? matchType : "contains";
+    const cleanMatchField = isMatchField(matchField) ? matchField : "both";
 
     const id = crypto.randomUUID();
     await db.insert(categoryRules).values({
@@ -63,6 +65,7 @@ export async function POST(request: NextRequest) {
       pattern: validated.value,
       categoryId,
       matchType: cleanMatchType,
+      matchField: cleanMatchField,
       isActive: true,
       userId,
       createdAt: new Date().toISOString(),
@@ -76,6 +79,7 @@ export async function POST(request: NextRequest) {
         pattern: validated.value,
         categoryId,
         matchType: cleanMatchType,
+        matchField: cleanMatchField,
         userId,
       });
     }
@@ -88,7 +92,7 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   return withUser(async (userId) => {
     const body = await request.json();
-    const { id, pattern, categoryId, matchType, isActive, applyToExisting } = body;
+    const { id, pattern, categoryId, matchType, matchField, isActive, applyToExisting } = body;
 
     if (!id) {
       return NextResponse.json(
@@ -109,6 +113,9 @@ export async function PUT(request: NextRequest) {
     if (matchType !== undefined && !isMatchType(matchType)) {
       return apiError("api.invalidMatchType", 400);
     }
+    if (matchField !== undefined && !isMatchField(matchField)) {
+      return apiError("api.invalidMatchField", 400);
+    }
     if (categoryId !== undefined && !(await userOwnsCategory(userId, categoryId))) {
       return apiError("api.categoryNotFound", 404);
     }
@@ -117,6 +124,7 @@ export async function PUT(request: NextRequest) {
     if (validatedPattern !== undefined) updates.pattern = validatedPattern;
     if (categoryId !== undefined) updates.categoryId = categoryId;
     if (matchType !== undefined) updates.matchType = matchType;
+    if (matchField !== undefined) updates.matchField = matchField;
     if (isActive !== undefined) updates.isActive = Boolean(isActive);
 
     await db
@@ -142,6 +150,7 @@ export async function PUT(request: NextRequest) {
         pattern: updated.pattern,
         categoryId: updated.categoryId,
         matchType: updated.matchType,
+        matchField: updated.matchField,
         userId,
       });
     }

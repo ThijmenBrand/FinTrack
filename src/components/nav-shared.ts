@@ -57,8 +57,8 @@ export interface SessionUser {
 /** Derives the typed user off the session and provides a logout that clears lock state. */
 export function useSessionUser() {
   const router = useRouter();
-  // `refetch` bypasses the session cookie cache — the profile page calls it
-  // after an avatar change so the nav updates immediately.
+  // `refetch` re-reads the session — the profile page calls it after an
+  // avatar change so the nav picture updates immediately.
   const { data: session, refetch } = useSession();
 
   const user: SessionUser | null = session?.user

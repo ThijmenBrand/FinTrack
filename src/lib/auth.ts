@@ -119,17 +119,12 @@ export const auth = betterAuth({
     },
   },
   session: {
-    // Idle timeout: the session dies an hour after the last request that
-    // reached the database. `updateAge: 0` slides that hour forward on every
-    // such request, so an active user is never logged out mid-use.
+    // Idle timeout: the session dies an hour after the last request. There is
+    // no cookie cache (dropped on main), so every request reaches the database
+    // and `updateAge: 0` slides that hour forward on all of them — an active
+    // user is never logged out mid-use, an abandoned tab dies in an hour.
     expiresIn: 60 * 60,
     updateAge: 0,
-    cookieCache: {
-      enabled: true,
-      // Requests served from this cache don't slide the window, so the
-      // effective idle timeout is 1h minus (at most) this cache's age.
-      maxAge: 60,
-    },
   },
   databaseHooks: {
     user: {

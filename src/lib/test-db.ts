@@ -109,6 +109,7 @@ export async function setupTestDb(name: string): Promise<TestDb> {
       pattern TEXT NOT NULL,
       category_id TEXT NOT NULL,
       match_type TEXT NOT NULL DEFAULT 'contains',
+      match_field TEXT NOT NULL DEFAULT 'both',
       is_active INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL
     )`,
@@ -122,6 +123,7 @@ export async function setupTestDb(name: string): Promise<TestDb> {
       amount REAL NOT NULL,
       balance REAL,
       category_id TEXT,
+      category_label TEXT,
       category_source TEXT,
       type TEXT NOT NULL,
       linked_transaction_id TEXT,

@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
 import { Plus, X, RefreshCw, Loader2, GripVertical } from "lucide-react";
 import {
   DndContext,
@@ -21,7 +23,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { useCategories, useCategoryRules, useReapplyCategoryRules, useReorderCategories } from "@/hooks/use-categories";
+import { useBulkDeleteCategories, useCategories, useCategoryRules, useReapplyCategoryRules, useReorderCategories } from "@/hooks/use-categories";
 import type { CategoryWithDetails, RuleWithCategory } from "@/types/api";
 import { CategoryDialog } from "./_components/category-dialog";
 import { RuleDialog } from "./_components/rule-dialog";
@@ -35,11 +37,15 @@ function SortableCategoryRow({
   rules,
   categories,
   onEdit,
+  selected,
+  onToggleSelect,
 }: {
   category: CategoryWithDetails;
   rules: RuleWithCategory[];
   categories: CategoryWithDetails[];
   onEdit: (category: CategoryWithDetails) => void;
+  selected: boolean;
+  onToggleSelect: (selected: boolean) => void;
 }) {
   const { t } = useI18n();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
@@ -60,6 +66,8 @@ function SortableCategoryRow({
         rules={rules}
         categories={categories}
         onEdit={onEdit}
+        selected={selected}
+        onToggleSelect={onToggleSelect}
         dragHandle={
           <button
             className="cursor-grab active:cursor-grabbing touch-none text-muted-foreground/50 focus-visible:ring-2 focus-visible:ring-ring rounded"
@@ -77,7 +85,7 @@ function SortableCategoryRow({
 }
 
 export default function CategoriesPage() {
-  const { t } = useI18n();
+  const { t, plural } = useI18n();
   const { data: categories = [], isLoading: loading } = useCategories();
   const { data: rules = [] } = useCategoryRules();
   const reapplyRules = useReapplyCategoryRules();
@@ -106,6 +114,24 @@ export default function CategoriesPage() {
       console.error("Failed to reorder categories:", err);
       qc.invalidateQueries({ queryKey: ["categories"] });
     }
+  };
+
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const bulkDelete = useBulkDeleteCategories();
+
+  const toggleSelect = (id: string, selected: boolean) =>
+    setSelectedIds((ids) => (selected ? [...ids, id] : ids.filter((x) => x !== id)));
+
+  // Derived so ids of categories deleted elsewhere drop out of the count.
+  const selectedCategories = categories.filter((c) => selectedIds.includes(c.id));
+
+  const handleBulkDelete = async () => {
+    try {
+      await bulkDelete.mutateAsync(selectedCategories.map((c) => c.id));
+    } catch (err) {
+      console.error("Failed to delete categories:", err);
+    }
+    setSelectedIds([]);
   };
 
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
@@ -226,9 +252,45 @@ export default function CategoriesPage() {
 
       {/* Categories with Grouped Rules */}
       <div className="space-y-3 pt-2">
-        <h3 className="text-base font-semibold tracking-tight">
-          {t("categories.heading", { count: categories.length })}
-        </h3>
+        <div className="flex items-center gap-3">
+          <Checkbox
+            checked={selectedCategories.length === categories.length && categories.length > 0}
+            onCheckedChange={(v) =>
+              setSelectedIds(v === true ? categories.map((c) => c.id) : [])
+            }
+            aria-label={t("categories.bulk.selectAll")}
+            disabled={categories.length === 0}
+          />
+          <h3 className="text-base font-semibold tracking-tight">
+            {t("categories.heading", { count: categories.length })}
+          </h3>
+        </div>
+
+        {selectedCategories.length > 0 && (
+          <div className="flex items-center gap-2 flex-wrap rounded-lg border border-primary/20 bg-primary/5 px-3 py-2">
+            <span className="text-sm font-medium">
+              {t("categories.bulk.selected", { count: selectedCategories.length })}
+            </span>
+            <div className="ml-auto flex items-center gap-2">
+              <Button variant="ghost" size="sm" className="h-8" onClick={() => setSelectedIds([])}>
+                <X className="mr-1 h-3.5 w-3.5" />
+                {t("common.clear")}
+              </Button>
+              <ConfirmDeleteButton
+                variant="text"
+                onConfirm={handleBulkDelete}
+                pending={bulkDelete.isPending}
+                label={plural(
+                  selectedCategories.length,
+                  "categories.bulk.deleteCount.one",
+                  "categories.bulk.deleteCount.other"
+                )}
+                confirmLabel={t("common.delete")}
+                message={t("categories.bulk.deleteWarning")}
+              />
+            </div>
+          </div>
+        )}
         {loading ? (
           <div className="space-y-3">
             {[1, 2, 3].map((i) => (
@@ -253,6 +315,8 @@ export default function CategoriesPage() {
                     rules={rulesByCategory[cat.id] || []}
                     categories={categories}
                     onEdit={openEditCategory}
+                    selected={selectedIds.includes(cat.id)}
+                    onToggleSelect={(sel) => toggleSelect(cat.id, sel)}
                   />
                 ))}
               </div>

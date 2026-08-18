@@ -18,7 +18,8 @@ describe("session idle timeout", () => {
     // updateAge 0 = re-issue the expiry on every request that hits the db,
     // so an active user is never logged out mid-use.
     expect(session?.updateAge).toBe(0);
-    // The cookie cache skips those db writes, so it must stay far below 1h.
-    expect(session?.cookieCache?.maxAge ?? 0).toBeLessThanOrEqual(60);
+    // A cookie cache would serve requests without touching the db, and those
+    // requests would not slide the window. Keep it off.
+    expect("cookieCache" in (session ?? {})).toBe(false);
   });
 });

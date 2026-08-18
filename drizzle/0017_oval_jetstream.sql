@@ -1,0 +1,1 @@
+ALTER TABLE `category_rules` ADD `match_field` text DEFAULT 'both' NOT NULL;

@@ -40,6 +40,14 @@ export function isMatchType(v: unknown): v is RuleMatchType {
   return typeof v === "string" && (MATCH_TYPES as readonly string[]).includes(v);
 }
 
+/** Which transaction text a rule matches against. "both" = "name — description". */
+export const MATCH_FIELDS = ["both", "name", "description"] as const;
+export type RuleMatchField = (typeof MATCH_FIELDS)[number];
+
+export function isMatchField(v: unknown): v is RuleMatchField {
+  return typeof v === "string" && (MATCH_FIELDS as readonly string[]).includes(v);
+}
+
 export const MAX_USERNAME_LENGTH = 50;
 export const MIN_PASSWORD_LENGTH = 10;
 
