@@ -121,6 +121,30 @@ describe("getBudgetOverview — pot spending follows the pot's category", () => 
       ["Into pots", 120],
       [null, 50],
     ]);
-    expect(r.totalBudgetSpent).toBe(170);
+    // Nothing is budgeted, so nothing counts against the headline — this money
+    // is reported by `unbudgetedTotal` instead.
+    expect(r.totalBudgetSpent).toBe(0);
+    expect(r.unbudgetedTotal).toBe(170);
+  });
+
+  it("keeps the headline spend on the same footing as the headline budget", async () => {
+    await db.insert(budgets).values({
+      id: "b-holiday",
+      userId: USER,
+      categoryId: "c-holiday",
+      amount: 1000,
+      period: "monthly",
+    });
+    await expense(-400, { categoryId: "c-holiday" });
+    await expense(-900, { categoryId: "c-drinks" }); // no allocation
+    await expense(-50); // uncategorized
+
+    const r = await getBudgetOverview(USER, 1);
+
+    // Unbudgeted spending has no matching budget, so it must not push the bar
+    // over 100% — 400 of 1000, not 1350 of 1000.
+    expect(r.totalBudgeted).toBe(1000);
+    expect(r.totalBudgetSpent).toBe(400);
+    expect(r.unbudgetedTotal).toBe(950);
   });
 });

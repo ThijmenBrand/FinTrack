@@ -64,6 +64,8 @@ interface TransactionRowProps {
   tx: Transaction;
   layout: Layout;
   categories: Category[];
+  /** False on a shared account: rules are the owner's config, not a member's. */
+  canCreateRule: boolean;
   selected: boolean;
   hasPots: boolean;
   /** Render the who-added-it column. Off unless a shared account is in view. */
@@ -116,6 +118,7 @@ export function TransactionRow({
   tx,
   layout,
   categories,
+  canCreateRule,
   selected,
   hasPots,
   showCreator,
@@ -278,6 +281,7 @@ export function TransactionRow({
           currentCategoryColor={tx.categoryColor}
           currentCategoryIcon={tx.categoryIcon}
           categories={categories}
+          canCreateRule={canCreateRule}
         />
       </TableCell>
       <TableCell className="hidden sm:table-cell">

@@ -1,38 +1,43 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Segmented } from "@/components/ui/segmented";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BankLogo } from "@/components/bank-logo";
 import { PotSaldoGraph } from "@/components/pot-saldo-graph";
 import { useBalanceTimeline } from "@/hooks/use-insights";
 import { toIsoDate } from "@/lib/utils";
+import { ArrowRight, TrendingDown, TrendingUp } from "lucide-react";
 import type { Account } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
 import type { MessageKey } from "@/lib/i18n/translate";
 
 // ponytail: fixed month presets, no "all time" — the API walks day by day, so an
 // unbounded start would build thousands of points. Add a custom range if asked.
-const RANGES: { value: string; labelKey: MessageKey }[] = [
-  { value: "1", labelKey: "accountBalance.range1" },
-  { value: "3", labelKey: "accountBalance.range3" },
-  { value: "6", labelKey: "accountBalance.range6" },
-  { value: "12", labelKey: "accountBalance.range12" },
-  { value: "24", labelKey: "accountBalance.range24" },
+const RANGES: { value: string; labelKey: MessageKey; srKey: MessageKey }[] = [
+  { value: "1", labelKey: "accountBalance.rangeShort1", srKey: "accountBalance.range1" },
+  { value: "3", labelKey: "accountBalance.rangeShort3", srKey: "accountBalance.range3" },
+  { value: "6", labelKey: "accountBalance.rangeShort6", srKey: "accountBalance.range6" },
+  { value: "12", labelKey: "accountBalance.rangeShort12", srKey: "accountBalance.range12" },
+  { value: "24", labelKey: "accountBalance.rangeShort24", srKey: "accountBalance.range24" },
 ];
+
+const TYPE_KEYS: Record<string, MessageKey> = {
+  checking: "accounts.type.checking",
+  savings: "accounts.type.savings",
+  joint: "accounts.type.joint",
+  credit: "accounts.type.credit",
+  other: "accounts.type.other",
+};
 
 function monthsAgo(n: number): string {
   const d = new Date();
@@ -53,53 +58,75 @@ function Body({ account }: { account: Account }) {
   const series = historical.map((p) => ({ date: p.date, value: p.balance }));
   const change =
     series.length > 1 ? series[series.length - 1].value - series[0].value : 0;
+  const Trend = change >= 0 ? TrendingUp : TrendingDown;
 
   return (
     <>
       <DialogHeader>
-        <div className="flex items-center gap-3">
+        <div className="flex items-start gap-3 pr-8">
           <BankLogo bank={account.bank} size={40} />
-          <div className="min-w-0 text-left">
+          <div className="min-w-0 flex-1 text-left">
             <DialogTitle className="truncate">{account.name}</DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="mt-1 truncate">
               {account.bankName || t("accounts.noBank")}
+              {" · "}
+              {t(TYPE_KEYS[account.type] ?? "accounts.type.other")}
             </DialogDescription>
+            {account.iban && (
+              // The card shows this too; repeating it here is how you confirm
+              // you opened the account you meant to.
+              <p className="truncate font-mono text-xs text-muted-foreground">
+                {account.iban}
+              </p>
+            )}
           </div>
         </div>
       </DialogHeader>
 
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <p className="text-xs text-muted-foreground">{t("accountBalance.currentBalance")}</p>
-          <p className="text-2xl font-bold tabular-nums tracking-tight">
+      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+        <div className="min-w-0">
+          <p className="text-xs text-muted-foreground">
+            {t("accountBalance.currentBalance")}
+          </p>
+          <p
+            className={`text-3xl font-bold tabular-nums tracking-tight ${
+              account.currentBalance >= 0
+                ? "text-foreground"
+                : "text-red-600 dark:text-red-400"
+            }`}
+          >
             {formatCurrency(account.currentBalance, account.currency)}
           </p>
+        </div>
+        {/* Range switch sits with the delta it governs, so changing it visibly
+            changes the number underneath rather than only the chart. */}
+        <div className="flex flex-col items-start gap-2 sm:items-end">
+          <Segmented
+            name="account-balance-range"
+            legend={t("accountBalance.timeRange")}
+            value={months}
+            onChange={setMonths}
+            options={RANGES.map((r) => ({
+              value: r.value,
+              label: t(r.labelKey),
+              srLabel: t(r.srKey),
+            }))}
+          />
           {change !== 0 && (
             <p
-              className={`text-xs font-medium tabular-nums ${
+              className={`flex items-center gap-1.5 text-xs font-medium tabular-nums ${
                 change >= 0
                   ? "text-emerald-600 dark:text-emerald-400"
                   : "text-red-500 dark:text-red-400"
               }`}
             >
+              <Trend className="h-3.5 w-3.5 shrink-0" />
               {t("accountBalance.overRange", {
                 amount: `${change >= 0 ? "+" : ""}${formatCurrency(change, account.currency)}`,
               })}
             </p>
           )}
         </div>
-        <Select value={months} onValueChange={setMonths}>
-          <SelectTrigger className="w-[160px]" aria-label={t("accountBalance.timeRange")}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {RANGES.map((r) => (
-              <SelectItem key={r.value} value={r.value}>
-                {t(r.labelKey)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
       </div>
 
       {isLoading ? (
@@ -112,6 +139,20 @@ function Body({ account }: { account: Account }) {
           emptyMessage={t("accountBalance.empty")}
         />
       )}
+
+      {/* The chart raises questions the transaction list answers; the dialog
+          used to be a dead end. */}
+      <div className="flex justify-end border-t pt-3">
+        <DialogClose asChild>
+          <Link
+            href={`/transactions?account=${account.id}`}
+            className="inline-flex items-center gap-1.5 rounded-md text-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          >
+            {t("accountBalance.viewTransactions")}
+            <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+        </DialogClose>
+      </div>
     </>
   );
 }

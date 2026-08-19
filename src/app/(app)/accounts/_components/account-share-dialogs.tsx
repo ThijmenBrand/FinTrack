@@ -9,6 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { BankLogo } from "@/components/bank-logo";
 import { useAccountMembers, useLeaveShare } from "@/hooks/use-account-members";
 import type { Account } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
@@ -26,10 +27,21 @@ export function ShareAccountDialog({
 
   return (
     <Dialog open={!!account} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>{t("sharing.dialogTitle", { name: account?.name ?? "" })}</DialogTitle>
-          <DialogDescription>{t("sharing.dialogDescription")}</DialogDescription>
+          {/* Logo + name, same header shape as the balance dialog, so the two
+              things you can open from a card feel like the same account. */}
+          <div className="flex items-start gap-3 pr-8">
+            <BankLogo bank={account?.bank ?? null} size={40} />
+            <div className="min-w-0 flex-1 space-y-1.5 text-left">
+              <DialogTitle className="truncate">
+                {t("sharing.dialogTitle", { name: account?.name ?? "" })}
+              </DialogTitle>
+              <DialogDescription className="leading-relaxed">
+                {t("sharing.dialogDescription")}
+              </DialogDescription>
+            </div>
+          </div>
         </DialogHeader>
         {/* Keyed so switching accounts without closing resets the invite form. */}
         {account && <AccountSharingSection key={account.id} accountId={account.id} />}

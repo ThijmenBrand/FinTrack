@@ -28,7 +28,14 @@ export function SubLineList({
   readOnly = false,
   variant = "list",
 }: SubLineListProps) {
-  const ctx: Ctx = { allocationId: alloc.id, toDisplay, toStored, readOnly, variant };
+  const ctx: Ctx = {
+    allocationId: alloc.id,
+    color: alloc.categoryColor,
+    toDisplay,
+    toStored,
+    readOnly,
+    variant,
+  };
   return (
     <Container ctx={ctx} lines={alloc.subLines} cap={cap} parentId={null} depth={1} />
   );

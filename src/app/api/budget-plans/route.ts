@@ -222,7 +222,9 @@ export async function POST(request: NextRequest) {
 
     const accountError = await setPlanAccounts(userId, id, ids);
     if (accountError) {
-      await db.delete(budgetPlans).where(eq(budgetPlans.id, id));
+      await db
+        .delete(budgetPlans)
+        .where(and(eq(budgetPlans.id, id), eq(budgetPlans.userId, userId)));
       return NextResponse.json({ error: accountError }, { status: 400 });
     }
 
@@ -279,7 +281,7 @@ export async function PUT(request: NextRequest) {
       await db
         .update(budgetPlans)
         .set({ name: name.trim(), updatedAt: new Date().toISOString() })
-        .where(eq(budgetPlans.id, id));
+        .where(and(eq(budgetPlans.id, id), eq(budgetPlans.userId, userId)));
     }
 
     // Only promotion is supported — every user always has exactly one main
@@ -293,7 +295,7 @@ export async function PUT(request: NextRequest) {
         await tx
           .update(budgetPlans)
           .set({ isMain: true, updatedAt: new Date().toISOString() })
-          .where(eq(budgetPlans.id, id));
+          .where(and(eq(budgetPlans.id, id), eq(budgetPlans.userId, userId)));
       });
     }
 
@@ -394,7 +396,9 @@ export async function DELETE(request: NextRequest) {
         .update(accounts)
         .set({ budgetId: null, updatedAt: new Date().toISOString() })
         .where(and(eq(accounts.userId, userId), eq(accounts.budgetId, id)));
-      await tx.delete(budgetPlans).where(eq(budgetPlans.id, id));
+      await tx
+        .delete(budgetPlans)
+        .where(and(eq(budgetPlans.id, id), eq(budgetPlans.userId, userId)));
       if (plan.isMain) {
         const [next] = await tx
           .select({ id: budgetPlans.id })
@@ -406,7 +410,7 @@ export async function DELETE(request: NextRequest) {
           await tx
             .update(budgetPlans)
             .set({ isMain: true, updatedAt: new Date().toISOString() })
-            .where(eq(budgetPlans.id, next.id));
+            .where(and(eq(budgetPlans.id, next.id), eq(budgetPlans.userId, userId)));
         }
       }
     });

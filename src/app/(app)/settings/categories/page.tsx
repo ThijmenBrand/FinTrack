@@ -248,7 +248,7 @@ export default function CategoriesPage() {
         </div>
       )}
 
-      <UncategorizedTransactions categories={categories} />
+      <UncategorizedTransactions />
 
       {/* Categories with Grouped Rules */}
       <div className="space-y-3 pt-2">

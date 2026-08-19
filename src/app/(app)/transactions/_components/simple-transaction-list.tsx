@@ -69,6 +69,8 @@ export function SimpleTransactionList({
   category,
   onCategoryChange,
   categories,
+  categoriesFor,
+  ownsAccount,
   type,
   onTypeChange,
   typeOptions,
@@ -86,7 +88,11 @@ export function SimpleTransactionList({
   onPeriodChange: (value: string) => void;
   category: string;
   onCategoryChange: (value: string) => void;
+  /** Everything visible — the filter dropdown spans all accounts. */
   categories: Category[];
+  /** Per row: the categories of that row's account owner, the only valid ids. */
+  categoriesFor: (accountId: string) => Category[];
+  ownsAccount: (accountId: string) => boolean;
   type: string;
   onTypeChange: (value: string) => void;
   typeOptions: Option[];
@@ -188,7 +194,8 @@ export function SimpleTransactionList({
                   currentCategoryName={tx.categoryName}
                   currentCategoryColor={tx.categoryColor}
                   currentCategoryIcon={tx.categoryIcon}
-                  categories={categories}
+                  categories={categoriesFor(tx.accountId)}
+                  canCreateRule={ownsAccount(tx.accountId)}
                 />
               );
               return (

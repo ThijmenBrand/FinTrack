@@ -51,6 +51,97 @@ const deleteCategories = (ids: string[]) =>
     );
   });
 
+const MEMBER = "categories-route-member";
+
+/** Owner USER shares acc-1 with MEMBER as editor, and owns one category. */
+async function seedSharedAccount() {
+  const now = new Date().toISOString();
+  await testDb.client.execute({
+    sql: `INSERT INTO "user" (id, name, email, created_at, updated_at) VALUES (?, 'Member', 'member@test.dev', ?, ?)`,
+    args: [MEMBER, Date.now(), Date.now()],
+  });
+  await testDb.client.execute({
+    sql: `INSERT INTO account_members (id, account_id, user_id, email, role, accepted_at, created_at)
+          VALUES ('m-1', 'acc-1', ?, 'member@test.dev', 'editor', ?, ?)`,
+    args: [MEMBER, now, now],
+  });
+  await testDb.client.execute({
+    sql: `INSERT INTO categories (id, user_id, name, created_at) VALUES ('cat-owner', ?, 'Groceries', ?)`,
+    args: [USER, now],
+  });
+  // A same-named category of the member's own — must NOT be what the picker
+  // offers when the target account is the owner's.
+  await testDb.client.execute({
+    sql: `INSERT INTO categories (id, user_id, name, created_at) VALUES ('cat-member', ?, 'Groceries', ?)`,
+    args: [MEMBER, now],
+  });
+}
+
+describe("categories scoping on shared accounts", () => {
+  it("GET ?accountId= lists the account OWNER's categories, not the caller's", async () => {
+    await seedSharedAccount();
+    actor = MEMBER;
+    const { GET } = await import("./route");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const res = await GET(new Request("http://x/api/categories?accountId=acc-1") as any);
+    expect(res.status).toBe(200);
+    expect((await res.json()).map((c: { id: string }) => c.id)).toEqual(["cat-owner"]);
+  });
+
+  it("GET without accountId still lists the caller's own categories", async () => {
+    await seedSharedAccount();
+    actor = MEMBER;
+    const { GET } = await import("./route");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const res = await GET(new Request("http://x/api/categories") as any);
+    expect((await res.json()).map((c: { id: string }) => c.id)).toEqual(["cat-member"]);
+  });
+
+  it("GET ?scope=visible returns own + sharing owners' categories, without their counts", async () => {
+    await seedSharedAccount();
+    const now = new Date().toISOString();
+    // An owner transaction on the shared account: its tally is the owner's
+    // business, not something the member's picker should report.
+    await testDb.client.execute({
+      sql: `INSERT INTO transactions (id, user_id, account_id, date, description, amount, type, category_id, created_at)
+            VALUES ('tx-1', ?, 'acc-1', '2026-05-01', 'Supermarket', -50, 'expense', 'cat-owner', ?)`,
+      args: [USER, now],
+    });
+    actor = MEMBER;
+    const { GET } = await import("./route");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const res = await GET(new Request("http://x/api/categories?scope=visible") as any);
+    const body = await res.json();
+    expect(body.map((c: { id: string }) => c.id).sort()).toEqual(["cat-member", "cat-owner"]);
+    expect(body.find((c: { id: string }) => c.id === "cat-owner").transactionCount).toBe(0);
+  });
+
+  it("GET ?accountId= 404s for an account the caller can't see", async () => {
+    await seedSharedAccount();
+    await testDb.client.execute(`UPDATE account_members SET revoked_at = '2026-01-01' WHERE id = 'm-1'`);
+    actor = MEMBER;
+    const { GET } = await import("./route");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const res = await GET(new Request("http://x/api/categories?accountId=acc-1") as any);
+    expect(res.status).toBe(404);
+  });
+
+  it("POST with accountId creates the category in the owner's space", async () => {
+    await seedSharedAccount();
+    actor = MEMBER;
+    const { POST } = await import("./route");
+    const res = await POST(
+      new Request("http://x/api/categories", {
+        method: "POST",
+        body: JSON.stringify({ name: "Fuel", accountId: "acc-1" }),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any,
+    );
+    expect(res.status).toBe(201);
+    expect((await res.json()).userId).toBe(USER);
+  });
+});
+
 describe("DELETE /api/categories", () => {
   it("deletes categories with linked transactions, recurring transactions, and pots without foreign key errors", async () => {
     const now = new Date().toISOString();

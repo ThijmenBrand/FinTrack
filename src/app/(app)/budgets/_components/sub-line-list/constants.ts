@@ -13,6 +13,8 @@ export const cents = (n: number) => Math.round(n * 100) / 100;
 /** Everything a row needs that never changes per row. */
 export interface Ctx {
   allocationId: string;
+  /** The category's colour, repeated on the sub-rows in the page list. */
+  color: string | null;
   toDisplay: (stored: number) => number;
   toStored: (shown: number) => number;
   readOnly: boolean;

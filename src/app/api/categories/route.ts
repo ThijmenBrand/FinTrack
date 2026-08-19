@@ -13,19 +13,41 @@ import {
 } from "@/db/schema";
 import { eq, sql, and, asc, count, inArray } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
+import { requireAccountAccess, visibleCategories } from "@/lib/account-access";
 import { logDataEvent } from "@/lib/audit";
 
-// GET /api/categories — list all categories with transaction counts
-export async function GET() {
+// GET /api/categories — list all categories with transaction counts.
+// Rows on a shared account carry the OWNER's category ids, so a member's own
+// ids are rejected by every write path (see the commit/categorize routes).
+// Two scopes for pickers that must offer valid ids:
+//   ?accountId=  — exactly that account's owner (single-account flows, e.g. import)
+//   ?scope=visible — own + every owner sharing an account with the caller,
+//                    for a mixed list where each row picks by its own owner.
+export async function GET(request: NextRequest) {
   return withUser(async (userId) => {
+    const { searchParams } = new URL(request.url);
+    const accountId = searchParams.get("accountId");
+    const where = accountId
+      ? eq(categories.userId, (await requireAccountAccess(userId, accountId, "read")).account.userId)
+      : searchParams.get("scope") === "visible"
+        ? visibleCategories(userId)
+        : eq(categories.userId, userId);
+
     const allCategories = await db
       .select()
       .from(categories)
-      .where(eq(categories.userId, userId))
+      .where(where)
       .orderBy(asc(categories.sortOrder), asc(categories.createdAt));
 
     const categoriesWithCounts = await Promise.all(
       allCategories.map(async (cat) => {
+        // Counts and rules stay the owner's own business — someone else's
+        // category comes back as a bare label, not a tally over accounts the
+        // caller can't see.
+        if (cat.userId !== userId) {
+          return { ...cat, transactionCount: 0, rules: [] };
+        }
+
         const countResult = await db
           .select({ count: sql<number>`count(*)` })
           .from(transactions)
@@ -52,19 +74,26 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   return withUser(async (userId) => {
     const body = await request.json();
-    const { name, icon, color } = body;
+    const { name, icon, color, accountId } = body;
 
     if (!name) {
       return apiError("api.nameRequired", 400);
     }
 
+    // Same scoping as GET: a category created while working on a shared
+    // account belongs in the OWNER's space, or the rows it gets attached to
+    // would reference a category their owner doesn't have.
+    const ownerId = accountId
+      ? (await requireAccountAccess(userId, accountId, "write")).account.userId
+      : userId;
+
     const id = crypto.randomUUID();
     // New categories land at the bottom of the user's order.
-    const [{ total }] = await db.select({ total: count() }).from(categories).where(eq(categories.userId, userId));
+    const [{ total }] = await db.select({ total: count() }).from(categories).where(eq(categories.userId, ownerId));
 
     await db.insert(categories).values({
       id,
-      userId,
+      userId: ownerId,
       name,
       icon: icon || null,
       color: color || "#94a3b8",

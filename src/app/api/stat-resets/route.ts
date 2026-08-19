@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
       await db
         .update(statResets)
         .set({ note: rawNote || null })
-        .where(eq(statResets.id, existing.id));
+        .where(and(eq(statResets.id, existing.id), eq(statResets.userId, userId)));
     } else {
       await db.insert(statResets).values({
         id: crypto.randomUUID(),

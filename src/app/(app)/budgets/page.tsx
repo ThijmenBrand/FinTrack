@@ -41,9 +41,14 @@ import { AllocationDialog } from "./_components/allocation-dialog";
 import { ImportBudgetDialog } from "./_components/import-budget-dialog";
 import { BudgetsSkeleton } from "./_components/budgets-skeleton";
 import { RegenerateConfirmDialog } from "./_components/regenerate-confirm-dialog";
-import { RecurringSections } from "./_components/recurring-sections";
+import {
+  useRecurringPlans,
+  IncomeSection,
+  FixedCostRow,
+  PlanRows,
+} from "./_components/recurring-sections";
 import { SectionHeader } from "./_components/section-header";
-import { byUrgency } from "./_components/budget-row";
+import { byUrgency, fixedCostStatus } from "./_components/budget-row";
 import { BudgetSwitcher } from "./_components/budget-switcher";
 import { PeriodNav, type PeriodScope } from "./_components/period-nav";
 import { BudgetPlanDialog } from "./_components/budget-plan-dialog";
@@ -208,6 +213,16 @@ export default function BudgetsPage() {
   const acceptSuggestions = useAcceptBudgetSuggestions();
   const rejectSuggestions = useRejectBudgetSuggestions();
 
+  // The recurring plans behind the list: income, and the fixed costs grouped
+  // by the category they land in. Called before the early returns below, so it
+  // takes whatever the budget query has so far.
+  const recurring = useRecurringPlans({
+    planAccountIds: activePlan ? activePlan.accounts.map((a) => a.id) : null,
+    fixedCosts: data?.fixedCosts,
+    accounts: accountsData ?? [],
+    categories,
+  });
+
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingAlloc, setEditingAlloc] = useState<Allocation | null>(null);
   const [historyAlloc, setHistoryAlloc] = useState<Allocation | null>(null);
@@ -332,9 +347,38 @@ export default function BudgetsPage() {
     0,
   );
   const fixedPayments = data.fixedCosts.reduce((sum, fc) => sum + fc.items.length, 0);
+  // A category can carry both an allocation and recurring plans. It gets one
+  // row — the allocation's, with the plans under it — so its bills must not be
+  // counted a second time here: both figures are read off the same category's
+  // spend, and adding them would double the cap and the spend alike.
+  const ownFixed = data.fixedCosts.filter((fc) => !allocatedCatIds.has(fc.categoryId));
+  const fixedLimit = ownFixed.reduce((sum, fc) => sum + fc.monthlyAmount, 0);
+  const fixedSpent = ownFixed.reduce((sum, fc) => sum + fc.spent, 0);
+  // The same rule for the rows: a fixed-cost category with an allocation hands
+  // its plans to that allocation's row instead of opening one of its own.
+  const fixedGroups = recurring.expenseGroups.filter(
+    (g) => !allocatedCatIds.has(g.categoryId),
+  );
+  const plansByCategory = new Map(
+    recurring.expenseGroups.map((g) => [g.categoryId, g.items]),
+  );
 
-  // Over budget first, then by how much of the budget is used.
-  const allocations = [...data.allocations].sort(byUrgency);
+  // The month's rows in one order. An allocation and a fixed-cost category are
+  // both budgeted expenses, so they queue together: over budget first, then by
+  // how much of the line is used.
+  const monthlyRows = [
+    ...data.allocations.map((alloc) => ({
+      kind: "alloc" as const,
+      alloc,
+      status: alloc.status,
+      percentage: alloc.percentage,
+    })),
+    ...fixedGroups.map((group) => ({
+      kind: "fixed" as const,
+      group,
+      ...fixedCostStatus(group.fc),
+    })),
+  ].sort(byUrgency);
 
   // A viewer-role shared plan is read-only everywhere below: no allocation
   // edits, no suggestions to act on. "editor" (and the absent activePlan case,
@@ -347,9 +391,10 @@ export default function BudgetsPage() {
   // One count for the heading, the stat and the empty state. A yearly plan
   // draws its rows from the envelope rather than the flat allocations, so it
   // has to be counted there or the three disagree the moment they diverge.
-  const allocationsCount = yearly
-    ? yearly.categories.length
-    : data.allocations.length;
+  // Fixed costs are rows of this list too — everywhere the month is the unit.
+  const allocationsCount =
+    (yearly ? yearly.categories.length : data.allocations.length) +
+    (yearScope ? 0 : fixedGroups.length);
 
   // Yearly rows carry their own totals; the header still reconciles with the
   // list under it, just against this month's allowance rather than a flat cap.
@@ -362,16 +407,26 @@ export default function BudgetsPage() {
       })
     : [];
   // What the list header reconciles against, in the unit currently on screen.
-  const listSpent = yearly
-    ? yearScope
-      ? yearly.totals.spentYear
-      : yearly.totals.spentThisMonth
-    : allocSpent;
-  const listLimit = yearly
-    ? yearScope
-      ? yearly.totals.annualPot
-      : yearly.totals.allowanceThisMonth
-    : allocLimit;
+  // Fixed costs count on both sides: a bill is a budgeted expense and now a row
+  // of this same list. The year view stays out of it — `annualPot` is a whole
+  // year's envelope and these are one month's bills.
+  const listSpent =
+    (yearly
+      ? yearScope
+        ? yearly.totals.spentYear
+        : yearly.totals.spentThisMonth
+      : allocSpent) + (yearScope ? 0 : fixedSpent);
+  const listLimit =
+    (yearly
+      ? yearScope
+        ? yearly.totals.annualPot
+        : yearly.totals.allowanceThisMonth
+      : allocLimit) + (yearScope ? 0 : fixedLimit);
+
+  // One list, one set of numbers: the headline says what the rows under it add
+  // up to, so the stats and the list header can no longer drift apart.
+  const headlineLimit = listLimit;
+  const headlineSpent = listSpent;
 
   const periodLabel = isYearly
     ? yearScope
@@ -441,10 +496,10 @@ export default function BudgetsPage() {
           carry-over-adjusted allowance, which is what constrains today. */}
       <div className="space-y-3 border-b pb-6">
         {simple ? (
-          listLimit > 0 && (
+          headlineLimit > 0 && (
             <SimpleHero
-              spent={listSpent}
-              limit={listLimit}
+              spent={headlineSpent}
+              limit={headlineLimit}
               // Days left in the month, so only offered when the month is what
               // the figures beside it describe.
               daysLeft={isCurrentPeriod && !yearScope ? daysLeftNow : null}
@@ -454,8 +509,8 @@ export default function BudgetsPage() {
           <YearStats view={yearly} isLiveYear={isLiveYear} />
         ) : (
           <MonthStats
-            toSpend={listLimit}
-            spent={listSpent}
+            toSpend={headlineLimit}
+            spent={headlineSpent}
             daysLeft={isCurrentPeriod ? daysLeftNow : null}
             fixedDue={fixedDue}
             fixedPayments={fixedPayments}
@@ -568,12 +623,11 @@ export default function BudgetsPage() {
         />
       )}
 
-      {/* The whole plan as one list, most-decided-by-you first: the flexible
-          spending you steer day to day, then the income and fixed costs that
-          are already settled. Fixed costs used to sit in a card of their own
-          below this one, which read as an appendix — they are budget lines
-          like any other and belong in the same list, at full length, with the
-          same columns. */}
+      {/* The whole plan as one list: every expense the month is committed to,
+          in one order, with the income that pays for it at the foot. A fixed
+          cost is a budgeted expense like any other — its category is the line,
+          the recurring plans that produce it are the sub-lines under it — so it
+          queues among the allocations instead of in a section of its own. */}
       <Card className="overflow-hidden">
         <ul className="divide-y">
           <SectionHeader
@@ -590,9 +644,18 @@ export default function BudgetsPage() {
             action={
               <>
                 {isCurrentPeriod && !simple && canEdit && (
+                  // Icon-only on a phone: adding a category is the action this
+                  // section is opened for, and three labelled buttons crowded
+                  // it off the row entirely.
                   <Button
                     variant="ghost"
                     size="sm"
+                    className="h-9 w-9 p-0 sm:h-8 sm:w-auto sm:px-3"
+                    aria-label={
+                      hasSuggestions
+                        ? t("budgets.regenerate")
+                        : t("budgets.generateFromHistory")
+                    }
                     onClick={handleGenerate}
                     disabled={generateBudgets.isPending || !data.automation.enabled}
                     title={
@@ -600,18 +663,23 @@ export default function BudgetsPage() {
                     }
                   >
                     {generateBudgets.isPending ? (
-                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                      <Loader2 className="h-3.5 w-3.5 animate-spin sm:mr-1.5" />
                     ) : (
-                      <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+                      <Sparkles className="h-3.5 w-3.5 sm:mr-1.5" />
                     )}
-                    {hasSuggestions
-                      ? t("budgets.regenerate")
-                      : t("budgets.generateFromHistory")}
+                    <span className="hidden sm:inline">
+                      {hasSuggestions
+                        ? t("budgets.regenerate")
+                        : t("budgets.generateFromHistory")}
+                    </span>
                   </Button>
                 )}
                 {isCurrentPeriod && canEdit && (
                   <ImportBudgetDialog budgetId={activePlanId} />
                 )}
+                {/* Always mounted: it is also what the pencil on a recurring
+                    row opens, and those rows show in every period. */}
+                {recurring.formDialog}
                 {isCurrentPeriod && canEdit && (
                   <AllocationDialog
                     key={editingAlloc?.id ?? "new"}
@@ -721,43 +789,81 @@ export default function BudgetsPage() {
                               readOnly
                             />
                           ))}
+                        {/* The bills this category owes, under the envelope
+                            that budgets for them. Month scope only: these are
+                            monthly figures and would not reconcile inside a
+                            year-scoped list. */}
+                        {!yearScope && (
+                          <PlanRows
+                            items={plansByCategory.get(category.categoryId) ?? []}
+                            rowProps={recurring.rowProps}
+                          />
+                        )}
                       </Fragment>
                     );
                   })
-                : allocations.map((alloc) => (
-                    <Fragment key={alloc.id}>
-                      <AllocationRow
-                        alloc={alloc}
-                        readOnly={!isCurrentPeriod || !canEdit}
-                        deletePending={deleteBudget.isPending}
-                        onHistory={() => setHistoryAlloc(alloc)}
-                        onEdit={() => openEdit(alloc)}
-                        onDelete={() =>
-                          deleteBudget.mutateAsync(alloc.id).then(() => {})
-                        }
+                : monthlyRows.map((row) =>
+                    row.kind === "fixed" ? (
+                      <FixedCostRow
+                        key={row.group.categoryId}
+                        group={row.group}
+                        rowProps={recurring.rowProps}
                       />
-                      {alloc.subLines.length > 0 && (
-                        <SubLineList
-                          alloc={alloc}
-                          cap={alloc.amount}
-                          toDisplay={(stored) => stored}
-                          toStored={(shown) => shown}
+                    ) : (
+                      <Fragment key={row.alloc.id}>
+                        <AllocationRow
+                          alloc={row.alloc}
                           readOnly={!isCurrentPeriod || !canEdit}
+                          deletePending={deleteBudget.isPending}
+                          onHistory={() => setHistoryAlloc(row.alloc)}
+                          onEdit={() => openEdit(row.alloc)}
+                          onDelete={() =>
+                            deleteBudget.mutateAsync(row.alloc.id).then(() => {})
+                          }
                         />
-                      )}
-                    </Fragment>
-                  ))}
+                        {row.alloc.subLines.length > 0 && (
+                          <SubLineList
+                            alloc={row.alloc}
+                            cap={row.alloc.amount}
+                            toDisplay={(stored) => stored}
+                            toStored={(shown) => shown}
+                            readOnly={!isCurrentPeriod || !canEdit}
+                          />
+                        )}
+                        {/* A category with both an allocation and recurring
+                            plans keeps one row: the bills hang under the
+                            allocation that already caps them. */}
+                        <PlanRows
+                          items={plansByCategory.get(row.alloc.categoryId) ?? []}
+                          rowProps={recurring.rowProps}
+                        />
+                      </Fragment>
+                    ),
+                  )}
+
+              {/* ponytail: the yearly list is a year-scoped envelope; its
+                  monthly view still owes this month's bills, so they follow
+                  the envelope rows rather than sorting in among them. */}
+              {yearly &&
+                !yearScope &&
+                fixedGroups.map((group) => (
+                  <FixedCostRow
+                    key={group.categoryId}
+                    group={group}
+                    rowProps={recurring.rowProps}
+                  />
+                ))}
             </>
           )}
 
-          {/* ponytail: month scope only — these are monthly figures and would
-              not reconcile inside a year-scoped list. */}
+          {/* Income closes the list: it is the only line that is not an
+              expense. ponytail: month scope only — a monthly figure would not
+              reconcile inside a year-scoped list. */}
           {!yearScope && (
-            <RecurringSections
-              fixedCosts={data.fixedCosts}
-              planAccountIds={activePlan ? activePlan.accounts.map((a) => a.id) : null}
-              accounts={accountsData ?? []}
-              categories={categories}
+            <IncomeSection
+              income={recurring.income}
+              monthlyIncome={recurring.monthlyIncome}
+              rowProps={recurring.rowProps}
             />
           )}
         </ul>

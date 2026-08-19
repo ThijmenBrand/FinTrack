@@ -31,9 +31,10 @@ import { RecurringLinkPopover } from "@/components/recurring-link-popover";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useCategories } from "@/hooks/use-categories";
+import { useAccounts } from "@/hooks/use-accounts";
 import { NotesEditor } from "@/components/notes-editor";
 
-import type { Transaction, ReimbursementDetail, Category } from "@/types/api";
+import type { Transaction, ReimbursementDetail } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
 import { UserAvatar } from "@/components/user-avatar";
 import type { MessageKey } from "@/lib/i18n/translate";
@@ -50,14 +51,18 @@ const TYPE_BADGES: Record<
 interface TransactionDetailDialogProps {
   transaction: Transaction | null;
   onOpenChange: (open: boolean) => void;
-  categories?: Category[];
   onCategorized?: () => void;
 }
 
-export function TransactionDetailDialog({ transaction, onOpenChange, categories, onCategorized }: TransactionDetailDialogProps) {
+export function TransactionDetailDialog({ transaction, onOpenChange, onCategorized }: TransactionDetailDialogProps) {
   const { t, formatCurrency, formatDate, formatDateTime } = useI18n();
-  const { data: fetchedCategories } = useCategories();
-  const resolvedCategories = categories || fetchedCategories || [];
+  // Scoped to this transaction's account: on a shared account the row lives in
+  // the OWNER's space, and only their category ids are accepted on it.
+  const { data: resolvedCategories = [] } = useCategories(transaction?.accountId);
+  const { data: accounts = [] } = useAccounts();
+  const account = accounts.find((a) => a.id === transaction?.accountId);
+  // Rules are the owner's config; the server drops them from anyone else.
+  const canCreateRule = !account || account.role === "owner";
 
   const { data: reimbursements = [] } = useQuery({
     queryKey: ["transaction-reimbursements", transaction?.id],
@@ -178,6 +183,7 @@ export function TransactionDetailDialog({ transaction, onOpenChange, categories,
               currentCategoryColor={tx.categoryColor}
               currentCategoryIcon={tx.categoryIcon}
               categories={resolvedCategories}
+              canCreateRule={canCreateRule}
               onCategorized={handleCategorized}
             />
           </div>

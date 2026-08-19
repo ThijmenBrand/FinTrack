@@ -161,6 +161,27 @@ export async function PeriodSummary({
                 budgeted={budget.totalBudgeted}
                 t={t}
               />
+              {/* The bar only measures spending that has a budget behind it.
+                  Without this line the rest of the month's money would simply
+                  be missing from the headline — say how much it was and where
+                  it went. The card below lists every one of them with amounts. */}
+              {budget.unbudgetedTotal > 0 && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {t("dashboard.outsideBudget", {
+                    amount: formatCurrency(budget.unbudgetedTotal),
+                  })}{" "}
+                  <span className="text-foreground/80">
+                    {budget.unbudgetedItems
+                      .slice(0, 3)
+                      .map((i) => i.categoryName || t("common.uncategorized"))
+                      .join(", ")}
+                    {budget.unbudgetedItems.length > 3 &&
+                      ` · ${t("dashboard.outsideBudgetMore", {
+                        count: budget.unbudgetedItems.length - 3,
+                      })}`}
+                  </span>
+                </p>
+              )}
             </>
           ) : (
             <>

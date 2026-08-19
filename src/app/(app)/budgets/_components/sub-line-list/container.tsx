@@ -5,7 +5,7 @@ import type { BudgetSubLine } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
 import { MONEY_EPSILON } from "@/lib/validation";
 import { AddSubLine } from "./add-sub-line";
-import { Row } from "./row";
+import { Dot, Row } from "./row";
 import { SubLineRow } from "./sub-line-row";
 import { MAX_SUB_LINE_DEPTH, cents, type Ctx } from "./constants";
 
@@ -58,6 +58,9 @@ export function Container({
 
       {lines.length > 0 && remainder > MONEY_EPSILON && (
         <Row ctx={ctx} depth={depth}>
+          {/* Faded: the remainder is what is left of the category, not a line
+              someone named. */}
+          <Dot ctx={ctx} faded />
           <span className="min-w-0 flex-1 truncate text-xs italic text-muted-foreground/70">
             {t("budgets.subLines.everythingElse")}
           </span>

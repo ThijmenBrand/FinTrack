@@ -86,6 +86,26 @@ export function BudgetSwitcher({
             </DropdownMenuItem>
           ))}
           <DropdownMenuSeparator />
+          {/* The same actions the buttons on the right carry. Those are hidden
+              on a phone, where a title, two badges and three buttons cost three
+              rows before the plan itself starts. */}
+          {active && active.role === "owner" && (
+            <DropdownMenuItem onSelect={() => onEdit(active)} className="gap-2">
+              <Pencil className="h-4 w-4" />
+              {t("common.edit")}
+            </DropdownMenuItem>
+          )}
+          {canPin && (
+            <DropdownMenuItem
+              onSelect={() =>
+                updatePrefs.mutate({ mainBudgetPlanId: isPinned ? null : active!.id })
+              }
+              className="gap-2"
+            >
+              {isPinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
+              {isPinned ? t("budgets.switcher.unpin") : t("budgets.switcher.pin")}
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem onSelect={onCreate} className="gap-2 text-primary">
             <Plus className="h-4 w-4" />
             {t("budgets.tabs.newBudget")}
@@ -107,7 +127,7 @@ export function BudgetSwitcher({
         </span>
       )}
 
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto hidden items-center gap-2 sm:flex">
         {canPin && (
           <Button
             variant="ghost"

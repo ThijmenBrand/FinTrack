@@ -22,13 +22,16 @@ function RowSkeleton() {
 /** The band that opens each section of the plan list. */
 function SectionSkeleton({ action = false }: { action?: boolean }) {
   return (
-    <li className="flex items-center gap-3 bg-muted/40 px-4 py-2">
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-1 bg-muted/40 px-4 py-2">
       <Skeleton className="h-3.5 w-3.5 shrink-0" />
       <Skeleton className="h-3 w-28" />
       <Skeleton className="ml-auto h-3 w-32 max-w-[30%]" />
       {/* Reserve the action's height, not just its width — without it the
-          band grows when the buttons land and pushes every row down. */}
-      {action && <Skeleton className="h-8 w-24 shrink-0" />}
+          band grows when the buttons land and pushes every row down. On a
+          phone the controls take a line of their own, as they do for real. */}
+      {action && (
+        <Skeleton className="ml-auto h-9 w-56 max-w-full shrink-0 sm:h-8 sm:w-24" />
+      )}
     </li>
   );
 }
@@ -48,24 +51,33 @@ export function BudgetsSkeleton() {
         <h1 className="text-2xl font-bold tracking-tight">
           {t("budgets.fallbackTitle")}
         </h1>
-        <Skeleton className="ml-auto h-8 w-20" />
-        <Skeleton className="h-8 w-32" />
+        {/* Phone folds these into the title's menu — see BudgetSwitcher. */}
+        <Skeleton className="ml-auto hidden h-8 w-20 sm:block" />
+        <Skeleton className="hidden h-8 w-32 sm:block" />
       </div>
 
       <div className="flex flex-wrap items-center gap-4">
-        <Skeleton className="h-9 w-44" />
-        <Skeleton className="h-4 w-36" />
+        <Skeleton className="h-9 flex-1 sm:w-44 sm:flex-none" />
+        <Skeleton className="h-4 w-9 shrink-0 sm:w-36" />
       </div>
 
-      {/* Stat strip */}
-      <div className="grid grid-cols-2 gap-x-6 gap-y-5 border-b pb-6 sm:grid-cols-4">
-        {Array.from({ length: 4 }, (_, i) => (
-          <div key={i} className="space-y-2">
-            <Skeleton className="h-3 w-20" />
-            <Skeleton className="h-6 w-24" />
-            <Skeleton className="h-3 w-28" />
-          </div>
-        ))}
+      {/* Stat strip: one meter on a phone, four stats from sm up. */}
+      <div className="border-b pb-6">
+        <div className="sm:hidden">
+          <Skeleton className="h-3 w-28" />
+          <Skeleton className="mt-2 h-8 w-40" />
+          <Skeleton className="mt-3 h-2 w-full rounded-full" />
+          <Skeleton className="mt-2.5 h-3 w-56 max-w-full" />
+        </div>
+        <div className="hidden gap-x-6 gap-y-5 sm:grid sm:grid-cols-4">
+          {Array.from({ length: 4 }, (_, i) => (
+            <div key={i} className="space-y-2">
+              <Skeleton className="h-3 w-20" />
+              <Skeleton className="h-6 w-24" />
+              <Skeleton className="h-3 w-28" />
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* One card, three sections: flexible spending, income, fixed costs. */}
