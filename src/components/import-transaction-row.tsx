@@ -29,6 +29,7 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
   tx,
   categories,
   pots,
+  accountId,
   onCategoryChange,
   onNotesChange,
   onPotChange,
@@ -40,6 +41,7 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
   tx: PreviewTransaction;
   categories: ImportCategory[];
   pots: ImportPot[];
+  accountId: string;
   onCategoryChange: (tempId: string, categoryId: string) => void;
   onNotesChange: (tempId: string, notes: string | null) => void;
   onPotChange: (tempId: string, groupId: string | null) => void;
@@ -69,6 +71,7 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
       categories={categories}
       value={tx.categoryId || null}
       onChange={(v) => onCategoryChange(tx.tempId, v)}
+      accountId={accountId}
       className={triggerClass}
       placeholder={tx.categoryId ? undefined : t("csvRow.selectPlaceholder")}
       trailing={

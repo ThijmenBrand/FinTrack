@@ -238,9 +238,15 @@ export function ImportBudgetDialog({ budgetId }: ImportBudgetDialogProps) {
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <Button variant="ghost" size="sm">
-          <FileSpreadsheet className="mr-1.5 h-3.5 w-3.5" />
-          {t("budgetImport.button")}
+        {/* Icon-only on a phone — see the generate button beside it. */}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-9 w-9 p-0 sm:h-8 sm:w-auto sm:px-3"
+          aria-label={t("budgetImport.button")}
+        >
+          <FileSpreadsheet className="h-3.5 w-3.5 sm:mr-1.5" />
+          <span className="hidden sm:inline">{t("budgetImport.button")}</span>
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-xl">

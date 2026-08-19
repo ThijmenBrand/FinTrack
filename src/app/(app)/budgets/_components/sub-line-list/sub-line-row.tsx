@@ -7,7 +7,7 @@ import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
 import { useDeleteSubLine, useUpdateSubLine } from "@/hooks/use-budgets";
 import { useI18n } from "@/lib/i18n/client";
 import { Pencil } from "lucide-react";
-import { Row } from "./row";
+import { Dot, Row } from "./row";
 import { SubLineForm } from "./sub-line-form";
 import { useSubLineError } from "./use-sub-line-error";
 import { cents, type Ctx } from "./constants";
@@ -53,6 +53,7 @@ export function SubLineRow({
   return (
     <>
       <Row ctx={ctx} depth={depth}>
+        <Dot ctx={ctx} />
         <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
           {line.name}
         </span>

@@ -1,16 +1,68 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
 import { apiFetch } from "@/lib/api";
+import { useAccounts } from "@/hooks/use-accounts";
 import type { CategoryWithDetails, RuleWithCategory } from "@/types/api";
 
-export function useCategories() {
+/** Pass `accountId` when categorizing rows on a specific (possibly shared)
+ *  account — the list then comes from that account's owner. */
+export function useCategories(accountId?: string) {
   return useQuery({
-    queryKey: ["categories"],
-    queryFn: () => apiFetch<CategoryWithDetails[]>("/api/categories"),
+    queryKey: ["categories", accountId ?? null],
+    queryFn: () =>
+      apiFetch<CategoryWithDetails[]>(
+        accountId ? `/api/categories?accountId=${encodeURIComponent(accountId)}` : "/api/categories",
+      ),
     staleTime: 60 * 1000,
   });
 }
 
-export function useCreateCategory() {
+/** Own categories plus those of owners sharing an account — for a list that
+ *  spans accounts. Pick per row with the row account's owner. */
+export function useVisibleCategories() {
+  return useQuery({
+    queryKey: ["categories", "visible"],
+    queryFn: () => apiFetch<CategoryWithDetails[]>("/api/categories?scope=visible"),
+    staleTime: 60 * 1000,
+  });
+}
+
+const NO_CATEGORIES: CategoryWithDetails[] = [];
+
+/**
+ * For lists spanning several accounts: the categories each row may actually be
+ * set to (its account OWNER's — a member's own ids are rejected on shared
+ * rows), plus whether the caller owns the account, since rules are the owner's
+ * config and the server drops rule creation from anyone else.
+ */
+export function useAccountCategories() {
+  const { data: categories = [] } = useVisibleCategories();
+  const { data: accounts = [] } = useAccounts();
+
+  return useMemo(() => {
+    const byOwner = new Map<string, CategoryWithDetails[]>();
+    for (const cat of categories) {
+      const list = byOwner.get(cat.userId);
+      if (list) list.push(cat);
+      else byOwner.set(cat.userId, [cat]);
+    }
+    // Grouped once so each row gets a stable array — the rows are memo'd.
+    const byAccount = new Map(
+      accounts.map((a) => [a.id, byOwner.get(a.userId) ?? NO_CATEGORIES]),
+    );
+    return {
+      /** Everything visible — for filters and labels, not for writes. */
+      categories,
+      categoriesFor: (accountId: string) => byAccount.get(accountId) ?? NO_CATEGORIES,
+      ownsAccount: (accountId: string) => {
+        const account = accounts.find((a) => a.id === accountId);
+        return !account || account.role === "owner";
+      },
+    };
+  }, [categories, accounts]);
+}
+
+export function useCreateCategory(accountId?: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (payload: {
@@ -18,7 +70,11 @@ export function useCreateCategory() {
       color: string;
       icon: string | null;
     }) =>
-      apiFetch("/api/categories", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
+      apiFetch("/api/categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(accountId ? { ...payload, accountId } : payload),
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["categories"] });
       qc.invalidateQueries({ queryKey: ["budgets"] });

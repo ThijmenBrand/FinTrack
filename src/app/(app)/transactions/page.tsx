@@ -28,7 +28,7 @@ import {
   History,
 } from "lucide-react";
 import { useAccounts } from "@/hooks/use-accounts";
-import { useCategories } from "@/hooks/use-categories";
+import { useAccountCategories, useCategories } from "@/hooks/use-categories";
 import { usePots, useDeletePot, useAddToPot, useRemoveFromPot, useCreatePot } from "@/hooks/use-pots";
 import { useTransactions, useDeleteTransaction, useDetectTransfers, useDeleteReimbursement, useBulkCategorizeTransactions, useBulkDeleteTransactions } from "@/hooks/use-transactions";
 import { usePreferences } from "@/hooks/use-preferences";
@@ -66,7 +66,12 @@ function TransactionsPage() {
 
   // Reference data via React Query
   const { data: accounts = [] } = useAccounts();
-  const { data: categories = [] } = useCategories();
+  // Two lists: everything the user can see (filters, labels, pots) and, per
+  // row, the categories of that row's ACCOUNT OWNER — the only ids a write to
+  // that row will accept. `ownCategories` is the caller's own space, which is
+  // what pots (never shared) live in.
+  const { categories, categoriesFor, ownsAccount } = useAccountCategories();
+  const { data: ownCategories = [] } = useCategories();
   const { data: pots = [] } = usePots();
   const { data: preferences } = usePreferences();
   // Simple mode: the totals, then the list — name, date, category, amount,
@@ -422,6 +427,17 @@ function TransactionsPage() {
     (a) => a.role !== "owner" || a.sharedWith > 0,
   );
 
+  // What the bulk bar may offer: the categories of every owner the selection
+  // spans. ponytail: a selection crossing two owners keeps both lists, and a
+  // pick then lands only on that owner's rows — narrow the selection (or filter
+  // by account) if that matters.
+  const bulkCategories = useMemo(() => {
+    const owners = new Set(
+      selectedOnPage.map((t) => accounts.find((a) => a.id === t.accountId)?.userId),
+    );
+    return categories.filter((c) => owners.has(c.userId));
+  }, [selectedOnPage, accounts, categories]);
+
   // Render pot/transaction rows for a given layout — used by both the desktop
   // table and the mobile card list.
   const renderItems = (layout: "table" | "card") =>
@@ -433,7 +449,7 @@ function TransactionsPage() {
           rangeTotal={potTotalsById.get(item.data.id)}
           layout={layout}
           showCreator={showCreator}
-          categories={categories}
+          categories={ownCategories}
           onAddTransactions={() => setAddToPotPicker(item.data)}
           onEdit={() => setEditPot(item.data)}
           onDelete={() => handleDeletePot(item.data.id)}
@@ -444,7 +460,8 @@ function TransactionsPage() {
           tx={item.data}
           layout={layout}
           showCreator={showCreator}
-          categories={categories}
+          categories={categoriesFor(item.data.accountId)}
+          canCreateRule={ownsAccount(item.data.accountId)}
           selected={selectedIds.has(item.data.id)}
           hasPots={pots.length > 0}
           onToggleSelect={() => toggleSelect(item.data.id)}
@@ -510,6 +527,8 @@ function TransactionsPage() {
           category={categoryFilters[0] ?? "all"}
           onCategoryChange={(value) => setSingleFilter(setCategoryFilters, value)}
           categories={categories}
+          categoriesFor={categoriesFor}
+          ownsAccount={ownsAccount}
           type={typeFilters[0] ?? "all"}
           onTypeChange={(value) => setSingleFilter(setTypeFilters, value)}
           typeOptions={availableTypeOptions}
@@ -526,7 +545,6 @@ function TransactionsPage() {
         <TransactionDetailDialog
           transaction={liveSelectedTransaction}
           onOpenChange={(open) => { if (!open) setSelectedTransaction(null); }}
-          categories={categories}
         />
       </div>
     );
@@ -628,7 +646,7 @@ function TransactionsPage() {
       {selectedOnPage.length > 0 && (
         <TransactionBulkBar
           count={selectedOnPage.length}
-          categories={categories}
+          categories={bulkCategories}
           canAddToPot={pots.length > 0 && selectedOnPage.some((t) => !t.groupId)}
           canReimburse={selectedOnPage.some((t) => t.type === "income")}
           categorizePending={bulkCategorize.isPending}
@@ -680,7 +698,7 @@ function TransactionsPage() {
       {/* Right-click Context Menu */}
       <TransactionContextMenu
         menu={contextMenu}
-        categories={categories}
+        categories={contextMenu ? categoriesFor(contextMenu.tx.accountId) : []}
         onClose={() => setContextMenu(null)}
         onAddNote={setNoteTx}
         onAddToPot={setAddToPotTx}
@@ -709,7 +727,6 @@ function TransactionsPage() {
       <TransactionDetailDialog
         transaction={liveSelectedTransaction}
         onOpenChange={(open) => { if (!open) setSelectedTransaction(null); }}
-        categories={categories}
       />
 
       {/* Reimbursement Picker */}
@@ -754,14 +771,14 @@ function TransactionsPage() {
       <CreatePotDialog
         open={createPotOpen}
         onOpenChange={setCreatePotOpen}
-        categories={categories}
+        categories={ownCategories}
       />
 
       {/* Edit Pot Dialog */}
       <EditPotDialog
         open={!!editPot}
         onOpenChange={(open) => { if (!open) setEditPot(null); }}
-        categories={categories}
+        categories={ownCategories}
         pot={editPot}
       />
 

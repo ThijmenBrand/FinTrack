@@ -340,6 +340,7 @@ export function ImportReviewStep({
                 tx={tx}
                 categories={categories}
                 pots={pots}
+                accountId={accountId}
                 onCategoryChange={handleCategoryChange}
                 onNotesChange={handleNotesChange}
                 onPotChange={handlePotChange}
@@ -508,6 +509,7 @@ export function ImportReviewStep({
               onChange={handleBulkCategory}
               className="h-8 text-xs"
               placeholder={t("csvReview.setCategory")}
+              accountId={accountId}
             />
           </div>
           <Button

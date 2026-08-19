@@ -39,8 +39,11 @@ export function SectionHeader({
           {note}
         </span>
       )}
+      {/* ml-auto whether or not the note is there: on a phone the controls wrap
+          onto a line of their own and should still hug the right edge rather
+          than sit under the label. */}
       {action && (
-        <span className={`flex items-center gap-1 ${note ? "" : "ml-auto"}`}>
+        <span className="ml-auto flex flex-wrap items-center justify-end gap-1">
           {action}
         </span>
       )}

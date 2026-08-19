@@ -97,7 +97,9 @@ export function CsvUploadDialog({
   const [previewPending, setPreviewPending] = useState(0);
   const [previewFees, setPreviewFees] = useState(0);
   const [previewDuplicates, setPreviewDuplicates] = useState(0);
-  const { data: categories = [] } = useCategories();
+  // Scoped to the target account: on a shared account the rows land in the
+  // owner's space, so only the owner's categories are valid ids.
+  const { data: categories = [] } = useCategories(selectedAccountId || undefined);
   const { data: pots = [] } = usePots();
   const preview = usePreviewUpload();
   const commit = useCommitUpload();

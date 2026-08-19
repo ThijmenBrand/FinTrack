@@ -12,17 +12,17 @@ import {
 import { CategorizePopover } from "@/components/categorize-popover";
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog";
 import { useTransactions } from "@/hooks/use-transactions";
-import type { CategoryWithDetails, Transaction } from "@/types/api";
+import { useAccountCategories } from "@/hooks/use-categories";
+import type { Transaction } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
 
 const LIMIT = 20;
 
-interface UncategorizedTransactionsProps {
-  categories: CategoryWithDetails[];
-}
-
-export function UncategorizedTransactions({ categories }: UncategorizedTransactionsProps) {
+// The list spans every visible account, shared ones included, so each row is
+// categorized from its OWN account owner's space.
+export function UncategorizedTransactions() {
   const { t, formatCurrency } = useI18n();
+  const { categoriesFor, ownsAccount } = useAccountCategories();
   const [page, setPage] = useState(1);
   const [expanded, setExpanded] = useState(false);
   const [selected, setSelected] = useState<Transaction | null>(null);
@@ -103,12 +103,8 @@ export function UncategorizedTransactions({ categories }: UncategorizedTransacti
                           currentCategoryId={null}
                           currentCategoryName={null}
                           currentCategoryColor={null}
-                          categories={categories.map((c) => ({
-                            id: c.id,
-                            name: c.name,
-                            color: c.color,
-                            icon: c.icon,
-                          }))}
+                          categories={categoriesFor(tx.accountId)}
+                          canCreateRule={ownsAccount(tx.accountId)}
                         />
                       </div>
                     </div>

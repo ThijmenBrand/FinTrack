@@ -31,6 +31,7 @@ export function CategoryPicker({
   className,
   placeholder,
   trailing,
+  accountId,
 }: {
   categories: PickerCategory[];
   value: string | null;
@@ -40,9 +41,11 @@ export function CategoryPicker({
   placeholder?: string;
   /** Extra trigger content, e.g. the auto-match badge. */
   trailing?: React.ReactNode;
+  /** Account these rows belong to — created categories land in its owner's space. */
+  accountId?: string;
 }) {
   const { t } = useI18n();
-  const createCategory = useCreateCategory();
+  const createCategory = useCreateCategory(accountId);
 
   const selected = categories.find((c) => c.id === value);
 

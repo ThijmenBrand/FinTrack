@@ -5,6 +5,8 @@ export type AccountRole = "owner" | "editor" | "viewer";
 
 export interface Account {
   id: string;
+  /** The OWNER's user id — the space this account's rows and categories live in. */
+  userId: string;
   name: string;
   type: string;
   bankName: string | null;
@@ -58,6 +60,8 @@ export interface Category {
 }
 
 export interface CategoryWithDetails extends Category {
+  /** Owner of the category; only your own ids are valid on your own rows. */
+  userId: string;
   createdAt: string;
   transactionCount: number;
   rules: CategoryRule[];

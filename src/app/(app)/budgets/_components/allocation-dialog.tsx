@@ -115,7 +115,14 @@ export function AllocationDialog({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <Button data-tour="budget-add" variant="ghost" size="sm">
+        {/* The one control in this header that keeps its label at every width:
+            a budget you cannot add a category to is not a budget. */}
+        <Button
+          data-tour="budget-add"
+          variant="outline"
+          size="sm"
+          className="h-9 sm:h-8"
+        >
           <Plus className="mr-1.5 h-3.5 w-3.5" />
           {t("budgets.addManually")}
         </Button>

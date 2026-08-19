@@ -6,29 +6,14 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
 import { useI18n } from "@/lib/i18n/client";
 import { ChevronDown, Pencil } from "lucide-react";
-import { ROW_GRID, CELL_BAR, CELL_AMOUNT, CELL_DELTA } from "./budget-row";
-
-/**
- * Red for spent-out, amber for tight. A monthly allocation and a yearly
- * envelope disagree about what those mean — over the month's cap versus out of
- * the annual pot — but they look the same and say the same thing, so they
- * share one palette and one row.
- */
-const TONE = {
-  exceeded: {
-    bar: "#ef4444",
-    text: "text-red-600 dark:text-red-400",
-    badge: "border-red-500/40 text-red-600 dark:text-red-400",
-  },
-  warning: {
-    bar: "#f59e0b",
-    text: "text-amber-600 dark:text-amber-400",
-    badge: "border-amber-500/40 text-amber-600 dark:text-amber-400",
-  },
-  ok: { bar: "", text: "text-muted-foreground", badge: "" },
-} as const;
-
-type Tone = keyof typeof TONE;
+import {
+  ROW_GRID,
+  CELL_BAR,
+  CELL_AMOUNT,
+  CELL_DELTA,
+  TONE,
+  type Tone,
+} from "./budget-row";
 
 interface BudgetRowProps {
   name: string | null;
@@ -92,12 +77,14 @@ function BudgetRow({
           style={{ backgroundColor: color || "#94a3b8" }}
         />
 
-        {/* Name + status badge */}
+        {/* Name + status badge. The badge is desktop-only: on a phone it cost a
+            third of the name column to repeat what the coloured delta under it
+            already says. */}
         <span className="flex min-w-0 items-center gap-2">
           <span className="truncate text-sm font-medium">{name}</span>
           {badge && (
             <span
-              className={`shrink-0 rounded-full border px-1.5 py-px text-[10px] font-semibold ${tone.badge}`}
+              className={`hidden shrink-0 rounded-full border px-1.5 py-px text-[10px] font-semibold sm:inline ${tone.badge}`}
             >
               {badge}
             </span>
@@ -119,7 +106,7 @@ function BudgetRow({
 
         {/* Spent / limit */}
         <span
-          className={`whitespace-nowrap text-right text-sm tabular-nums ${CELL_AMOUNT}`}
+          className={`whitespace-nowrap text-right text-xs tabular-nums sm:text-sm ${CELL_AMOUNT}`}
         >
           <span className="font-medium">{formatCurrency(spent)}</span>
           <span className="text-muted-foreground">

@@ -13,6 +13,7 @@
  *   pnpm run db:seed -- --period monthly # classic month-at-a-time plan
  *   pnpm run db:seed -- --user alice    # a different user
  *   pnpm run db:seed -- --email a@b.com # sign-in address (default user@local.test)
+ *   pnpm run db:seed -- --share-email p@b.com # partner the joint account is shared with
  *
  * The target user is created if it doesn't exist, as a *regular* user — the
  * seeded `admin` is role=admin and gets redirected to /backoffice by
@@ -27,6 +28,7 @@ import crypto from "crypto";
 import { eq, sql } from "drizzle-orm";
 import { db } from "../src/db";
 import {
+  accountMembers,
   accounts,
   budgetMonthTargets,
   budgetPlans,
@@ -55,6 +57,10 @@ function arg(name: string, fallback: string): string {
 const USERNAME = arg("user", process.env.SEED_USERNAME || "demo");
 const PASSWORD = arg("password", process.env.SEED_PASSWORD || "demo");
 const EMAIL = arg("email", process.env.SEED_EMAIL || `${USERNAME}@local.test`);
+// Second login the joint account is shared with, so the shared-account paths
+// (member views, editor writes, shared budget) have something to exercise.
+const SHARE_USERNAME = arg("share-user", `${USERNAME}-partner`);
+const SHARE_EMAIL = arg("share-email", process.env.SEED_SHARE_EMAIL || `${SHARE_USERNAME}@local.test`);
 const MONTHS = Math.max(1, Math.min(60, Number(arg("months", "18")) || 18));
 const PERIOD = arg("period", "yearly") === "monthly" ? "monthly" : "yearly";
 
@@ -191,31 +197,31 @@ const ruleMatch = (text: string) =>
  * `@local.test` is grandfathered as verified by initializeDatabase(), and we
  * set email_verified up front so `requireEmailVerification` can't block it.
  */
-async function ensureUser(): Promise<string> {
+async function ensureUser(username: string, email: string): Promise<string> {
   const now = Date.now();
   const [existing] = await db.all<{ id: string; role: string | null; email: string }>(
-    sql`SELECT id, role, email FROM "user" WHERE email = ${EMAIL} LIMIT 1`,
+    sql`SELECT id, role, email FROM "user" WHERE email = ${email} LIMIT 1`,
   );
   if (existing) {
     if (existing.role === "admin") {
       console.warn(
-        `Note: "${USERNAME}" is an admin — src/proxy.ts redirects admins to /backoffice, so this data won't be visible in the app.`,
+        `Note: "${username}" is an admin — src/proxy.ts redirects admins to /backoffice, so this data won't be visible in the app.`,
       );
     }
-    console.log(`Using existing user "${USERNAME}" — log in with ${existing.email}.`);
+    console.log(`Using existing user "${username}" — log in with ${existing.email}.`);
     return existing.id;
   }
 
   const newId = id();
   await db.run(sql`
     INSERT INTO "user" (id, name, email, email_verified, role, created_at, updated_at)
-    VALUES (${newId}, ${USERNAME}, ${EMAIL}, 1, 'user', ${now}, ${now})
+    VALUES (${newId}, ${username}, ${email}, 1, 'user', ${now}, ${now})
   `);
   await db.run(sql`
     INSERT INTO account (id, account_id, provider_id, user_id, password, created_at, updated_at)
     VALUES (${id()}, ${newId}, 'credential', ${newId}, ${await hashPassword(PASSWORD)}, ${now}, ${now})
   `);
-  console.log(`Created user "${USERNAME}" — log in with ${EMAIL} / ${PASSWORD}.`);
+  console.log(`Created user "${username}" — log in with ${email} / ${PASSWORD}.`);
   return newId;
 }
 
@@ -224,7 +230,8 @@ async function main() {
     throw new Error("Refusing to seed dummy data into a Turso database. Unset TURSO_DATABASE_URL.");
   }
 
-  const userId = await ensureUser();
+  const userId = await ensureUser(USERNAME, EMAIL);
+  const partnerId = await ensureUser(SHARE_USERNAME, SHARE_EMAIL);
 
   // ── Wipe this user's financial data ──────────────────────────────────────
   // Explicit order rather than trusting cascades: libsql doesn't enable
@@ -242,6 +249,11 @@ async function main() {
   await db.delete(categoryRules).where(eq(categoryRules.userId, userId));
   await db.delete(statResets).where(eq(statResets.userId, userId));
   await db.delete(userPreferences).where(eq(userPreferences.userId, userId));
+  // The partner's prefs point at the plan below, which is about to be deleted.
+  await db.delete(userPreferences).where(eq(userPreferences.userId, partnerId));
+  await db.run(
+    sql`DELETE FROM account_members WHERE account_id IN (SELECT id FROM accounts WHERE user_id = ${userId})`,
+  );
   await db.delete(accounts).where(eq(accounts.userId, userId));
   await db.delete(budgetPlans).where(eq(budgetPlans.userId, userId));
   await db.delete(categories).where(eq(categories.userId, userId));
@@ -625,6 +637,27 @@ async function main() {
     financialMonthStartDay: startDay,
   });
 
+  // ── Shared account ───────────────────────────────────────────────────────
+  // The joint account is shared with the partner as an accepted editor. Its
+  // rows keep the owner's user_id — the partner reaches them through
+  // account_members — and the partner's dashboard points at the owner's plan
+  // (mainBudgetPlanId, since is_main is owner-scoped).
+  await seedCategoriesForUser(partnerId);
+  await db.insert(accountMembers).values({
+    id: id(),
+    accountId: joint.id,
+    userId: partnerId,
+    email: SHARE_EMAIL.toLowerCase(),
+    role: "editor",
+    acceptedAt: `${startDate}T00:00:00.000Z`,
+  });
+  await db.insert(userPreferences).values({
+    id: id(),
+    userId: partnerId,
+    financialMonthStartDay: startDay,
+    mainBudgetPlanId: plan.id,
+  });
+
   // ── Ledger ───────────────────────────────────────────────────────────────
   // Walk every financial year the history touches. Nothing is materialised —
   // the chain is derived on read — but building it here freezes the targets of
@@ -675,6 +708,9 @@ async function main() {
     `Seeded ${txs.length} transactions across 3 accounts over ${MONTHS} months for "${USERNAME}".`,
   );
   console.log(`Balances: ${balances}`);
+  console.log(
+    `Shared: "${joint.name}" with ${SHARE_EMAIL} / ${PASSWORD} as editor.`,
+  );
   console.log(
     `Also: ${plans.length} recurring plans, ${RULES.length} rules, ${BUDGETS.length} allocations, 3 pots, ${links.length} reimbursements.`,
   );

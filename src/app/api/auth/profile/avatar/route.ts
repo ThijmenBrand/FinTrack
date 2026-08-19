@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { apiError } from "@/lib/api-errors";
 import { put, del } from "@vercel/blob";
+// ponytail: sharp is pinned to ^0.34.5 — the version Next itself depends on.
+// Turbopack builds on Vercel don't ship 0.35.x's libvips .so, so the route
+// 500s with ERR_DLOPEN_FAILED. Unpin once lovell/sharp#4567 is fixed.
 import sharp from "sharp";
 import { sql } from "drizzle-orm";
 import { db } from "@/db";

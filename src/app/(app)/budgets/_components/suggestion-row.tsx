@@ -66,7 +66,9 @@ export function SuggestionRow({ suggestion, busy, onAccept, onReject }: Suggesti
           </span>
         )}
       </div>
-      <div className={`whitespace-nowrap text-right text-sm tabular-nums ${CELL_AMOUNT}`}>
+      <div
+        className={`whitespace-nowrap text-right text-xs tabular-nums sm:text-sm ${CELL_AMOUNT}`}
+      >
         <span className="font-medium">{formatCurrency(suggestion.suggestedAmount)}</span>
         <span className="text-muted-foreground">{t("budgets.perMonthShort")}</span>
       </div>

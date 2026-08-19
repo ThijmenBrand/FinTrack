@@ -11,7 +11,8 @@ interface CategoryProgressRowProps {
   delta?: ReactNode;
   /** Progress fill percentage; omit/null to hide the bar. */
   progressPct?: number | null;
-  barClassName?: string;
+  /** Fill colour, from the shared TONE palette — falls back to the category's. */
+  barColor?: string;
 }
 
 /**
@@ -29,7 +30,7 @@ export function CategoryProgressRow({
   amount,
   delta,
   progressPct = null,
-  barClassName = "bg-slate-400",
+  barColor,
 }: CategoryProgressRowProps) {
   return (
     <li className={ROW_GRID}>
@@ -44,14 +45,17 @@ export function CategoryProgressRow({
         {progressPct !== null && (
           <div className="h-1.5 overflow-hidden rounded-full bg-muted">
             <div
-              className={`h-full rounded-full transition-all duration-500 ${barClassName}`}
-              style={{ width: `${progressPct}%` }}
+              className="h-full rounded-full transition-all duration-500"
+              style={{
+                width: `${progressPct}%`,
+                backgroundColor: barColor || color,
+              }}
             />
           </div>
         )}
       </div>
       <div
-        className={`whitespace-nowrap text-right text-sm tabular-nums ${CELL_AMOUNT}`}
+        className={`whitespace-nowrap text-right text-xs tabular-nums sm:text-sm ${CELL_AMOUNT}`}
       >
         {amount}
       </div>

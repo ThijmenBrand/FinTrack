@@ -26,6 +26,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -156,14 +157,17 @@ function SortableAccountCard({
     <div
       ref={setNodeRef}
       style={style}
-      className={`group relative rounded-xl border bg-card text-card-foreground shadow-sm transition-shadow hover:shadow-md ${
+      className={`group relative rounded-xl border bg-card text-card-foreground shadow-sm transition-[box-shadow,border-color] hover:border-primary/40 hover:shadow-md ${
         isDragging ? "opacity-50 shadow-lg" : ""
       }`}
     >
       {/* Drag handle strip — reordering only applies to accounts you own. */}
       {isOwner && (
         <button
-          className="absolute left-0 top-0 bottom-0 w-6 flex items-center justify-center rounded-l-xl md:opacity-0 md:group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing touch-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-r-none"
+          // Full-height strip so the drag target stays generous, but the icon
+          // parks next to the bank logo — centred it landed beside the balance
+          // and read as debris on a phone, where it's always visible.
+          className="absolute left-0 top-0 bottom-0 w-6 flex items-start justify-center pt-8 rounded-l-xl md:opacity-0 md:group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing touch-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-r-none"
           aria-label={t("accounts.reorderLabel", { name: account.name })}
           {...attributes}
           {...listeners}
@@ -185,48 +189,20 @@ function SortableAccountCard({
         }}
         className={`p-5 cursor-pointer rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${isOwner ? "pl-6" : ""}`}
       >
-        {/* Top row: icon + name + actions */}
+        {/* Identity: the name leads, everything that qualifies it sits below in
+            one quiet block rather than competing on the name's own line. */}
         <div className="flex items-start justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
+          <div className="flex min-w-0 items-start gap-3">
             <BankLogo bank={account.bank} size={40} />
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5">
-                <h3 className="font-semibold text-sm leading-tight truncate">
-                  {account.name}
-                </h3>
-                {isDefault && (
-                  <span
-                    className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
-                    title={t("accounts.defaultTooltip")}
-                  >
-                    <Star className="h-2.5 w-2.5 fill-current" />
-                    {t("accounts.default")}
-                  </span>
-                )}
-                {/* Two sides of the same fact: shared WITH you (the owner's
-                    face) or shared BY you (everyone you invited). Faces
-                    replaced the old count badge — the names live in the
-                    tooltip. */}
-                {account.ownerName ? (
-                  <AvatarStack
-                    people={[{ name: account.ownerName, image: account.ownerImage }]}
-                    title={t("sharing.sharedByTooltip", { name: account.ownerName })}
-                  />
-                ) : (
-                  <AvatarStack
-                    people={account.sharedWithUsers.map((m) => ({
-                      name: m.name || m.email,
-                      image: m.image,
-                    }))}
-                    title={sharedWithNames(account.sharedWithUsers)}
-                  />
-                )}
-              </div>
-              <p className="text-xs text-muted-foreground truncate">
+            <div className="min-w-0 pt-0.5">
+              <h3 className="truncate text-base font-semibold leading-tight">
+                {account.name}
+              </h3>
+              <p className="mt-0.5 truncate text-xs text-muted-foreground">
                 {account.bankName || t("accounts.noBank")}
               </p>
               {account.iban && (
-                <p className="text-[11px] text-muted-foreground/60 font-mono truncate">
+                <p className="truncate font-mono text-[11px] text-muted-foreground">
                   {account.iban}
                 </p>
               )}
@@ -300,7 +276,8 @@ function SortableAccountCard({
           </div>
         </div>
 
-        {/* Balance — hero element */}
+        {/* Balance — hero element. The movement under it used to be a bare
+            signed amount with nothing saying what it measured. */}
         <div className="mt-4">
           <p
             className={`text-2xl font-bold tabular-nums tracking-tight ${
@@ -311,26 +288,70 @@ function SortableAccountCard({
           >
             {formatCurrency(account.currentBalance, account.currency)}
           </p>
+          {netChange !== 0 && (
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              <span
+                className={`font-medium tabular-nums ${
+                  netChange >= 0
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-red-500 dark:text-red-400"
+                }`}
+              >
+                {netChange >= 0 ? "+" : ""}
+                {formatCurrency(netChange, account.currency)}
+              </span>{" "}
+              {t("accounts.netSinceStart")}
+            </p>
+          )}
         </div>
 
-        {/* Footer: type badge + net change */}
-        <div className="mt-3 flex items-center justify-between gap-2">
+        {/* Footer: what kind of account this is, and who else is in it. */}
+        <div className="mt-4 flex flex-wrap items-center gap-2 border-t pt-3">
           <span
             className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${typeBadge}`}
           >
             {t(typeLabelKey(account.type))}
           </span>
-          {netChange !== 0 && (
+          {isDefault && (
             <span
-              className={`text-xs font-medium tabular-nums ${
-                netChange >= 0
-                  ? "text-emerald-600 dark:text-emerald-400"
-                  : "text-red-500 dark:text-red-400"
-              }`}
+              className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary"
+              title={t("accounts.defaultTooltip")}
             >
-              {netChange >= 0 ? "+" : ""}
-              {formatCurrency(netChange, account.currency)}
+              <Star className="h-2.5 w-2.5 fill-current" />
+              {t("accounts.default")}
             </span>
+          )}
+          {/* Two sides of the same fact: shared WITH you (the owner's face plus
+              what you're allowed to do) or shared BY you (everyone you
+              invited). The names live in the tooltip. */}
+          {account.ownerName ? (
+            <span className="ml-auto flex items-center gap-1.5">
+              <span className="text-[11px] font-medium text-muted-foreground">
+                {t(
+                  account.role === "editor"
+                    ? "sharing.role.editor"
+                    : "sharing.role.viewer",
+                )}
+              </span>
+              <AvatarStack
+                className="h-6 w-6 text-[11px]"
+                people={[{ name: account.ownerName, image: account.ownerImage }]}
+                title={t("sharing.sharedByTooltip", { name: account.ownerName })}
+              />
+            </span>
+          ) : (
+            account.sharedWithUsers.length > 0 && (
+              <span className="ml-auto flex items-center">
+                <AvatarStack
+                  className="h-6 w-6 text-[11px]"
+                  people={account.sharedWithUsers.map((m) => ({
+                    name: m.name || m.email,
+                    image: m.image,
+                  }))}
+                  title={sharedWithNames(account.sharedWithUsers)}
+                />
+              </span>
+            )
           )}
         </div>
       </div>
@@ -473,11 +494,13 @@ function AccountsPageInner() {
             {t("accounts.subtitle")}
           </p>
         </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
+        {/* One row on a phone too: the total and the only action share a line
+            instead of stacking into a third and fourth header block. */}
+        <div className="flex items-center justify-between gap-3 sm:shrink-0 sm:justify-end">
           {/* The total used to be a saturated primary slab below the header —
               the one block on the page that shouted. It's a header stat now. */}
           {accounts.length > 0 && (
-            <div className="mr-1 text-left sm:text-right">
+            <div className="min-w-0 text-left sm:mr-1 sm:text-right">
               <p className="text-xs text-muted-foreground">
                 {t("accounts.totalBalance")}
                 {" · "}
@@ -500,8 +523,8 @@ function AccountsPageInner() {
             }}
           >
             <DialogTrigger asChild>
-              <Button data-tour="account-add">
-                <Plus className="mr-2 h-4 w-4" />
+              <Button className="shrink-0" data-tour="account-add">
+                <Plus className="h-4 w-4" />
                 {t("accounts.add")}
               </Button>
             </DialogTrigger>
@@ -637,16 +660,20 @@ function AccountsPageInner() {
       {loading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="animate-pulse rounded-xl border p-5">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-full bg-muted" />
-                <div className="space-y-1.5">
-                  <div className="h-3.5 w-24 rounded bg-muted" />
-                  <div className="h-3 w-16 rounded bg-muted" />
+            <div key={i} className="rounded-xl border p-5">
+              <div className="flex items-start gap-3">
+                <Skeleton className="h-10 w-10 rounded-full" />
+                <div className="space-y-1.5 pt-0.5">
+                  <Skeleton className="h-4 w-28" />
+                  <Skeleton className="h-3 w-16" />
+                  <Skeleton className="h-3 w-32" />
                 </div>
               </div>
-              <div className="mt-4 h-7 w-28 rounded bg-muted" />
-              <div className="mt-3 h-5 w-16 rounded bg-muted" />
+              <Skeleton className="mt-4 h-8 w-32" />
+              <Skeleton className="mt-1.5 h-3 w-40" />
+              <div className="mt-4 border-t pt-3">
+                <Skeleton className="h-5 w-20 rounded-full" />
+              </div>
             </div>
           ))}
         </div>

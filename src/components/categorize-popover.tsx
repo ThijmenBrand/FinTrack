@@ -34,6 +34,9 @@ interface CategorizePopoverProps {
   currentCategoryColor: string | null;
   currentCategoryIcon?: string | null;
   categories: Category[];
+  /** Off on someone else's account — rules are the owner's config, and the
+   *  server drops rule creation from anyone else (see the categorize route). */
+  canCreateRule?: boolean;
   onCategorized?: (categoryId?: string | null) => void;
 }
 
@@ -45,6 +48,7 @@ export function CategorizePopover({
   currentCategoryColor,
   currentCategoryIcon,
   categories,
+  canCreateRule = true,
   onCategorized,
 }: CategorizePopoverProps) {
   const { t } = useI18n();
@@ -124,73 +128,75 @@ export function CategorizePopover({
           </div>
 
           {/* Create Rule Checkbox */}
-          <div className="rounded-md border p-3 space-y-3">
-            <div className="flex items-start gap-2">
-              <Checkbox
-                id="create-rule"
-                checked={createRule}
-                onCheckedChange={(checked) =>
-                  setCreateRule(checked === true)
-                }
-                className="mt-0.5"
-              />
-              <div>
-                <Label htmlFor="create-rule" className="text-sm font-medium cursor-pointer">
-                  {t("categorize.applyToAll")}
-                </Label>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {t("categorize.applyToAllHint")}
-                </p>
+          {canCreateRule && (
+            <div className="rounded-md border p-3 space-y-3">
+              <div className="flex items-start gap-2">
+                <Checkbox
+                  id="create-rule"
+                  checked={createRule}
+                  onCheckedChange={(checked) =>
+                    setCreateRule(checked === true)
+                  }
+                  className="mt-0.5"
+                />
+                <div>
+                  <Label htmlFor="create-rule" className="text-sm font-medium cursor-pointer">
+                    {t("categorize.applyToAll")}
+                  </Label>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {t("categorize.applyToAllHint")}
+                  </p>
+                </div>
               </div>
-            </div>
 
-            {createRule && (
-              <div className="space-y-2 pl-6">
-                <div className="space-y-1">
-                  <Label className="text-xs">{t("categorize.matchPattern")}</Label>
-                  <Input
-                    value={rulePattern}
-                    onChange={(e) => setRulePattern(e.target.value)}
-                    placeholder={t("categorize.patternPlaceholder")}
-                    className="h-8 text-sm"
-                  />
+              {createRule && (
+                <div className="space-y-2 pl-6">
+                  <div className="space-y-1">
+                    <Label className="text-xs">{t("categorize.matchPattern")}</Label>
+                    <Input
+                      value={rulePattern}
+                      onChange={(e) => setRulePattern(e.target.value)}
+                      placeholder={t("categorize.patternPlaceholder")}
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">{t("categorize.matchField")}</Label>
+                    <Select value={ruleMatchField} onValueChange={setRuleMatchField}>
+                      <SelectTrigger className="h-8 text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {MATCH_FIELDS.map((f) => (
+                          <SelectItem key={f.value} value={f.value}>
+                            {t(f.labelKey)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">{t("categorize.matchType")}</Label>
+                    <Select
+                      value={ruleMatchType}
+                      onValueChange={setRuleMatchType}
+                    >
+                      <SelectTrigger className="h-8 text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {MATCH_TYPES.map((m) => (
+                          <SelectItem key={m.value} value={m.value}>
+                            {t(m.labelKey)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">{t("categorize.matchField")}</Label>
-                  <Select value={ruleMatchField} onValueChange={setRuleMatchField}>
-                    <SelectTrigger className="h-8 text-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {MATCH_FIELDS.map((f) => (
-                        <SelectItem key={f.value} value={f.value}>
-                          {t(f.labelKey)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">{t("categorize.matchType")}</Label>
-                  <Select
-                    value={ruleMatchType}
-                    onValueChange={setRuleMatchType}
-                  >
-                    <SelectTrigger className="h-8 text-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {MATCH_TYPES.map((m) => (
-                        <SelectItem key={m.value} value={m.value}>
-                          {t(m.labelKey)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
 
           <div className="flex justify-end gap-2">
             <Button

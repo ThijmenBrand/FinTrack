@@ -531,9 +531,7 @@ export const getBudgetOverview = cache(async (
 
   // Headline totals treat recurring fixed costs as part of the budget too —
   // money is still flowing out, so a "budget spent vs. budget total" bar
-  // should reflect both committed envelopes and recurring bills. `spent`
-  // counts every expense (and net pot outflow) in the period, not just
-  // spending in budgeted categories.
+  // should reflect both committed envelopes and recurring bills.
   const totalAllocated = allBudgets.reduce(
     (s, b) => s + (allowanceByCategory?.get(b.categoryId) ?? b.amount),
     0,
@@ -544,15 +542,11 @@ export const getBudgetOverview = cache(async (
   );
   const totalBudgeted = totalAllocated + totalFixedCosts;
 
-  const txTotal = monthByCategory.reduce((s, r) => s + (Number(r.total) || 0), 0);
-  const potExpense = monthPotSpend.reduce((s, r) => s + r.spent, 0);
-  const totalBudgetSpent = txTotal + potExpense;
-
-  // The gap between the headline and the bars: spending in categories with no
-  // budget (incl. uncategorized), plus pots that have no category of their own.
-  // A category with an active recurring expense is already budgeted as a fixed
-  // cost. The Budgets page keeps those out of manual allocations, so treating
-  // them as unbudgeted here made the dashboard contradict that page.
+  // Spending in categories with no budget (incl. uncategorized), plus pots that
+  // have no category of their own. A category with an active recurring expense
+  // is already budgeted as a fixed cost. The Budgets page keeps those out of
+  // manual allocations, so treating them as unbudgeted here made the dashboard
+  // contradict that page.
   const budgetedCategoryIds = new Set(allBudgets.map((b) => b.categoryId));
   for (const fixedCost of recurringExpenses) {
     if (fixedCost.categoryId) budgetedCategoryIds.add(fixedCost.categoryId);
@@ -568,6 +562,16 @@ export const getBudgetOverview = cache(async (
     monthPotSpend,
     budgetedCategoryIds,
   );
+  const unbudgetedTotal = unbudgetedItems.reduce((s, r) => s + r.spent, 0);
+
+  // Only spending that has a budget behind it counts against the headline —
+  // it is measured against `totalBudgeted`, and unbudgeted categories add
+  // nothing to that side. Counting them made the bar read "over budget" for
+  // anyone who does not allocate every category. They are listed on their own
+  // below (`unbudgetedItems`), which is where that money belongs.
+  const txTotal = monthByCategory.reduce((s, r) => s + (Number(r.total) || 0), 0);
+  const potExpense = monthPotSpend.reduce((s, r) => s + r.spent, 0);
+  const totalBudgetSpent = txTotal + potExpense - unbudgetedTotal;
 
   return {
     plan: plan
@@ -581,7 +585,7 @@ export const getBudgetOverview = cache(async (
       : null,
     budgetItems,
     unbudgetedItems,
-    unbudgetedTotal: unbudgetedItems.reduce((s, r) => s + r.spent, 0),
+    unbudgetedTotal,
     totalBudgeted,
     totalBudgetSpent,
     monthProgress,

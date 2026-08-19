@@ -7,10 +7,12 @@ import { useI18n } from "@/lib/i18n/client";
 /**
  * Four numbers, in the order the question gets asked: what may I spend, what
  * did I spend, what is left, what is already claimed by bills.
+ *
+ * Tablet and up only — see `Meter` for the phone.
  */
 function Grid({ children }: { children: React.ReactNode }) {
   return (
-    <dl className="grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-4">{children}</dl>
+    <dl className="hidden gap-x-6 gap-y-5 sm:grid sm:grid-cols-4">{children}</dl>
   );
 }
 
@@ -41,8 +43,86 @@ function Stat({
 const NEGATIVE = "text-red-600 dark:text-red-400";
 
 /**
- * The month at a glance. `toSpend` is this month's allowance — a flat limit for
- * a monthly plan, the carry-over-adjusted one for a yearly plan.
+ * The phone's version of the strip above.
+ *
+ * Four numbers side by side leave about 150px each at 360px and push the
+ * categories a full screen down — on a phone the plan itself is what the page
+ * is for. So the phone answers the one question a budget gets opened for
+ * (what is left), draws the rest as a bar, and puts the supporting figures on
+ * one line under it.
+ */
+function Meter({
+  label,
+  value,
+  negative,
+  aside,
+  usedPct,
+  reservedPct = 0,
+  barLabel,
+  facts,
+}: {
+  label: string;
+  value: string;
+  negative?: boolean;
+  /** Counter beside the label — the daily pace, or months still to run. */
+  aside?: string;
+  usedPct: number;
+  /** Second segment: money still owed to bills that have not gone out yet. */
+  reservedPct?: number;
+  barLabel: string;
+  facts: (string | false | undefined)[];
+}) {
+  return (
+    <div className="sm:hidden">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
+          {label}
+        </span>
+        {aside && (
+          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+            {aside}
+          </span>
+        )}
+      </div>
+      <p
+        className={`mt-1 text-3xl font-semibold leading-tight tabular-nums ${negative ? NEGATIVE : ""}`}
+      >
+        {value}
+      </p>
+      {/* Spent, then what the bills will still take, then the free remainder.
+          One bar says what the middle two stats used to say in words. */}
+      <div
+        className="mt-3 flex h-2 overflow-hidden rounded-full bg-muted"
+        role="img"
+        aria-label={barLabel}
+      >
+        <div
+          className={`h-full transition-[width] duration-500 ${negative ? "bg-red-500" : "bg-primary"}`}
+          style={{ width: `${usedPct}%` }}
+        />
+        {reservedPct > 0 && (
+          <div
+            className="h-full bg-primary/25 transition-[width] duration-500"
+            style={{ width: `${reservedPct}%` }}
+          />
+        )}
+      </div>
+      <p className="mt-2 text-xs text-muted-foreground">
+        {facts.filter(Boolean).join(" · ")}
+      </p>
+    </div>
+  );
+}
+
+/** Share of `total`, clamped to the bar. */
+const share = (part: number, total: number) =>
+  total > 0 ? Math.min(100, Math.max(0, (part / total) * 100)) : 0;
+
+/**
+ * The month at a glance. `toSpend` is everything the month is budgeted to
+ * cost — the allocations (a flat limit for a monthly plan, the
+ * carry-over-adjusted one for a yearly plan) plus the fixed costs — and
+ * `spent` is measured on the same footing.
  */
 export function MonthStats({
   toSpend,
@@ -65,34 +145,24 @@ export function MonthStats({
 }) {
   const { t, plural, formatCurrency } = useI18n();
   const left = toSpend - spent;
-  const perDay = daysLeft && daysLeft > 0 ? Math.max(0, left) / daysLeft : null;
+  // `toSpend` includes the fixed costs, so part of what is left is already
+  // owed to bills that have not gone out yet. The daily pace is what survives
+  // them — otherwise it invites you to spend the rent.
+  const perDay =
+    daysLeft && daysLeft > 0 ? Math.max(0, left - fixedDue) / daysLeft : null;
+  const spentLine = t("budgets.allocationsSpent", {
+    spent: formatCurrency(spent),
+    limit: formatCurrency(toSpend),
+  });
+  const usedPct = share(spent, toSpend);
 
   return (
-    <Grid>
-      <Stat
-        label={t("budgets.yearly.stat.thisMonth")}
-        value={formatCurrency(toSpend)}
-        sub={
-          allowanceNote ??
-          plural(categories, "budgets.stat.categories.one", "budgets.stat.categories.other")
-        }
-      />
-      <Stat
-        label={t("budgets.stat.spentSoFar")}
-        value={formatCurrency(spent)}
-        sub={
-          toSpend > 0
-            ? t("budgets.stat.pctOfBudget", {
-                pct: Math.round((spent / toSpend) * 100),
-              })
-            : undefined
-        }
-      />
-      <Stat
+    <>
+      <Meter
         label={t("budgets.stat.leftThisMonth")}
         value={formatCurrency(left)}
-        tone={left < 0 ? NEGATIVE : ""}
-        sub={
+        negative={left < 0}
+        aside={
           perDay !== null
             ? t("budgets.stat.perDayLeft", {
                 amount: formatCurrency(perDay),
@@ -100,17 +170,63 @@ export function MonthStats({
               })
             : undefined
         }
+        usedPct={usedPct}
+        reservedPct={Math.min(100 - usedPct, share(fixedDue, toSpend))}
+        barLabel={spentLine}
+        facts={[
+          spentLine,
+          fixedDue > 0 &&
+            `${t("budgets.stat.fixedDue")} ${formatCurrency(fixedDue)}`,
+        ]}
       />
-      <Stat
-        label={t("budgets.stat.fixedDue")}
-        value={formatCurrency(fixedDue)}
-        sub={plural(
-          fixedPayments,
-          "budgets.stat.recurringPayments.one",
-          "budgets.stat.recurringPayments.other",
-        )}
-      />
-    </Grid>
+      <Grid>
+        <Stat
+          label={t("budgets.yearly.stat.thisMonth")}
+          value={formatCurrency(toSpend)}
+          sub={
+            allowanceNote ??
+            plural(
+              categories,
+              "budgets.stat.categories.one",
+              "budgets.stat.categories.other",
+            )
+          }
+        />
+        <Stat
+          label={t("budgets.stat.spentSoFar")}
+          value={formatCurrency(spent)}
+          sub={
+            toSpend > 0
+              ? t("budgets.stat.pctOfBudget", {
+                  pct: Math.round((spent / toSpend) * 100),
+                })
+              : undefined
+          }
+        />
+        <Stat
+          label={t("budgets.stat.leftThisMonth")}
+          value={formatCurrency(left)}
+          tone={left < 0 ? NEGATIVE : ""}
+          sub={
+            perDay !== null
+              ? t("budgets.stat.perDayLeft", {
+                  amount: formatCurrency(perDay),
+                  days: daysLeft as number,
+                })
+              : undefined
+          }
+        />
+        <Stat
+          label={t("budgets.stat.fixedDue")}
+          value={formatCurrency(fixedDue)}
+          sub={plural(
+            fixedPayments,
+            "budgets.stat.recurringPayments.one",
+            "budgets.stat.recurringPayments.other",
+          )}
+        />
+      </Grid>
+    </>
   );
 }
 
@@ -128,9 +244,34 @@ export function YearStats({
   // The current month counts as remaining — it is not spent yet. A finished
   // year has none: `monthIndex` there is just the last month we can show.
   const monthsLeft = isLiveYear ? MONTHS_PER_YEAR - view.monthIndex : 0;
+  const spentLine = t("budgets.allocationsSpent", {
+    spent: formatCurrency(totals.spentYear),
+    limit: formatCurrency(totals.annualPot),
+  });
 
   return (
-    <Grid>
+    <>
+      <Meter
+        label={t("budgets.yearly.stat.leftYear")}
+        value={formatCurrency(totals.remainingYear)}
+        negative={totals.remainingYear < 0}
+        aside={
+          monthsLeft > 0
+            ? plural(
+                monthsLeft,
+                "budgets.stat.monthsRemaining.one",
+                "budgets.stat.monthsRemaining.other",
+              )
+            : undefined
+        }
+        usedPct={share(totals.spentYear, totals.annualPot)}
+        barLabel={spentLine}
+        facts={[
+          spentLine,
+          `${t("budgets.yearly.stat.income")} ${formatCurrency(income.total)}`,
+        ]}
+      />
+      <Grid>
       <Stat
         label={t("budgets.yearly.stat.income")}
         value={formatCurrency(income.total)}
@@ -172,6 +313,7 @@ export function YearStats({
           "budgets.stat.monthsRemaining.other",
         )}
       />
-    </Grid>
+      </Grid>
+    </>
   );
 }

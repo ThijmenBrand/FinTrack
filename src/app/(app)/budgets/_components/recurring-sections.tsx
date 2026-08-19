@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Lock, Plus, TrendingUp } from "lucide-react";
+import { Plus, Repeat, TrendingUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   useRecurring,
@@ -16,36 +16,49 @@ import { RecurringItem } from "@/app/(app)/recurring/_components/recurring-item"
 import { RecurringFormDialog } from "@/app/(app)/recurring/_components/recurring-form-dialog";
 import { CategoryProgressRow } from "./category-progress-row";
 import { SectionHeader } from "./section-header";
+import { TONE, fixedCostStatus } from "./budget-row";
 
 /** Server-side bucket key for a recurring row with no category. */
 const UNCATEGORIZED = "uncategorized";
 
+/** What every recurring row needs; identical for income and fixed costs. */
+export interface PlanRowProps {
+  showAccount: boolean;
+  inBudgetList: boolean;
+  onEdit: (item: RecurringTx) => void;
+  onDelete: (id: string) => void;
+  onToggle: (item: RecurringTx) => void;
+}
+
+/** One category's fixed cost, with the plans that produce it. */
+export interface FixedCostGroup {
+  categoryId: string;
+  /** Absent when every plan in the category is paused — nothing is due then. */
+  fc?: FixedCost;
+  items: RecurringTx[];
+}
+
 /**
- * The income and fixed-cost sections of the budget list.
+ * The recurring plans behind the budget list: this plan's income, and the
+ * fixed costs grouped by the category they land in.
  *
- * These rows *are* the budget's income line and its fixed-cost line — the API
- * derives both from `recurring_transactions` — so they are list items in the
- * plan itself, not a card beside it and not folded away behind a disclosure.
- * A bill you cannot avoid is the first thing a budget has to account for; it
- * gets the same row, the same columns and the same visibility as a category
- * you choose to spend on.
- *
- * Returns bare `<li>`s: the caller owns the `<ul>` so every section of the
- * plan divides and aligns as one list.
+ * A hook rather than a section component because a fixed cost is a budgeted
+ * expense like any other — the page sorts these groups in among the
+ * allocations rather than stacking them below in a section of their own.
  */
-export function RecurringSections({
-  fixedCosts,
+export function useRecurringPlans({
   planAccountIds,
+  fixedCosts,
   accounts,
   categories,
 }: {
-  fixedCosts: FixedCost[];
   /** Accounts this plan owns; null when no plan scopes the page (= all). */
   planAccountIds: string[] | null;
+  fixedCosts: FixedCost[] | undefined;
   accounts: Account[];
   categories: CategoryWithDetails[];
 }) {
-  const { t, formatCurrency } = useI18n();
+  const { t } = useI18n();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<RecurringTx | null>(null);
 
@@ -66,7 +79,7 @@ export function RecurringSections({
     const byActive = (a: RecurringTx, b: RecurringTx) =>
       Number(b.isActive) - Number(a.isActive);
 
-    const progress = new Map(fixedCosts.map((fc) => [fc.categoryId, fc]));
+    const progress = new Map((fixedCosts ?? []).map((fc) => [fc.categoryId, fc]));
     const groups = new Map<string, { fc?: FixedCost; items: RecurringTx[] }>();
     for (const item of scoped) {
       if (item.type !== "expense") continue;
@@ -77,7 +90,7 @@ export function RecurringSections({
     }
     // Biggest monthly commitment first; a category whose plans are all paused
     // carries no fixed cost and sinks to the bottom rather than vanishing.
-    const ordered = [...groups.entries()]
+    const ordered: FixedCostGroup[] = [...groups.entries()]
       .map(([categoryId, group]) => ({
         categoryId,
         ...group,
@@ -95,13 +108,6 @@ export function RecurringSections({
   const monthlyIncome = income
     .filter((i) => i.isActive)
     .reduce((sum, i) => sum + toMonthly(i.amount, i.frequency), 0);
-  const fixedSpent = fixedCosts.reduce((sum, fc) => sum + fc.spent, 0);
-  const fixedLimit = fixedCosts.reduce((sum, fc) => sum + fc.monthlyAmount, 0);
-
-  const openEdit = (item: RecurringTx) => {
-    setEditing(item);
-    setDialogOpen(true);
-  };
 
   const handleSubmit = async (payload: Record<string, unknown>) => {
     await (editing
@@ -114,132 +120,151 @@ export function RecurringSections({
   // `mutate`, not `mutateAsync` — these fire from a row with nothing awaiting
   // them, so a failed request belongs in the mutation's error state rather
   // than an unhandled rejection.
-  const rowProps = {
+  const rowProps: PlanRowProps = {
     showAccount,
-    onEdit: openEdit,
-    onDelete: (id: string) => deleteRecurring.mutate(id),
-    onToggle: (item: RecurringTx) =>
+    inBudgetList: true,
+    onEdit: (item) => {
+      setEditing(item);
+      setDialogOpen(true);
+    },
+    onDelete: (id) => deleteRecurring.mutate(id),
+    onToggle: (item) =>
       updateRecurring.mutate({ id: item.id, isActive: !item.isActive }),
   };
 
-  return (
-    <>
-      {income.length > 0 && (
-        <>
-          <SectionHeader
-            icon={TrendingUp}
-            iconClassName="text-emerald-600 dark:text-emerald-400"
-            label={t("common.income")}
-            note={`${formatCurrency(monthlyIncome)}${t("recurring.perMonthShort")}`}
-          />
-          {/* No indent: income rows sit under their section heading, not under
-              a category row the way fixed costs do. */}
-          {income.map((item) => (
-            <RecurringItem key={item.id} item={item} {...rowProps} />
-          ))}
-        </>
-      )}
-
-      <SectionHeader
-        icon={Lock}
-        label={t("budgets.fixedCostsTitle")}
-        note={
-          fixedLimit > 0
-            ? t("budgets.allocationsSpent", {
-                spent: formatCurrency(fixedSpent),
-                limit: formatCurrency(fixedLimit),
-              })
-            : undefined
-        }
-        action={
-          // One dialog for both sections — the form picks income or expense.
-          <RecurringFormDialog
-            open={dialogOpen}
-            onOpenChange={(next) => {
-              setDialogOpen(next);
-              if (!next) setEditing(null);
-            }}
-            editing={editing}
-            accounts={accounts}
-            categories={categories}
-            onSubmit={handleSubmit}
-            trigger={
-              <Button variant="ghost" size="sm">
-                <Plus className="mr-1.5 h-3.5 w-3.5" />
-                {t("recurring.add")}
-              </Button>
-            }
-          />
+  return {
+    income,
+    monthlyIncome,
+    expenseGroups,
+    rowProps,
+    /**
+     * Add/edit form for both kinds of plan — the form itself picks income or
+     * expense. Rendered in the list header: it is also what the pencil on a
+     * row opens, so it has to be mounted whichever period is on screen.
+     */
+    formDialog: (
+      <RecurringFormDialog
+        open={dialogOpen}
+        onOpenChange={(next) => {
+          setDialogOpen(next);
+          if (!next) setEditing(null);
+        }}
+        editing={editing}
+        accounts={accounts}
+        categories={categories}
+        onSubmit={handleSubmit}
+        trigger={
+          // Icon-only on a phone, like the other controls in that header — and
+          // the repeat mark rather than a plus, because it shares the row with
+          // "add category" and two plus buttons say nothing about which is which.
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-9 w-9 p-0 sm:h-8 sm:w-auto sm:px-3"
+            aria-label={t("recurring.add")}
+          >
+            <Repeat className="h-3.5 w-3.5 sm:hidden" />
+            <Plus className="hidden h-3.5 w-3.5 sm:mr-1.5 sm:inline" />
+            <span className="hidden sm:inline">{t("recurring.add")}</span>
+          </Button>
         }
       />
-      {expenseGroups.length === 0 ? (
-        <li className="px-4 py-6 text-center text-sm text-muted-foreground">
-          {t("budgets.noFixedCostsYet")}
-        </li>
-      ) : (
-        expenseGroups.map(({ categoryId, fc, items }) => (
-          <CategoryGroup
-            key={categoryId}
-            fc={fc}
-            items={items}
-            rowProps={rowProps}
-          />
-        ))
-      )}
+    ),
+  };
+}
+
+/**
+ * The plan's income: its own section at the foot of the list.
+ *
+ * Income is the only part of the plan that isn't an expense, so it keeps a
+ * heading of its own — everything above it is money going out.
+ */
+export function IncomeSection({
+  income,
+  monthlyIncome,
+  rowProps,
+}: {
+  income: RecurringTx[];
+  monthlyIncome: number;
+  rowProps: PlanRowProps;
+}) {
+  const { t, formatCurrency } = useI18n();
+  if (income.length === 0) return null;
+
+  return (
+    <>
+      <SectionHeader
+        icon={TrendingUp}
+        iconClassName="text-emerald-600 dark:text-emerald-400"
+        label={t("common.income")}
+        note={`${formatCurrency(monthlyIncome)}${t("recurring.perMonthShort")}`}
+      />
+      {/* No indent: income rows sit under their section heading, not under a
+          category row the way fixed costs do. */}
+      {income.map((item) => (
+        <RecurringItem key={item.id} item={item} {...rowProps} />
+      ))}
     </>
   );
 }
 
-/** One category's planned-vs-paid line, with the plans that produce it beneath. */
-function CategoryGroup({
-  fc,
+/** The recurring plans under a category, indented like its sub-lines. */
+export function PlanRows({
   items,
   rowProps,
 }: {
-  fc?: FixedCost;
   items: RecurringTx[];
-  rowProps: {
-    showAccount: boolean;
-    onEdit: (item: RecurringTx) => void;
-    onDelete: (id: string) => void;
-    onToggle: (item: RecurringTx) => void;
-  };
+  rowProps: PlanRowProps;
+}) {
+  return items.map((item) => (
+    <RecurringItem key={item.id} item={item} className="sm:pl-9" {...rowProps} />
+  ));
+}
+
+/**
+ * A fixed-cost category as a budget line: the category's planned-vs-paid row,
+ * with the recurring plans that produce it as its sub-lines.
+ */
+export function FixedCostRow({
+  group,
+  rowProps,
+}: {
+  group: FixedCostGroup;
+  rowProps: PlanRowProps;
 }) {
   const { t, formatCurrency } = useI18n();
-  const first = items[0];
-  const monthlyAmount = fc?.monthlyAmount ?? 0;
-  const spent = fc?.spent ?? 0;
-  const pct = monthlyAmount > 0 ? Math.min(100, (spent / monthlyAmount) * 100) : 0;
-  const outstanding = monthlyAmount - spent;
-  const over = outstanding <= -0.01;
+  const first = group.items[0];
+  const { limit, spent, percentage, outstanding, status } = fixedCostStatus(group.fc);
   const settled = Math.abs(outstanding) < 0.01;
+  // Same palette as the allocation rows above: category colour while healthy,
+  // amber once it's nearly paid out, red past the plan.
+  const tone = TONE[status];
+  const color = group.fc?.categoryColor || first.categoryColor || "#94a3b8";
 
   return (
     <>
       <CategoryProgressRow
-        color={fc?.categoryColor || first.categoryColor || "#94a3b8"}
+        color={color}
         name={
-          fc?.categoryName || first.categoryName || t("common.uncategorized")
+          group.fc?.categoryName || first.categoryName || t("common.uncategorized")
         }
-        progressPct={pct}
-        barClassName={over ? "bg-red-500" : "bg-slate-400"}
+        progressPct={Math.min(100, percentage)}
+        barColor={tone.bar || color}
         amount={
           <>
             <span className="font-medium">{formatCurrency(spent)}</span>
             <span className="text-muted-foreground">
               {" / "}
-              {formatCurrency(monthlyAmount)}
+              {formatCurrency(limit)}
             </span>
           </>
         }
         delta={
           // A category whose plans are all paused owes nothing this month —
           // "paid" would be a lie, so it gets no note at all.
-          monthlyAmount === 0 && spent === 0 ? null : (
-            <span
-              className={over ? "text-red-600 dark:text-red-400" : "text-muted-foreground"}
-            >
-              {over
+          limit === 0 && spent === 0 ? null : (
+            <span className={tone.text}>
+              {status === "exceeded"
                 ? t("budgets.overAmount", { amount: formatCurrency(-outstanding) })
                 : settled
                   ? t("budgets.paid")
@@ -248,9 +273,7 @@ function CategoryGroup({
           )
         }
       />
-      {items.map((item) => (
-        <RecurringItem key={item.id} item={item} className="sm:pl-9" {...rowProps} />
-      ))}
+      <PlanRows items={group.items} rowProps={rowProps} />
     </>
   );
 }
