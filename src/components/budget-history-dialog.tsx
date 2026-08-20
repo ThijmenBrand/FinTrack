@@ -9,7 +9,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Separator } from "@/components/ui/separator";
 import {
   CheckCircle,
   AlertTriangle,
@@ -22,11 +21,25 @@ import {
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog";
 import { useBudgetHistory } from "@/hooks/use-budgets";
 
-import type { Allocation, Transaction, HistoryData } from "@/types/api";
+import type { Transaction } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
+import { WARN_PCT } from "@/app/(app)/budgets/_components/budget-row";
+
+/**
+ * What the dialog needs of the line it was opened from. An `Allocation`
+ * satisfies it; so does a fixed-cost category, whose `amount` is the monthly
+ * total of its recurring plans rather than a budget line.
+ */
+export interface HistoryTarget {
+  categoryId: string;
+  categoryName: string | null;
+  categoryColor: string | null;
+  /** The monthly figure every month in the history is measured against. */
+  amount: number;
+}
 
 interface BudgetHistoryDialogProps {
-  allocation: Allocation | null;
+  allocation: HistoryTarget | null;
   /** Plan whose budget line and account scope the history reflects. */
   budgetId?: string;
   onOpenChange: (open: boolean) => void;
@@ -129,24 +142,37 @@ export function BudgetHistoryDialog({ allocation, budgetId, onOpenChange }: Budg
                 const isLoadingTx = loadingMonth === m.month;
                 const txList = monthTransactions[m.month];
 
+                // Measured here rather than server-side: the API compares each
+                // month against the category's budget line, which a fixed-cost
+                // category doesn't have. The row that opened this dialog knows
+                // what the month should be judged against.
+                const percentage =
+                  allocation.amount > 0 ? (m.spent / allocation.amount) * 100 : 0;
+                const status =
+                  percentage >= 100
+                    ? "exceeded"
+                    : percentage >= WARN_PCT
+                      ? "warning"
+                      : "ok";
+
                 const barColor =
-                  m.status === "exceeded"
+                  status === "exceeded"
                     ? "#ef4444"
-                    : m.status === "warning"
+                    : status === "warning"
                       ? "#f59e0b"
                       : allocation.categoryColor || "#3b82f6";
 
                 const StatusIcon =
-                  m.status === "exceeded"
+                  status === "exceeded"
                     ? XCircle
-                    : m.status === "warning"
+                    : status === "warning"
                       ? AlertTriangle
                       : CheckCircle;
 
                 const statusColor =
-                  m.status === "exceeded"
+                  status === "exceeded"
                     ? "text-red-500 dark:text-red-400"
-                    : m.status === "warning"
+                    : status === "warning"
                       ? "text-amber-500 dark:text-amber-400"
                       : "text-green-500 dark:text-green-400";
 
@@ -187,7 +213,7 @@ export function BudgetHistoryDialog({ allocation, budgetId, onOpenChange }: Budg
                         <div
                           className="h-full rounded-full transition-all duration-300"
                           style={{
-                            width: `${Math.min(m.percentage, 100)}%`,
+                            width: `${Math.min(percentage, 100)}%`,
                             backgroundColor: barColor,
                           }}
                         />
@@ -201,7 +227,7 @@ export function BudgetHistoryDialog({ allocation, budgetId, onOpenChange }: Budg
                           </span>
                         </div>
                         <span className={`text-xs font-medium ${statusColor}`}>
-                          {m.percentage.toFixed(0)}%
+                          {percentage.toFixed(0)}%
                         </span>
                       </div>
                     </button>

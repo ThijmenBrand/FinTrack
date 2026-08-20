@@ -34,13 +34,14 @@ interface BudgetRowProps {
   /** False when there is no allocation behind the row to edit or delete. */
   editable?: boolean;
   deletePending?: boolean;
-  onHistory: () => void;
-  onEdit: () => void;
-  onDelete: () => void | Promise<void>;
+  /** Omitted when the row has no category to look up — the link is hidden. */
+  onHistory?: () => void;
+  onEdit?: () => void;
+  onDelete?: () => void | Promise<void>;
 }
 
 /** The row itself: one line per category, with the detail it hides behind it. */
-function BudgetRow({
+export function BudgetRow({
   name,
   color,
   tone: toneKey,
@@ -132,14 +133,16 @@ function BudgetRow({
           {note}
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
             {facts}
-            <button
-              type="button"
-              onClick={onHistory}
-              className="text-primary hover:underline"
-            >
-              {t("budgets.row.fullHistory")}
-            </button>
-            {!readOnly && editable && (
+            {onHistory && (
+              <button
+                type="button"
+                onClick={onHistory}
+                className="text-primary hover:underline"
+              >
+                {t("budgets.row.fullHistory")}
+              </button>
+            )}
+            {!readOnly && editable && onEdit && onDelete && (
               <span className="ml-auto flex items-center gap-0.5">
                 <Button
                   variant="ghost"

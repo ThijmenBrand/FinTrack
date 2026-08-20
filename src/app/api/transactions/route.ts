@@ -94,7 +94,21 @@ export async function GET(request: NextRequest) {
     if (uncategorized === "true") {
       conditions.push(sql`${transactions.categoryId} IS NULL`);
     } else if (categoryIds.length) {
-      conditions.push(inArray(transactions.categoryId, categoryIds));
+      // A pot carries its own category, and that is the one the budgets and
+      // insights pages attribute its whole net to — regardless of how the
+      // member rows are categorised (usually not at all). Matching on the row
+      // category alone would drop those pots here, so the same category reads
+      // lower on this page than in the budget bar it links to.
+      conditions.push(
+        or(
+          inArray(transactions.categoryId, categoryIds),
+          sql`${transactions.groupId} IN (
+            SELECT g.id FROM transaction_groups g
+            WHERE g.user_id = "transactions"."user_id"
+              AND ${inArray(sql`g.category_id`, categoryIds)}
+          )`,
+        )!,
+      );
     }
     // Exclusions: keep uncategorized rows visible when excluding categories.
     if (excludeCategoryIds.length) {

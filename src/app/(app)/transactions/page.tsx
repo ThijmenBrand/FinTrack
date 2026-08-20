@@ -183,8 +183,13 @@ function TransactionsPage() {
     if (dateFromOverride || dateToOverride) {
       return { from: dateFromOverride, to: dateToOverride };
     }
-    return computeDateRange(periodFilter);
-  }, [periodFilter, dateFromOverride, dateToOverride]);
+    return computeDateRange(periodFilter, preferences?.financialMonthStartDay ?? 1);
+  }, [
+    periodFilter,
+    dateFromOverride,
+    dateToOverride,
+    preferences?.financialMonthStartDay,
+  ]);
 
   // Transaction data via React Query
   const { data: txData, isLoading: loading, isPlaceholderData: fetching } = useTransactions({
