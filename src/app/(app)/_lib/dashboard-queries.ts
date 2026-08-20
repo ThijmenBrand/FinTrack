@@ -297,6 +297,61 @@ function mergeUnbudgeted(
     .sort((a, b) => b.spent - a.spent);
 }
 
+/**
+ * Budget rows for categories whose only plan is their recurring bills: one row
+ * per category, capped at the monthly-normalised total of its plans.
+ *
+ * The Budgets page gives those categories a row, the dashboard didn't — yet it
+ * counts the same bills in `totalBudgeted` and keeps their spending out of "Not
+ * budgeted", so the money landed in the headline and in neither list. A
+ * category that also carries an allocation is skipped: it keeps that one row,
+ * exactly as the Budgets page does it, instead of being capped twice.
+ */
+export function fixedCostBudgetLines(
+  recurringExpenses: {
+    categoryId: string | null;
+    categoryName: string | null;
+    categoryColor: string | null;
+    categoryIcon: string | null;
+    amount: number;
+    frequency: string;
+  }[],
+  allocatedCategoryIds: Set<string>,
+  spentByCategory: Map<string, number>,
+) {
+  const out = new Map<
+    string,
+    {
+      categoryId: string;
+      categoryName: string | null;
+      categoryColor: string | null;
+      categoryIcon: string | null;
+      period: string;
+      spent: number;
+      limit: number;
+    }
+  >();
+  for (const r of recurringExpenses) {
+    if (!r.categoryId || allocatedCategoryIds.has(r.categoryId)) continue;
+    const monthly = toMonthly(r.amount, r.frequency);
+    const existing = out.get(r.categoryId);
+    if (existing) {
+      existing.limit += monthly;
+      continue;
+    }
+    out.set(r.categoryId, {
+      categoryId: r.categoryId,
+      categoryName: r.categoryName,
+      categoryColor: r.categoryColor,
+      categoryIcon: r.categoryIcon,
+      period: "monthly",
+      spent: spentByCategory.get(r.categoryId) ?? 0,
+      limit: monthly,
+    });
+  }
+  return Array.from(out.values());
+}
+
 // ─── Per-widget queries ─────────────────────────────────────────────
 
 /**
@@ -386,10 +441,14 @@ export const getBudgetOverview = cache(async (
       db
         .select({
           categoryId: recurringTransactions.categoryId,
+          categoryName: categories.name,
+          categoryColor: categories.color,
+          categoryIcon: categories.icon,
           amount: recurringTransactions.amount,
           frequency: recurringTransactions.frequency,
         })
         .from(recurringTransactions)
+        .leftJoin(categories, eq(recurringTransactions.categoryId, categories.id))
         .where(
           and(
             eq(recurringTransactions.type, "expense"),
@@ -506,19 +565,39 @@ export const getBudgetOverview = cache(async (
   // comfortably funding out of earlier savings.
   const allowanceByCategory = await yearlyAllowances(dataUserId, plan, startDay);
 
-  const budgetItems = allBudgets
-    .map((b) => {
-      const spent = spendingByCategory.get(b.categoryId) || 0;
-      const limit = allowanceByCategory?.get(b.categoryId) ?? b.amount;
-      const pct = limit > 0 ? (spent / limit) * 100 : 0;
+  const allocationLines = allBudgets.map((b) => ({
+    categoryId: b.categoryId,
+    categoryName: b.categoryName,
+    categoryColor: b.categoryColor,
+    categoryIcon: b.categoryIcon,
+    period: b.period,
+    spent: spendingByCategory.get(b.categoryId) || 0,
+    limit: allowanceByCategory?.get(b.categoryId) ?? b.amount,
+  }));
+
+  const allocatedCategoryIds = new Set(allBudgets.map((b) => b.categoryId));
+  const monthSpendByCategory = new Map<string, number>();
+  for (const r of monthByCategory) {
+    if (r.categoryId) monthSpendByCategory.set(r.categoryId, Number(r.total) || 0);
+  }
+  for (const p of monthPotSpend) {
+    if (!p.categoryId) continue;
+    monthSpendByCategory.set(
+      p.categoryId,
+      (monthSpendByCategory.get(p.categoryId) ?? 0) + p.spent,
+    );
+  }
+  const fixedCostLines = fixedCostBudgetLines(
+    recurringExpenses,
+    allocatedCategoryIds,
+    monthSpendByCategory,
+  );
+
+  const budgetItems = [...allocationLines, ...fixedCostLines]
+    .map((line) => {
+      const pct = line.limit > 0 ? (line.spent / line.limit) * 100 : 0;
       return {
-        categoryId: b.categoryId,
-        categoryName: b.categoryName,
-        categoryColor: b.categoryColor,
-        categoryIcon: b.categoryIcon,
-        period: b.period,
-        spent,
-        limit,
+        ...line,
         percentage: Math.round(pct),
         status: (pct >= 100
           ? "exceeded"
@@ -547,10 +626,10 @@ export const getBudgetOverview = cache(async (
   // is already budgeted as a fixed cost. The Budgets page keeps those out of
   // manual allocations, so treating them as unbudgeted here made the dashboard
   // contradict that page.
-  const budgetedCategoryIds = new Set(allBudgets.map((b) => b.categoryId));
-  for (const fixedCost of recurringExpenses) {
-    if (fixedCost.categoryId) budgetedCategoryIds.add(fixedCost.categoryId);
-  }
+  const budgetedCategoryIds = new Set([
+    ...allocatedCategoryIds,
+    ...fixedCostLines.map((l) => l.categoryId),
+  ]);
   const unbudgetedItems = mergeUnbudgeted(
     monthByCategory.map((r) => ({
       categoryId: r.categoryId,
