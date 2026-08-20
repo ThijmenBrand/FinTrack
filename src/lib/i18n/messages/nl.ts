@@ -1321,6 +1321,7 @@ export const nl: Record<MessageKey, string> = {
   // ─── Transaction detail dialog ─────────────────────────────────────────────
   "txDetail.balance": "Saldo",
   "txDetail.linkedTo": "Gekoppeld aan",
+  "txDetail.notATransfer": "Geen overboeking",
   "txDetail.pot": "Potje",
   "txDetail.recurring": "Terugkerend",
   "txDetail.reimburses": "Vergoedt",
@@ -1763,6 +1764,7 @@ export const nl: Record<MessageKey, string> = {
   "api.expensesMustBeNegative": "Alle uitgaven moeten een negatief bedrag hebben",
   "api.reimbursementMustBePositive": "Een terugbetaling moet een positief bedrag hebben",
   "api.notAReimbursement": "Deze transactie is geen terugbetaling",
+  "api.notATransfer": "Deze transactie is geen interne overboeking",
   "api.transactionIdRange": "Geef tussen de 1 en 500 transacties op",
   "api.removeMoreThanFunded": "Je kunt niet meer weghalen dan er in het potje zit",
   "api.potNoTarget": "Dit potje heeft geen doel — stel eerst een doelbedrag en -datum in",

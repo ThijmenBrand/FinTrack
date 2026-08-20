@@ -1331,6 +1331,7 @@ export const en = {
   // ─── Transaction detail dialog ─────────────────────────────────────────────
   "txDetail.balance": "Balance",
   "txDetail.linkedTo": "Linked to",
+  "txDetail.notATransfer": "Not a transfer",
   "txDetail.pot": "Pot",
   "txDetail.recurring": "Recurring",
   "txDetail.reimburses": "Reimburses",
@@ -1777,6 +1778,7 @@ export const en = {
   "api.expensesMustBeNegative": "All expense transactions must have a negative amount",
   "api.reimbursementMustBePositive": "Reimbursement transaction must have a positive amount",
   "api.notAReimbursement": "Transaction is not a reimbursement",
+  "api.notATransfer": "Transaction is not an internal transfer",
   "api.transactionIdRange": "Provide between 1 and 500 transactions",
   "api.removeMoreThanFunded": "Cannot remove more than is funded",
   "api.potNoTarget": "This pot has no target — set a target amount and date first",

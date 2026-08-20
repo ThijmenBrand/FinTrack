@@ -6,7 +6,7 @@ import { setupTestDb } from "./test-db";
 const testDb = await setupTestDb("detect-transfers");
 
 const { db } = await import("@/db");
-const { detectTransfers } = await import("./detect-transfers");
+const { detectTransfers, undoTransfer } = await import("./detect-transfers");
 const { transactions, categories, accounts, accountMembers } = await import("@/db/schema");
 const { eq } = await import("drizzle-orm");
 
@@ -151,6 +151,18 @@ describe("detectTransfers", () => {
     expect((await detectTransfers(db, USER)).matchedPairs).toBe(0);
   });
 
+  it("skips reimbursements — a repayment is not a transfer", async () => {
+    await insertCategory("Internal Transfer");
+    await insertTx({ accountId: "A", date: "2026-05-01", amount: -101.85 });
+    await insertTx({
+      accountId: "B",
+      date: "2026-05-02",
+      amount: 101.85,
+      type: "reimbursement",
+    });
+    expect((await detectTransfers(db, USER)).matchedPairs).toBe(0);
+  });
+
   it("pairs each credit at most once (two debits, one credit)", async () => {
     await insertCategory("Internal Transfer");
     const d1 = await insertTx({ accountId: "A", date: "2026-05-01", amount: -75 });
@@ -228,5 +240,32 @@ describe("detectTransfers", () => {
     await insertTx({ accountId: "B", date: "2026-05-01", amount: 100 });
     expect((await detectTransfers(db, USER)).matchedPairs).toBe(1);
     expect((await detectTransfers(db, USER)).matchedPairs).toBe(0);
+  });
+
+  describe("undoTransfer", () => {
+    // The real case: you front a bill, someone pays you back from their own
+    // bank a day later. Same amount, opposite sign, two accounts —
+    // indistinguishable from an internal move, so the guess must be undoable.
+    it("reverts both legs to income/expense, from either side", async () => {
+      await insertCategory("Internal Transfer");
+      const expense = await insertTx({ accountId: "A", date: "2026-05-01", amount: -101.85 });
+      const repayment = await insertTx({ accountId: "B", date: "2026-05-02", amount: 101.85 });
+      expect((await detectTransfers(db, USER)).matchedPairs).toBe(1);
+
+      expect(await undoTransfer(db, repayment, USER)).toEqual({ reverted: 2 });
+
+      for (const [id, type] of [[expense, "expense"], [repayment, "income"]] as const) {
+        const row = await getTx(id);
+        expect(row.type).toBe(type);
+        expect(row.linkedTransactionId).toBeNull();
+        expect(row.categoryId).toBeNull();
+      }
+      // Both rows survive — deleting a leg would move that account's balance.
+      expect((await detectTransfers(db, USER)).matchedPairs).toBe(1);
+    });
+
+    it("is a no-op on an unknown id", async () => {
+      expect(await undoTransfer(db, "nope", USER)).toEqual({ reverted: 0 });
+    });
   });
 });

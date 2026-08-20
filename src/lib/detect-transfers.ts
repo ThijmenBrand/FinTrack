@@ -1,6 +1,6 @@
 import { db as defaultDb } from "@/db";
 import { transactions, categories } from "@/db/schema";
-import { eq, and, notInArray, inArray, asc } from "drizzle-orm";
+import { eq, and, notInArray, inArray, asc, or } from "drizzle-orm";
 import { writableTransactions } from "@/lib/account-access";
 import { defaultCategoryNames, TRANSFER_CATEGORY } from "@/lib/default-categories";
 
@@ -19,6 +19,74 @@ export async function findTransferCategory(db: typeof defaultDb, userId: string)
     .orderBy(asc(categories.createdAt), asc(categories.id))
     .limit(1);
   return rows.at(0);
+}
+
+/**
+ * Undo a transfer pairing: both legs drop back to plain income/expense by sign
+ * and lose the transfer category.
+ *
+ * Needed because `detectTransfers` pairs on amount + direction + date alone: a
+ * repayment from someone else lands in the same shape as a move between your own
+ * accounts (you front a €101,85 bill on one account, they pay you back on
+ * another the next day), and the detector cannot tell them apart. Without this,
+ * a wrong guess is only fixable by deleting the row.
+ *
+ * ponytail: reverts, never deletes. An import-created mirror leg has no CSV row
+ * of its own, so deleting it would move the far account's balance; leaving it as
+ * plain income/expense keeps every balance where the bank has it.
+ */
+export async function undoTransfer(
+  db: typeof defaultDb,
+  txId: string,
+  actorId: string,
+) {
+  // userId is selected, not filtered on: a leg can belong to another user via a
+  // shared account, and the tenant tripwire only asks that the statement name
+  // user_id at all (see assertTenantScoped).
+  const [tx] = await db
+    .select({
+      linkedTransactionId: transactions.linkedTransactionId,
+      userId: transactions.userId,
+    })
+    .from(transactions)
+    .where(eq(transactions.id, txId));
+  if (!tx) return { reverted: 0 };
+
+  // The row itself, whatever it points at, and anything pointing back at it —
+  // so a half-written link still gets cleaned up from either side.
+  const legs = await db
+    .select({
+      id: transactions.id,
+      amount: transactions.amount,
+      userId: transactions.userId,
+    })
+    .from(transactions)
+    .where(
+      or(
+        inArray(
+          transactions.id,
+          [txId, tx.linkedTransactionId].filter((id): id is string => !!id),
+        ),
+        eq(transactions.linkedTransactionId, txId),
+      ),
+    );
+
+  for (const leg of legs) {
+    await db
+      .update(transactions)
+      .set({
+        type: leg.amount >= 0 ? "income" : "expense",
+        linkedTransactionId: null,
+        categoryId: null,
+        categorySource: null,
+        modifiedBy: actorId,
+      })
+      // Scoped by the leg's OWN user_id: a pair can span a private account and a
+      // shared one, so the two legs may belong to different users.
+      .where(and(eq(transactions.id, leg.id), eq(transactions.userId, leg.userId)));
+  }
+
+  return { reverted: legs.length };
 }
 
 /**
@@ -43,8 +111,14 @@ export async function detectTransfers(db: typeof defaultDb, userId: string) {
     return transferCategories.get(rowUserId);
   };
 
-  // Find all transactions not yet flagged as transfers.
-  const excludedTypes: "internal_transfer"[] = ["internal_transfer"];
+  // Find all transactions not yet flagged as transfers. Reimbursements are out
+  // too: the user linked that row to an expense by hand, and a repayment is the
+  // one thing that looks exactly like a transfer to the amount+date heuristic —
+  // without this, every import would overwrite the link with a wrong guess.
+  const excludedTypes: ("internal_transfer" | "reimbursement")[] = [
+    "internal_transfer",
+    "reimbursement",
+  ];
   const allTx = await db
     .select()
     .from(transactions)

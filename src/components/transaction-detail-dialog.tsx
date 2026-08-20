@@ -1,6 +1,7 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -32,6 +33,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useCategories } from "@/hooks/use-categories";
 import { useAccounts } from "@/hooks/use-accounts";
+import { useUndoTransfer } from "@/hooks/use-transactions";
 import { NotesEditor } from "@/components/notes-editor";
 
 import type { Transaction, ReimbursementDetail } from "@/types/api";
@@ -60,6 +62,7 @@ export function TransactionDetailDialog({ transaction, onOpenChange, onCategoriz
   // the OWNER's space, and only their category ids are accepted on it.
   const { data: resolvedCategories = [] } = useCategories(transaction?.accountId);
   const { data: accounts = [] } = useAccounts();
+  const undoTransfer = useUndoTransfer();
   const account = accounts.find((a) => a.id === transaction?.accountId);
   // Rules are the owner's config; the server drops them from anyone else.
   const canCreateRule = !account || account.role === "owner";
@@ -202,11 +205,22 @@ export function TransactionDetailDialog({ transaction, onOpenChange, onCategoriz
             <NotesEditor key={tx.id} transactionId={tx.id} initialNotes={tx.notes} />
           </div>
 
-          {isTransfer && tx.linkedAccountName && (
+          {isTransfer && (
             <div className="flex items-center gap-3">
               <ArrowLeftRight className="h-4 w-4 text-muted-foreground shrink-0" />
               <span className="text-muted-foreground w-20 shrink-0">{t("txDetail.linkedTo")}</span>
-              <span className="font-medium">{tx.linkedAccountName}</span>
+              <span className="font-medium truncate">{tx.linkedAccountName || "—"}</span>
+              {/* Detection pairs on amount and date alone, so money someone paid
+                  you back can land here by accident. */}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="ml-auto h-7 shrink-0 text-xs text-muted-foreground"
+                disabled={undoTransfer.isPending}
+                onClick={() => undoTransfer.mutate(tx.id, { onSuccess: () => onOpenChange(false) })}
+              >
+                {t("txDetail.notATransfer")}
+              </Button>
             </div>
           )}
 

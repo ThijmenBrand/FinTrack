@@ -75,6 +75,23 @@ export function useDetectTransfers() {
   });
 }
 
+/** Undo one wrong transfer pairing — both legs go back to income/expense. */
+export function useUndoTransfer() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<{ success: boolean; reverted: number }>(
+        `/api/transactions/detect-transfers?id=${id}`,
+        { method: "DELETE" },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["transactions"] });
+      qc.invalidateQueries({ queryKey: ["budgets"] });
+      qc.invalidateQueries({ queryKey: ["insights"] });
+    },
+  });
+}
+
 type CategorizePayload = {
   transactionId: string;
   categoryId: string | null;
