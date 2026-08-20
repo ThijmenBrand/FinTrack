@@ -1,3 +1,4 @@
+import { avatarSrc } from "@/lib/avatar";
 import { cn } from "@/lib/utils";
 
 /** Someone we can draw a face (or an initial) for. */
@@ -21,6 +22,8 @@ export function UserAvatar({
   title,
   alt,
 }: AvatarPerson & { className?: string; title?: string; alt?: string }) {
+  const src = avatarSrc(image);
+
   return (
     <span
       title={title}
@@ -34,17 +37,18 @@ export function UserAvatar({
           everywhere else the name is already in adjacent text. */}
       <span aria-hidden="true">{initial(name)}</span>
       {alt && <span className="sr-only">{alt}</span>}
-      {image && (
-        // Layered over the initial rather than swapped in: if the blob 404s the
-        // img just doesn't paint and the initial shows through, so the fallback
-        // needs no onError handler and this stays a server component.
+      {src && (
+        // Layered over the initial rather than swapped in: if the fetch 404s or
+        // comes back 401 on an expired session, the img just doesn't paint and
+        // the initial shows through, so the fallback needs no onError handler
+        // and this stays a server component.
         //
         // ponytail: plain <img>, not next/image — the source is already a 256px
-        // webp from our own pipeline, so the optimizer would add a hop and an
-        // images.remotePatterns entry for nothing.
+        // webp from our own pipeline, and the optimizer refetches server-side
+        // without the session cookie, which a private avatar needs.
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={image}
+          src={src}
           alt=""
           className="absolute inset-0 h-full w-full object-cover"
         />

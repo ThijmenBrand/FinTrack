@@ -44,12 +44,34 @@ export function detectImageType(bytes: Uint8Array): ImageType | null {
   return null;
 }
 
-/** True for a URL we put in our own Vercel Blob store — guards `del()` calls. */
-export function isOwnBlobUrl(url: string | null | undefined): url is string {
-  if (!url) return false;
-  try {
-    return new URL(url).hostname.endsWith(".public.blob.vercel-storage.com");
-  } catch {
-    return false;
-  }
+/**
+ * Where an avatar lives inside the blob store.
+ *
+ * The store is private, so `user.image` holds this pathname rather than a
+ * public URL — there is no URL a signed-out browser could fetch. `put()` with
+ * `addRandomSuffix` turns `avatars/<id>.webp` into `avatars/<id>-<random>.webp`,
+ * so the shape stays a folder plus one flat filename. No slash is allowed in
+ * the filename, which is what keeps a request from walking out of `avatars/`.
+ */
+const AVATAR_PATHNAME = /^avatars\/[A-Za-z0-9._-]+\.webp$/;
+
+/** Guards both `del()` and the read proxy — never trust a stored string blindly. */
+export function isAvatarPathname(value: string | null | undefined): value is string {
+  return typeof value === "string" && AVATAR_PATHNAME.test(value);
+}
+
+/**
+ * `<img src>` for a stored avatar: everything routes through our own origin so
+ * the session cookie rides along and the private blob stays unreachable
+ * directly.
+ *
+ * Anything unrecognised returns undefined and the initials paint instead —
+ * failing closed matters here, since the one thing that must never render is a
+ * publicly readable face URL.
+ */
+export function avatarSrc(image?: string | null): string | undefined {
+  if (!image) return undefined;
+  // Object URL from the file picker, shown while the upload is still in flight.
+  if (image.startsWith("blob:")) return image;
+  return isAvatarPathname(image) ? `/api/avatar/${image}` : undefined;
 }

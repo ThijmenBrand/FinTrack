@@ -76,7 +76,7 @@ describe("account access", () => {
 
   it("sharedWithUsers carries faces for the badge, email-only while pending", async () => {
     await testDb.client.execute(
-      `UPDATE "user" SET image = 'https://x.public.blob.vercel-storage.com/b.webp' WHERE id = '${MEMBER}'`,
+      `UPDATE "user" SET image = 'avatars/b.webp' WHERE id = '${MEMBER}'`,
     );
     await membership({ id: "m-1" });
     await membership({ id: "m-2", userId: null, email: "c@example.com", acceptedAt: null });
@@ -84,7 +84,7 @@ describe("account access", () => {
 
     const [joint] = await getAccessibleAccounts(OWNER);
     expect(joint.sharedWithUsers).toEqual([
-      { name: "Bob", image: "https://x.public.blob.vercel-storage.com/b.webp", email: "member@example.com" },
+      { name: "Bob", image: "avatars/b.webp", email: "member@example.com" },
       // Pending invite: no user row yet, so the tile falls back to the email.
       { name: null, image: null, email: "c@example.com" },
     ]);
