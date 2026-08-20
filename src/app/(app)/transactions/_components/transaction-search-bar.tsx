@@ -4,6 +4,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { parseSearchTerm } from "@/lib/search-query";
+import {
+  getFinancialMonthRange,
+  getPreviousFinancialMonth,
+} from "@/lib/financial-month";
 import type { Account, Category, Pot } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
 import type { I18n, MessageKey } from "@/lib/i18n/translate";
@@ -57,29 +61,28 @@ interface FilterToken {
   exclude?: boolean;
 }
 
-export function computeDateRange(period: string): { from: string; to: string } {
+// `startDay` is the user's financial-month start (1 = calendar months). The
+// month presets go through the same helpers the budgets and insights pages use,
+// so "this month" here covers exactly the window those pages total up.
+export function computeDateRange(
+  period: string,
+  startDay: number = 1,
+): { from: string; to: string } {
   const now = new Date();
   const yyyy = now.getFullYear();
-  const mm = String(now.getMonth() + 1).padStart(2, "0");
 
   switch (period) {
     case "this-month":
-      return { from: `${yyyy}-${mm}-01`, to: "" };
-    case "last-month": {
-      const prev = new Date(yyyy, now.getMonth() - 1, 1);
-      const lastDay = new Date(yyyy, now.getMonth(), 0);
-      return {
-        from: `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, "0")}-01`,
-        to: `${lastDay.getFullYear()}-${String(lastDay.getMonth() + 1).padStart(2, "0")}-${String(lastDay.getDate()).padStart(2, "0")}`,
-      };
-    }
+      return { from: getFinancialMonthRange(now, startDay).from, to: "" };
+    case "last-month":
+      return getPreviousFinancialMonth(now, startDay);
     case "last-3-months": {
-      const d = new Date(yyyy, now.getMonth() - 2, 1);
-      return { from: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`, to: "" };
+      const start = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+      return { from: getFinancialMonthRange(start, startDay).from, to: "" };
     }
     case "last-6-months": {
-      const d = new Date(yyyy, now.getMonth() - 5, 1);
-      return { from: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`, to: "" };
+      const start = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+      return { from: getFinancialMonthRange(start, startDay).from, to: "" };
     }
     case "this-year":
       return { from: `${yyyy}-01-01`, to: "" };

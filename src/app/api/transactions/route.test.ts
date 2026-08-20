@@ -73,6 +73,49 @@ const post = (body: unknown) =>
     ),
   );
 
+const get = (query: string) =>
+  import("./route").then(({ GET }) =>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    GET(new Request(`http://x/api/transactions?${query}`) as any),
+  );
+
+describe("GET /api/transactions — category filter", () => {
+  // A pot's category lives on the pot, not on its members: budgets and insights
+  // book the pot's whole net under it, so filtering this endpoint on that
+  // category must find the pot too or the two screens disagree.
+  beforeEach(async () => {
+    const now = new Date().toISOString();
+    await testDb.client.execute({
+      sql: `INSERT INTO transaction_groups (id, user_id, name, category_id, created_at)
+            VALUES ('pot-1', ?, 'ULV', 'cat-owner', ?)`,
+      args: [OWNER, now],
+    });
+    await testDb.client.execute({
+      sql: `INSERT INTO transactions (id, user_id, account_id, date, description, amount, type, category_id, group_id, created_at)
+            VALUES ('tx-direct', ?, 'acc-private', '2026-08-09', 'Bar', -20, 'expense', 'cat-owner', NULL, ?),
+                   ('tx-potted', ?, 'acc-private', '2026-08-10', 'Pot member', -30, 'expense', NULL, 'pot-1', ?),
+                   ('tx-other', ?, 'acc-private', '2026-08-11', 'Unrelated', -99, 'expense', NULL, NULL, ?)`,
+      args: [OWNER, now, OWNER, now, OWNER, now],
+    });
+  });
+
+  it("counts a pot's net under the pot's own category, even when its members are uncategorised", async () => {
+    const body = await (await get("categoryId=cat-owner")).json();
+    expect(body.totals.expense).toBeCloseTo(-50, 2); // direct 20 + pot net 30
+    expect(body.potTotals).toHaveLength(1);
+    expect(body.data.map((r: { id: string }) => r.id).sort()).toEqual([
+      "tx-direct",
+      "tx-potted",
+    ]);
+  });
+
+  it("still leaves rows outside the category alone", async () => {
+    const body = await (await get("categoryId=cat-editor")).json();
+    expect(body.pagination.total).toBe(0);
+    expect(body.totals.expense).toBeCloseTo(0, 2);
+  });
+});
+
 describe("POST /api/transactions", () => {
   it("an editor creates a transaction on a shared account: row keeps the OWNER's userId, attributes createdBy to the editor, and validates the category in the OWNER's space", async () => {
     actor = EDITOR;

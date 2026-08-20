@@ -31,7 +31,10 @@ import type { EmptyGenerateReason } from "@/lib/auto-budget";
 import { Card, CardContent, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, Loader2, Coins, Sparkles, Wallet, X } from "lucide-react";
-import { BudgetHistoryDialog } from "@/components/budget-history-dialog";
+import {
+  BudgetHistoryDialog,
+  type HistoryTarget,
+} from "@/components/budget-history-dialog";
 import { BudgetSuggestionsDialog } from "@/components/budget-suggestions-dialog";
 import { useI18n } from "@/lib/i18n/client";
 import { AllocationRow, YearlyAllocationRow } from "./_components/allocation-row";
@@ -225,7 +228,7 @@ export default function BudgetsPage() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingAlloc, setEditingAlloc] = useState<Allocation | null>(null);
-  const [historyAlloc, setHistoryAlloc] = useState<Allocation | null>(null);
+  const [historyAlloc, setHistoryAlloc] = useState<HistoryTarget | null>(null);
   const [suggestionsDialogOpen, setSuggestionsDialogOpen] = useState(false);
   const [regenerateConfirmOpen, setRegenerateConfirmOpen] = useState(false);
   // Why the last generate run came back empty. Without this the button just
@@ -808,6 +811,7 @@ export default function BudgetsPage() {
                         key={row.group.categoryId}
                         group={row.group}
                         rowProps={recurring.rowProps}
+                        onHistory={setHistoryAlloc}
                       />
                     ) : (
                       <Fragment key={row.alloc.id}>
@@ -851,6 +855,7 @@ export default function BudgetsPage() {
                     key={group.categoryId}
                     group={group}
                     rowProps={recurring.rowProps}
+                    onHistory={setHistoryAlloc}
                   />
                 ))}
             </>
