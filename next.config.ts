@@ -30,9 +30,11 @@ const nextConfig: NextConfig = {
           {
             key: "Content-Security-Policy",
             value:
-              // Avatars live on Vercel Blob. Uploads go through our own route,
-              // so only img-src needs the host — connect-src stays 'self'.
-              "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.public.blob.vercel-storage.com; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+              // Avatars live in a private Vercel Blob store and are both written
+              // and read back through our own routes, so the blob host never
+              // appears in a src and 'self' covers it. `blob:` stays for the
+              // object-URL preview the file picker shows before upload.
+              "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
           },
         ],
       },

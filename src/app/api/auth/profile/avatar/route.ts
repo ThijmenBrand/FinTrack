@@ -13,8 +13,9 @@ import { createRateLimiter } from "@/lib/rate-limit";
 import {
   AVATAR_SIZE,
   MAX_AVATAR_BYTES,
+  avatarSrc,
   detectImageType,
-  isOwnBlobUrl,
+  isAvatarPathname,
 } from "@/lib/avatar";
 
 // Re-encoding is the expensive part of this route, so it gets its own limit
@@ -35,10 +36,10 @@ async function setImage(userId: string, url: string | null): Promise<void> {
 }
 
 /** Drop a superseded avatar. Never fatal — a leaked blob beats a failed save. */
-async function discard(url: string | null): Promise<void> {
-  if (!isOwnBlobUrl(url)) return;
+async function discard(pathname: string | null): Promise<void> {
+  if (!isAvatarPathname(pathname)) return;
   try {
-    await del(url);
+    await del(pathname);
   } catch {
     // The new image is already live; an orphan in the store is cosmetic.
   }
@@ -93,11 +94,13 @@ export async function POST(request: NextRequest) {
     // Random suffix, not a stable path: overwriting one pathname leaves the CDN
     // serving the old face for up to a month.
     const blob = await put(`avatars/${userId}.webp`, out, {
-      access: "public",
+      access: "private",
       contentType: "image/webp",
       addRandomSuffix: true,
     });
-    await setImage(userId, blob.url);
+    // The pathname, not `blob.url` — a private store's URL needs credentials to
+    // fetch, so what we persist is the key that /api/avatar reads back.
+    await setImage(userId, blob.pathname);
     await discard(previous);
 
     const { ipAddress, userAgent } = getRequestMeta(request.headers);
@@ -111,7 +114,7 @@ export async function POST(request: NextRequest) {
       userAgent,
     });
 
-    return NextResponse.json({ imageUrl: blob.url });
+    return NextResponse.json({ imageUrl: avatarSrc(blob.pathname) });
   }, "Failed to upload profile picture");
 }
 
