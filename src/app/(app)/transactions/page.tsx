@@ -30,7 +30,7 @@ import {
 import { useAccounts } from "@/hooks/use-accounts";
 import { useAccountCategories, useCategories } from "@/hooks/use-categories";
 import { usePots, useDeletePot, useAddToPot, useRemoveFromPot, useCreatePot } from "@/hooks/use-pots";
-import { useTransactions, useDeleteTransaction, useDetectTransfers, useDeleteReimbursement, useBulkCategorizeTransactions, useBulkDeleteTransactions } from "@/hooks/use-transactions";
+import { useTransactions, useDeleteTransaction, useDetectTransfers, useDeleteReimbursement, useBulkCategorizeTransactions, useBulkDeleteTransactions, useUnsplitTransaction } from "@/hooks/use-transactions";
 import { usePreferences } from "@/hooks/use-preferences";
 import type { Transaction, Pot, Pagination, PotRangeTotal } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
@@ -89,6 +89,7 @@ function TransactionsPage() {
   const createPot = useCreatePot();
   const bulkCategorize = useBulkCategorizeTransactions();
   const bulkDelete = useBulkDeleteTransactions();
+  const unsplitTx = useUnsplitTransaction();
 
   // Pagination state
   const [pagination, setPagination] = useState<Pagination>({
@@ -111,6 +112,7 @@ function TransactionsPage() {
   const [addToPotTx, setAddToPotTx] = useState<Transaction | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [noteTx, setNoteTx] = useState<Transaction | null>(null);
+  const [splitEditorOpen, setSplitEditorOpen] = useState(false);
 
   // Bulk selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -221,8 +223,11 @@ function TransactionsPage() {
 
   // Show the live row from the query cache so the open detail dialog reflects
   // categorize/link mutations; fall back to the snapshot if it left the page.
+  // Split children live nested under their parent's `splits`, not top-level.
   const liveSelectedTransaction = selectedTransaction
-    ? transactions.find((t) => t.id === selectedTransaction.id) ?? selectedTransaction
+    ? transactions.find((t) => t.id === selectedTransaction.id) ??
+      transactions.flatMap((t) => t.splits ?? []).find((c) => c.id === selectedTransaction.id) ??
+      selectedTransaction
     : null;
 
   // Sync pagination from query response
@@ -469,8 +474,10 @@ function TransactionsPage() {
           canCreateRule={ownsAccount(item.data.accountId)}
           selected={selectedIds.has(item.data.id)}
           hasPots={pots.length > 0}
+          categoryFilters={categoryFilters}
           onToggleSelect={() => toggleSelect(item.data.id)}
           onOpen={() => setSelectedTransaction(item.data)}
+          onOpenSplit={(child) => setSelectedTransaction(child)}
           onAddToPot={() => setAddToPotTx(item.data)}
           onRemoveFromPot={() => handleRemoveFromPot(item.data.groupId!, item.data.id)}
           onReimburse={() => setReimbursePicker(item.data)}
@@ -714,6 +721,13 @@ function TransactionsPage() {
         }}
         onFilterByCategory={(tx) => { if (tx.categoryId) applyFilter("category", tx.categoryId); }}
         onFilterByName={(tx) => applyFilter("search", tx.name || tx.description)}
+        onSplit={(tx) => {
+          setSelectedTransaction(tx);
+          setSplitEditorOpen(true);
+        }}
+        onUnsplit={(tx) => {
+          if (window.confirm(t("tx.split.unsplitConfirm"))) unsplitTx.mutate(tx.id);
+        }}
       />
 
       {/* Note Editor Dialog */}
@@ -731,7 +745,13 @@ function TransactionsPage() {
       {/* Transaction Detail Modal */}
       <TransactionDetailDialog
         transaction={liveSelectedTransaction}
-        onOpenChange={(open) => { if (!open) setSelectedTransaction(null); }}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedTransaction(null);
+            setSplitEditorOpen(false);
+          }
+        }}
+        openSplitEditor={splitEditorOpen}
       />
 
       {/* Reimbursement Picker */}

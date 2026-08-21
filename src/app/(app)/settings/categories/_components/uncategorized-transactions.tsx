@@ -104,6 +104,7 @@ export function UncategorizedTransactions() {
                           currentCategoryName={null}
                           currentCategoryColor={null}
                           categories={categoriesFor(tx.accountId)}
+                          accountId={tx.accountId}
                           canCreateRule={ownsAccount(tx.accountId)}
                         />
                       </div>

@@ -15,6 +15,14 @@ import { eq, sql, and, asc, count, inArray } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { requireAccountAccess, visibleCategories } from "@/lib/account-access";
 import { logDataEvent } from "@/lib/audit";
+import type { CategoryKind } from "@/types/api";
+
+// Allowlist for the `kind` enum — CLAUDE.md requires validating enum-like
+// query/body params against an explicit list before they touch a query.
+const CATEGORY_KINDS = ["income", "expense", "transfer"] as const;
+function isCategoryKind(v: unknown): v is CategoryKind {
+  return typeof v === "string" && (CATEGORY_KINDS as readonly string[]).includes(v);
+}
 
 // GET /api/categories — list all categories with transaction counts.
 // Rows on a shared account carry the OWNER's category ids, so a member's own
@@ -74,11 +82,17 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   return withUser(async (userId) => {
     const body = await request.json();
-    const { name, icon, color, accountId } = body;
+    const { name, icon, color, accountId, kind } = body;
 
     if (!name) {
       return apiError("api.nameRequired", 400);
     }
+
+    // Default to "expense" so existing clients that don't send `kind` keep working.
+    if (kind !== undefined && !isCategoryKind(kind)) {
+      return apiError("api.invalidType", 400);
+    }
+    const cleanKind: CategoryKind = isCategoryKind(kind) ? kind : "expense";
 
     // Same scoping as GET: a category created while working on a shared
     // account belongs in the OWNER's space, or the rows it gets attached to
@@ -97,6 +111,7 @@ export async function POST(request: NextRequest) {
       name,
       icon: icon || null,
       color: color || "#94a3b8",
+      kind: cleanKind,
       sortOrder: total,
       createdAt: new Date().toISOString(),
     });
@@ -116,13 +131,17 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   return withUser(async (userId) => {
     const body = await request.json();
-    const { id, name, icon, color } = body;
+    const { id, name, icon, color, kind } = body;
 
     if (!id) {
       return NextResponse.json(
         { error: "Category ID is required" },
         { status: 400 }
       );
+    }
+
+    if (kind !== undefined && !isCategoryKind(kind)) {
+      return apiError("api.invalidType", 400);
     }
 
     const [existing] = await db
@@ -138,10 +157,12 @@ export async function PUT(request: NextRequest) {
       name?: string;
       icon?: string | null;
       color?: string | null;
+      kind?: CategoryKind;
     } = {};
     if (name !== undefined) updateSet.name = name;
     if (icon !== undefined) updateSet.icon = icon;
     if (color !== undefined) updateSet.color = color;
+    if (kind !== undefined) updateSet.kind = kind;
 
     if (Object.keys(updateSet).length > 0) {
       await db

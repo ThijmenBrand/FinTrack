@@ -23,7 +23,7 @@ import { useBudgetHistory } from "@/hooks/use-budgets";
 
 import type { Transaction } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
-import { WARN_PCT } from "@/app/(app)/budgets/_components/budget-row";
+import { WARN_PCT, TONE, incomeStatus } from "@/app/(app)/budgets/_components/budget-row";
 
 /**
  * What the dialog needs of the line it was opened from. An `Allocation`
@@ -36,6 +36,12 @@ export interface HistoryTarget {
   categoryColor: string | null;
   /** The monthly figure every month in the history is measured against. */
   amount: number;
+  /**
+   * Income categories plot received-vs-expected instead of spent-vs-budget,
+   * and invert the status colours (more than expected is good news). Absent
+   * means expense — every existing caller predates this field.
+   */
+  kind?: "income" | "expense";
 }
 
 interface BudgetHistoryDialogProps {
@@ -47,7 +53,8 @@ interface BudgetHistoryDialogProps {
 
 export function BudgetHistoryDialog({ allocation, budgetId, onOpenChange }: BudgetHistoryDialogProps) {
   const { t, plural, formatCurrency, formatDayMonth: formatDate } = useI18n();
-  const { data: history, isLoading: loading } = useBudgetHistory(allocation?.categoryId ?? null, !!allocation, budgetId);
+  const isIncome = allocation?.kind === "income";
+  const { data: history, isLoading: loading } = useBudgetHistory(allocation?.categoryId ?? null, !!allocation, budgetId, allocation?.kind);
   const [expandedMonth, setExpandedMonth] = useState<string | null>(null);
   const [monthTransactions, setMonthTransactions] = useState<Record<string, Transaction[]>>({});
   const [loadingMonth, setLoadingMonth] = useState<string | null>(null);
@@ -75,8 +82,9 @@ export function BudgetHistoryDialog({ allocation, budgetId, onOpenChange }: Budg
 
       setLoadingMonth(month);
       try {
+        const txType = allocation.kind === "income" ? "income" : "expense";
         const res = await fetch(
-          `/api/transactions?categoryId=${allocation.categoryId}&dateFrom=${dateFrom}&dateTo=${dateTo}&type=expense&limit=100&sortBy=date&sortOrder=desc`
+          `/api/transactions?categoryId=${allocation.categoryId}&dateFrom=${dateFrom}&dateTo=${dateTo}&type=${txType}&limit=100&sortBy=date&sortOrder=desc`
         );
         const data = await res.json();
         setMonthTransactions((prev) => ({
@@ -117,7 +125,7 @@ export function BudgetHistoryDialog({ allocation, budgetId, onOpenChange }: Budg
             {allocation.categoryName}
           </DialogTitle>
           <DialogDescription>
-            {t("budgets.history.monthlyBudget", {
+            {t(isIncome ? "budgets.history.monthlyExpected" : "budgets.history.monthlyBudget", {
               amount: formatCurrency(allocation.amount),
             })}
           </DialogDescription>
@@ -132,7 +140,7 @@ export function BudgetHistoryDialog({ allocation, budgetId, onOpenChange }: Budg
             <div className="flex flex-col items-center justify-center py-12 text-center">
               <Receipt className="h-10 w-10 text-muted-foreground/30 mb-3" />
               <p className="text-sm text-muted-foreground">
-                {t("budgets.history.empty")}
+                {t(isIncome ? "budgets.history.emptyIncome" : "budgets.history.empty")}
               </p>
             </div>
           ) : (
@@ -146,31 +154,49 @@ export function BudgetHistoryDialog({ allocation, budgetId, onOpenChange }: Budg
                 // month against the category's budget line, which a fixed-cost
                 // category doesn't have. The row that opened this dialog knows
                 // what the month should be judged against.
-                const percentage =
-                  allocation.amount > 0 ? (m.spent / allocation.amount) * 100 : 0;
-                const status =
-                  percentage >= 100
+                //
+                // Income mirrors this the other way round: `incomeStatus` never
+                // returns "exceeded" — money arriving beyond the plan is a
+                // windfall, not an overspend — so income months only ever read
+                // as received (emerald), still short (amber), or neutral (a
+                // paused category with nothing expected and nothing in).
+                const inc = isIncome
+                  ? incomeStatus({ expected: allocation.amount, received: m.spent })
+                  : null;
+
+                const percentage = inc
+                  ? inc.percentage
+                  : allocation.amount > 0 ? (m.spent / allocation.amount) * 100 : 0;
+
+                const status = inc
+                  ? inc.status
+                  : percentage >= 100
                     ? "exceeded"
                     : percentage >= WARN_PCT
                       ? "warning"
                       : "ok";
 
-                const barColor =
-                  status === "exceeded"
+                const barColor = isIncome
+                  ? TONE[status].bar || allocation.categoryColor || "#3b82f6"
+                  : status === "exceeded"
                     ? "#ef4444"
                     : status === "warning"
                       ? "#f59e0b"
                       : allocation.categoryColor || "#3b82f6";
 
-                const StatusIcon =
-                  status === "exceeded"
+                const StatusIcon = isIncome
+                  ? status === "warning"
+                    ? AlertTriangle
+                    : CheckCircle
+                  : status === "exceeded"
                     ? XCircle
                     : status === "warning"
                       ? AlertTriangle
                       : CheckCircle;
 
-                const statusColor =
-                  status === "exceeded"
+                const statusColor = isIncome
+                  ? TONE[status].text
+                  : status === "exceeded"
                     ? "text-red-500 dark:text-red-400"
                     : status === "warning"
                       ? "text-amber-500 dark:text-amber-400"
@@ -255,8 +281,15 @@ export function BudgetHistoryDialog({ allocation, budgetId, onOpenChange }: Budg
                                     {tx.description}
                                   </span>
                                 </div>
-                                <span className="text-sm font-mono font-medium text-red-600 dark:text-red-400 shrink-0 ml-3">
-                                  {formatCurrency(tx.effectiveAmount)}
+                                <span
+                                  className={`text-sm font-mono font-medium shrink-0 ml-3 ${
+                                    isIncome
+                                      ? "text-emerald-600 dark:text-emerald-400"
+                                      : "text-red-600 dark:text-red-400"
+                                  }`}
+                                >
+                                  {isIncome ? "+" : ""}
+                                  {formatCurrency(isIncome ? tx.amount : tx.effectiveAmount)}
                                 </span>
                               </button>
                             ))}

@@ -8,22 +8,22 @@ import type { RecurringTx } from "@/types/api";
 import { relativeDay } from "./dates";
 import { useI18n } from "@/lib/i18n/client";
 import type { MessageKey } from "@/lib/i18n/translate";
-// The budget list's column template. In the budget these rows *are* the plan's
-// income and fixed-cost lines, so they have to hit the same tracks as the
-// allocations above them — a plan's amount landing in the allocation row's
-// delta column was what made that page read as three stacked lists instead of
-// one. The cell classes suit both templates; only the tracks differ.
+// The budget list's sub-row template. In the budget these rows *are* the plan's
+// income and fixed-cost lines, so their amounts have to land in the same column
+// as the categories above them — a plan's amount ragging against the allocation
+// amounts was what made that page read as three stacked lists instead of one.
+// The cell classes suit both templates; only the tracks differ.
 import {
-  ROW_GRID as BUDGET_GRID,
-  CELL_BAR,
+  SUB_ROW_GRID as BUDGET_GRID,
   CELL_AMOUNT,
-  CELL_DELTA,
+  CELL_ACTIONS,
+  TONE_TEXT,
 } from "@/app/(app)/budgets/_components/budget-row";
 
-// Standalone page: nothing here draws a progress bar, so there is no bar column
-// to hold open and the description takes the room instead.
+// Standalone page: nothing above these rows to line up with, so the description
+// takes the room the budget list spends on holding a column open.
 const OWN_GRID =
-  "grid grid-cols-[auto_minmax(0,1fr)_minmax(0,auto)] items-center gap-x-3 gap-y-1.5 px-4 py-2.5 sm:grid-cols-[auto_minmax(0,1fr)_9.5rem_5.5rem]";
+  "grid grid-cols-[auto_minmax(0,1fr)_minmax(0,auto)] items-center gap-x-3 gap-y-1.5 px-4 py-2.5 sm:grid-cols-[auto_minmax(0,1fr)_5.5rem_9.5rem]";
 
 export const FREQ_LABEL_KEYS: Record<string, MessageKey> = {
   weekly: "recurring.freq.weekly",
@@ -106,37 +106,11 @@ export function RecurringItem({
         </div>
       </div>
 
-      {/* Holds the bar column open so the amount beside it lands in the same
-          track as every other row of the plan. */}
-      {inBudgetList && <span className={CELL_BAR} aria-hidden="true" />}
-
-      <div className={`text-right text-xs tabular-nums sm:text-sm ${CELL_AMOUNT}`}>
-        <div
-          className={`whitespace-nowrap font-medium ${
-            !item.isActive
-              ? "text-muted-foreground"
-              : isIncome
-                ? "text-emerald-600 dark:text-emerald-400"
-                : "text-red-600 dark:text-red-400"
-          }`}
-        >
-          {isIncome ? "+" : "−"}
-          {formatCurrency(Math.abs(item.amount))}
-        </div>
-        {/* Non-monthly plans get their monthly equivalent, so the row reconciles
-            with the monthly total in the section header above it. */}
-        {item.frequency !== "monthly" && (
-          <div className="whitespace-nowrap text-xs text-muted-foreground">
-            ≈ {formatCurrency(monthly)}
-            {t("recurring.perMonthShort")}
-          </div>
-        )}
-      </div>
-
       {/* Actions stay full-contrast on paused rows — pausing must not dim the
-          control that undoes it. */}
+          control that undoes it. They sit inboard of the amount rather than
+          past it so the amount keeps the outer column. */}
       <div
-        className={`flex items-center justify-end gap-0.5 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 ${CELL_DELTA}`}
+        className={`flex items-center justify-end gap-0.5 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 ${CELL_ACTIONS}`}
       >
         <Button
           variant="ghost"
@@ -169,6 +143,29 @@ export function RecurringItem({
           onConfirm={() => onDelete(item.id)}
           label={t("recurring.deleteLabel", { name: item.description })}
         />
+      </div>
+
+      <div className={`text-right text-xs tabular-nums sm:text-sm ${CELL_AMOUNT}`}>
+        <div
+          className={`whitespace-nowrap font-medium ${
+            !item.isActive
+              ? "text-muted-foreground"
+              : isIncome
+                ? TONE_TEXT.positive
+                : TONE_TEXT.negative
+          }`}
+        >
+          {isIncome ? "+" : "−"}
+          {formatCurrency(Math.abs(item.amount))}
+        </div>
+        {/* Non-monthly plans get their monthly equivalent, so the row reconciles
+            with the monthly total in the section header above it. */}
+        {item.frequency !== "monthly" && (
+          <div className="whitespace-nowrap text-xs text-muted-foreground">
+            ≈ {formatCurrency(monthly)}
+            {t("recurring.perMonthShort")}
+          </div>
+        )}
       </div>
     </li>
   );

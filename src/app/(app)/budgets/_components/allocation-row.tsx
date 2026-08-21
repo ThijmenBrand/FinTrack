@@ -2,15 +2,16 @@
 
 import { useState, type ReactNode } from "react";
 import type { Allocation, YearlyCategoryView } from "@/types/api";
+import type { SplitShare } from "@/lib/budget-split";
 import { Button } from "@/components/ui/button";
 import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
 import { useI18n } from "@/lib/i18n/client";
-import { ChevronDown, Pencil } from "lucide-react";
+import { ChevronRight, Pencil } from "lucide-react";
 import {
-  ROW_GRID,
-  CELL_BAR,
-  CELL_AMOUNT,
-  CELL_DELTA,
+  ROW_SHELL,
+  ROW_CHEVRON,
+  ROW_ASIDE,
+  ROW_INDENT,
   TONE,
   type Tone,
 } from "./budget-row";
@@ -26,10 +27,21 @@ interface BudgetRowProps {
   limit: number;
   /** The right-hand figure: what is left, or what it went over by. */
   delta: string;
+  /** "/mo" or "/yr" — which period the amount above is one of. */
+  unit?: string;
+  /** Quiet count beside the name saying there is something to expand into. */
+  subNote?: string;
+  /** Money in rather than out: the progress line says received, not spent. */
+  flow?: "spend" | "income";
   /** A sentence above the fact line — the yearly carry-over breakdown. */
   note?: ReactNode;
   /** Inline facts shown before the history link when expanded. */
   facts?: ReactNode;
+  /**
+   * Who carries this line, on a shared budget. Empty or absent on a budget
+   * nobody shares — and on income, which is received rather than paid.
+   */
+  split?: SplitShare[];
   readOnly?: boolean;
   /** False when there is no allocation behind the row to edit or delete. */
   editable?: boolean;
@@ -40,7 +52,14 @@ interface BudgetRowProps {
   onDelete?: () => void | Promise<void>;
 }
 
-/** The row itself: one line per category, with the detail it hides behind it. */
+/**
+ * The row itself: one line per category, with the detail it hides behind it.
+ *
+ * The budgeted amount is the row's headline and the spend sits under it in the
+ * same column, because a plan is read as "what may this cost" first and "how is
+ * it going" second. Everything that is only true sometimes — who pays, the
+ * averages, the edit controls — waits behind the chevron.
+ */
 export function BudgetRow({
   name,
   color,
@@ -50,8 +69,12 @@ export function BudgetRow({
   spent,
   limit,
   delta,
+  unit,
+  subNote,
+  flow = "spend",
   note,
   facts,
+  split,
   readOnly = false,
   editable = true,
   deletePending,
@@ -63,6 +86,11 @@ export function BudgetRow({
   const [open, setOpen] = useState(false);
   const tone = TONE[toneKey];
   const barColor = tone.bar || color || "#3b82f6";
+  const spentLabel = t(
+    flow === "income" ? "budgets.row.receivedAmount" : "budgets.row.spentAmount",
+    { amount: formatCurrency(spent) },
+  );
+  const showSplit = !!split && split.length > 0 && limit > 0;
 
   return (
     <li>
@@ -70,31 +98,42 @@ export function BudgetRow({
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        className={`w-full cursor-pointer text-left transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none ${ROW_GRID}`}
+        className={`${ROW_SHELL} cursor-pointer transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none`}
       >
-        {/* Color dot */}
-        <span
-          className={`h-2 w-2 shrink-0 rounded-full ${spent === 0 ? "opacity-40" : ""}`}
-          style={{ backgroundColor: color || "#94a3b8" }}
+        <ChevronRight
+          className={`${ROW_CHEVRON} text-muted-foreground transition-transform duration-200 ${open ? "rotate-90" : ""}`}
+          aria-hidden="true"
         />
 
-        {/* Name + status badge. The badge is desktop-only: on a phone it cost a
-            third of the name column to repeat what the coloured delta under it
-            already says. */}
-        <span className="flex min-w-0 items-center gap-2">
-          <span className="truncate text-sm font-medium">{name}</span>
-          {badge && (
+        <span className="min-w-0 flex-1">
+          {/* Name, then whatever qualifies it. The badge is desktop-only: on a
+              phone it cost a third of the name column to repeat what the
+              coloured delta beside it already says. */}
+          <span className="flex min-w-0 items-center gap-2">
             <span
-              className={`hidden shrink-0 rounded-full border px-1.5 py-px text-[10px] font-semibold sm:inline ${tone.badge}`}
-            >
-              {badge}
+              className={`h-2 w-2 shrink-0 rounded-full ${spent === 0 ? "opacity-40" : ""}`}
+              style={{ backgroundColor: color || "#94a3b8" }}
+            />
+            <span className="truncate text-sm font-medium sm:text-[0.9375rem]">
+              {name}
             </span>
-          )}
-        </span>
+            {badge && (
+              <span
+                className={`hidden shrink-0 rounded-full border px-1.5 py-px text-[10px] font-semibold sm:inline ${tone.badge}`}
+              >
+                {badge}
+              </span>
+            )}
+            {subNote && (
+              <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">
+                {subNote}
+              </span>
+            )}
+          </span>
 
-        {/* Progress */}
-        <span className={`block ${CELL_BAR}`}>
-          <span className="block h-1.5 overflow-hidden rounded-full bg-muted">
+          {/* Aligned under the name rather than under the dot — the bar belongs
+              to the category it is named after. */}
+          <span className="ml-4 mt-2.5 block h-1 overflow-hidden rounded-full bg-muted">
             <span
               className="block h-full rounded-full transition-all duration-500"
               style={{
@@ -105,32 +144,85 @@ export function BudgetRow({
           </span>
         </span>
 
-        {/* Spent / limit */}
-        <span
-          className={`whitespace-nowrap text-right text-xs tabular-nums sm:text-sm ${CELL_AMOUNT}`}
-        >
-          <span className="font-medium">{formatCurrency(spent)}</span>
-          <span className="text-muted-foreground">
-            {" / "}
+        <span className={ROW_ASIDE}>
+          <span className="block whitespace-nowrap text-sm font-semibold tabular-nums sm:text-lg">
             {formatCurrency(limit)}
+            {unit && (
+              <span className="ml-0.5 text-xs font-normal text-muted-foreground">
+                {unit}
+              </span>
+            )}
           </span>
-        </span>
+          {/* What has actually happened against that plan. On a phone only the
+              half that carries the news survives — the spent figure is already
+              a tap away and the column is 120px wide.
 
-        {/* Over / left, with the disclosure caret the whole row toggles */}
-        <span
-          className={`flex items-center justify-end gap-1.5 text-xs tabular-nums ${tone.text} ${CELL_DELTA}`}
-        >
-          <span className="truncate">{delta}</span>
-          <ChevronDown
-            className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200 ${open ? "rotate-180" : ""}`}
-            aria-hidden="true"
-          />
+              From sm up each half is unbreakable, so a line too long for the
+              column drops the whole phrase to the next line instead of
+              stranding the last word of it ("…left this / year") under its own
+              amount. Not below sm: at 120px a long phrase has to wrap
+              somewhere, and wrapping beats spilling out of the column. */}
+          <span className="mt-1 block text-xs tabular-nums text-muted-foreground sm:text-[0.8125rem]">
+            <span
+              className={
+                delta ? "hidden sm:inline sm:whitespace-nowrap" : "sm:whitespace-nowrap"
+              }
+            >
+              {spentLabel}
+            </span>
+            {delta && (
+              <>
+                <span className="hidden sm:inline"> · </span>
+                <span className={`sm:whitespace-nowrap ${tone.text}`}>{delta}</span>
+              </>
+            )}
+          </span>
         </span>
       </button>
 
       {open && (
-        <div className="space-y-1.5 px-4 pb-3 pl-9 text-xs text-muted-foreground">
+        <div
+          className={`space-y-3 px-4 pb-4 text-xs text-muted-foreground ${ROW_INDENT}`}
+        >
           {note}
+
+          {/* Who pays what of this line, read down fixed right-aligned columns
+              so the same person lands in the same place on every row and the
+              budget can be read down a person as easily as across a category.
+              A line with nothing budgeted is skipped: a column of zeroes says
+              nothing the row above it doesn't already say. */}
+          {showSplit && (
+            <div className="space-y-1">
+              <div className="grid grid-cols-[minmax(0,1fr)_2.75rem_6rem] items-baseline gap-x-3 text-[10px] uppercase tracking-wider sm:grid-cols-[minmax(0,1fr)_2.75rem_6rem_6rem]">
+                <span>{t("budgets.split.rowLabel")}</span>
+                <span />
+                <span className="text-right">{t("budgets.split.colBudgeted")}</span>
+                <span className="hidden text-right sm:block">
+                  {t("budgets.split.colSpent")}
+                </span>
+              </div>
+              {split.map((person, i) => (
+                <div
+                  key={`${person.name}-${i}`}
+                  className="grid grid-cols-[minmax(0,1fr)_2.75rem_6rem] items-baseline gap-x-3 sm:grid-cols-[minmax(0,1fr)_2.75rem_6rem_6rem]"
+                >
+                  {/* The NAME gives way, never the figure: an ellipsised amount
+                      would read as a different number than the one budgeted. */}
+                  <span className="truncate" title={person.name}>
+                    {person.name}
+                  </span>
+                  <span className="tabular-nums">{person.percent}%</span>
+                  <span className="text-right font-medium tabular-nums text-foreground">
+                    {formatCurrency((limit * person.percent) / 100)}
+                  </span>
+                  <span className="hidden text-right tabular-nums sm:block">
+                    {formatCurrency((spent * person.percent) / 100)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
             {facts}
             {onHistory && (
@@ -166,6 +258,8 @@ export function BudgetRow({
 interface RowActions {
   readOnly?: boolean;
   deletePending?: boolean;
+  /** Who carries the budget; see BudgetRow. */
+  split?: SplitShare[];
   /** Opens the full history dialog. */
   onHistory: () => void;
   onEdit: () => void;
@@ -177,13 +271,23 @@ export function AllocationRow({
   alloc,
   ...actions
 }: { alloc: Allocation } & RowActions) {
-  const { t, formatCurrency } = useI18n();
+  const { t, plural, formatCurrency } = useI18n();
 
   return (
     <BudgetRow
       name={alloc.categoryName}
       color={alloc.categoryColor}
       tone={alloc.status}
+      unit={t("budgets.perMonthShort")}
+      subNote={
+        alloc.subLines.length > 0
+          ? plural(
+              alloc.subLines.length,
+              "budgets.row.subLines.one",
+              "budgets.row.subLines.other",
+            )
+          : undefined
+      }
       badge={
         alloc.status === "exceeded"
           ? t("budgets.row.over")
@@ -248,7 +352,7 @@ export function YearlyAllocationRow({
   /** "month" measures against this month's allowance, "year" against the pot. */
   scope?: "month" | "year";
 } & RowActions) {
-  const { t, formatCurrency } = useI18n();
+  const { t, plural, formatCurrency } = useI18n();
 
   // A negative allowance means the earlier months already spent this one.
   const spendable =
@@ -261,6 +365,19 @@ export function YearlyAllocationRow({
       name={category.categoryName}
       color={category.categoryColor}
       tone={YEARLY_TONE[category.status]}
+      // Which period the headline amount is one of. A yearly plan shows both
+      // scopes in the same list shape, so saying so is the difference between
+      // an annual pot and a month's allowance.
+      unit={t(scope === "year" ? "budgets.perYearShort" : "budgets.perMonthShort")}
+      subNote={
+        alloc && alloc.subLines.length > 0
+          ? plural(
+              alloc.subLines.length,
+              "budgets.row.subLines.one",
+              "budgets.row.subLines.other",
+            )
+          : undefined
+      }
       badge={
         category.status === "ok"
           ? undefined
@@ -273,9 +390,14 @@ export function YearlyAllocationRow({
       percentage={spendable > 0 ? (spent / spendable) * 100 : 100}
       spent={spent}
       limit={scope === "year" ? category.annualAmount : category.allowance}
-      delta={t("budgets.yearly.leftThisYear", {
-        amount: formatCurrency(category.remainingYear),
-      })}
+      // In year scope the "/yr" beside the headline already says which year
+      // this is left of, so the row drops the words and keeps the figure.
+      // Month scope still needs them: the headline there is the month's
+      // allowance, and the annual position beside it would read as the month's.
+      delta={t(
+        scope === "year" ? "budgets.row.leftAmount" : "budgets.yearly.leftThisYear",
+        { amount: formatCurrency(category.remainingYear) },
+      )}
       note={
         // Where this month's allowance came from — the whole point of a yearly
         // budget is that this line can differ from the plain share.

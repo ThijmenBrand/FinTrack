@@ -36,6 +36,41 @@ export interface PreviewTransaction {
   targetAccountName?: string;
   recurringTransactionId?: string | null;
   recurringDescription?: string | null;
+  /**
+   * Split parts for this row — proposed by a split rule during preview, or
+   * entered during review. A row with parts keeps its own `categoryId` null:
+   * only the parts carry categories.
+   */
+  splits?: SplitPart[] | null;
+  /** The rule that proposed `splits`; cleared as soon as the user edits them. */
+  splitRuleId?: string | null;
+}
+
+export interface SplitPart {
+  amount: number;
+  categoryId: string | null;
+}
+
+/**
+ * Whether an import row may carry splits: plain income/expense money, not
+ * parked in a pot, not a reimbursement and not an internal transfer. Shared by
+ * the preview proposal, the review UI's "Split" affordance and the commit
+ * validation so all three agree on what is splittable.
+ */
+export function canSplitImportRow(tx: {
+  type: string;
+  groupId?: string | null;
+  reimbursesExpenseId?: string | null;
+  reimbursesTempId?: string | null;
+  targetAccountId?: string | null;
+}): boolean {
+  return (
+    (tx.type === "income" || tx.type === "expense") &&
+    !tx.groupId &&
+    !tx.reimbursesExpenseId &&
+    !tx.reimbursesTempId &&
+    !tx.targetAccountId
+  );
 }
 
 export interface DedupRow {

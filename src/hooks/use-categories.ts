@@ -2,7 +2,13 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { apiFetch } from "@/lib/api";
 import { useAccounts } from "@/hooks/use-accounts";
-import type { CategoryWithDetails, RuleWithCategory } from "@/types/api";
+import type {
+  CategoryKind,
+  CategoryWithDetails,
+  RuleWithCategory,
+  SplitRuleWithLines,
+} from "@/types/api";
+import type { SplitRuleLineInput } from "@/hooks/use-transactions";
 
 /** Pass `accountId` when categorizing rows on a specific (possibly shared)
  *  account — the list then comes from that account's owner. */
@@ -69,6 +75,7 @@ export function useCreateCategory(accountId?: string) {
       name: string;
       color: string;
       icon: string | null;
+      kind?: CategoryKind;
     }) =>
       apiFetch("/api/categories", {
         method: "POST",
@@ -87,9 +94,12 @@ export function useUpdateCategory() {
   return useMutation({
     mutationFn: (payload: {
       id: string;
-      name: string;
-      color: string;
-      icon: string | null;
+      // Every field is a partial update — the route only writes what it is
+      // given, so a caller changing one thing sends only that thing.
+      name?: string;
+      color?: string;
+      icon?: string | null;
+      kind?: CategoryKind;
     }) =>
       apiFetch("/api/categories", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
     onSuccess: () => {
@@ -183,10 +193,57 @@ export function useDeleteCategoryRule() {
   });
 }
 
+/* Split rules — same shape of CRUD as the category rules above; creation lives
+   in use-transactions (useCreateSplitRule), next to the manual-split flow. */
+
+export function useSplitRules() {
+  return useQuery({
+    queryKey: ["split-rules"],
+    queryFn: () => apiFetch<SplitRuleWithLines[]>("/api/split-rules"),
+    staleTime: 60 * 1000,
+  });
+}
+
+export function useUpdateSplitRule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: {
+      id: string;
+      pattern?: string;
+      matchType?: string;
+      matchField?: string;
+      mode?: "percentage" | "fixed";
+      lines?: SplitRuleLineInput[];
+      isActive?: boolean;
+      applyToExisting?: boolean;
+    }) =>
+      apiFetch<{ applied?: number }>("/api/split-rules", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ["split-rules"] });
+      if (vars.applyToExisting) qc.invalidateQueries({ queryKey: ["transactions"] });
+    },
+  });
+}
+
+export function useDeleteSplitRule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`/api/split-rules?id=${encodeURIComponent(id)}`, { method: "DELETE" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["split-rules"] });
+    },
+  });
+}
+
 export function useReapplyCategoryRules() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => apiFetch<{ transactionsCategorized: number; totalTransactions: number; uncategorized: number }>("/api/categories/rules/reapply", { method: "POST" }),
+    mutationFn: () => apiFetch<{ transactionsCategorized: number; transactionsSplit: number; totalTransactions: number; uncategorized: number }>("/api/categories/rules/reapply", { method: "POST" }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["transactions"] });
       qc.invalidateQueries({ queryKey: ["categories"] });

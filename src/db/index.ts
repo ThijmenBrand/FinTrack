@@ -6,13 +6,15 @@ import path from "path";
 type Db = ReturnType<typeof drizzle<typeof schema>>;
 
 // Every table that carries a user_id column. reimbursement_links is absent —
-// it has no user_id and is scoped through the transactions it references.
+// it has no user_id and is scoped through the transactions it references;
+// split_rule_lines likewise, scoped through its rule.
 const TENANT_TABLES = [
   "accounts",
   "account_members",
   "transactions",
   "categories",
   "category_rules",
+  "split_rules",
   "budgets",
   "budget_plans",
   "budget_month_targets",

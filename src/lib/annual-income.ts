@@ -22,6 +22,7 @@ import { recurringTransactions, transactions } from "@/db/schema";
 import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { toMonthly } from "@/lib/recurring";
 import { accountScopeFilter } from "@/lib/budget-plan";
+import { excludeSplitParents } from "@/lib/split-sql";
 import {
   closedMonthCount,
   currentFinancialSlot,
@@ -136,6 +137,7 @@ export async function getAnnualIncome(
           eq(transactions.type, "income"),
           // Grouped rows are a pot's internal accounting, not new money.
           sql`${transactions.groupId} IS NULL`,
+          excludeSplitParents(),
           gte(transactions.date, from),
           lte(transactions.date, to),
           ...(scope ? [scope] : []),

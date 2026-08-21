@@ -34,6 +34,27 @@ export async function PUT(request: NextRequest) {
       return apiError("api.transactionIdRange", 400);
     }
 
+    // A split parent is a pure wrapper — only its (already-normal) children
+    // carry a category. Reject the whole batch rather than silently skip, so
+    // the caller sees why nothing changed for that row.
+    // Scoped by writableTransactions, the same gate the update below uses: a
+    // wrapper the caller could not have categorized anyway is not their
+    // problem, and the tenant guard requires the statement to name user_id.
+    const [splitParent] = await db
+      .select({ id: transactions.id })
+      .from(transactions)
+      .where(
+        and(
+          inArray(transactions.id, ids),
+          eq(transactions.isSplitParent, true),
+          writableTransactions(userId),
+        ),
+      )
+      .limit(1);
+    if (splitParent) {
+      return apiError("api.splitParentAction", 400);
+    }
+
     // A category reference must live in its ROW's owner space — on a shared
     // account that's the account owner, not necessarily the caller. So a
     // category id resolves to an owner (categoryOwnerId), and only rows that

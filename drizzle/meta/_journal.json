@@ -134,6 +134,41 @@
       "when": 1786995715300,
       "tag": "0018_great_zarek",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1787252314219,
+      "tag": "0019_budget_split_key",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1787254716127,
+      "tag": "0020_split_transactions",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1787255667468,
+      "tag": "0021_daffy_red_wolf",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1787339355717,
+      "tag": "0022_budget_member_shares",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1787425755717,
+      "tag": "0023_transfer_kind_backfill",
+      "breakpoints": true
     }
   ]
 }

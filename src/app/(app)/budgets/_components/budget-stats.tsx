@@ -3,10 +3,11 @@
 import type { YearlyBudgetView } from "@/types/api";
 import { MONTHS_PER_YEAR } from "@/lib/financial-year";
 import { useI18n } from "@/lib/i18n/client";
+import { TONE_TEXT } from "./budget-row";
 
 /**
- * Four numbers, in the order the question gets asked: what may I spend, what
- * did I spend, what is left, what is already claimed by bills.
+ * Four numbers, in the order money actually moves: what came in, what it is
+ * committed to, what has gone, what is still free.
  *
  * Tablet and up only — see `Meter` for the phone.
  */
@@ -28,19 +29,26 @@ function Stat({
   tone?: string;
 }) {
   return (
-    <div>
+    <div className="min-w-0">
       <dt className="text-[11px] uppercase tracking-wider text-muted-foreground">
         {label}
       </dt>
-      <dd className={`mt-1.5 text-xl font-semibold tabular-nums ${tone}`}>
+      <dd
+        className={`mt-1.5 text-2xl font-semibold leading-none tabular-nums lg:text-[1.75rem] ${tone}`}
+      >
         {value}
       </dd>
-      {sub && <dd className="mt-0.5 text-xs text-muted-foreground">{sub}</dd>}
+      {sub && <dd className="mt-1.5 text-xs text-muted-foreground">{sub}</dd>}
     </div>
   );
 }
 
-const NEGATIVE = "text-red-600 dark:text-red-400";
+const NEGATIVE = TONE_TEXT.negative;
+/**
+ * The one figure the page is opened for gets the accent. Everything else in
+ * the strip stays foreground — four coloured numbers is no emphasis at all.
+ */
+const HEADLINE = "text-primary";
 
 /**
  * The phone's version of the strip above.
@@ -132,6 +140,8 @@ export function MonthStats({
   fixedPayments,
   categories,
   allowanceNote,
+  incomeReceived,
+  incomeExpected,
 }: {
   toSpend: number;
   spent: number;
@@ -142,6 +152,9 @@ export function MonthStats({
   categories: number;
   /** Yearly plans: where the allowance came from. */
   allowanceNote?: string;
+  /** What the period's recurring income has actually brought in, and promised. */
+  incomeReceived: number;
+  incomeExpected: number;
 }) {
   const { t, plural, formatCurrency } = useI18n();
   const left = toSpend - spent;
@@ -180,17 +193,39 @@ export function MonthStats({
         ]}
       />
       <Grid>
+        {/* Income opens the strip: the plan below divides up this number, so
+            reading it first is reading the page in the order it works. */}
+        <Stat
+          label={t("budgets.stat.income")}
+          value={formatCurrency(incomeReceived)}
+          sub={
+            incomeExpected > 0
+              ? t("budgets.expectedAmount", {
+                  amount: formatCurrency(incomeExpected),
+                })
+              : undefined
+          }
+        />
         <Stat
           label={t("budgets.yearly.stat.thisMonth")}
           value={formatCurrency(toSpend)}
-          sub={
+          // What is claimed before a single discretionary euro moves. It lost
+          // its own tile to income and rides here instead, on the figure it is
+          // a part of.
+          sub={[
             allowanceNote ??
-            plural(
-              categories,
-              "budgets.stat.categories.one",
-              "budgets.stat.categories.other",
-            )
-          }
+              plural(
+                categories,
+                "budgets.stat.categories.one",
+                "budgets.stat.categories.other",
+              ),
+            fixedPayments > 0 &&
+              t("budgets.stat.inclFixed", {
+                amount: formatCurrency(fixedDue),
+              }),
+          ]
+            .filter(Boolean)
+            .join(" · ")}
         />
         <Stat
           label={t("budgets.stat.spentSoFar")}
@@ -206,7 +241,7 @@ export function MonthStats({
         <Stat
           label={t("budgets.stat.leftThisMonth")}
           value={formatCurrency(left)}
-          tone={left < 0 ? NEGATIVE : ""}
+          tone={left < 0 ? NEGATIVE : HEADLINE}
           sub={
             perDay !== null
               ? t("budgets.stat.perDayLeft", {
@@ -215,15 +250,6 @@ export function MonthStats({
                 })
               : undefined
           }
-        />
-        <Stat
-          label={t("budgets.stat.fixedDue")}
-          value={formatCurrency(fixedDue)}
-          sub={plural(
-            fixedPayments,
-            "budgets.stat.recurringPayments.one",
-            "budgets.stat.recurringPayments.other",
-          )}
         />
       </Grid>
     </>
@@ -306,7 +332,7 @@ export function YearStats({
       <Stat
         label={t("budgets.yearly.stat.leftYear")}
         value={formatCurrency(totals.remainingYear)}
-        tone={totals.remainingYear < 0 ? NEGATIVE : ""}
+        tone={totals.remainingYear < 0 ? NEGATIVE : HEADLINE}
         sub={plural(
           monthsLeft,
           "budgets.stat.monthsRemaining.one",

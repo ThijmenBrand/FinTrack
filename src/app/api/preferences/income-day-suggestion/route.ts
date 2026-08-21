@@ -4,6 +4,7 @@ import { transactions } from "@/db/schema";
 import { and, eq, gte, sql } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { clampFrom, getStatsCutoff } from "@/lib/stat-reset";
+import { excludeSplitParents } from "@/lib/split-sql";
 
 export interface IncomeDaySuggestion {
   day: number;
@@ -33,6 +34,7 @@ export async function GET() {
         and(
           eq(transactions.userId, userId),
           eq(transactions.type, "income"),
+          excludeSplitParents(),
           gte(transactions.date, lookbackIso),
         ),
       )

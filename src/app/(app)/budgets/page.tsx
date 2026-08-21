@@ -14,7 +14,7 @@ import {
 import { useBudgetPlans } from "@/hooks/use-budget-plans";
 import { useAccounts } from "@/hooks/use-accounts";
 import { BUDGETABLE_ACCOUNT_TYPES } from "@/lib/account-scope";
-import { NON_BUDGETABLE_CATEGORY_NAMES } from "@/lib/default-categories";
+import { isBudgetable } from "@/lib/default-categories";
 import { useCategories } from "@/hooks/use-categories";
 import { usePreferences } from "@/hooks/use-preferences";
 import {
@@ -30,7 +30,15 @@ import type { Allocation, BudgetPlanData, BudgetSuggestion } from "@/types/api";
 import type { EmptyGenerateReason } from "@/lib/auto-budget";
 import { Card, CardContent, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { AlertTriangle, Loader2, Coins, Sparkles, Wallet, X } from "lucide-react";
+import {
+  AlertTriangle,
+  Loader2,
+  Coins,
+  Sparkles,
+  TrendingUp,
+  Wallet,
+  X,
+} from "lucide-react";
 import {
   BudgetHistoryDialog,
   type HistoryTarget,
@@ -46,15 +54,17 @@ import { BudgetsSkeleton } from "./_components/budgets-skeleton";
 import { RegenerateConfirmDialog } from "./_components/regenerate-confirm-dialog";
 import {
   useRecurringPlans,
-  IncomeSection,
+  IncomeRow,
   FixedCostRow,
   PlanRows,
 } from "./_components/recurring-sections";
 import { SectionHeader } from "./_components/section-header";
 import { byUrgency, fixedCostStatus } from "./_components/budget-row";
+import { callerShareOf, planIsShared, splitShares } from "@/lib/budget-split";
 import { BudgetSwitcher } from "./_components/budget-switcher";
 import { PeriodNav, type PeriodScope } from "./_components/period-nav";
 import { BudgetPlanDialog } from "./_components/budget-plan-dialog";
+import { BudgetWizard } from "./_components/budget-wizard";
 import { SimpleHero } from "./_components/simple-hero";
 import { MonthStats, YearStats } from "./_components/budget-stats";
 import { NoticeLine } from "./_components/notice-line";
@@ -91,6 +101,15 @@ export default function BudgetsPage() {
   const { data: accountsData, isLoading: accountsLoading } = useAccounts();
   const [planDialogOpen, setPlanDialogOpen] = useState(false);
   const [editingPlan, setEditingPlan] = useState<BudgetPlanData | null>(null);
+  // Bumped on every open so the dialog remounts with fields fresh off the
+  // plan — an abandoned edit must not still be there the next time.
+  const [editSeq, setEditSeq] = useState(0);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const openPlanEditor = (plan: BudgetPlanData) => {
+    setEditingPlan(plan);
+    setEditSeq((n) => n + 1);
+    setPlanDialogOpen(true);
+  };
 
   // Yearly plans navigate by financial year and by month inside it; monthly
   // plans keep the rolling month-offset stepper. Null = "whatever is current",
@@ -216,12 +235,14 @@ export default function BudgetsPage() {
   const acceptSuggestions = useAcceptBudgetSuggestions();
   const rejectSuggestions = useRejectBudgetSuggestions();
 
-  // The recurring plans behind the list: income, and the fixed costs grouped
-  // by the category they land in. Called before the early returns below, so it
-  // takes whatever the budget query has so far.
+  // The recurring plans behind the list, grouped by the category they land in:
+  // income lines on one side, fixed costs on the other. Called before the early
+  // returns below, so it takes whatever the budget query has so far.
   const recurring = useRecurringPlans({
     planAccountIds: activePlan ? activePlan.accounts.map((a) => a.id) : null,
     fixedCosts: data?.fixedCosts,
+    incomeLines: data?.incomeLines,
+    yearScope,
     accounts: accountsData ?? [],
     categories,
   });
@@ -334,10 +355,7 @@ export default function BudgetsPage() {
   const fixedCatIds = new Set(data.fixedCosts.map((fc) => fc.categoryId));
   const allocatedCatIds = new Set(data.allocations.map((a) => a.categoryId));
   const availableCategories = categories.filter(
-    (c) =>
-      !allocatedCatIds.has(c.id) &&
-      !fixedCatIds.has(c.id) &&
-      !NON_BUDGETABLE_CATEGORY_NAMES.includes(c.name)
+    (c) => !allocatedCatIds.has(c.id) && !fixedCatIds.has(c.id) && isBudgetable(c.kind),
   );
 
   // Card totals are summed from the rows themselves so the header always
@@ -366,6 +384,14 @@ export default function BudgetsPage() {
     recurring.expenseGroups.map((g) => [g.categoryId, g.items]),
   );
 
+  // The income section keeps its own books: summed from the rows under it, in
+  // whichever scope those rows are showing, so the heading reconciles with the
+  // list the same way the spending heading does. These figures stay out of
+  // `allocationsCount` and the stats above — that count means "budget lines",
+  // and a salary is money the plan divides up, not money it allocates.
+  const incomeExpected = recurring.incomeGroups.reduce((s, g) => s + g.expected, 0);
+  const incomeReceived = recurring.incomeGroups.reduce((s, g) => s + g.received, 0);
+
   // The month's rows in one order. An allocation and a fixed-cost category are
   // both budgeted expenses, so they queue together: over budget first, then by
   // how much of the line is used.
@@ -387,6 +413,30 @@ export default function BudgetsPage() {
   // edits, no suggestions to act on. "editor" (and the absent activePlan case,
   // pre-plan users) stay fully editable.
   const canEdit = activePlan ? activePlan.role !== "viewer" : true;
+
+  // Who carries this budget, for the split under every spending row. The
+  // amounts on the rows themselves stay whole — this is the same money read
+  // per person, so the columns always add back to the line above them.
+  const split = activePlan
+    ? splitShares(activePlan, accountsData ?? [], {
+        you: t("budgets.plan.splitYou"),
+        others: t("budgets.split.others"),
+      })
+    : [];
+
+  // Import only ever creates rows, so it is only offered on a budget with no
+  // allocations of its own. Fixed costs and income lines deliberately don't
+  // count: those come from recurring plans, which hang off ACCOUNTS rather
+  // than off this plan, so anyone with a salary set up would have every new
+  // budget look occupied. Duplicate plans are the import endpoint's problem,
+  // and it skips a category that already has one.
+  const budgetIsEmpty =
+    (yearly ? yearly.categories.length : data.allocations.length) === 0;
+  // The account the import wizard defaults to: the active plan's own first
+  // account, or the first account overall when the page isn't scoped to a
+  // plan yet.
+  const defaultImportAccountId =
+    activePlan?.accounts[0]?.id ?? accountsData?.[0]?.id;
 
   const hasSuggestions = data.suggestions.length > 0;
   const showRegenBanner =
@@ -473,14 +523,8 @@ export default function BudgetsPage() {
           plans={plans}
           active={activePlan}
           onSelect={setSelectedPlanId}
-          onEdit={(p) => {
-            setEditingPlan(p);
-            setPlanDialogOpen(true);
-          }}
-          onCreate={() => {
-            setEditingPlan(null);
-            setPlanDialogOpen(true);
-          }}
+          onEdit={openPlanEditor}
+          onCreate={() => setWizardOpen(true)}
         />
       )}
 
@@ -519,7 +563,21 @@ export default function BudgetsPage() {
             fixedPayments={fixedPayments}
             categories={allocationsCount}
             allowanceNote={yearly ? allowanceNote : undefined}
+            incomeReceived={incomeReceived}
+            incomeExpected={incomeExpected}
           />
+        )}
+
+        {/* A shared budget is planned whole but paid in parts. The split key
+            says which part is yours — the rows below stay the full amounts. */}
+        {activePlan && planIsShared(activePlan, accountsData ?? []) && (
+          <p className="text-xs text-muted-foreground">
+            {t("budgets.split.yourShare", {
+              pct: activePlan.sharePercent,
+              limit: formatCurrency(callerShareOf(headlineLimit, activePlan)),
+              spent: formatCurrency(callerShareOf(headlineSpent, activePlan)),
+            })}
+          </p>
         )}
 
         {/* Every "avg /mo" in the rows below is computed from this date
@@ -617,8 +675,7 @@ export default function BudgetsPage() {
             activePlan
               ? () => {
                   setEmptyReason(null);
-                  setEditingPlan(activePlan);
-                  setPlanDialogOpen(true);
+                  openPlanEditor(activePlan);
                 }
               : undefined
           }
@@ -626,13 +683,40 @@ export default function BudgetsPage() {
         />
       )}
 
-      {/* The whole plan as one list: every expense the month is committed to,
-          in one order, with the income that pays for it at the foot. A fixed
-          cost is a budgeted expense like any other — its category is the line,
-          the recurring plans that produce it are the sub-lines under it — so it
-          queues among the allocations instead of in a section of its own. */}
+      {/* The whole plan as one list, in the order money moves: what comes in on
+          top, what it is committed to underneath. Both halves are read the same
+          way — a category is the line, the recurring plans behind it are the
+          sub-lines — so a salary and a fixed cost look alike even though one is
+          owed to you and the other by you. A fixed cost queues among the
+          allocations rather than in a section of its own: it is a budgeted
+          expense like any other. */}
       <Card className="overflow-hidden">
         <ul className="divide-y">
+          {recurring.incomeGroups.length > 0 && (
+            <>
+              <SectionHeader
+                icon={TrendingUp}
+                iconClassName="text-emerald-600 dark:text-emerald-400"
+                label={t("budgets.incomeHeading", {
+                  count: recurring.incomeGroups.length,
+                })}
+                note={t("budgets.incomeReceived", {
+                  received: formatCurrency(incomeReceived),
+                  expected: formatCurrency(incomeExpected),
+                })}
+              />
+              {recurring.incomeGroups.map((group) => (
+                <IncomeRow
+                  key={group.categoryId}
+                  group={group}
+                  rowProps={recurring.rowProps}
+                  yearScope={yearScope}
+                  onHistory={setHistoryAlloc}
+                />
+              ))}
+            </>
+          )}
+
           <SectionHeader
             icon={Coins}
             label={t("budgets.allocationsHeading", { count: allocationsCount })}
@@ -677,8 +761,16 @@ export default function BudgetsPage() {
                     </span>
                   </Button>
                 )}
-                {isCurrentPeriod && canEdit && (
-                  <ImportBudgetDialog budgetId={activePlanId} />
+                {isCurrentPeriod && canEdit && budgetIsEmpty && (
+                  // Import only ever creates rows, so it's only safe to offer
+                  // on a budget with nothing in it yet — running it again
+                  // against a populated one would double the allocations.
+                  <ImportBudgetDialog
+                    budgetId={activePlanId}
+                    accounts={accountsData ?? []}
+                    defaultAccountId={defaultImportAccountId}
+                    startDate={dateFrom}
+                  />
                 )}
                 {/* Always mounted: it is also what the pencil on a recurring
                     row opens, and those rows show in every period. */}
@@ -753,6 +845,7 @@ export default function BudgetsPage() {
                           category={category}
                           alloc={alloc}
                           scope={yearScope ? "year" : "month"}
+                          split={split}
                           readOnly={!isCurrentPeriod || !canEdit}
                           deletePending={deleteBudget.isPending}
                           onHistory={() => alloc && setHistoryAlloc(alloc)}
@@ -811,12 +904,14 @@ export default function BudgetsPage() {
                         key={row.group.categoryId}
                         group={row.group}
                         rowProps={recurring.rowProps}
+                        split={split}
                         onHistory={setHistoryAlloc}
                       />
                     ) : (
                       <Fragment key={row.alloc.id}>
                         <AllocationRow
                           alloc={row.alloc}
+                          split={split}
                           readOnly={!isCurrentPeriod || !canEdit}
                           deletePending={deleteBudget.isPending}
                           onHistory={() => setHistoryAlloc(row.alloc)}
@@ -855,21 +950,11 @@ export default function BudgetsPage() {
                     key={group.categoryId}
                     group={group}
                     rowProps={recurring.rowProps}
+                    split={split}
                     onHistory={setHistoryAlloc}
                   />
                 ))}
             </>
-          )}
-
-          {/* Income closes the list: it is the only line that is not an
-              expense. ponytail: month scope only — a monthly figure would not
-              reconcile inside a year-scoped list. */}
-          {!yearScope && (
-            <IncomeSection
-              income={recurring.income}
-              monthlyIncome={recurring.monthlyIncome}
-              rowProps={recurring.rowProps}
-            />
           )}
         </ul>
       </Card>
@@ -882,14 +967,26 @@ export default function BudgetsPage() {
         }}
       />
 
-      <BudgetPlanDialog
-        key={editingPlan?.id ?? "new"}
-        open={planDialogOpen}
-        onOpenChange={setPlanDialogOpen}
-        plan={editingPlan}
+      {editingPlan && (
+        <BudgetPlanDialog
+          key={`${editingPlan.id}-${editSeq}`}
+          open={planDialogOpen}
+          onOpenChange={setPlanDialogOpen}
+          plan={editingPlan}
+          plans={plans}
+          accounts={accountsData ?? []}
+          onSaved={(planId) => setSelectedPlanId(planId)}
+        />
+      )}
+
+      <BudgetWizard
+        open={wizardOpen}
+        onOpenChange={setWizardOpen}
         plans={plans}
         accounts={accountsData ?? []}
-        onSaved={(planId) => setSelectedPlanId(planId)}
+        categories={categories}
+        categoryAverages={data.categoryAverages}
+        onCreated={(planId) => setSelectedPlanId(planId)}
       />
 
       <BudgetSuggestionsDialog

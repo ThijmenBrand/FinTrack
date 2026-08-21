@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import type { BudgetData, BudgetSuggestion, HistoryData, Transaction } from "@/types/api";
 import type { EmptyGenerateReason } from "@/lib/auto-budget";
-import type { ImportNode } from "@/lib/budget-import";
+import type { ImportPayload } from "@/lib/budget-import";
 
 export function useBudgets(opts?: {
   dateFrom?: string;
@@ -69,31 +69,37 @@ export function useDeleteBudget() {
 
 export interface BudgetImportResult {
   createdCategories: number;
+  /** budgets allocations created */
   created: number;
-  updated: number;
   subLinesCreated: number;
-  subLinesUpdated: number;
-  skipped: { name: string; reason: "notBudgetable" | "tooManySubLines" }[];
+  /** recurring_transactions rows created with type="expense" */
+  fixedPlansCreated: number;
+  /** recurring_transactions rows created with type="income" */
+  incomePlansCreated: number;
+  skipped: { name: string; reason: "notBudgetable" | "tooManySubLines" | "kindConflict" | "alreadyBudgeted" }[];
 }
 
 export function useImportBudget() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { budgetId?: string; nodes: ImportNode[] }) =>
+    mutationFn: (payload: ImportPayload) =>
       apiFetch<BudgetImportResult>("/api/budgets/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["budgets"] });
       qc.invalidateQueries({ queryKey: ["categories"] });
+      // fixed/income roots land as recurring plans, not allocations.
+      qc.invalidateQueries({ queryKey: ["recurring"] });
     },
   });
 }
 
-export function useBudgetHistory(categoryId: string | null, enabled: boolean, budgetId?: string) {
+export function useBudgetHistory(categoryId: string | null, enabled: boolean, budgetId?: string, kind?: "income" | "expense") {
   return useQuery({
-    queryKey: ["budget-history", categoryId, budgetId ?? ""],
+    queryKey: ["budget-history", categoryId, budgetId ?? "", kind ?? "expense"],
     queryFn: () => {
       const params = new URLSearchParams({ categoryId: categoryId ?? "" });
       if (budgetId) params.set("budgetId", budgetId);
+      if (kind === "income") params.set("type", "income");
       return apiFetch<HistoryData>(`/api/budgets/history?${params}`);
     },
     enabled: !!categoryId && enabled,

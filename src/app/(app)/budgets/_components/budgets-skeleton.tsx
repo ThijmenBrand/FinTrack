@@ -2,19 +2,24 @@
 
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ROW_GRID, CELL_BAR, CELL_AMOUNT, CELL_DELTA } from "./budget-row";
+import { ROW_SHELL, ROW_CHEVRON, ROW_ASIDE } from "./budget-row";
 import { useI18n } from "@/lib/i18n/client";
 
 function RowSkeleton() {
   return (
-    <li className={ROW_GRID}>
-      <Skeleton className="h-2 w-2 rounded-full" />
-      <Skeleton className="h-3.5 w-32 max-w-full" />
-      <div className={CELL_BAR}>
-        <Skeleton className="h-1.5 w-full rounded-full" />
+    <li className={ROW_SHELL}>
+      <Skeleton className={ROW_CHEVRON} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-2 w-2 shrink-0 rounded-full" />
+          <Skeleton className="h-3.5 w-32 max-w-full" />
+        </div>
+        <Skeleton className="ml-4 mt-2.5 h-1 w-full rounded-full" />
       </div>
-      <Skeleton className={`h-3.5 w-24 justify-self-end ${CELL_AMOUNT}`} />
-      <Skeleton className={`h-3 w-16 justify-self-end ${CELL_DELTA}`} />
+      <div className={ROW_ASIDE}>
+        <Skeleton className="ml-auto h-5 w-20" />
+        <Skeleton className="ml-auto mt-1.5 h-3 w-28 max-w-full" />
+      </div>
     </li>
   );
 }
@@ -22,7 +27,7 @@ function RowSkeleton() {
 /** The band that opens each section of the plan list. */
 function SectionSkeleton({ action = false }: { action?: boolean }) {
   return (
-    <li className="flex flex-wrap items-center gap-x-3 gap-y-1 bg-muted/40 px-4 py-2">
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 pb-2.5 pt-5">
       <Skeleton className="h-3.5 w-3.5 shrink-0" />
       <Skeleton className="h-3 w-28" />
       <Skeleton className="ml-auto h-3 w-32 max-w-[30%]" />
@@ -48,7 +53,7 @@ export function BudgetsSkeleton() {
       {/* Header. The title never depends on the fetch, so render it for real
           and only placeholder the parts that do. */}
       <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-2xl font-bold tracking-tight">
+        <h1 className="text-2xl font-bold tracking-tight lg:text-[1.75rem]">
           {t("budgets.fallbackTitle")}
         </h1>
         {/* Phone folds these into the title's menu — see BudgetSwitcher. */}
@@ -71,10 +76,10 @@ export function BudgetsSkeleton() {
         </div>
         <div className="hidden gap-x-6 gap-y-5 sm:grid sm:grid-cols-4">
           {Array.from({ length: 4 }, (_, i) => (
-            <div key={i} className="space-y-2">
+            <div key={i}>
               <Skeleton className="h-3 w-20" />
-              <Skeleton className="h-6 w-24" />
-              <Skeleton className="h-3 w-28" />
+              <Skeleton className="mt-1.5 h-7 w-28 max-w-full" />
+              <Skeleton className="mt-1.5 h-3 w-28 max-w-full" />
             </div>
           ))}
         </div>

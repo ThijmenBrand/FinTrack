@@ -16,6 +16,12 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CheckCircle2, AlertCircle, ChevronDown, X, Zap } from "lucide-react";
 import { matchesRule, extractPattern } from "@/lib/csv-utils";
+import { SplitPartsEditor } from "@/components/split-transaction-editor/split-parts-editor";
+import {
+  newSplitRow,
+  splitCents,
+  type SplitRow,
+} from "@/components/split-transaction-editor/split-rows";
 import {
   ImportTransactionRow,
   type ImportCategory as Category,
@@ -49,6 +55,17 @@ interface ImportReviewStepProps {
   ) => void;
 }
 
+/**
+ * Whether a row still needs the user's attention. A row split into parts is
+ * handled once every part has a category — the parts are what get categorized,
+ * the row itself deliberately stays category-less (it becomes a split parent,
+ * which counts in no totals).
+ */
+function isHandled(tx: PreviewTransaction): boolean {
+  if (tx.splits?.length) return tx.splits.every((s) => s.categoryId);
+  return !!tx.categoryId;
+}
+
 // Find similar uncategorized transactions based on pattern matching
 function findSimilar(
   pattern: string,
@@ -56,7 +73,8 @@ function findSimilar(
   transactions: PreviewTransaction[]
 ): PreviewTransaction[] {
   return transactions.filter((tx) => {
-    if (tx.tempId === currentId || tx.categoryId) return false;
+    // Split rows are categorized through their parts, never in bulk.
+    if (tx.tempId === currentId || tx.categoryId || tx.splits?.length) return false;
     const target = tx.name ? `${tx.name} — ${tx.description}` : tx.description;
     return matchesRule(target, pattern, "contains");
   });
@@ -99,7 +117,7 @@ export function ImportReviewStep({
   );
 
   const categorizedCount = useMemo(
-    () => transactions.filter((tx) => tx.categoryId).length,
+    () => transactions.filter(isHandled).length,
     [transactions]
   );
   const uncategorizedCount = transactions.length - categorizedCount;
@@ -109,7 +127,7 @@ export function ImportReviewStep({
   const uncategorizedTxs = useMemo(
     () =>
       transactions.filter(
-        (tx) => !tx.categoryId || tx.tempId === batchBanner?.triggerTxId
+        (tx) => !isHandled(tx) || tx.tempId === batchBanner?.triggerTxId
       ),
     [transactions, batchBanner?.triggerTxId]
   );
@@ -184,11 +202,56 @@ export function ImportReviewStep({
     );
   }, []);
 
+  // A pot claims the whole row, so it drops any split the row had (the row
+  // editor hides the pot picker while a split exists, this covers the rest).
   const handlePotChange = useCallback((tempId: string, groupId: string | null) => {
     setTransactions((prev) =>
-      prev.map((tx) => (tx.tempId === tempId ? { ...tx, groupId } : tx))
+      prev.map((tx) =>
+        tx.tempId === tempId
+          ? { ...tx, groupId, ...(groupId ? { splits: null, splitRuleId: null } : {}) }
+          : tx
+      )
     );
   }, []);
+
+  // Row whose split editor is open (proposed parts, or a fresh manual split)
+  const [splitEditorId, setSplitEditorId] = useState<string | null>(null);
+
+  const handleEditSplit = useCallback((tempId: string) => setSplitEditorId(tempId), []);
+
+  const handleRemoveSplit = useCallback((tempId: string) => {
+    setSplitEditorId((id) => (id === tempId ? null : id));
+    setTransactions((prev) =>
+      prev.map((tx) => (tx.tempId === tempId ? { ...tx, splits: null, splitRuleId: null } : tx))
+    );
+  }, []);
+
+  /**
+   * Store edited parts on the row. splitRuleId is dropped: once the parts have
+   * been through the editor they are the user's, so the commit records the
+   * children as manually categorized and Recalculate All leaves them alone.
+   */
+  const handleSaveSplit = useCallback(
+    (tempId: string, rows: SplitRow[], sign: number) => {
+      setTransactions((prev) =>
+        prev.map((tx) =>
+          tx.tempId === tempId
+            ? {
+                ...tx,
+                categoryId: null,
+                splitRuleId: null,
+                splits: rows.map((r) => ({
+                  amount: (sign * splitCents(r.amount)) / 100,
+                  categoryId: r.categoryId,
+                })),
+              }
+            : tx
+        )
+      );
+      setSplitEditorId(null);
+    },
+    []
+  );
 
   // Row whose reimbursement picker is currently open
   const [reimburseTargetId, setReimburseTargetId] = useState<string | null>(null);
@@ -237,6 +300,9 @@ export function ImportReviewStep({
                 reimbursesExpenseId: expense.local ? null : expense.id,
                 reimbursesTempId: expense.local ? expense.id : null,
                 reimbursesDescription: expense.description,
+                // Reimbursements can't be split (nor split rows reimbursed).
+                splits: null,
+                splitRuleId: null,
               }
             : t
         )
@@ -283,7 +349,9 @@ export function ImportReviewStep({
 
   const handleBulkCategory = (categoryId: string) => {
     setTransactions((prev) =>
-      prev.map((tx) => (selectedIds.has(tx.tempId) ? { ...tx, categoryId } : tx))
+      prev.map((tx) =>
+        selectedIds.has(tx.tempId) && !tx.splits?.length ? { ...tx, categoryId } : tx
+      )
     );
     setSelectedIds(new Set());
     setBatchBanner(null);
@@ -327,7 +395,8 @@ export function ImportReviewStep({
             <span className="shrink-0 sm:w-16">{t("csvReview.colDate")}</span>
             <span className="flex-1">{t("csvReview.colDescription")}</span>
             <span className="text-right shrink-0 sm:w-24">{t("csvReview.colAmount")}</span>
-            {/* Spacers matching the per-row note / pot / reimbursement buttons */}
+            {/* Spacers matching the per-row note / split / pot / reimbursement buttons */}
+            <span className="w-7 shrink-0" />
             <span className="w-7 shrink-0" />
             <span className="w-7 shrink-0" />
             <span className="w-7 shrink-0" />
@@ -345,10 +414,34 @@ export function ImportReviewStep({
                 onNotesChange={handleNotesChange}
                 onPotChange={handlePotChange}
                 onToggleReimbursement={handleToggleReimbursement}
+                onEditSplit={handleEditSplit}
+                onRemoveSplit={handleRemoveSplit}
                 isAutoMatched={autoMatchedIds.has(tx.tempId)}
                 selected={selectedIds.has(tx.tempId)}
                 onToggleSelect={handleToggleSelect}
               />
+              {/* Split editor — local state only; nothing is written until import */}
+              {splitEditorId === tx.tempId && (
+                <div className="border-b bg-muted/30 px-3 py-2">
+                  <SplitPartsEditor
+                    totalCents={Math.round(Math.abs(tx.amount) * 100)}
+                    categories={categories}
+                    accountId={accountId}
+                    showDescriptions={false}
+                    initialRows={
+                      tx.splits?.length
+                        ? tx.splits.map((s) =>
+                            newSplitRow(Math.abs(s.amount).toFixed(2), s.categoryId)
+                          )
+                        : [newSplitRow("0.00"), newSplitRow(Math.abs(tx.amount).toFixed(2))]
+                    }
+                    onSave={(rows) =>
+                      handleSaveSplit(tx.tempId, rows, tx.amount < 0 ? -1 : 1)
+                    }
+                    onCancel={() => setSplitEditorId(null)}
+                  />
+                </div>
+              )}
               {/* Batch apply banner - shown directly below the triggering transaction */}
               {batchBanner && batchBanner.triggerTxId === tx.tempId && (
                 <div className="px-3 py-2 bg-primary/5 border-b">

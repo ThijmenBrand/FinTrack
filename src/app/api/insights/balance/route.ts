@@ -5,6 +5,7 @@ import { and, inArray } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { toIsoDate } from "@/lib/utils";
 import { visibleAccounts, visibleTransactions } from "@/lib/account-access";
+import { excludeSplitChildren } from "@/lib/split-sql";
 
 /**
  * GET /api/insights/balance — daily balance time series for an account (or all accounts).
@@ -50,7 +51,9 @@ export async function GET(request: NextRequest) {
     const accountName = accountIds.length === 1 ? acctList[0].name : null;
 
     // 2. Fetch all transactions for in-scope accounts
-    const txConditions = [visibleTransactions(userId)];
+    // Ledger view: the split parent is the row the bank actually posted, so its
+    // children are left out rather than counted on top of it.
+    const txConditions = [visibleTransactions(userId), excludeSplitChildren()];
     if (accountIds.length > 0)
       txConditions.push(inArray(transactions.accountId, accountIds));
     const allTx = await db

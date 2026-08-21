@@ -12,11 +12,13 @@ import {
 } from "@/components/ui/select";
 import { CategoryIcon } from "@/components/category-icon";
 import { CategorizePopover } from "@/components/categorize-popover";
-import { Search, Upload, FileSpreadsheet } from "lucide-react";
+import { Search, Upload, FileSpreadsheet, Split } from "lucide-react";
+import { SplitBadge } from "@/components/split-badge";
 import type { Category, Pagination, Transaction } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
 import { PaginationBar } from "./transactions-table";
 import { PERIOD_OPTIONS } from "./transaction-search-bar";
+import { Amount } from "./transaction-amount";
 
 type Option = { value: string; label: string };
 
@@ -186,7 +188,9 @@ export function SimpleTransactionList({
 
           <div className="divide-y">
             {transactions.map((tx) => {
-              const categoryPicker = (
+              const categoryPicker = tx.isSplitParent ? (
+                <SplitBadge className="text-xs" />
+              ) : (
                 <CategorizePopover
                   transactionId={tx.id}
                   transactionDescription={tx.name || tx.description}
@@ -195,63 +199,118 @@ export function SimpleTransactionList({
                   currentCategoryColor={tx.categoryColor}
                   currentCategoryIcon={tx.categoryIcon}
                   categories={categoriesFor(tx.accountId)}
+                  accountId={tx.accountId}
                   canCreateRule={ownsAccount(tx.accountId)}
                 />
               );
+              // Splits are filtered client-side to the active category, same
+              // as the full table — the parent stays visible regardless. When
+              // the filter matched via a child's POT category (which a child
+              // row doesn't carry), nothing matches here, so fall back to
+              // every part rather than an empty parent.
+              const allSplits = tx.isSplitParent && tx.splits ? tx.splits : [];
+              const matched =
+                category !== "all"
+                  ? allSplits.filter((c) => c.categoryId === category)
+                  : allSplits;
+              const children = matched.length ? matched : allSplits;
               return (
-                // Not a <button>: the category picker is an interactive control
-                // inside the row, which can't nest in one.
-                <div
-                  key={tx.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => onOpen(tx)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      onOpen(tx);
-                    }
-                  }}
-                  className="flex w-full cursor-pointer items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none active:bg-muted/50"
-                >
-                  <CategoryIcon
-                    icon={tx.categoryIcon}
-                    color={tx.categoryColor}
-                    size="md"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">
-                      {tx.name || tx.description}
-                    </p>
-                    <p className="truncate text-xs text-muted-foreground sm:hidden">
+                <div key={tx.id}>
+                  {/* Not a <button>: the category picker is an interactive control
+                      inside the row, which can't nest in one. */}
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => onOpen(tx)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        onOpen(tx);
+                      }
+                    }}
+                    className="flex w-full cursor-pointer items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none active:bg-muted/50"
+                  >
+                    {tx.isSplitParent ? (
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
+                        <Split className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                    ) : (
+                      <CategoryIcon
+                        icon={tx.categoryIcon}
+                        color={tx.categoryColor}
+                        size="md"
+                      />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">
+                        {tx.name || tx.description}
+                      </p>
+                      <p className="truncate text-xs text-muted-foreground sm:hidden">
+                        {formatDate(tx.date)}
+                      </p>
+                      <div
+                        className="-ml-2 sm:hidden"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {categoryPicker}
+                      </div>
+                    </div>
+                    <span className="hidden w-28 shrink-0 text-sm text-muted-foreground sm:block">
                       {formatDate(tx.date)}
-                    </p>
+                    </span>
                     <div
-                      className="-ml-2 sm:hidden"
+                      className="hidden w-40 shrink-0 sm:block"
                       onClick={(e) => e.stopPropagation()}
                     >
                       {categoryPicker}
                     </div>
+                    <span
+                      className={`w-28 shrink-0 text-right font-mono text-sm font-medium ${
+                        tx.amount >= 0
+                          ? "text-emerald-600 dark:text-emerald-400"
+                          : "text-red-600 dark:text-red-400"
+                      }`}
+                    >
+                      {tx.amount >= 0 ? "+" : ""}
+                      {formatCurrency(tx.amount)}
+                    </span>
                   </div>
-                  <span className="hidden w-28 shrink-0 text-sm text-muted-foreground sm:block">
-                    {formatDate(tx.date)}
-                  </span>
-                  <div
-                    className="hidden w-40 shrink-0 sm:block"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {categoryPicker}
-                  </div>
-                  <span
-                    className={`w-28 shrink-0 text-right font-mono text-sm font-medium ${
-                      tx.amount >= 0
-                        ? "text-emerald-600 dark:text-emerald-400"
-                        : "text-red-600 dark:text-red-400"
-                    }`}
-                  >
-                    {tx.amount >= 0 ? "+" : ""}
-                    {formatCurrency(tx.amount)}
-                  </span>
+                  {children.map((child) => (
+                    <div
+                      key={child.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => onOpen(child)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          onOpen(child);
+                        }
+                      }}
+                      className="ml-4 flex w-full cursor-pointer items-center gap-3 border-l-2 border-muted-foreground/20 bg-muted/20 px-4 py-2 text-left transition-colors hover:bg-muted/40"
+                    >
+                      <Split className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm text-muted-foreground">
+                          {child.description}
+                        </p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {child.categoryName ?? t("tx.bulk.noCategory")}
+                        </p>
+                      </div>
+                      <span className="hidden w-28 shrink-0 text-sm text-muted-foreground sm:block">
+                        {formatDate(child.date)}
+                      </span>
+                      {/* The shared cell, not a hand-rolled span: a split child
+                          can itself be reimbursed or sit in a pot (spec
+                          parity), and only this handles the netting and the
+                          strike-through. The column width stays here because
+                          this list aligns to its own parent rows. */}
+                      <span className="w-28 shrink-0 text-right">
+                        <Amount tx={child} />
+                      </span>
+                    </div>
+                  ))}
                 </div>
               );
             })}

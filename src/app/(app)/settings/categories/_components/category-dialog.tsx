@@ -12,12 +12,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { CategoryIcon } from "@/components/category-icon";
 import { EmojiPicker } from "@/components/emoji-picker";
 import { useCreateCategory, useUpdateCategory } from "@/hooks/use-categories";
 import { suggestEmoji } from "@/lib/category-emoji";
-import type { CategoryWithDetails } from "@/types/api";
+import type { CategoryKind, CategoryWithDetails } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
+import { CATEGORY_KIND_OPTIONS } from "./category-row";
 
 interface CategoryDialogProps {
   open: boolean;
@@ -56,6 +64,7 @@ function CategoryForm({
   const [color, setColor] = useState(category?.color || "#3b82f6");
   const [icon, setIcon] = useState<string | null>(category?.icon ?? null);
   const [iconTouched, setIconTouched] = useState(false);
+  const [kind, setKind] = useState<CategoryKind>(category?.kind ?? "expense");
   const [error, setError] = useState<string | null>(null);
 
   // ponytail: suggestion only fills an untouched icon on create; edits keep theirs.
@@ -79,6 +88,7 @@ function CategoryForm({
       name,
       color,
       icon,
+      kind,
     };
     try {
       await (category ? updateCategory : createCategory).mutateAsync(payload as never);
@@ -106,6 +116,22 @@ function CategoryForm({
               value={name}
               onChange={(e) => handleNameChange(e.target.value)}
             />
+          </div>
+          <div className="grid gap-2">
+            <Label>{t("categories.kind.label")}</Label>
+            <Select value={kind} onValueChange={(v) => setKind(v as CategoryKind)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {CATEGORY_KIND_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {t(o.labelKey)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">{t("categories.kind.help")}</p>
           </div>
           <div className="grid gap-2">
             <Label>{t("categories.iconLabel")}</Label>

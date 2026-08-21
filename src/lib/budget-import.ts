@@ -1,17 +1,58 @@
 import { parseAmount } from "@/lib/csv-utils";
+import type { CategoryKind } from "@/types/api";
 
 /**
  * Canonical shape every parsing strategy produces and the import endpoint
- * accepts. A root node becomes a category + allocation; children become
- * budget_sub_lines (max depth 3 under the allocation, so 4 levels total).
+ * accepts. A root node becomes a category; what hangs off it depends on the
+ * root's type (see RowType) — an allocation with budget_sub_lines, or one
+ * recurring plan per leaf.
  */
 export interface ImportNode {
   name: string;
   /** Absolute value, sheet-native unit; null = section header (amount comes from children). */
   amount: number | null;
-  /** Sign differed from the sheet's expense convention — review deselects these. */
+  /** Sign differed from the sheet's expense convention — feeds type detection. */
   income?: boolean;
   children: ImportNode[];
+}
+
+/**
+ * What a root row becomes on import. Chosen per root — not per leaf — because
+ * the whole subtree lands in one category and one storage shape:
+ *
+ *  - `variable`      category(expense) + budgets allocation + budget_sub_lines
+ *  - `fixed`         category(expense) + one recurring_transactions expense per leaf
+ *  - `income`        category(income)  + one recurring_transactions income per leaf
+ *  - `categoryOnly`  the category alone, no allocation and no plans
+ *  - `skip`          nothing; never sent to the server
+ *
+ * `fixed` deliberately creates no allocation: the budgets page sums fixed
+ * costs and allocations into one total, so a category carrying both would
+ * count twice.
+ */
+export type RowType = "variable" | "fixed" | "income" | "categoryOnly" | "skip";
+
+/** Per-root submission node. Children are sub-lines or per-leaf plans. */
+export interface ImportSubmitNode {
+  name: string;
+  /** Monthly for `variable`; the plan's own amount for `fixed`/`income`. */
+  amount: number | null;
+  children: ImportSubmitNode[];
+}
+
+export interface ImportSubmitRoot extends ImportSubmitNode {
+  type: Exclude<RowType, "skip">;
+  /** How often each plan under this root recurs. `fixed`/`income` only. */
+  frequency?: "monthly" | "yearly";
+}
+
+export interface ImportPayload {
+  budgetId?: string;
+  /** Recurring plans need an account; the sheet has none, so the wizard asks. */
+  accountId: string;
+  /** startDate for every created plan — the first day of the viewed period. */
+  startDate: string;
+  nodes: ImportSubmitRoot[];
 }
 
 export interface SheetMapping {
@@ -28,6 +69,8 @@ export interface FlatImportRow {
   amount: number | null;
   depth: number;
   income: boolean;
+  /** Index of the root this row hangs under; the type control lives there. */
+  rootIndex: number;
 }
 
 /** Total node cap per import — matches the server's validation. */
@@ -265,11 +308,146 @@ export function effectiveAmount(node: ImportNode): number {
   return Math.max(node.amount ?? 0, childSum);
 }
 
-export function flattenTree(nodes: ImportNode[], depth = 0): FlatImportRow[] {
-  return nodes.flatMap((n) => [
-    { name: n.name, amount: n.amount, depth, income: n.income ?? false },
-    ...flattenTree(n.children, depth + 1),
-  ]);
+/** Amounts are rounded to cents, so anything under half a cent is formula dust. */
+const CENT = 0.005;
+
+/**
+ * Sub-lines may leave a remainder but never overspend their parent — the same
+ * rule the sub-lines endpoint enforces (SUB_LINE_ERROR.exceedsParent). A sheet
+ * that breaks it is usually a monthly parent sitting over yearly children, and
+ * without this the import would silently raise the parent to fit (see
+ * effectiveAmount). Returns the positions of the offending rows, depth-first.
+ */
+export function findOverAllocated(
+  rows: { amount: number | null; depth: number }[],
+): number[] {
+  const over: number[] = [];
+  /** Effective total of the subtree at `i`, plus where that subtree ends. */
+  const walk = (i: number): { total: number; next: number } => {
+    const row = rows[i];
+    let childSum = 0;
+    let j = i + 1;
+    while (j < rows.length && rows[j].depth > row.depth) {
+      const child = walk(j);
+      childSum += child.total;
+      j = child.next;
+    }
+    if (row.amount !== null && childSum > row.amount + CENT) over.push(i);
+    return { total: Math.max(row.amount ?? 0, childSum), next: j };
+  };
+  for (let i = 0; i < rows.length; i = walk(i).next);
+  return over;
+}
+
+export function flattenTree(nodes: ImportNode[]): FlatImportRow[] {
+  const out: FlatImportRow[] = [];
+  const walk = (list: ImportNode[], depth: number, rootIndex: number) => {
+    for (const n of list) {
+      out.push({
+        name: n.name,
+        amount: n.amount,
+        depth,
+        income: n.income ?? false,
+        rootIndex,
+      });
+      walk(n.children, depth + 1, rootIndex);
+    }
+  };
+  nodes.forEach((n, i) => walk([n], 0, i));
+  return out;
+}
+
+// ─── Type detection ──────────────────────────────────────────────────────────
+// Pre-fills the review step's type control. Every result is overridable, so
+// these patterns aim at the common Dutch/English budget sheet rather than at
+// completeness.
+
+const INCOME_RE = /inkom|income|salar|loon|verdien|earning|revenue/i;
+const FIXED_SECTION_RE = /vast|fixed|recurring|terugkerend|maandlast/i;
+const FIXED_KEYWORD_RE =
+  // Word-bounded where a bare stem would over-match: "rent" otherwise swallows
+  // the Dutch "rente" (interest) and "gas" hides inside plenty of words.
+  /huur|\brent\b|hypotheek|mortgage|verzekering|insurance|abonnement|subscription|energie|energy|electric|stroom|\bgas\b|water|internet|telefoon|phone|belasting|\btax\b|contributie|lidmaatschap|membership|premie/i;
+
+export interface DetectedType {
+  type: RowType;
+  /**
+   * False when nothing in the sheet pointed anywhere and the default was
+   * taken — the review step can filter down to exactly these rows.
+   */
+  confident: boolean;
+}
+
+/** Every name in the subtree, root first — what the patterns get tested against. */
+function subtreeNames(node: ImportNode): string[] {
+  return [node.name, ...node.children.flatMap(subtreeNames)];
+}
+
+/** How many amounts in the subtree carried the sheet's minority (income) sign. */
+function signTally(node: ImportNode): { income: number; expense: number } {
+  const tally = { income: 0, expense: 0 };
+  const walk = (n: ImportNode) => {
+    if (n.amount !== null && n.amount !== 0) {
+      if (n.income) tally.income++;
+      else tally.expense++;
+    }
+    n.children.forEach(walk);
+  };
+  walk(node);
+  return tally;
+}
+
+/**
+ * Guess what a root row should become. Signals, strongest first:
+ *
+ *  1. a category with this name already exists — its stored kind is the
+ *     user's own answer and beats anything the sheet implies;
+ *  2. the root name or its tab says "inkomsten"/"income";
+ *  3. the subtree's amounts mostly carry the minority sign the sheet used for
+ *     income (see normalizeSigns);
+ *  4. for expenses only: the root name or tab says "vaste lasten", or most
+ *     leaf names look like bills (huur, verzekering, abonnement, …).
+ *
+ * Falling through all of them yields `variable`, marked unconfident.
+ */
+export function detectRootType(
+  root: ImportNode,
+  sheetName: string,
+  storedKinds: Map<string, CategoryKind>,
+): DetectedType {
+  const stored = storedKinds.get(root.name.toLowerCase());
+  if (stored === "income") return { type: "income", confident: true };
+  // A transfer category cannot carry a budget or a plan; the server would
+  // refuse it anyway, so the wizard shows it pre-skipped instead.
+  if (stored === "transfer") return { type: "skip", confident: true };
+
+  const names = subtreeNames(root);
+  if (stored !== "expense") {
+    if (INCOME_RE.test(root.name) || INCOME_RE.test(sheetName)) {
+      return { type: "income", confident: true };
+    }
+    const tally = signTally(root);
+    if (tally.income > tally.expense) return { type: "income", confident: true };
+  }
+
+  if (
+    FIXED_SECTION_RE.test(root.name) ||
+    FIXED_SECTION_RE.test(sheetName) ||
+    FIXED_KEYWORD_RE.test(root.name)
+  ) {
+    return { type: "fixed", confident: true };
+  }
+  // Leaves, not the root: "Wonen" says nothing, but "Huur" + "Gas/licht"
+  // under it says fixed costs.
+  const leaves = names.slice(1).length ? names.slice(1) : names;
+  const billish = leaves.filter((n) => FIXED_KEYWORD_RE.test(n)).length;
+  // Half the subtree is enough: "Wonen" holding Hypotheek and Premie is a
+  // fixed-cost block even though "Rente" and "Schoonmaak" sit beside them.
+  if (billish > 0 && billish * 2 >= leaves.length) {
+    return { type: "fixed", confident: true };
+  }
+
+  return { type: "variable", confident: stored === "expense" };
 }
 
 /**
@@ -277,6 +455,61 @@ export function flattenTree(nodes: ImportNode[], depth = 0): FlatImportRow[] {
  * predecessor + 1 — e.g. because its parent was deselected — clamps up to the
  * nearest available ancestor.
  */
+export const MONTHS_PER_YEAR = 12;
+
+/** The wizard's per-root settings, indexed by FlatImportRow.rootIndex. */
+export interface RootConfig {
+  type: RowType;
+  /** What the sheet's amounts mean for this root. */
+  unit: "monthly" | "yearly";
+}
+
+/**
+ * Turn the kept review rows into the payload the import endpoint takes.
+ *
+ * Rows arrive already filtered to what the user ticked, so a root whose own
+ * row was unticked leaves its children behind — buildTree promotes those to
+ * roots of their own, and they inherit the type of the root they came from.
+ *
+ * Units resolve here, not on the server: an allocation is stored monthly, so
+ * a yearly `variable` root divides by twelve, while a yearly `fixed` or
+ * `income` root keeps its amount and becomes a yearly plan instead.
+ */
+export function buildSubmitRoots(
+  rows: FlatImportRow[],
+  rootConfig: RootConfig[],
+): ImportSubmitRoot[] {
+  const groups = new Map<number, FlatImportRow[]>();
+  for (const row of rows) {
+    const list = groups.get(row.rootIndex) ?? [];
+    list.push(row);
+    groups.set(row.rootIndex, list);
+  }
+
+  const out: ImportSubmitRoot[] = [];
+  for (const [rootIndex, groupRows] of groups) {
+    const config = rootConfig[rootIndex];
+    if (!config || config.type === "skip") continue;
+    const perMonth = config.type === "variable" && config.unit === "yearly";
+    const scale = (node: ImportNode): ImportSubmitNode => ({
+      name: node.name,
+      amount:
+        node.amount === null || !perMonth ? node.amount : node.amount / MONTHS_PER_YEAR,
+      children: node.children.map(scale),
+    });
+    for (const tree of buildTree(groupRows)) {
+      out.push({
+        ...scale(tree),
+        type: config.type,
+        ...(config.type === "fixed" || config.type === "income"
+          ? { frequency: config.unit }
+          : {}),
+      });
+    }
+  }
+  return out;
+}
+
 export function buildTree(
   rows: { name: string; amount: number | null; depth: number }[],
 ): ImportNode[] {

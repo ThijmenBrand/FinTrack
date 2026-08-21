@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Plus, Repeat, TrendingUp } from "lucide-react";
+import { Plus, Repeat } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   useRecurring,
@@ -9,14 +9,19 @@ import {
   useUpdateRecurring,
   useDeleteRecurring,
 } from "@/hooks/use-recurring";
-import { toMonthly } from "@/lib/recurring";
 import { useI18n } from "@/lib/i18n/client";
-import type { Account, CategoryWithDetails, FixedCost, RecurringTx } from "@/types/api";
+import type {
+  Account,
+  CategoryWithDetails,
+  FixedCost,
+  IncomeLine,
+  RecurringTx,
+} from "@/types/api";
 import { RecurringItem } from "@/app/(app)/recurring/_components/recurring-item";
 import { RecurringFormDialog } from "@/app/(app)/recurring/_components/recurring-form-dialog";
 import { BudgetRow } from "./allocation-row";
-import { SectionHeader } from "./section-header";
-import { fixedCostStatus } from "./budget-row";
+import type { SplitShare } from "@/lib/budget-split";
+import { fixedCostStatus, incomeStatus } from "./budget-row";
 import type { HistoryTarget } from "@/components/budget-history-dialog";
 
 /** Server-side bucket key for a recurring row with no category. */
@@ -39,23 +44,42 @@ export interface FixedCostGroup {
   items: RecurringTx[];
 }
 
+/** One category's income line, with the plans that promise it. */
+export interface IncomeGroup {
+  categoryId: string;
+  /** Absent when every plan in the category is paused — nothing is expected. */
+  line?: IncomeLine;
+  /** The period's figures, already resolved to the scope on screen. */
+  expected: number;
+  received: number;
+  items: RecurringTx[];
+}
+
 /**
- * The recurring plans behind the budget list: this plan's income, and the
- * fixed costs grouped by the category they land in.
+ * The recurring plans behind the budget list, grouped by the category they
+ * land in: income on one side, fixed costs on the other.
  *
  * A hook rather than a section component because a fixed cost is a budgeted
- * expense like any other — the page sorts these groups in among the
+ * expense like any other — the page sorts those groups in among the
  * allocations rather than stacking them below in a section of their own.
+ * Income does get a section, but its rows are built the same way: the API's
+ * line joined to the plans that promise it.
  */
 export function useRecurringPlans({
   planAccountIds,
   fixedCosts,
+  incomeLines,
+  yearScope,
   accounts,
   categories,
 }: {
   /** Accounts this plan owns; null when no plan scopes the page (= all). */
   planAccountIds: string[] | null;
   fixedCosts: FixedCost[] | undefined;
+  /** The API's income side: one line per income category. */
+  incomeLines: IncomeLine[] | undefined;
+  /** Year scope reads a line's yearly figures instead of the month's. */
+  yearScope: boolean;
   accounts: Account[];
   categories: CategoryWithDetails[];
 }) {
@@ -70,7 +94,7 @@ export function useRecurringPlans({
 
   // Mirror the server's scope: a plan only counts plans on the accounts it
   // owns, so a Joint budget shows joint salary and joint bills and nothing else.
-  const { income, expenseGroups, showAccount } = useMemo(() => {
+  const { incomeGroups, expenseGroups, showAccount } = useMemo(() => {
     const scoped =
       planAccountIds === null
         ? allItems
@@ -82,9 +106,16 @@ export function useRecurringPlans({
 
     const progress = new Map((fixedCosts ?? []).map((fc) => [fc.categoryId, fc]));
     const groups = new Map<string, { fc?: FixedCost; items: RecurringTx[] }>();
+    const incomePlans = new Map<string, RecurringTx[]>();
     for (const item of scoped) {
-      if (item.type !== "expense") continue;
       const key = item.categoryId ?? UNCATEGORIZED;
+      if (item.type === "income") {
+        const plans = incomePlans.get(key) ?? [];
+        plans.push(item);
+        incomePlans.set(key, plans);
+        continue;
+      }
+      if (item.type !== "expense") continue;
       const group = groups.get(key) ?? { fc: progress.get(key), items: [] };
       group.items.push(item);
       groups.set(key, group);
@@ -99,16 +130,41 @@ export function useRecurringPlans({
       }))
       .sort((a, b) => (b.fc?.monthlyAmount ?? 0) - (a.fc?.monthlyAmount ?? 0));
 
+    // The same shape for income. A yearly plan's line carries the year's own
+    // expected/received so a year-scoped row measures a year rather than
+    // repeating one month twelve times; a monthly plan has no year half, and
+    // never renders in year scope anyway, so the month's figures stand.
+    const lines = incomeLines ?? [];
+    const scopeOf = (line: IncomeLine) => (yearScope && line.year) || line;
+    const lineIds = new Set(lines.map((l) => l.categoryId));
+    const incomeRows: IncomeGroup[] = [
+      ...lines.map((line) => ({
+        categoryId: line.categoryId,
+        line,
+        expected: scopeOf(line).expected,
+        received: scopeOf(line).received,
+        items: [...(incomePlans.get(line.categoryId) ?? [])].sort(byActive),
+      })),
+      // A category whose income plans are all paused gets no line — it expects
+      // nothing this period — but keeps its row so those plans stay reachable,
+      // exactly as a fully-paused fixed-cost category does.
+      ...[...incomePlans.entries()]
+        .filter(([categoryId]) => !lineIds.has(categoryId))
+        .map(([categoryId, items]) => ({
+          categoryId,
+          expected: 0,
+          received: 0,
+          items: [...items].sort(byActive),
+        })),
+      // Biggest earner first, paused categories last on an expected of zero.
+    ].sort((a, b) => b.expected - a.expected);
+
     return {
-      income: scoped.filter((i) => i.type === "income").sort(byActive),
+      incomeGroups: incomeRows,
       expenseGroups: ordered,
       showAccount: new Set(scoped.map((i) => i.accountId)).size > 1,
     };
-  }, [allItems, planAccountIds, fixedCosts]);
-
-  const monthlyIncome = income
-    .filter((i) => i.isActive)
-    .reduce((sum, i) => sum + toMonthly(i.amount, i.frequency), 0);
+  }, [allItems, planAccountIds, fixedCosts, incomeLines, yearScope]);
 
   const handleSubmit = async (payload: Record<string, unknown>) => {
     await (editing
@@ -134,8 +190,7 @@ export function useRecurringPlans({
   };
 
   return {
-    income,
-    monthlyIncome,
+    incomeGroups,
     expenseGroups,
     rowProps,
     /**
@@ -174,41 +229,6 @@ export function useRecurringPlans({
   };
 }
 
-/**
- * The plan's income: its own section at the foot of the list.
- *
- * Income is the only part of the plan that isn't an expense, so it keeps a
- * heading of its own — everything above it is money going out.
- */
-export function IncomeSection({
-  income,
-  monthlyIncome,
-  rowProps,
-}: {
-  income: RecurringTx[];
-  monthlyIncome: number;
-  rowProps: PlanRowProps;
-}) {
-  const { t, formatCurrency } = useI18n();
-  if (income.length === 0) return null;
-
-  return (
-    <>
-      <SectionHeader
-        icon={TrendingUp}
-        iconClassName="text-emerald-600 dark:text-emerald-400"
-        label={t("common.income")}
-        note={`${formatCurrency(monthlyIncome)}${t("recurring.perMonthShort")}`}
-      />
-      {/* No indent: income rows sit under their section heading, not under a
-          category row the way fixed costs do. */}
-      {income.map((item) => (
-        <RecurringItem key={item.id} item={item} {...rowProps} />
-      ))}
-    </>
-  );
-}
-
 /** The recurring plans under a category, indented like its sub-lines. */
 export function PlanRows({
   items,
@@ -234,13 +254,16 @@ export function PlanRows({
 export function FixedCostRow({
   group,
   rowProps,
+  split,
   onHistory,
 }: {
   group: FixedCostGroup;
   rowProps: PlanRowProps;
+  /** Who carries this bill on a shared budget; see BudgetRow. */
+  split?: SplitShare[];
   onHistory: (target: HistoryTarget) => void;
 }) {
-  const { t, formatCurrency } = useI18n();
+  const { t, plural, formatCurrency } = useI18n();
   const first = group.items[0];
   const { limit, spent, percentage, outstanding, status } = fixedCostStatus(group.fc);
   const settled = Math.abs(outstanding) < 0.01;
@@ -257,6 +280,13 @@ export function FixedCostRow({
         percentage={percentage}
         spent={spent}
         limit={limit}
+        split={split}
+        unit={t("budgets.perMonthShort")}
+        subNote={plural(
+          group.items.length,
+          "budgets.stat.recurringPayments.one",
+          "budgets.stat.recurringPayments.other",
+        )}
         delta={
           // A category whose plans are all paused owes nothing this month —
           // "paid" would be a lie, so it gets no note at all.
@@ -294,6 +324,110 @@ export function FixedCostRow({
                   categoryName: name,
                   categoryColor: color,
                   amount: limit,
+                })
+        }
+      />
+      <PlanRows items={group.items} rowProps={rowProps} />
+    </>
+  );
+}
+
+/**
+ * An income category as a budget line: what its recurring plans promise this
+ * period against what actually landed, with those plans as its sub-lines.
+ *
+ * Deliberately the same row as a fixed cost — income is planned and then
+ * reconciled exactly the way a bill is, so it should read the same way. Only
+ * the direction of "good" flips: beating the plan is a windfall rather than an
+ * overspend, which `incomeStatus` handles by topping out at emerald and never
+ * reaching red. Editing stays on the plan rows underneath; the category itself
+ * has no budget line to change.
+ */
+export function IncomeRow({
+  group,
+  rowProps,
+  yearScope,
+  onHistory,
+}: {
+  group: IncomeGroup;
+  rowProps: PlanRowProps;
+  /** The figures are a whole year's when set — the row's unit says so. */
+  yearScope?: boolean;
+  onHistory: (target: HistoryTarget) => void;
+}) {
+  const { t, plural, formatCurrency } = useI18n();
+  const first = group.items[0];
+  const { expected, received, percentage, outstanding, status } =
+    incomeStatus(group);
+  const settled = Math.abs(outstanding) < 0.01;
+  const color = group.line?.categoryColor || first?.categoryColor || "#94a3b8";
+  // The API labels its no-category bucket in its own tongue; the list speaks
+  // the user's, so that one row is named here rather than passed through.
+  const name =
+    group.categoryId === UNCATEGORIZED
+      ? t("common.uncategorized")
+      : group.line?.categoryName || first?.categoryName || t("common.uncategorized");
+
+  return (
+    <>
+      <BudgetRow
+        name={name}
+        color={color}
+        tone={status}
+        percentage={percentage}
+        spent={received}
+        limit={expected}
+        flow="income"
+        unit={t(yearScope ? "budgets.perYearShort" : "budgets.perMonthShort")}
+        subNote={plural(
+          group.items.length,
+          "budgets.stat.recurringPayments.one",
+          "budgets.stat.recurringPayments.other",
+        )}
+        delta={
+          // A category whose plans are all paused expects nothing this period —
+          // "received" would claim a payday that was never planned.
+          expected === 0 && received === 0
+            ? ""
+            : outstanding <= -0.01
+              ? t("budgets.extraAmount", {
+                  amount: formatCurrency(-outstanding),
+                })
+              : settled
+                ? t("budgets.received")
+                : t("budgets.expectedAmount", {
+                    amount: formatCurrency(outstanding),
+                  })
+        }
+        facts={
+          <>
+            {group.line && group.line.avgMonthly > 0 && (
+              <span>
+                {t("budgets.row.avgReceivedPerMonth", {
+                  amount: formatCurrency(group.line.avgMonthly),
+                  months: group.line.avgMonths,
+                })}
+              </span>
+            )}
+            <span>
+              {t("budgets.row.pctReceived", { pct: Math.round(percentage) })}
+            </span>
+          </>
+        }
+        readOnly
+        // Uncategorized plans have no category to look history up by.
+        onHistory={
+          group.categoryId === UNCATEGORIZED
+            ? undefined
+            : () =>
+                onHistory({
+                  categoryId: group.categoryId,
+                  categoryName: name,
+                  categoryColor: color,
+                  // The history plots months, so it wants the monthly figure —
+                  // `expected` above may be a whole year's worth in year scope.
+                  amount: group.line?.expected ?? 0,
+                  kind: "income",
                 })
         }
       />

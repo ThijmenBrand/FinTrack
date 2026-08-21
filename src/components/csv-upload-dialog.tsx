@@ -247,6 +247,10 @@ export function CsvUploadDialog({
           notes: tx.notes ?? null,
           targetAccountId: tx.targetAccountId,
           recurringTransactionId: tx.recurringTransactionId ?? null,
+          splits: tx.splits ?? null,
+          // Kept only while the parts are still the rule's own proposal — the
+          // commit uses it to record the children as rule-categorized.
+          splitRuleId: tx.splitRuleId ?? null,
         })),
         newRules,
       });

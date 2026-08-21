@@ -1,6 +1,4 @@
 import { createClient, type Client } from "@libsql/client";
-import { drizzle } from "drizzle-orm/libsql";
-import { migrate } from "drizzle-orm/libsql/migrator";
 import { readMigrationFiles } from "drizzle-orm/migrator";
 import path from "path";
 import { initializeDatabase } from "./migrate";
@@ -17,24 +15,30 @@ function makeClient(): Client {
 }
 
 /**
- * Baseline a database that predates versioned migrations: it already has the
- * app tables but no drizzle ledger. Running 0000's CREATE TABLEs on it would
- * error ("table already exists"), so we stamp 0000 as applied instead. The
- * ledger row uses drizzle's own hash/folderMillis so the migrator's
- * "created_at < when" check treats 0000 as done and only runs 0001+.
- * Column-level drift from that baseline is repaired by initializeDatabase().
+ * DDL that is already done. SQLite has no `ADD COLUMN IF NOT EXISTS`, so
+ * "already there" can only be observed as an error.
  */
-export async function baselineIfPreMigration(client: Client) {
-  const hasLedger = await client.execute(
-    `SELECT name FROM sqlite_master WHERE type='table' AND name='__drizzle_migrations'`,
-  );
-  const hasApp = await client.execute(
-    `SELECT name FROM sqlite_master WHERE type='table' AND name='user'`,
-  );
-  if (hasLedger.rows.length > 0 || hasApp.rows.length === 0) return;
+const ALREADY_APPLIED = /duplicate column name|already exists/i;
 
-  console.log("Existing pre-migration database detected — baselining 0000.");
-  const [first] = readMigrationFiles({ migrationsFolder: MIGRATIONS_FOLDER });
+/**
+ * Apply pending migrations ourselves instead of drizzle's libsql migrator.
+ *
+ * Two reasons. First, that migrator sends every pending statement as ONE
+ * non-transactional batch and only then has the ledger rows land, so a batch
+ * that dies partway — Turso stream timeout, two Vercel builds racing the same
+ * DB — leaves DDL committed with no ledger row, and every later deploy re-runs
+ * its `ALTER TABLE … ADD <col>` and hard-fails with "duplicate column name".
+ * Here each migration is stamped as soon as its own statements are through, so
+ * a dying run leaves an accurate watermark.
+ *
+ * Second, individual statements that were already applied are skipped rather
+ * than fatal, which is what makes the run self-healing: a half-applied
+ * migration, a pre-migration database that predates the ledger entirely, or a
+ * column added out of band by initializeDatabase's drift repair all replay
+ * cleanly. Only the idempotency errors above are swallowed; anything else
+ * still fails the deploy. Column-level drift is repaired by initializeDatabase.
+ */
+export async function applyPendingMigrations(client: Client) {
   await client.execute(
     `CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -42,27 +46,37 @@ export async function baselineIfPreMigration(client: Client) {
       created_at numeric
     )`,
   );
-  await client.execute({
-    sql: `INSERT INTO "__drizzle_migrations" ("hash", "created_at") VALUES (?, ?)`,
-    args: [first.hash, first.folderMillis],
-  });
+  const ledger = await client.execute(
+    `SELECT created_at FROM "__drizzle_migrations" ORDER BY created_at DESC LIMIT 1`,
+  );
+  const lastApplied = Number(ledger.rows[0]?.created_at ?? 0);
+
+  for (const migration of readMigrationFiles({ migrationsFolder: MIGRATIONS_FOLDER })) {
+    if (migration.folderMillis <= lastApplied) continue;
+    for (const stmt of migration.sql) {
+      if (!stmt.trim()) continue;
+      await client.execute(stmt).catch((e: unknown) => {
+        if (!ALREADY_APPLIED.test(String(e))) throw e;
+        console.log(`Skipping already-applied statement: ${stmt.slice(0, 60)}…`);
+      });
+    }
+    await client.execute({
+      sql: `INSERT INTO "__drizzle_migrations" ("hash", "created_at") VALUES (?, ?)`,
+      args: [migration.hash, migration.folderMillis],
+    });
+  }
 }
 
 /**
  * Bring the database (Turso in prod, local SQLite file otherwise) fully up to
- * date: baseline a pre-migration DB, apply pending versioned migrations, then
- * seed and repair column-level drift. Targets whatever TURSO_DATABASE_URL /
- * `@/db` point at, so tests can redirect it at a temp file.
+ * date: apply pending versioned migrations, then seed and repair column-level
+ * drift. Targets whatever TURSO_DATABASE_URL / `@/db` point at, so tests can
+ * redirect it at a temp file.
  */
 export async function runMigrations() {
   const client = makeClient();
-  const db = drizzle(client);
 
-  await baselineIfPreMigration(client);
-
-  // Fresh DB: applies 0000 (creates everything). Existing DB: 0000 is stamped,
-  // so only newer migrations run.
-  await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
+  await applyPendingMigrations(client);
 
   // Seed admin/categories, repair column-level drift, one-shot data backfills.
   await initializeDatabase();

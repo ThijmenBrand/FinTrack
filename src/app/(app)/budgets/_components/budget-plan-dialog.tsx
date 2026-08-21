@@ -10,33 +10,42 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { AlertTriangle, Loader2 } from "lucide-react";
 import {
-  useCreateBudgetPlan,
   useDeleteBudgetPlan,
   useUpdateBudgetPlan,
 } from "@/hooks/use-budget-plans";
 import { BUDGETABLE_ACCOUNT_TYPES } from "@/lib/account-scope";
 import type { Account, BudgetPlanData, BudgetPlanPeriod } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
+import {
+  AccountPicker,
+  PeriodChoice,
+  SplitEditor,
+  useSplitKey,
+} from "./plan-fields";
 
 interface BudgetPlanDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** null = create a new budget */
-  plan: BudgetPlanData | null;
+  plan: BudgetPlanData;
   plans: BudgetPlanData[];
   accounts: Account[];
-  /** Called after a create/delete so the page can move to a sensible tab. */
+  /** Called after a save/delete so the page can move to a sensible plan. */
   onSaved?: (planId: string | null) => void;
 }
 
 /**
- * Create/edit a budget plan: name, member accounts (exclusive — picking an
- * account moves it out of its current plan), main flag, delete.
+ * Edit an existing budget plan: name, how it runs, member accounts (exclusive
+ * — picking an account moves it out of its current plan), the shared split
+ * key, the main flag, and delete. New budgets go through BudgetWizard instead.
+ *
+ * The sections read top-down in the order the decisions depend on each other:
+ * the accounts decide whether there is anything to split, so the split key
+ * follows them.
  */
 export function BudgetPlanDialog({
   open,
@@ -47,56 +56,46 @@ export function BudgetPlanDialog({
   onSaved,
 }: BudgetPlanDialogProps) {
   const { t } = useI18n();
-  const createPlan = useCreateBudgetPlan();
   const updatePlan = useUpdateBudgetPlan();
   const deletePlan = useDeleteBudgetPlan();
 
-  const [name, setName] = useState(plan?.name ?? "");
+  const [name, setName] = useState(plan.name);
   const [selectedIds, setSelectedIds] = useState<string[]>(
-    plan?.accounts.map((a) => a.id) ?? [],
+    plan.accounts.map((a) => a.id),
   );
-  const [makeMain, setMakeMain] = useState(plan?.isMain ?? false);
-  const [period, setPeriod] = useState<BudgetPlanPeriod>(plan?.period ?? "monthly");
+  const [makeMain, setMakeMain] = useState(false);
+  const [period, setPeriod] = useState<BudgetPlanPeriod>(plan.period);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const switchingToYearly = period === "yearly" && plan?.period !== "yearly";
-  const switchingToMonthly = period === "monthly" && plan?.period === "yearly";
 
-  const isFirstPlan = plans.length === 0;
-  const busy = createPlan.isPending || updatePlan.isPending || deletePlan.isPending;
+  const switchingToYearly = period === "yearly" && plan.period !== "yearly";
+  const switchingToMonthly = period === "monthly" && plan.period === "yearly";
+  const busy = updatePlan.isPending || deletePlan.isPending;
 
   const budgetableAccounts = accounts.filter((a) =>
     (BUDGETABLE_ACCOUNT_TYPES as readonly string[]).includes(a.type),
   );
   const planNameById = new Map(plans.map((p) => [p.id, p.name]));
+  const split = useSplitKey(accounts, selectedIds, plan);
 
   const toggleAccount = (id: string, checked: boolean) => {
-    setSelectedIds((prev) => (checked ? [...prev, id] : prev.filter((v) => v !== id)));
+    setSelectedIds((prev) =>
+      checked ? [...prev, id] : prev.filter((v) => v !== id),
+    );
   };
 
   const handleSave = async () => {
     setError(null);
     try {
-      if (plan) {
-        await updatePlan.mutateAsync({
-          id: plan.id,
-          name: name.trim(),
-          accountIds: selectedIds,
-          ...(makeMain && !plan.isMain ? { isMain: true } : {}),
-          ...(period !== plan.period ? { period } : {}),
-        });
-        onSaved?.(plan.id);
-      } else {
-        const result = await createPlan.mutateAsync({
-          name: name.trim(),
-          accountIds: selectedIds,
-          period,
-        });
-        if (makeMain && !isFirstPlan) {
-          await updatePlan.mutateAsync({ id: result.id, isMain: true });
-        }
-        onSaved?.(result.id);
-      }
+      await updatePlan.mutateAsync({
+        id: plan.id,
+        name: name.trim(),
+        accountIds: selectedIds,
+        ...(makeMain && !plan.isMain ? { isMain: true } : {}),
+        ...(period !== plan.period ? { period } : {}),
+        ...split.payload,
+      });
+      onSaved?.(plan.id);
       onOpenChange(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : t("common.somethingWentWrong"));
@@ -104,7 +103,6 @@ export function BudgetPlanDialog({
   };
 
   const handleDelete = async () => {
-    if (!plan) return;
     if (!confirmingDelete) {
       setConfirmingDelete(true);
       return;
@@ -122,16 +120,18 @@ export function BudgetPlanDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
-        <DialogHeader>
+        <DialogHeader className="pr-8">
           <DialogTitle>
-            {plan
-              ? t("budgets.plan.editTitle", { name: plan.name })
-              : t("budgets.plan.newTitle")}
+            {t("budgets.plan.editTitle", { name: plan.name })}
           </DialogTitle>
-          <DialogDescription>{t("budgets.plan.description")}</DialogDescription>
+          <DialogDescription>
+            {t("budgets.plan.editDescription")}
+          </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
+        {/* A hairline between sections rather than one flat stack: five
+            decisions at the same visual level read as a form dump. */}
+        <div className="space-y-5">
           <div className="space-y-2">
             <Label htmlFor="plan-name">{t("common.name")}</Label>
             <Input
@@ -144,105 +144,55 @@ export function BudgetPlanDialog({
             />
           </div>
 
-          {/* Monthly or one annual envelope. The consequence of the choice is
-              spelled out below the buttons — carry-over changes what "over
-              budget" even means, so it should not be a silent toggle. */}
-          <div className="space-y-2">
-            <Label>{t("budgets.plan.periodLabel")}</Label>
-            <div className="grid grid-cols-2 gap-2">
-              {(["monthly", "yearly"] as const).map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  onClick={() => setPeriod(option)}
-                  aria-pressed={period === option}
-                  className={`rounded-md border px-3 py-2 text-left text-sm transition-colors ${
-                    period === option
-                      ? "border-primary bg-primary/5 text-foreground"
-                      : "border-input text-muted-foreground hover:bg-muted/60"
-                  }`}
-                >
-                  <span className="block font-medium">
-                    {t(`budgets.plan.period.${option}`)}
-                  </span>
-                  <span className="block text-xs text-muted-foreground">
-                    {t(`budgets.plan.period.${option}Hint`)}
-                  </span>
-                </button>
-              ))}
+          <section className="space-y-2 border-t pt-5">
+            <PeriodChoice name="plan-period" value={period} onChange={setPeriod} />
+            {(switchingToYearly || switchingToMonthly) && (
+              <p className="flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400">
+                <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" />
+                {t(
+                  switchingToYearly
+                    ? "budgets.plan.period.switchToYearly"
+                    : "budgets.plan.period.switchToMonthly",
+                )}
+              </p>
+            )}
+          </section>
+
+          <section className="border-t pt-5">
+            <AccountPicker
+              accounts={budgetableAccounts}
+              planNameById={planNameById}
+              currentPlanId={plan.id}
+              selectedIds={selectedIds}
+              onToggle={toggleAccount}
+            />
+          </section>
+
+          {split.isShared && (
+            <section className="border-t pt-5">
+              <SplitEditor split={split} />
+            </section>
+          )}
+
+          {/* The current main plan can't demote itself — promote another one
+              instead — so it shows the switch on and locked rather than
+              hiding the row and leaving you wondering where it went. */}
+          <section className="flex items-center justify-between gap-4 border-t pt-5">
+            <div className="min-w-0">
+              <p className="text-sm font-medium">{t("budgets.plan.mainTitle")}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {plan.isMain
+                  ? t("budgets.plan.isMainHint")
+                  : t("budgets.plan.mainHint")}
+              </p>
             </div>
-            {switchingToYearly && (
-              <p className="text-xs text-amber-700 dark:text-amber-400">
-                {t("budgets.plan.period.switchToYearly")}
-              </p>
-            )}
-            {switchingToMonthly && (
-              <p className="text-xs text-amber-700 dark:text-amber-400">
-                {t("budgets.plan.period.switchToMonthly")}
-              </p>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <Label>{t("budgets.plan.accountsLabel")}</Label>
-            {budgetableAccounts.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                {t("budgets.plan.noAccounts")}
-              </p>
-            ) : (
-              <ul className="max-h-56 space-y-1 overflow-y-auto rounded-md border p-2">
-                {budgetableAccounts.map((acc) => {
-                  const otherPlanName =
-                    acc.budgetId && acc.budgetId !== plan?.id
-                      ? planNameById.get(acc.budgetId)
-                      : null;
-                  return (
-                    <li key={acc.id}>
-                      <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/60">
-                        <Checkbox
-                          checked={selectedIds.includes(acc.id)}
-                          onCheckedChange={(checked) =>
-                            toggleAccount(acc.id, checked === true)
-                          }
-                        />
-                        <span className="min-w-0 flex-1 truncate">{acc.name}</span>
-                        {otherPlanName && selectedIds.includes(acc.id) && (
-                          <span className="shrink-0 text-xs text-amber-600 dark:text-amber-400">
-                            {t("budgets.plan.movesFrom", { name: otherPlanName })}
-                          </span>
-                        )}
-                        {otherPlanName && !selectedIds.includes(acc.id) && (
-                          <span className="shrink-0 text-xs text-muted-foreground">
-                            {t("budgets.plan.currentlyIn", { name: otherPlanName })}
-                          </span>
-                        )}
-                      </label>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-            <p className="text-xs text-muted-foreground">
-              {t("budgets.plan.exclusiveHint")}
-            </p>
-          </div>
-
-          {/* The first plan becomes main automatically; the current main can't
-              demote itself (promote another plan instead). */}
-          {!isFirstPlan && !plan?.isMain && (
-            <label className="flex cursor-pointer items-center gap-2 text-sm">
-              <Checkbox
-                checked={makeMain}
-                onCheckedChange={(checked) => setMakeMain(checked === true)}
-              />
-              {t("budgets.plan.makeMain")}
-            </label>
-          )}
-          {plan?.isMain && (
-            <p className="text-xs text-muted-foreground">
-              {t("budgets.plan.isMainHint")}
-            </p>
-          )}
+            <Switch
+              checked={plan.isMain || makeMain}
+              onCheckedChange={setMakeMain}
+              disabled={plan.isMain}
+              aria-label={t("budgets.plan.mainTitle")}
+            />
+          </section>
 
           {error && (
             <p className="text-sm text-red-600 dark:text-red-400" role="alert">
@@ -251,32 +201,36 @@ export function BudgetPlanDialog({
           )}
         </div>
 
-        <DialogFooter className="gap-2 sm:justify-between">
-          {plan ? (
-            <Button
-              type="button"
-              variant={confirmingDelete ? "destructive" : "ghost"}
-              onClick={handleDelete}
-              disabled={busy}
-              className={confirmingDelete ? "" : "text-red-600 dark:text-red-400"}
-            >
-              {deletePlan.isPending && (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              )}
-              {confirmingDelete ? t("budgets.plan.confirmDelete") : t("common.delete")}
-            </Button>
-          ) : (
-            <span />
-          )}
+        {/* Pinned: the actions stay reachable however long the account list
+            runs, which is what pushed Save off screen before. */}
+        <DialogFooter className="sticky bottom-0 z-10 gap-2 border-t bg-background pt-3 sm:justify-between">
+          <Button
+            type="button"
+            variant={confirmingDelete ? "destructive" : "ghost"}
+            onClick={handleDelete}
+            disabled={busy}
+            className={confirmingDelete ? "" : "text-red-600 dark:text-red-400"}
+          >
+            {deletePlan.isPending && (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            )}
+            {confirmingDelete
+              ? t("budgets.plan.confirmDelete")
+              : t("common.delete")}
+          </Button>
           <Button
             type="button"
             onClick={handleSave}
-            disabled={busy || name.trim().length === 0}
+            disabled={
+              busy ||
+              name.trim().length === 0 ||
+              (split.isShared && !split.valid)
+            }
           >
-            {(createPlan.isPending || updatePlan.isPending) && (
+            {updatePlan.isPending && (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             )}
-            {plan ? t("budgets.plan.saveChanges") : t("budgets.plan.create")}
+            {t("budgets.plan.saveChanges")}
           </Button>
         </DialogFooter>
       </DialogContent>

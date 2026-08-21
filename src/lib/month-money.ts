@@ -10,6 +10,7 @@ import { eq, and, gte, lte, sql, inArray } from "drizzle-orm";
 import { getFinancialMonthRange } from "@/lib/financial-month";
 import { toMonthly } from "@/lib/recurring";
 import { effectiveExpenseAmount, potSpentAmount } from "@/lib/reimbursement-sql";
+import { excludeSplitParents } from "@/lib/split-sql";
 
 export interface MonthMoneyMath {
   monthlyIncome: number;
@@ -124,6 +125,7 @@ export async function getMonthMoneyMath(
           // Grouped rows are netted into the pot spend below; counting them as
           // income too would credit a pot's refund twice.
           sql`${transactions.groupId} IS NULL`,
+          excludeSplitParents(),
           gte(transactions.date, from),
           lte(transactions.date, to),
           accountFilter,
@@ -159,6 +161,9 @@ export async function getMonthMoneyMath(
           eq(transactions.userId, userId),
           eq(transactions.type, "expense"),
           sql`${transactions.recurringTransactionId} IS NOT NULL`,
+          // Children inherit the parent's recurring link, so a split bill would
+          // be counted once as the wrapper and again as its parts.
+          excludeSplitParents(),
           gte(transactions.date, from),
           lte(transactions.date, to),
         )
@@ -179,6 +184,7 @@ export async function getMonthMoneyMath(
           // accounted for via `totalFixedCosts`. Counting both sides would
           // double-deduct from Free to Spend once the bill clears.
           sql`${transactions.recurringTransactionId} IS NULL`,
+          excludeSplitParents(),
           gte(transactions.date, from),
           lte(transactions.date, to),
           accountFilter,
@@ -195,6 +201,7 @@ export async function getMonthMoneyMath(
         and(
           eq(transactionGroups.userId, userId),
           sql`${transactions.type} != 'internal_transfer'`,
+          excludeSplitParents(),
           gte(transactions.date, from),
           lte(transactions.date, to),
           accountFilter,
@@ -255,6 +262,7 @@ export async function getMonthMoneyMath(
             eq(transactions.type, "expense"),
             sql`${transactions.groupId} IS NULL`,
             inArray(transactions.categoryId, categoryIds),
+            excludeSplitParents(),
             gte(transactions.date, from),
             lte(transactions.date, to),
             accountFilter,
@@ -274,6 +282,7 @@ export async function getMonthMoneyMath(
             eq(transactionGroups.userId, userId),
             inArray(transactionGroups.categoryId, categoryIds),
             sql`${transactions.type} != 'internal_transfer'`,
+            excludeSplitParents(),
             gte(transactions.date, from),
             lte(transactions.date, to),
             accountFilter,

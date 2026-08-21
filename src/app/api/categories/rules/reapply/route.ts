@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { categoryRules, transactions } from "@/db/schema";
-import { sql, eq, and } from "drizzle-orm";
+import { sql, eq, and, isNull } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { applyRuleToTransactions } from "@/lib/apply-rule";
+import { applySplitRulesToExisting } from "@/lib/split-rules";
+import { excludeSplitParents } from "@/lib/split-sql";
 
 /**
  * POST /api/categories/rules/reapply
@@ -15,13 +17,18 @@ import { applyRuleToTransactions } from "@/lib/apply-rule";
 export async function POST() {
   return withUser(async (userId) => {
     // Step 1: Clear only rule-applied category assignments. Manual ones survive.
+    // Split children are left alone: their category usually comes from the
+    // split rule that created them (also stored as source 'rule'), and split
+    // rules don't re-run on already-split transactions, so clearing here would
+    // strand them uncategorized.
     await db
       .update(transactions)
       .set({ categoryId: null, categorySource: null })
       .where(
         and(
           eq(transactions.userId, userId),
-          eq(transactions.categorySource, "rule")
+          eq(transactions.categorySource, "rule"),
+          isNull(transactions.parentTransactionId)
         )
       );
 
@@ -57,11 +64,25 @@ export async function POST() {
       });
     }
 
-    // Step 4: Count remaining uncategorized
+    // Step 4: Split rules. resplit because this is the "Recalculate All"
+    // button: rule-made splits are redone against the current rules, exactly
+    // like rule-made categories were cleared and reapplied above. Splits the
+    // user made by hand are left alone either way.
+    const transactionsSplit = await applySplitRulesToExisting(userId, { resplit: true });
+
+    // Step 5: Count remaining uncategorized
     const uncategorizedResult = await db
       .select({ count: sql<number>`count(*)` })
       .from(transactions)
-      .where(and(sql`${transactions.categoryId} IS NULL`, eq(transactions.userId, userId)));
+      .where(
+        and(
+          sql`${transactions.categoryId} IS NULL`,
+          // A split wrapper's category is cleared by design — its children carry
+          // the categories, so it isn't "remaining uncategorized" work.
+          excludeSplitParents(),
+          eq(transactions.userId, userId),
+        ),
+      );
 
     const uncategorized = uncategorizedResult[0]?.count || 0;
 
@@ -76,6 +97,7 @@ export async function POST() {
       success: true,
       rulesApplied: allRules.length,
       transactionsCategorized: totalApplied,
+      transactionsSplit,
       totalTransactions: total,
       uncategorized,
     });
