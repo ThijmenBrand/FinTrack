@@ -6,9 +6,8 @@ const testDb = await setupTestDb("default-categories");
 
 const { adminDb } = await import("@/db");
 const { categories } = await import("@/db/schema");
-const { eq, and, inArray } = await import("drizzle-orm");
+const { eq, and } = await import("drizzle-orm");
 const { seedCategoriesForUser } = await import("@/db/migrate");
-const { defaultCategoryNames, TRANSFER_CATEGORY } = await import("./default-categories");
 
 function namesFor(userId: string) {
   return adminDb
@@ -18,17 +17,12 @@ function namesFor(userId: string) {
     .then((rows) => rows.map((r) => r.name));
 }
 
-/** How every transfer lookup in the app finds the bucket. */
+/** How every transfer lookup in the app finds the bucket — see findTransferCategory. */
 function transferCategory(userId: string) {
   return adminDb
     .select({ name: categories.name })
     .from(categories)
-    .where(
-      and(
-        inArray(categories.name, defaultCategoryNames(TRANSFER_CATEGORY)),
-        eq(categories.userId, userId),
-      ),
-    )
+    .where(and(eq(categories.kind, "transfer"), eq(categories.userId, userId)))
     .get();
 }
 
@@ -50,5 +44,16 @@ describe("seedCategoriesForUser", () => {
 
     expect((await transferCategory("nl-user"))?.name).toBe("Interne overboeking");
     expect((await transferCategory("en-user"))?.name).toBe("Internal Transfer");
+  });
+
+  it("still finds the transfer bucket after the user renames it", async () => {
+    await seedCategoriesForUser("en-user", "en");
+    await adminDb
+      .update(categories)
+      .set({ name: "Between my accounts" })
+      .where(and(eq(categories.userId, "en-user"), eq(categories.name, "Internal Transfer")));
+
+    // The lookup is on `kind`, so the rename doesn't hide the bucket.
+    expect((await transferCategory("en-user"))?.name).toBe("Between my accounts");
   });
 });

@@ -10,8 +10,10 @@ import { BUDGETABLE_ACCOUNT_TYPES } from "@/lib/account-scope";
 import { getUserPreferences } from "@/lib/preferences";
 import { getFinancialMonthRange } from "@/lib/financial-month";
 import { clearLedger } from "@/lib/budget-ledger-db";
+import { memberSharePercents } from "@/lib/budget-split";
 
 const MAX_NAME_LENGTH = 60;
+const MAX_SHARE_MEMBERS = 50;
 const PERIODS = ["monthly", "yearly"] as const;
 type PlanPeriod = (typeof PERIODS)[number];
 
@@ -21,6 +23,58 @@ function validName(v: unknown): v is string {
 
 function isPeriod(v: unknown): v is PlanPeriod {
   return typeof v === "string" && (PERIODS as readonly string[]).includes(v);
+}
+
+/** Whole percent of a shared budget one person carries. */
+function isSharePercent(v: unknown): v is number {
+  return typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= 100;
+}
+
+/** Per-member percentages, keyed by the address they were invited on. */
+function isShareMap(v: unknown): v is Record<string, number> {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return false;
+  const entries = Object.entries(v);
+  // ponytail: shape and size only. Keys that are not (or no longer) members of
+  // the plan are inert — nothing reads them, and the next save drops them.
+  return (
+    entries.length <= MAX_SHARE_MEMBERS &&
+    entries.every(([email, pct]) => email.length > 0 && email.length <= 254 && isSharePercent(pct))
+  );
+}
+
+/** Owner plus members must carry the whole budget between them. */
+function shareTotalIs100(owner: number, shares: Record<string, number>): boolean {
+  return owner + Object.values(shares).reduce((sum, pct) => sum + pct, 0) === 100;
+}
+
+/**
+ * Invite addresses the plan's accounts are currently shared with — the only
+ * keys a stored cost-split key may carry. Revoked invites are left out; a
+ * pending one counts, since it is already shown on the plan.
+ */
+async function planMemberEmails(ownerId: string, planId: string): Promise<string[]> {
+  const rows = await db
+    .select({ email: accountMembers.email })
+    .from(accountMembers)
+    .innerJoin(accounts, eq(accounts.id, accountMembers.accountId))
+    .where(
+      and(
+        eq(accounts.userId, ownerId),
+        eq(accounts.budgetId, planId),
+        isNull(accountMembers.revokedAt),
+      ),
+    );
+  return [...new Set(rows.map((r) => r.email))];
+}
+
+function parseShares(json: string | null): Record<string, number> {
+  if (!json) return {};
+  try {
+    const parsed = JSON.parse(json);
+    return isShareMap(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
 }
 
 /**
@@ -58,6 +112,9 @@ async function listPlans(userId: string) {
     isMain: p.isMain,
     period: p.period,
     periodStartedAt: p.periodStartedAt,
+    ownerSharePercent: p.ownerSharePercent,
+    sharePercents: parseShares(p.sharePercents),
+    sharePercent: p.ownerSharePercent,
     createdAt: p.createdAt,
     role: "owner" as "owner" | "viewer",
     ownerName: null as string | null,
@@ -89,12 +146,38 @@ async function listPlans(userId: string) {
         .from(accounts)
         .where(and(eq(accounts.userId, plan.userId), eq(accounts.budgetId, plan.id)))
         .orderBy(asc(accounts.sortOrder), asc(accounts.createdAt));
+      // Everyone the plan is shared with, so the caller's own percent can fall
+      // back to an even slice of the remainder. Their invite address is the
+      // key — accepting under a different address must not lose the key.
+      const memberRows = await db
+        .select({ email: accountMembers.email, userId: accountMembers.userId })
+        .from(accountMembers)
+        .innerJoin(accounts, eq(accounts.id, accountMembers.accountId))
+        .where(
+          and(
+            eq(accounts.userId, plan.userId),
+            eq(accounts.budgetId, plan.id),
+            isNull(accountMembers.revokedAt),
+          ),
+        );
+      const emails = [...new Set(memberRows.map((m) => m.email))];
+      const myEmail = memberRows.find((m) => m.userId === userId)?.email;
+      const resolved = memberSharePercents(
+        emails,
+        plan.ownerSharePercent,
+        parseShares(plan.sharePercents),
+      );
       return {
         id: plan.id,
         name: plan.name,
         isMain: false,
         period: plan.period,
         periodStartedAt: plan.periodStartedAt,
+        ownerSharePercent: plan.ownerSharePercent,
+        // Never the whole key: the other members' addresses are not the
+        // caller's to see.
+        sharePercents: {} as Record<string, number>,
+        sharePercent: myEmail ? (resolved[myEmail] ?? 0) : 100 - plan.ownerSharePercent,
         createdAt: plan.createdAt,
         role: "viewer" as const,
         ownerName,
@@ -167,10 +250,12 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   return withUser(async (userId) => {
     const body = await request.json();
-    const { name, accountIds, period } = body as {
+    const { name, accountIds, period, ownerSharePercent, sharePercents } = body as {
       name?: unknown;
       accountIds?: unknown;
       period?: unknown;
+      ownerSharePercent?: unknown;
+      sharePercents?: unknown;
     };
 
     if (!validName(name)) {
@@ -181,6 +266,25 @@ export async function POST(request: NextRequest) {
         { error: "period must be 'monthly' or 'yearly'" },
         { status: 400 },
       );
+    }
+    if (ownerSharePercent !== undefined && !isSharePercent(ownerSharePercent)) {
+      return NextResponse.json(
+        { error: "ownerSharePercent must be a whole number between 0 and 100" },
+        { status: 400 },
+      );
+    }
+    if (sharePercents !== undefined && !isShareMap(sharePercents)) {
+      return NextResponse.json(
+        { error: "sharePercents must be whole numbers between 0 and 100, keyed by email" },
+        { status: 400 },
+      );
+    }
+    if (
+      isShareMap(sharePercents) &&
+      Object.keys(sharePercents).length > 0 &&
+      !shareTotalIs100(isSharePercent(ownerSharePercent) ? ownerSharePercent : 50, sharePercents)
+    ) {
+      return NextResponse.json({ error: "the cost split must add up to 100%" }, { status: 400 });
     }
     const planPeriod: PlanPeriod = isPeriod(period) ? period : "monthly";
     const ids = Array.isArray(accountIds)
@@ -218,6 +322,10 @@ export async function POST(request: NextRequest) {
       period: planPeriod,
       periodStartedAt:
         planPeriod === "yearly" ? await currentMonthStart(userId) : null,
+      ...(isSharePercent(ownerSharePercent) ? { ownerSharePercent } : {}),
+      ...(isShareMap(sharePercents)
+        ? { sharePercents: JSON.stringify(sharePercents) }
+        : {}),
     });
 
     const accountError = await setPlanAccounts(userId, id, ids);
@@ -254,13 +362,16 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   return withUser(async (userId) => {
     const body = await request.json();
-    const { id, name, accountIds, isMain, period } = body as {
-      id?: unknown;
-      name?: unknown;
-      accountIds?: unknown;
-      isMain?: unknown;
-      period?: unknown;
-    };
+    const { id, name, accountIds, isMain, period, ownerSharePercent, sharePercents } =
+      body as {
+        id?: unknown;
+        name?: unknown;
+        accountIds?: unknown;
+        isMain?: unknown;
+        period?: unknown;
+        ownerSharePercent?: unknown;
+        sharePercents?: unknown;
+      };
 
     if (typeof id !== "string" || !id) {
       return NextResponse.json({ error: "Plan ID is required" }, { status: 400 });
@@ -312,6 +423,58 @@ export async function PUT(request: NextRequest) {
       }
     }
 
+    // The cost-split key. Owner-only by construction: this route never
+    // resolves anything but the caller's own plans.
+    if (ownerSharePercent !== undefined || sharePercents !== undefined) {
+      if (ownerSharePercent !== undefined && !isSharePercent(ownerSharePercent)) {
+        return NextResponse.json(
+          { error: "ownerSharePercent must be a whole number between 0 and 100" },
+          { status: 400 },
+        );
+      }
+      if (sharePercents !== undefined && !isShareMap(sharePercents)) {
+        return NextResponse.json(
+          { error: "sharePercents must be whole numbers between 0 and 100, keyed by email" },
+          { status: 400 },
+        );
+      }
+      const owner = isSharePercent(ownerSharePercent)
+        ? ownerSharePercent
+        : plan.ownerSharePercent;
+      const submitted = isShareMap(sharePercents)
+        ? sharePercents
+        : parseShares(plan.sharePercents);
+      // Narrowed to people the plan is actually shared with BEFORE the total is
+      // checked. Unscoped, a key belonging to nobody still counted toward 100,
+      // so padding the map with a stray address let a total through that left
+      // the real members' shares adding up to less than the whole budget (see
+      // memberSharePercents, which only ever reads member keys). Dropping the
+      // strays here also stops the stored key accumulating revoked members.
+      //
+      // Unless there are no members at all: a plan nobody shares shows no key
+      // (planIsShared), so a key set ahead of the invites is inert either way,
+      // and filtering it to nothing would just discard the owner's answer.
+      const memberEmails = new Set(await planMemberEmails(userId, id));
+      const members = memberEmails.size
+        ? Object.fromEntries(
+            Object.entries(submitted).filter(([email]) => memberEmails.has(email)),
+          )
+        : submitted;
+      if (Object.keys(members).length > 0 && !shareTotalIs100(owner, members)) {
+        return NextResponse.json({ error: "the cost split must add up to 100%" }, { status: 400 });
+      }
+      await db
+        .update(budgetPlans)
+        .set({
+          ownerSharePercent: owner,
+          ...(sharePercents !== undefined
+            ? { sharePercents: JSON.stringify(members) }
+            : {}),
+          updatedAt: new Date().toISOString(),
+        })
+        .where(and(eq(budgetPlans.id, id), eq(budgetPlans.userId, userId)));
+    }
+
     // Switching between monthly and yearly. Turning yearly on starts the
     // envelope at the current month — earlier months of this year were never
     // budgeted as one pot, so inventing carry-over for them would be fiction.
@@ -342,7 +505,7 @@ export async function PUT(request: NextRequest) {
       action: "budget_plan_update",
       targetId: id,
       targetType: "budget_plan",
-      details: { name, isMain, accountIds, period },
+      details: { name, isMain, accountIds, period, ownerSharePercent, sharePercents },
     });
 
     return NextResponse.json({ success: true });

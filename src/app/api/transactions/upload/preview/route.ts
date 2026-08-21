@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { apiError } from "@/lib/api-errors";
 import { db } from "@/db";
 import { categoryRules, accounts, recurringTransactions, transactions as transactionsTable } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, isNull } from "drizzle-orm";
 import { findTransferCategory } from "@/lib/detect-transfers";
 import { withUser } from "@/lib/auth";
 import { requireAccountAccess } from "@/lib/account-access";
@@ -22,6 +22,7 @@ import {
   type ColumnMapping,
   type PreviewTransaction,
 } from "@/lib/csv-utils";
+import { loadSplitRules, proposeSplitForRow } from "@/lib/split-rules";
 
 interface CsvRow {
   [key: string]: string;
@@ -92,6 +93,9 @@ export async function POST(request: NextRequest) {
       .select()
       .from(categoryRules)
       .where(and(eq(categoryRules.isActive, true), eq(categoryRules.userId, ownerId)));
+
+    // Active split rules — propose splits on the rows they match (below).
+    const splitRules = await loadSplitRules(ownerId);
 
     // Build IBAN → account lookup for internal transfer detection
     const allAccounts = await db.select().from(accounts).where(eq(accounts.userId, ownerId));
@@ -253,6 +257,18 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      // A matching split rule takes over the row's categorization: the parts
+      // carry the categories, the row itself stays uncategorized.
+      const proposal = splitRules.length
+        ? proposeSplitForRow(splitRules, {
+            type,
+            amount,
+            name,
+            description,
+            targetAccountId,
+          })
+        : null;
+
       transactions.push({
         tempId: crypto.randomUUID(),
         date,
@@ -261,7 +277,9 @@ export async function POST(request: NextRequest) {
         amount,
         balance: balance !== null && isNaN(balance) ? null : balance,
         type,
-        categoryId,
+        categoryId: proposal ? null : categoryId,
+        splits: proposal?.splits ?? null,
+        splitRuleId: proposal?.splitRuleId ?? null,
         suggestedPattern: extractPattern(description),
         counterpartyIban,
         targetAccountId,
@@ -282,7 +300,10 @@ export async function POST(request: NextRequest) {
         description: transactionsTable.description,
       })
       .from(transactionsTable)
-      .where(and(eq(transactionsTable.accountId, accountId), eq(transactionsTable.userId, ownerId)));
+      // Split children share their parent's date and (by default) description
+      // with a fractional amount — without the parent filter they manufacture
+      // dedup keys that swallow genuine new rows from balance-less exports.
+      .where(and(eq(transactionsTable.accountId, accountId), eq(transactionsTable.userId, ownerId), isNull(transactionsTable.parentTransactionId)));
     const { unique, duplicates } = splitDuplicates(existingRows, transactions);
 
     return NextResponse.json({

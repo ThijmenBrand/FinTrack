@@ -31,11 +31,23 @@ async function shareAccount(role: "editor" | "viewer") {
 
 let seq = 0;
 
-async function insertCategory(name: string, userId = USER): Promise<string> {
+async function insertCategory(
+  name: string,
+  userId = USER,
+  kind: "income" | "expense" | "transfer" = "expense",
+): Promise<string> {
   const id = `cat-${++seq}`;
-  await db.insert(categories).values({ id, userId, name });
+  await db.insert(categories).values({ id, userId, name, kind });
   return id;
 }
+
+/**
+ * The user's transfer bucket. findTransferCategory matches on `kind`, not on
+ * the name, so the spelling here is incidental — see the rename test in
+ * default-categories.test.ts.
+ */
+const insertTransferCategory = (userId = USER) =>
+  insertCategory("Internal Transfer", userId, "transfer");
 
 async function insertTx(opts: {
   accountId: string;
@@ -43,6 +55,8 @@ async function insertTx(opts: {
   amount: number;
   type?: "income" | "expense" | "internal_transfer" | "reimbursement";
   userId?: string;
+  isSplitParent?: boolean;
+  parentTransactionId?: string;
 }): Promise<string> {
   const id = `tx-${++seq}`;
   await db.insert(transactions).values({
@@ -53,6 +67,8 @@ async function insertTx(opts: {
     description: "test",
     amount: opts.amount,
     type: opts.type ?? (opts.amount < 0 ? "expense" : "income"),
+    isSplitParent: opts.isSplitParent,
+    parentTransactionId: opts.parentTransactionId,
   });
   return id;
 }
@@ -86,7 +102,7 @@ describe("detectTransfers", () => {
   });
 
   it("links a debit/credit pair across accounts within 2 days", async () => {
-    const catId = await insertCategory("Internal Transfer");
+    const catId = await insertTransferCategory();
     const debit = await insertTx({ accountId: "A", date: "2026-05-01", amount: -100 });
     const credit = await insertTx({ accountId: "B", date: "2026-05-02", amount: 100 });
 
@@ -106,41 +122,41 @@ describe("detectTransfers", () => {
   });
 
   it("matches at exactly 2 days apart but not at 3", async () => {
-    await insertCategory("Internal Transfer");
+    await insertTransferCategory();
     await insertTx({ accountId: "A", date: "2026-05-01", amount: -50 });
     await insertTx({ accountId: "B", date: "2026-05-03", amount: 50 });
     expect((await detectTransfers(db, USER)).matchedPairs).toBe(1);
 
     await testDb.reset();
-    await insertCategory("Internal Transfer");
+    await insertTransferCategory();
     await insertTx({ accountId: "A", date: "2026-05-01", amount: -50 });
     await insertTx({ accountId: "B", date: "2026-05-04", amount: 50 });
     expect((await detectTransfers(db, USER)).matchedPairs).toBe(0);
   });
 
   it("does not match within the same account", async () => {
-    await insertCategory("Internal Transfer");
+    await insertTransferCategory();
     await insertTx({ accountId: "A", date: "2026-05-01", amount: -100 });
     await insertTx({ accountId: "A", date: "2026-05-01", amount: 100 });
     expect((await detectTransfers(db, USER)).matchedPairs).toBe(0);
   });
 
   it("does not match different amounts", async () => {
-    await insertCategory("Internal Transfer");
+    await insertTransferCategory();
     await insertTx({ accountId: "A", date: "2026-05-01", amount: -100 });
     await insertTx({ accountId: "B", date: "2026-05-01", amount: 100.5 });
     expect((await detectTransfers(db, USER)).matchedPairs).toBe(0);
   });
 
   it("compares amounts in cents so float noise doesn't break matching", async () => {
-    await insertCategory("Internal Transfer");
+    await insertTransferCategory();
     await insertTx({ accountId: "A", date: "2026-05-01", amount: -16.15 });
     await insertTx({ accountId: "B", date: "2026-05-01", amount: 16.150000000000002 });
     expect((await detectTransfers(db, USER)).matchedPairs).toBe(1);
   });
 
   it("skips transactions already typed internal_transfer", async () => {
-    await insertCategory("Internal Transfer");
+    await insertTransferCategory();
     await insertTx({
       accountId: "A",
       date: "2026-05-01",
@@ -152,7 +168,7 @@ describe("detectTransfers", () => {
   });
 
   it("skips reimbursements — a repayment is not a transfer", async () => {
-    await insertCategory("Internal Transfer");
+    await insertTransferCategory();
     await insertTx({ accountId: "A", date: "2026-05-01", amount: -101.85 });
     await insertTx({
       accountId: "B",
@@ -164,7 +180,7 @@ describe("detectTransfers", () => {
   });
 
   it("pairs each credit at most once (two debits, one credit)", async () => {
-    await insertCategory("Internal Transfer");
+    await insertTransferCategory();
     const d1 = await insertTx({ accountId: "A", date: "2026-05-01", amount: -75 });
     const d2 = await insertTx({ accountId: "A", date: "2026-05-01", amount: -75 });
     await insertTx({ accountId: "B", date: "2026-05-01", amount: 75 });
@@ -178,7 +194,7 @@ describe("detectTransfers", () => {
   });
 
   it("only considers the given user's transactions", async () => {
-    await insertCategory("Internal Transfer");
+    await insertTransferCategory();
     await insertTx({ accountId: "A", date: "2026-05-01", amount: -100 });
     const otherCredit = await insertTx({
       accountId: "B",
@@ -192,8 +208,8 @@ describe("detectTransfers", () => {
 
   it("pairs a private account with an editor-shared one, each side keeping its own transfer category", async () => {
     await shareAccount("editor");
-    const myCat = await insertCategory("Internal Transfer");
-    const ownerCat = await insertCategory("Internal Transfer", OTHER_USER);
+    const myCat = await insertTransferCategory();
+    const ownerCat = await insertTransferCategory(OTHER_USER);
     const debit = await insertTx({ accountId: "mine", date: "2026-05-01", amount: -100 });
     const credit = await insertTx({
       accountId: "shared",
@@ -215,7 +231,7 @@ describe("detectTransfers", () => {
 
   it("leaves the pair alone when the other side has no transfer category", async () => {
     await shareAccount("editor");
-    await insertCategory("Internal Transfer");
+    await insertTransferCategory();
     const debit = await insertTx({ accountId: "mine", date: "2026-05-01", amount: -100 });
     await insertTx({ accountId: "shared", date: "2026-05-01", amount: 100, userId: OTHER_USER });
 
@@ -225,8 +241,8 @@ describe("detectTransfers", () => {
 
   it("ignores viewer-shared accounts — half a pair is worse than none", async () => {
     await shareAccount("viewer");
-    await insertCategory("Internal Transfer");
-    await insertCategory("Internal Transfer", OTHER_USER);
+    await insertTransferCategory();
+    await insertTransferCategory(OTHER_USER);
     const debit = await insertTx({ accountId: "mine", date: "2026-05-01", amount: -100 });
     await insertTx({ accountId: "shared", date: "2026-05-01", amount: 100, userId: OTHER_USER });
 
@@ -234,8 +250,24 @@ describe("detectTransfers", () => {
     expect((await getTx(debit)).type).toBe("expense");
   });
 
+  it("skips split parents and split children — neither can be a transfer leg", async () => {
+    await insertTransferCategory();
+    const parent = await insertTx({
+      accountId: "A",
+      date: "2026-05-01",
+      amount: -100,
+      isSplitParent: true,
+    });
+    await insertTx({ accountId: "A", date: "2026-05-01", amount: -60, parentTransactionId: parent });
+    await insertTx({ accountId: "A", date: "2026-05-01", amount: -40, parentTransactionId: parent });
+    await insertTx({ accountId: "B", date: "2026-05-01", amount: 100 });
+
+    expect((await detectTransfers(db, USER)).matchedPairs).toBe(0);
+    expect((await getTx(parent)).type).toBe("expense");
+  });
+
   it("is idempotent — a second run finds nothing new", async () => {
-    await insertCategory("Internal Transfer");
+    await insertTransferCategory();
     await insertTx({ accountId: "A", date: "2026-05-01", amount: -100 });
     await insertTx({ accountId: "B", date: "2026-05-01", amount: 100 });
     expect((await detectTransfers(db, USER)).matchedPairs).toBe(1);
@@ -247,7 +279,7 @@ describe("detectTransfers", () => {
     // bank a day later. Same amount, opposite sign, two accounts —
     // indistinguishable from an internal move, so the guess must be undoable.
     it("reverts both legs to income/expense, from either side", async () => {
-      await insertCategory("Internal Transfer");
+      await insertTransferCategory();
       const expense = await insertTx({ accountId: "A", date: "2026-05-01", amount: -101.85 });
       const repayment = await insertTx({ accountId: "B", date: "2026-05-02", amount: 101.85 });
       expect((await detectTransfers(db, USER)).matchedPairs).toBe(1);

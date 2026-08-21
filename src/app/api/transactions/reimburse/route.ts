@@ -39,6 +39,12 @@ export async function POST(request: NextRequest) {
       return apiError("api.reimbursementMustBePositive", 400);
     }
 
+    // A split parent is a pure wrapper — it can't be reimbursement-linked
+    // itself (its children, which carry the real amounts, can be).
+    if (reimbursement.isSplitParent) {
+      return apiError("api.splitParentAction", 409);
+    }
+
     // Fetch and validate all expenses
     const expenses = await db
       .select()
@@ -52,6 +58,10 @@ export async function POST(request: NextRequest) {
     const invalidExpense = expenses.find((e) => e.amount >= 0);
     if (invalidExpense) {
       return apiError("api.expensesMustBeNegative", 400);
+    }
+
+    if (expenses.some((e) => e.isSplitParent)) {
+      return apiError("api.splitParentAction", 409);
     }
 
     // Insert links into the junction table

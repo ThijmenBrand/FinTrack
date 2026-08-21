@@ -12,8 +12,7 @@ import {
   accountMembers,
   user,
 } from "@/db/schema";
-import { eq, and, or, asc, gte, lte, sql, sum, inArray, isNotNull, isNull, notInArray } from "drizzle-orm";
-import { defaultCategoryNames, TRANSFER_CATEGORY } from "@/lib/default-categories";
+import { eq, and, or, asc, gte, lte, sql, sum, inArray, isNotNull, isNull } from "drizzle-orm";
 import {
   accountScopeFilter,
   resolveBudgetPlan,
@@ -35,6 +34,7 @@ import { classifyOnTrack } from "@/lib/on-track";
 import { getFinancialMonthRange, getPeriodProgress } from "@/lib/financial-month";
 import { formatCurrency, toIsoDate } from "@/lib/utils";
 import { effectiveExpenseAmount, potSpentAmount } from "@/lib/reimbursement-sql";
+import { excludeSplitChildren, excludeSplitParents } from "@/lib/split-sql";
 import type {
   MonthMoneyView,
   SavingTowardSpike,
@@ -243,6 +243,7 @@ async function getPotSpendByCategory(
       and(
         eq(transactionGroups.userId, userId),
         sql`${transactions.type} != 'internal_transfer'`,
+        excludeSplitParents(),
         gte(transactions.date, from),
         lte(transactions.date, to),
         ...(scope ? [scope] : []),
@@ -476,6 +477,7 @@ export const getBudgetOverview = cache(async (
             eq(transactions.userId, dataUserId),
             eq(transactions.type, "expense"),
             sql`${transactions.groupId} IS NULL`,
+            excludeSplitParents(),
             gte(transactions.date, monthStart),
             lte(transactions.date, monthEnd),
             ...(txScope ? [txScope] : []),
@@ -534,6 +536,7 @@ export const getBudgetOverview = cache(async (
                 inArray(transactions.categoryId, categoryIds),
                 eq(transactions.type, "expense"),
                 sql`${transactions.groupId} IS NULL`,
+                excludeSplitParents(),
                 gte(transactions.date, from),
                 lte(transactions.date, to),
                 ...(txScope ? [txScope] : []),
@@ -692,7 +695,13 @@ export const getAccountBalances = cache(async (userId: string) => {
         txTotal: sql<number>`COALESCE(SUM(${transactions.amount}), 0)`,
       })
       .from(accounts)
-      .leftJoin(transactions, eq(accounts.id, transactions.accountId))
+      // Split children are excluded in the JOIN, not the WHERE: a left join
+      // filtered afterwards would drop accounts with no transactions at all.
+      // The parent keeps the real bank amount, so its children would double it.
+      .leftJoin(
+        transactions,
+        and(eq(accounts.id, transactions.accountId), excludeSplitChildren()),
+      )
       // Own accounts plus shared ones; a shared account's rows all belong to its
       // owner, so joining by account id already sums the right transactions.
       .where(visibleAccounts(userId))
@@ -768,7 +777,11 @@ export const getAccountBalanceSeries = cache(async (
     })
     .from(transactions)
     .where(
-      and(visibleTransactions(userId), gte(transactions.date, from)),
+      and(
+        visibleTransactions(userId),
+        excludeSplitChildren(),
+        gte(transactions.date, from),
+      ),
     )
     .groupBy(transactions.accountId, transactions.date);
 
@@ -842,6 +855,7 @@ export async function getMonthSummary(
             visibleTransactions(userId),
             eq(transactions.type, "income"),
             sql`${transactions.groupId} IS NULL`,
+            excludeSplitParents(),
             gte(transactions.date, monthStart),
             lte(transactions.date, monthEnd),
             accountFilter,
@@ -858,6 +872,7 @@ export async function getMonthSummary(
             visibleTransactions(userId),
             eq(transactions.type, "expense"),
             sql`${transactions.groupId} IS NULL`,
+            excludeSplitParents(),
             gte(transactions.date, monthStart),
             lte(transactions.date, monthEnd),
             accountFilter,
@@ -878,6 +893,7 @@ export async function getMonthSummary(
               inArray(transactions.accountId, memberAccountIds(userId)),
             ),
             sql`${transactions.type} != 'internal_transfer'`,
+            excludeSplitParents(),
             gte(transactions.date, monthStart),
             lte(transactions.date, monthEnd),
             accountFilter,
@@ -1036,6 +1052,7 @@ export async function getMonthMoneyView(
           isNotNull(transactionGroups.targetAmount),
           isNotNull(transactionGroups.targetDate),
           sql`${transactions.type} != 'internal_transfer'`,
+          excludeSplitParents(),
           gte(transactions.date, monthStart),
           lte(transactions.date, monthEnd)
         )
@@ -1187,11 +1204,12 @@ export async function getTopCategories(userId: string, startDay: number = 1) {
         and(
           visibleTransactions(userId),
           eq(transactions.type, "expense"),
-          notInArray(
-            sql`COALESCE(${categories.name}, '')`,
-            defaultCategoryNames(TRANSFER_CATEGORY),
-          ),
+          // By stored kind, not by name: a renamed transfer bucket must still
+          // stay out of "top spending categories". COALESCE keeps rows with no
+          // category at all (kind IS NULL on the left join) in the result.
+          sql`COALESCE(${categories.kind}, 'expense') != 'transfer'`,
           sql`${transactions.groupId} IS NULL`,
+          excludeSplitParents(),
           gte(transactions.date, monthStart),
           lte(transactions.date, monthEnd),
         ),

@@ -52,11 +52,18 @@ export interface AccountMember {
   isMe?: boolean;
 }
 
+/**
+ * Which side of the budget a category belongs to. "transfer" is neither: money
+ * moving between your own accounts is budgeted on no side at all.
+ */
+export type CategoryKind = "income" | "expense" | "transfer";
+
 export interface Category {
   id: string;
   name: string;
   color: string | null;
   icon: string | null;
+  kind: CategoryKind;
 }
 
 export interface CategoryWithDetails extends Category {
@@ -89,6 +96,32 @@ export interface RuleWithCategory {
   createdAt: string;
 }
 
+/** One line of a split rule as the /api/split-rules list returns it. */
+export interface SplitRuleLineWithCategory {
+  id: string;
+  ruleId: string;
+  categoryId: string;
+  categoryName: string | null;
+  categoryColor: string | null;
+  /** Percentage mode: this line's share of the amount. */
+  percentage: number | null;
+  /** Fixed mode: this line's fixed amount; null on the remainder line. */
+  amount: number | null;
+  isRemainder: boolean;
+  sortOrder: number;
+}
+
+export interface SplitRuleWithLines {
+  id: string;
+  pattern: string;
+  matchType: string;
+  matchField: string;
+  mode: "percentage" | "fixed";
+  isActive: boolean;
+  createdAt: string;
+  lines: SplitRuleLineWithCategory[];
+}
+
 export interface Transaction {
   id: string;
   accountId: string;
@@ -117,11 +150,19 @@ export interface Transaction {
   /** Who created/last edited the row; non-null only on shared accounts (null created_by = the owner). */
   createdByName: string | null;
   createdByImage: string | null;
+  /** True when the caller created the row — lists skip the byline, the detail dialog keeps it. */
+  createdBySelf?: boolean;
   modifiedByName: string | null;
   notes: string | null;
   isManual: boolean;
   importBatchId: string | null;
   createdAt: string;
+  /** Set on a split child; null on normal rows and on the split parent itself. */
+  parentTransactionId: string | null;
+  /** True on a split's pure-wrapper parent row — it carries no category of its own. */
+  isSplitParent: boolean;
+  /** A split parent's children, joined the same as top-level rows. Absent/undefined on non-parents. */
+  splits?: Transaction[];
 }
 
 export interface Pagination {
@@ -325,6 +366,32 @@ export interface FixedCost {
   items: { description: string; monthlyAmount: number }[];
 }
 
+/**
+ * One income category as a budget line: what the recurring plans behind it
+ * expect this period, and what actually landed.
+ *
+ * The mirror image of FixedCost — an income category is planned and then
+ * reconciled the same way a fixed cost is, so the row can be read the same
+ * way. What differs is the direction: `received` above `expected` is good
+ * news, not an overspend.
+ */
+export interface IncomeLine {
+  /** "uncategorized" for plans with no category, same as FixedCost. */
+  categoryId: string;
+  categoryName: string;
+  categoryColor: string;
+  /** Monthly-equivalent of the active recurring income plans in this category. */
+  expected: number;
+  /** Income transactions in this category, this period, in the plan's accounts. */
+  received: number;
+  /** Mean actually received per month since the stats cutoff. */
+  avgMonthly: number;
+  avgMonths: number;
+  items: { description: string; monthlyAmount: number }[];
+  /** Year-scope figures; present only for a yearly plan. */
+  year?: { expected: number; received: number };
+}
+
 export interface BudgetSubLine {
   id: string;
   parentId: string | null;
@@ -458,6 +525,8 @@ export interface BudgetData {
   totalSpentThisMonth: number;
   unbudgetedSpending: UnbudgetedSpending[];
   fixedCosts: FixedCost[];
+  /** The income side of the list: one line per income category. */
+  incomeLines: IncomeLine[];
   allocations: Allocation[];
   suggestions: BudgetSuggestion[];
   automation: AutomationState;
@@ -475,6 +544,16 @@ export interface BudgetPlanData {
   period: BudgetPlanPeriod;
   /** First financial month the yearly envelope covers; null while monthly. */
   periodStartedAt: string | null;
+  /**
+   * Cost-split key for a shared budget: the whole percent the plan's OWNER
+   * carries. Display-only; meaningless (and hidden) while none of the plan's
+   * accounts are shared.
+   */
+  ownerSharePercent: number;
+  /** The rest of the key: percent per member, keyed by invite email. Empty on plans you don't own. */
+  sharePercents: Record<string, number>;
+  /** The CALLER's own percent of this plan — resolved server-side. */
+  sharePercent: number;
   createdAt: string;
   accounts: { id: string; name: string; type: string }[];
   /** "owner" for the user's own plans; "editor"/"viewer" for plans reached through a shared account. */

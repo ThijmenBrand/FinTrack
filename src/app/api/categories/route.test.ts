@@ -285,3 +285,91 @@ describe("DELETE /api/categories", () => {
     expect(body.error).toBe("Category ID is required");
   });
 });
+
+describe("category kind", () => {
+  it("POST without kind defaults to expense", async () => {
+    const { POST } = await import("./route");
+    const res = await POST(
+      new Request("http://x/api/categories", {
+        method: "POST",
+        body: JSON.stringify({ name: "Groceries" }),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any,
+    );
+    expect(res.status).toBe(201);
+    expect((await res.json()).kind).toBe("expense");
+  });
+
+  it("POST accepts an allowlisted kind", async () => {
+    const { POST } = await import("./route");
+    const res = await POST(
+      new Request("http://x/api/categories", {
+        method: "POST",
+        body: JSON.stringify({ name: "Salary", kind: "income" }),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any,
+    );
+    expect(res.status).toBe(201);
+    expect((await res.json()).kind).toBe("income");
+  });
+
+  it("POST rejects a kind outside the allowlist", async () => {
+    const { POST } = await import("./route");
+    const res = await POST(
+      new Request("http://x/api/categories", {
+        method: "POST",
+        body: JSON.stringify({ name: "Bogus", kind: "savings" }),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any,
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("GET returns kind on every category", async () => {
+    const now = new Date().toISOString();
+    await testDb.client.execute({
+      sql: `INSERT INTO categories (id, user_id, name, kind, created_at) VALUES ('cat-transfer', ?, 'Internal Transfer', 'transfer', ?)`,
+      args: [USER, now],
+    });
+    const { GET } = await import("./route");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const res = await GET(new Request("http://x/api/categories") as any);
+    const body = await res.json();
+    expect(body.find((c: { id: string }) => c.id === "cat-transfer").kind).toBe("transfer");
+  });
+
+  it("PUT updates kind", async () => {
+    const now = new Date().toISOString();
+    await testDb.client.execute({
+      sql: `INSERT INTO categories (id, user_id, name, kind, created_at) VALUES ('cat-kind', ?, 'Freelance', 'expense', ?)`,
+      args: [USER, now],
+    });
+    const { PUT } = await import("./route");
+    const res = await PUT(
+      new Request("http://x/api/categories", {
+        method: "PUT",
+        body: JSON.stringify({ id: "cat-kind", kind: "income" }),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any,
+    );
+    expect(res.status).toBe(200);
+    expect((await res.json()).kind).toBe("income");
+  });
+
+  it("PUT rejects a kind outside the allowlist", async () => {
+    const now = new Date().toISOString();
+    await testDb.client.execute({
+      sql: `INSERT INTO categories (id, user_id, name, kind, created_at) VALUES ('cat-kind-2', ?, 'Freelance', 'expense', ?)`,
+      args: [USER, now],
+    });
+    const { PUT } = await import("./route");
+    const res = await PUT(
+      new Request("http://x/api/categories", {
+        method: "PUT",
+        body: JSON.stringify({ id: "cat-kind-2", kind: "bogus" }),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any,
+    );
+    expect(res.status).toBe(400);
+  });
+});

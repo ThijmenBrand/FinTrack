@@ -10,11 +10,12 @@ import {
   transactionGroups,
 } from "@/db/schema";
 import { eq, and, gte, lte, sql, inArray } from "drizzle-orm";
-import type { BudgetSubLine } from "@/types/api";
+import type { BudgetSubLine, IncomeLine } from "@/types/api";
 import { withUser } from "@/lib/auth";
 import { getI18n } from "@/lib/i18n/server";
 import { logDataEvent } from "@/lib/audit";
 import { effectiveExpenseAmount, potSpentAmount } from "@/lib/reimbursement-sql";
+import { excludeSplitParents } from "@/lib/split-sql";
 import { isRegenerationDue } from "@/lib/auto-budget";
 import { getUserPreferences } from "@/lib/preferences";
 import { toMonthly, getCurrentMonthRange } from "@/lib/month-money";
@@ -22,7 +23,11 @@ import { isFiniteNumber, MONEY_EPSILON } from "@/lib/validation";
 import { SUB_LINE_ERROR, SUB_LINE_ERROR_MESSAGE, sumSiblings } from "@/lib/budget-sub-lines";
 import { getStatsCutoff } from "@/lib/stat-reset";
 import { accountScopeFilter, resolveBudgetPlan, resolveBudgetRowAccess } from "@/lib/budget-plan";
-import { financialYearOf } from "@/lib/financial-year";
+import {
+  financialYearOf,
+  getFinancialYearRange,
+  MONTHS_PER_YEAR,
+} from "@/lib/financial-year";
 import {
   getYearlyBudgetView,
   normaliseMonthIndex,
@@ -68,6 +73,89 @@ function rangeLabel(from: string, to: string, intlLocale: string): string {
     year: "numeric",
   });
   return `${fromStr} – ${toStr}`;
+}
+
+interface CategoryGroup {
+  categoryId: string;
+  categoryName: string;
+  categoryColor: string;
+  monthlyAmount: number;
+  items: { description: string; monthlyAmount: number }[];
+}
+
+/**
+ * Recurring plans folded into one row per category, in monthly-equivalent
+ * money. Plans with no category collapse into a single "uncategorized" row.
+ * Shared by fixed costs (expenses) and income lines so both sides group,
+ * name and colour identically.
+ */
+function groupRecurringByCategory(
+  rows: {
+    categoryId: string | null;
+    categoryName: string | null;
+    categoryColor: string | null;
+    amount: number;
+    frequency: string;
+    description: string;
+  }[],
+): CategoryGroup[] {
+  const map = new Map<string, CategoryGroup>();
+  for (const r of rows) {
+    const catId = r.categoryId || "uncategorized";
+    const monthly = toMonthly(r.amount, r.frequency);
+    const existing = map.get(catId);
+    if (existing) {
+      existing.monthlyAmount += monthly;
+      existing.items.push({
+        description: r.description,
+        monthlyAmount: monthly,
+      });
+    } else {
+      map.set(catId, {
+        categoryId: catId,
+        categoryName: r.categoryName || "Uncategorized",
+        categoryColor: r.categoryColor || "#94a3b8",
+        monthlyAmount: monthly,
+        items: [{ description: r.description, monthlyAmount: monthly }],
+      });
+    }
+  }
+  return Array.from(map.values());
+}
+
+interface CategoryAverage {
+  total: number;
+  monthCount: number;
+  avgMonthly: number;
+}
+
+/**
+ * Per-category mean over the completed months the rows cover. Rows are
+ * `(categoryId, month, total)` buckets; a category's month count is the number
+ * of distinct months it actually appears in, so a category that only existed
+ * for two of six months averages over two.
+ */
+function foldMonthlyAverages(
+  rows: { categoryId: string | null; month: string; total: number | null }[],
+): Map<string, CategoryAverage> {
+  const map = new Map<string, CategoryAverage>();
+  const monthsSeen = new Map<string, Set<string>>();
+
+  for (const row of rows) {
+    const catId = row.categoryId || "uncategorized";
+    if (!monthsSeen.has(catId)) monthsSeen.set(catId, new Set());
+    monthsSeen.get(catId)!.add(row.month);
+
+    const existing = map.get(catId);
+    if (existing) existing.total += row.total ?? 0;
+    else map.set(catId, { total: row.total ?? 0, monthCount: 0, avgMonthly: 0 });
+  }
+
+  for (const [catId, data] of map) {
+    data.monthCount = monthsSeen.get(catId)?.size || 1;
+    data.avgMonthly = Math.round((data.total / data.monthCount) * 100) / 100;
+  }
+  return map;
 }
 
 /**
@@ -167,6 +255,7 @@ export async function GET(request: NextRequest) {
         and(
           sql`${transactionGroups.categoryId} IS NOT NULL`,
           sql`${transactions.type} != 'internal_transfer'`,
+          excludeSplitParents(),
           gte(transactions.date, from),
           lte(transactions.date, to),
           eq(transactions.userId, dataUserId),
@@ -193,10 +282,20 @@ export async function GET(request: NextRequest) {
           ? inArray(recurringTransactions.accountId, scopeAccountIds)
           : sql`1=0`;
 
-    // 1. Get recurring income (monthly equivalent)
+    // 1. Get recurring income (monthly equivalent), grouped by category the
+    // same way fixed costs are — one income line per category, plus the
+    // headline total.
     const recurringIncome = await db
-      .select()
+      .select({
+        categoryId: recurringTransactions.categoryId,
+        categoryName: categories.name,
+        categoryColor: categories.color,
+        amount: recurringTransactions.amount,
+        frequency: recurringTransactions.frequency,
+        description: recurringTransactions.description,
+      })
       .from(recurringTransactions)
+      .leftJoin(categories, eq(recurringTransactions.categoryId, categories.id))
       .where(
         and(
           eq(recurringTransactions.type, "income"),
@@ -210,6 +309,8 @@ export async function GET(request: NextRequest) {
       (sum, r) => sum + toMonthly(r.amount, r.frequency),
       0,
     );
+
+    const incomeGroups = groupRecurringByCategory(recurringIncome);
 
     // 2. Get recurring expenses grouped by category
     const recurringExpenses = await db
@@ -233,39 +334,7 @@ export async function GET(request: NextRequest) {
       );
 
     // Group recurring expenses by category
-    const fixedCostMap = new Map<
-      string,
-      {
-        categoryId: string;
-        categoryName: string;
-        categoryColor: string;
-        monthlyAmount: number;
-        items: { description: string; monthlyAmount: number }[];
-      }
-    >();
-
-    for (const r of recurringExpenses) {
-      const catId = r.categoryId || "uncategorized";
-      const existing = fixedCostMap.get(catId);
-      const monthly = toMonthly(r.amount, r.frequency);
-      if (existing) {
-        existing.monthlyAmount += monthly;
-        existing.items.push({
-          description: r.description,
-          monthlyAmount: monthly,
-        });
-      } else {
-        fixedCostMap.set(catId, {
-          categoryId: catId,
-          categoryName: r.categoryName || "Uncategorized",
-          categoryColor: r.categoryColor || "#94a3b8",
-          monthlyAmount: monthly,
-          items: [{ description: r.description, monthlyAmount: monthly }],
-        });
-      }
-    }
-
-    const fixedCosts = Array.from(fixedCostMap.values());
+    const fixedCosts = groupRecurringByCategory(recurringExpenses);
     const totalFixedCosts = fixedCosts.reduce((s, c) => s + c.monthlyAmount, 0);
 
     // 3. Get user-defined budget allocations (active only — suggestions are returned separately).
@@ -326,6 +395,7 @@ export async function GET(request: NextRequest) {
           eq(transactions.userId, dataUserId),
           eq(transactions.type, "expense"),
           sql`${transactions.groupId} IS NULL`,
+          excludeSplitParents(),
           gte(transactions.date, from),
           lte(transactions.date, to),
           ...(scopeFilter ? [scopeFilter] : []),
@@ -344,6 +414,53 @@ export async function GET(request: NextRequest) {
         continue;
       }
       monthSpendByCategory.set(row.categoryId, row.total ?? 0);
+    }
+
+    // 4b. Actual income received per category over the same window and account
+    // scope. `type = 'income'` already excludes reimbursements and internal
+    // transfers (both are their own transaction types), and grouped rows are a
+    // pot's internal accounting rather than new money.
+    // There is no `effectiveIncomeAmount()` analogue to `effectiveExpenseAmount()`
+    // — reimbursement links only ever net against expenses — so income uses the
+    // plain stored amount, same as getAnnualIncome does.
+    // The category is joined here (not just grouped by id) so income that
+    // arrived in a category with no recurring plan behind it can still be
+    // named — see the unplanned lines appended below.
+    const monthIncomeRows = await db
+      .select({
+        categoryId: transactions.categoryId,
+        categoryName: categories.name,
+        categoryColor: categories.color,
+        total: sql<number>`sum(${transactions.amount})`,
+      })
+      .from(transactions)
+      .leftJoin(categories, eq(transactions.categoryId, categories.id))
+      .where(
+        and(
+          eq(transactions.userId, dataUserId),
+          eq(transactions.type, "income"),
+          sql`${transactions.groupId} IS NULL`,
+          excludeSplitParents(),
+          gte(transactions.date, from),
+          lte(transactions.date, to),
+          ...(scopeFilter ? [scopeFilter] : []),
+        ),
+      )
+      .groupBy(transactions.categoryId, categories.name, categories.color);
+
+    // Keyed like the income lines themselves: null category → "uncategorized".
+    const receivedByCategory = new Map<string, number>();
+    const incomeCategoryMeta = new Map<string, { name: string; color: string }>();
+    for (const row of monthIncomeRows) {
+      const catId = row.categoryId || "uncategorized";
+      receivedByCategory.set(
+        catId,
+        (receivedByCategory.get(catId) ?? 0) + (Number(row.total) || 0),
+      );
+      incomeCategoryMeta.set(catId, {
+        name: row.categoryName || "Uncategorized",
+        color: row.categoryColor || "#94a3b8",
+      });
     }
 
     // 3c. Sub-lines: nested breakdown under each allocation. Scaled by the
@@ -441,6 +558,7 @@ export async function GET(request: NextRequest) {
         and(
           eq(transactions.type, "expense"),
           sql`${transactions.groupId} IS NULL`,
+          excludeSplitParents(),
           // Exclude current month — only completed months
           sql`substr(${transactions.date}, 1, 7) < ${from.slice(0, 7)}`,
           ...(statsCutoff ? [gte(transactions.date, statsCutoff)] : []),
@@ -453,36 +571,33 @@ export async function GET(request: NextRequest) {
         sql`substr(${transactions.date}, 1, 7)`,
       );
 
-    // Build map: categoryId -> { totalSpent, monthCount, avgMonthly }
-    const avgSpendingMap = new Map<
-      string,
-      { totalSpent: number; monthCount: number; avgMonthly: number }
-    >();
-    const categoryMonths = new Map<string, Set<string>>();
+    // Build map: categoryId -> { total, monthCount, avgMonthly }
+    const avgSpendingMap = foldMonthlyAverages(monthlySpendingByCategory);
 
-    for (const row of monthlySpendingByCategory) {
-      const catId = row.categoryId || "uncategorized";
-      if (!categoryMonths.has(catId)) categoryMonths.set(catId, new Set());
-      categoryMonths.get(catId)!.add(row.month);
+    // 5b. Same average, income side: mean actually received per completed
+    // month, honouring the same stats cutoff. Deliberately NOT avgSpendingMap,
+    // which is expense-only.
+    const monthlyIncomeByCategory = await db
+      .select({
+        categoryId: transactions.categoryId,
+        month: sql<string>`substr(${transactions.date}, 1, 7)`,
+        total: sql<number>`sum(${transactions.amount})`,
+      })
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.type, "income"),
+          sql`${transactions.groupId} IS NULL`,
+          excludeSplitParents(),
+          sql`substr(${transactions.date}, 1, 7) < ${from.slice(0, 7)}`,
+          ...(statsCutoff ? [gte(transactions.date, statsCutoff)] : []),
+          eq(transactions.userId, dataUserId),
+          ...(scopeFilter ? [scopeFilter] : []),
+        ),
+      )
+      .groupBy(transactions.categoryId, sql`substr(${transactions.date}, 1, 7)`);
 
-      const existing = avgSpendingMap.get(catId);
-      if (existing) {
-        existing.totalSpent += row.total;
-      } else {
-        avgSpendingMap.set(catId, {
-          totalSpent: row.total,
-          monthCount: 0,
-          avgMonthly: 0,
-        });
-      }
-    }
-
-    // Finalize averages
-    for (const [catId, data] of avgSpendingMap) {
-      data.monthCount = categoryMonths.get(catId)?.size || 1;
-      data.avgMonthly =
-        Math.round((data.totalSpent / data.monthCount) * 100) / 100;
-    }
+    const avgIncomeMap = foldMonthlyAverages(monthlyIncomeByCategory);
 
     // Attach avgMonthly to allocations and fixed costs
     const allocationsWithAvg = allocationsWithSpending.map((a) => ({
@@ -496,6 +611,110 @@ export async function GET(request: NextRequest) {
       avgMonthly: avgSpendingMap.get(fc.categoryId)?.avgMonthly || 0,
       avgMonths: avgSpendingMap.get(fc.categoryId)?.monthCount || 0,
     }));
+
+    // 5c. Income lines: expected (recurring plans) vs received (real money in).
+    // `expected` is scaled by monthsScale exactly like a fixed cost, so both
+    // sides of the budget stay in the same unit for the requested window.
+    // `received` is NOT scaled — it is money that actually landed inside
+    // [from, to], already denominated in that window; multiplying it would
+    // invent income that never arrived.
+    const year = yearParam ?? financialYearOf(new Date(), startDay);
+    const isYearly = plan?.period === "yearly";
+
+    // Year scope (yearly plans only). getAnnualIncome() answers a different
+    // question — one blended actual+projected total for the whole plan — so it
+    // can't produce per-category expected/received; only its financial-year
+    // window is reused here.
+    const yearReceivedByCategory = new Map<string, number>();
+    if (isYearly) {
+      const { from: yearFrom, to: yearTo } = getFinancialYearRange(
+        year,
+        startDay,
+      );
+      const rows = await db
+        .select({
+          categoryId: transactions.categoryId,
+          total: sql<number>`sum(${transactions.amount})`,
+        })
+        .from(transactions)
+        .where(
+          and(
+            eq(transactions.userId, dataUserId),
+            eq(transactions.type, "income"),
+            sql`${transactions.groupId} IS NULL`,
+            excludeSplitParents(),
+            gte(transactions.date, yearFrom),
+            lte(transactions.date, yearTo),
+            ...(scopeFilter ? [scopeFilter] : []),
+          ),
+        )
+        .groupBy(transactions.categoryId);
+      for (const row of rows) {
+        const catId = row.categoryId || "uncategorized";
+        yearReceivedByCategory.set(
+          catId,
+          (yearReceivedByCategory.get(catId) ?? 0) + (Number(row.total) || 0),
+        );
+      }
+    }
+
+    const incomeLines: IncomeLine[] = incomeGroups.map((g) => {
+      const avg = avgIncomeMap.get(g.categoryId);
+      return {
+        categoryId: g.categoryId,
+        categoryName: g.categoryName,
+        categoryColor: g.categoryColor,
+        expected: Math.round(g.monthlyAmount * monthsScale * 100) / 100,
+        received: Math.round((receivedByCategory.get(g.categoryId) ?? 0) * 100) / 100,
+        avgMonthly: avg?.avgMonthly ?? 0,
+        avgMonths: avg?.monthCount ?? 0,
+        items: g.items,
+        ...(isYearly
+          ? {
+              year: {
+                expected:
+                  Math.round(g.monthlyAmount * MONTHS_PER_YEAR * 100) / 100,
+                received:
+                  Math.round(
+                    (yearReceivedByCategory.get(g.categoryId) ?? 0) * 100,
+                  ) / 100,
+              },
+            }
+          : {}),
+      };
+    });
+
+    // Income that landed in a category no recurring plan covers: a one-off
+    // bonus, a refund booked as income, a side gig with no plan behind it. It
+    // expects nothing, so it can't be "short" — but leaving it out entirely
+    // meant the income side of the budget silently disagreed with the
+    // transactions page. The expense side has `unbudgetedSpending` for exactly
+    // this; these are its counterpart, and sort to the bottom on expected = 0.
+    const plannedIncomeIds = new Set(incomeGroups.map((g) => g.categoryId));
+    for (const [catId, received] of receivedByCategory) {
+      if (plannedIncomeIds.has(catId) || Math.abs(received) < 0.005) continue;
+      const avg = avgIncomeMap.get(catId);
+      const meta = incomeCategoryMeta.get(catId);
+      incomeLines.push({
+        categoryId: catId,
+        categoryName: meta?.name ?? "Uncategorized",
+        categoryColor: meta?.color ?? "#94a3b8",
+        expected: 0,
+        received: Math.round(received * 100) / 100,
+        avgMonthly: avg?.avgMonthly ?? 0,
+        avgMonths: avg?.monthCount ?? 0,
+        items: [],
+        ...(isYearly
+          ? {
+              year: {
+                expected: 0,
+                received:
+                  Math.round((yearReceivedByCategory.get(catId) ?? 0) * 100) / 100,
+              },
+            }
+          : {}),
+      });
+    }
 
     // Also provide averages for all categories (for the add-allocation dialog)
     const allCategoryAvgs: Record<string, number> = {};
@@ -614,9 +833,8 @@ export async function GET(request: NextRequest) {
     // A yearly plan gets an extra block: one annual envelope per category with
     // the carry-over chain resolved. The monthly figures above stay as they
     // are so every other consumer of this endpoint is unaffected.
-    const year = yearParam ?? financialYearOf(new Date(), startDay);
     const yearly =
-      plan?.period === "yearly"
+      isYearly && plan
         ? await getYearlyBudgetView(
             dataUserId,
             plan,
@@ -649,6 +867,7 @@ export async function GET(request: NextRequest) {
       totalSpentThisMonth: Math.round(totalSpentThisMonth * 100) / 100,
       unbudgetedSpending,
       fixedCosts: fixedCostsWithAvg,
+      incomeLines,
       allocations: allocationsWithAvg,
       suggestions,
       categoryAverages: allCategoryAvgs,

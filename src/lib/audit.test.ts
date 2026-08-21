@@ -60,6 +60,36 @@ describe("logAudit", () => {
     expect(rows.map((r) => r.category).sort()).toEqual(["auth", "data"]);
   });
 
+  it("writes one row per entry when handed an array", async () => {
+    // Bulk mutations (a 100-row delete) log in one insert instead of 100.
+    await logAudit([
+      { userId: "u1", category: "data", action: "transaction_delete", targetId: "tx-1" },
+      { userId: "u1", category: "data", action: "transaction_delete", targetId: "tx-2" },
+    ]);
+    const rows = await allRows();
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.target_id).sort()).toEqual(["tx-1", "tx-2"]);
+  });
+
+  it("is a no-op on an empty array — an empty VALUES list is a SQL error", async () => {
+    await expect(logAudit([])).resolves.toBeUndefined();
+    expect(await allRows()).toHaveLength(0);
+  });
+
+  it("logDataEvent stamps every entry of an array with the data category", async () => {
+    await logDataEvent([
+      { userId: "u1", action: "transaction_delete", targetId: "tx-1" },
+      { userId: "u1", action: "transaction_delete", targetId: "tx-2", details: { accountOwnerId: "u2" } },
+    ]);
+    const rows = await allRows();
+    expect(rows.map((r) => r.category)).toEqual(["data", "data"]);
+    // Optional fields still default per row, and details still serialize.
+    expect(rows.find((r) => r.target_id === "tx-1")!.details).toBeNull();
+    expect(JSON.parse(rows.find((r) => r.target_id === "tx-2")!.details as string)).toEqual({
+      accountOwnerId: "u2",
+    });
+  });
+
   it("never throws even when the write fails", async () => {
     await testDb.client.execute("ALTER TABLE audit_log RENAME TO audit_log_gone");
     try {

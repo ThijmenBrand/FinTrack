@@ -33,8 +33,8 @@ export async function seedCategoriesForUser(
     for (const [i, cat] of DEFAULT_CATEGORIES.entries()) {
       const name = defaultCategoryName(cat.key, locale);
       await db.run(sql`
-        INSERT INTO categories (id, user_id, name, icon, color, sort_order, created_at)
-        VALUES (${crypto.randomUUID()}, ${userId}, ${name}, ${cat.icon}, ${cat.color}, ${i}, ${new Date().toISOString()})
+        INSERT INTO categories (id, user_id, name, icon, color, kind, sort_order, created_at)
+        VALUES (${crypto.randomUUID()}, ${userId}, ${name}, ${cat.icon}, ${cat.color}, ${cat.kind ?? "expense"}, ${i}, ${new Date().toISOString()})
       `);
     }
   }

@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildSubmitRoots,
   buildTree,
   columnLabel,
   detectMapping,
+  detectRootType,
   effectiveAmount,
   extractTree,
+  findOverAllocated,
   flattenTree,
   type ImportNode,
 } from "./budget-import";
+import type { CategoryKind } from "@/types/api";
 
 /** Modeled on the "Begroting" sheet: :: paths, negative expenses, junk right of the amount. */
 const PATH_SHEET: unknown[][] = [
@@ -167,9 +171,9 @@ describe("tree helpers", () => {
   it("flatten/build round-trips", () => {
     const flat = flattenTree(tree);
     expect(flat).toEqual([
-      { name: "Wonen", amount: 100, depth: 0, income: false },
-      { name: "Hypotheek", amount: 940, depth: 1, income: false },
-      { name: "Nuts", amount: 60, depth: 1, income: false },
+      { name: "Wonen", amount: 100, depth: 0, income: false, rootIndex: 0 },
+      { name: "Hypotheek", amount: 940, depth: 1, income: false, rootIndex: 0 },
+      { name: "Nuts", amount: 60, depth: 1, income: false, rootIndex: 0 },
     ]);
     expect(buildTree(flat)).toMatchObject(tree);
   });
@@ -186,7 +190,139 @@ describe("tree helpers", () => {
     ]);
   });
 
+  it("findOverAllocated flags rows their children outgrow", () => {
+    // The monthly-parent-over-yearly-children case from the Hypotheek sheet.
+    expect(findOverAllocated(flattenTree(tree))).toEqual([0]);
+    // A remainder is fine, and so is a header with no amount of its own.
+    expect(
+      findOverAllocated([
+        { amount: 1000, depth: 0 },
+        { amount: 940, depth: 1 },
+        { amount: null, depth: 1 },
+        { amount: 30, depth: 2 },
+        { amount: 30, depth: 2 },
+      ]),
+    ).toEqual([]);
+    // Deep rows are judged against their own parent, not the root.
+    expect(
+      findOverAllocated([
+        { amount: 1000, depth: 0 },
+        { amount: 100, depth: 1 },
+        { amount: 250, depth: 2 },
+      ]),
+    ).toEqual([1]);
+    // Cent-level formula dust is not an overspend.
+    expect(
+      findOverAllocated([
+        { amount: 100, depth: 0 },
+        { amount: 100.004, depth: 1 },
+      ]),
+    ).toEqual([]);
+  });
+
   it("columnLabel spells spreadsheet columns", () => {
     expect([0, 1, 25, 26, 27].map(columnLabel)).toEqual(["A", "B", "Z", "AA", "AB"]);
+  });
+});
+
+describe("detectRootType", () => {
+  const roots = extractTree(PATH_SHEET, detectMapping(PATH_SHEET));
+  const none = new Map<string, CategoryKind>();
+  const detect = (name: string, sheet = "Begroting", kinds = none) =>
+    detectRootType(node(name, roots)!, sheet, kinds);
+
+  it("reads income off the row name", () => {
+    expect(detect("Salaris")).toEqual({ type: "income", confident: true });
+  });
+
+  it("reads income off the sheet name when the row says nothing", () => {
+    expect(detect("Wonen", "Inkomsten 2026")).toMatchObject({ type: "income" });
+  });
+
+  it("treats a bill-shaped name as a fixed cost", () => {
+    expect(detect("Verzekering")).toEqual({ type: "fixed", confident: true });
+  });
+
+  it("treats a block of bills as fixed even with other rows mixed in", () => {
+    // Hypotheek + Premie carry it; Rente and Schoonmaak ride along.
+    expect(detect("Wonen")).toEqual({ type: "fixed", confident: true });
+  });
+
+  it("falls back to a budget line, flagged as a guess", () => {
+    // "Giften :: Goede doelen :: WNF" trips no pattern at all — exactly the
+    // row the review filter should surface.
+    expect(detect("Giften")).toEqual({ type: "variable", confident: false });
+  });
+
+  it("lets an existing category's kind beat the sheet", () => {
+    // The sheet's sign convention says Salaris is income; the user has
+    // already decided otherwise for their own category.
+    const kinds = new Map<string, CategoryKind>([["salaris", "expense"]]);
+    expect(detect("Salaris", "Begroting", kinds)).toMatchObject({ type: "variable" });
+  });
+
+  it("pre-skips a transfer category — it can carry neither a budget nor a plan", () => {
+    const kinds = new Map<string, CategoryKind>([["wonen", "transfer"]]);
+    expect(detect("Wonen", "Begroting", kinds)).toEqual({ type: "skip", confident: true });
+  });
+
+  it("takes income from the sign minority when nothing else speaks", () => {
+    // Most rows are negative, so negative is this sheet's expense sign and
+    // the lone positive row is the income.
+    const tree = extractTree(
+      [
+        ["Post", "Verwacht maandgemiddelde"],
+        ["Boodschappen", -400],
+        ["Kleding", -80],
+        ["Toeslag", 210],
+      ],
+      { headerRow: 0, nameCol: 0, amountCol: 1, unit: "monthly" },
+    );
+    expect(detectRootType(node("Toeslag", tree)!, "Blad1", none)).toMatchObject({
+      type: "income",
+    });
+  });
+});
+
+describe("buildSubmitRoots", () => {
+  const rows = flattenTree([
+    { name: "Wonen", amount: null, children: [{ name: "Huur", amount: 9000, children: [] }] },
+    { name: "Salaris", amount: 36000, children: [] },
+  ]);
+
+  it("converts a yearly budget root to monthly but leaves a yearly plan alone", () => {
+    const out = buildSubmitRoots(rows, [
+      { type: "variable", unit: "yearly" },
+      { type: "income", unit: "yearly" },
+    ]);
+    expect(out).toMatchObject([
+      { name: "Wonen", type: "variable", children: [{ name: "Huur", amount: 750 }] },
+      { name: "Salaris", type: "income", frequency: "yearly", amount: 36000 },
+    ]);
+    // Only recurring rows carry a frequency; an allocation is always monthly.
+    expect(out[0].frequency).toBeUndefined();
+  });
+
+  it("drops skipped roots", () => {
+    expect(
+      buildSubmitRoots(rows, [
+        { type: "skip", unit: "monthly" },
+        { type: "income", unit: "monthly" },
+      ]),
+    ).toMatchObject([{ name: "Salaris" }]);
+  });
+
+  it("promotes orphans when the root row itself was unticked", () => {
+    // Unticking "Wonen" leaves "Huur" behind; it becomes a root of its own and
+    // inherits the type its parent was given.
+    expect(
+      buildSubmitRoots(rows.filter((r) => r.name !== "Wonen"), [
+        { type: "fixed", unit: "monthly" },
+        { type: "income", unit: "monthly" },
+      ]),
+    ).toMatchObject([
+      { name: "Huur", type: "fixed", frequency: "monthly" },
+      { name: "Salaris", type: "income" },
+    ]);
   });
 });

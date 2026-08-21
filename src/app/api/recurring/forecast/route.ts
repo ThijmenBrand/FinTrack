@@ -12,6 +12,7 @@ import { withUser } from "@/lib/auth";
 import { generateOccurrences } from "@/lib/recurring";
 import { toMonthly } from "@/lib/month-money";
 import { getI18n } from "@/lib/i18n/server";
+import { excludeSplitChildren } from "@/lib/split-sql";
 
 /**
  * GET /api/recurring/forecast
@@ -35,7 +36,8 @@ export async function GET(request: NextRequest) {
     const balanceRows = await db
       .select({ accountId: transactions.accountId, total: sum(transactions.amount) })
       .from(transactions)
-      .where(eq(transactions.userId, userId))
+      // Starting balance is the real ledger: parents in, their children out.
+      .where(and(eq(transactions.userId, userId), excludeSplitChildren()))
       .groupBy(transactions.accountId);
     const balanceByAccount = new Map(
       balanceRows.map((r) => [r.accountId, Number(r.total) || 0])

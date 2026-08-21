@@ -1,21 +1,21 @@
 import { db as defaultDb } from "@/db";
 import { transactions, categories } from "@/db/schema";
-import { eq, and, notInArray, inArray, asc, or } from "drizzle-orm";
+import { eq, and, notInArray, inArray, asc, or, isNull } from "drizzle-orm";
 import { writableTransactions } from "@/lib/account-access";
-import { defaultCategoryNames, TRANSFER_CATEGORY } from "@/lib/default-categories";
+import { excludeSplitParents } from "@/lib/split-sql";
 
 /**
- * The user's transfer bucket, matched across every locale's spelling. Oldest
- * row wins so the seeded category beats a later custom category that happens
- * to reuse another locale's name.
+ * The user's transfer bucket, found by its stored `kind` rather than by its
+ * current spelling — so renaming "Internal Transfer" to anything you like
+ * keeps transfer detection working, and marking your own category as a
+ * transfer makes it eligible. Oldest row wins so the seeded category beats a
+ * later one the user also marked.
  */
 export async function findTransferCategory(db: typeof defaultDb, userId: string) {
   const rows = await db
     .select()
     .from(categories)
-    .where(
-      and(inArray(categories.name, defaultCategoryNames(TRANSFER_CATEGORY)), eq(categories.userId, userId))
-    )
+    .where(and(eq(categories.kind, "transfer"), eq(categories.userId, userId)))
     .orderBy(asc(categories.createdAt), asc(categories.id))
     .limit(1);
   return rows.at(0);
@@ -119,10 +119,20 @@ export async function detectTransfers(db: typeof defaultDb, userId: string) {
     "internal_transfer",
     "reimbursement",
   ];
+  // Split rows can never be a transfer leg: a parent is a pure money wrapper
+  // (its real category/type live on the splits), and a child is one slice of
+  // a single real-world payment, not a standalone move between accounts.
   const allTx = await db
     .select()
     .from(transactions)
-    .where(and(notInArray(transactions.type, excludedTypes), writableTransactions(userId)));
+    .where(
+      and(
+        notInArray(transactions.type, excludedTypes),
+        writableTransactions(userId),
+        excludeSplitParents(),
+        isNull(transactions.parentTransactionId),
+      ),
+    );
 
   // Group by absolute amount for efficient matching
   const byAmount = new Map<number, typeof allTx>();

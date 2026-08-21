@@ -16,20 +16,23 @@ interface AuditParams {
 }
 
 /**
- * Log an audit event. Fire-and-forget — never throws.
+ * Log an audit event. Fire-and-forget — never throws. Takes an array for bulk
+ * mutations, so a 100-row delete writes one insert instead of 100.
  */
-export async function logAudit(params: AuditParams): Promise<void> {
+export async function logAudit(params: AuditParams | AuditParams[]): Promise<void> {
+  const rows = (Array.isArray(params) ? params : [params]).map((p) => ({
+    userId: p.userId,
+    category: p.category,
+    action: p.action,
+    targetId: p.targetId ?? null,
+    targetType: p.targetType ?? null,
+    details: p.details ? JSON.stringify(p.details) : null,
+    ipAddress: p.ipAddress ?? null,
+    userAgent: p.userAgent ?? null,
+  }));
+  if (!rows.length) return;
   try {
-    await db.insert(auditLog).values({
-      userId: params.userId,
-      category: params.category,
-      action: params.action,
-      targetId: params.targetId ?? null,
-      targetType: params.targetType ?? null,
-      details: params.details ? JSON.stringify(params.details) : null,
-      ipAddress: params.ipAddress ?? null,
-      userAgent: params.userAgent ?? null,
-    });
+    await db.insert(auditLog).values(rows);
   } catch (err) {
     console.error("Audit log write failed:", err);
   }
@@ -48,19 +51,17 @@ export async function logAuthEvent(params: {
   return logAudit({ ...params, category: "auth" });
 }
 
+type DataEventParams = Omit<AuditParams, "category" | "userId"> & { userId: string };
+
 /**
- * Log a data mutation event (transaction, account, budget, category CRUD)
+ * Log a data mutation event (transaction, account, budget, category CRUD).
+ * Accepts an array to log a bulk mutation in one insert.
  */
-export async function logDataEvent(params: {
-  userId: string;
-  action: string;
-  targetId?: string | null;
-  targetType?: string | null;
-  details?: Record<string, unknown>;
-  ipAddress?: string | null;
-  userAgent?: string | null;
-}): Promise<void> {
-  return logAudit({ ...params, category: "data" });
+export async function logDataEvent(
+  params: DataEventParams | DataEventParams[],
+): Promise<void> {
+  const list = Array.isArray(params) ? params : [params];
+  return logAudit(list.map((p) => ({ ...p, category: "data" as const })));
 }
 
 /**

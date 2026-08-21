@@ -27,6 +27,16 @@ export async function POST(request: NextRequest) {
       return apiError("api.potNotFound", 404);
     }
 
+    // A split parent is a pure wrapper — it can't join a pot itself (its
+    // children can, individually, same as any normal transaction).
+    const [target] = await db
+      .select({ id: transactions.id, isSplitParent: transactions.isSplitParent })
+      .from(transactions)
+      .where(and(eq(transactions.id, transactionId), eq(transactions.userId, userId)));
+    if (target?.isSplitParent) {
+      return apiError("api.splitParentAction", 409);
+    }
+
     await db
       .update(transactions)
       .set({ groupId: potId })

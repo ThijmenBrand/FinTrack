@@ -18,6 +18,7 @@ import {
 } from "@/db/schema";
 import { and, eq, gte, lte, sql } from "drizzle-orm";
 import { effectiveExpenseAmount, potSpentAmount } from "@/lib/reimbursement-sql";
+import { excludeSplitParents } from "@/lib/split-sql";
 import { financialMonthBucketExpr, parseBucket } from "@/lib/financial-bucket";
 import { accountScopeFilter, type ResolvedBudgetPlan } from "@/lib/budget-plan";
 import {
@@ -73,6 +74,7 @@ export async function getYearSpendByCategoryMonth(
           eq(transactions.type, "expense"),
           sql`${transactions.groupId} IS NULL`,
           sql`${transactions.categoryId} IS NOT NULL`,
+          excludeSplitParents(),
           gte(transactions.date, from),
           lte(transactions.date, to),
           ...(scope ? [scope] : []),
@@ -96,6 +98,7 @@ export async function getYearSpendByCategoryMonth(
           eq(transactionGroups.userId, userId),
           sql`${transactionGroups.categoryId} IS NOT NULL`,
           sql`${transactions.type} != 'internal_transfer'`,
+          excludeSplitParents(),
           gte(transactions.date, from),
           lte(transactions.date, to),
           ...(scope ? [scope] : []),

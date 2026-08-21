@@ -8,6 +8,7 @@ import { logDataEvent } from "@/lib/audit";
 import { isFiniteNumber } from "@/lib/validation";
 import { isBank, bankLabel } from "@/lib/banks";
 import { getAccessibleAccounts, requireAccountAccess, visibleTransactions } from "@/lib/account-access";
+import { excludeSplitChildren } from "@/lib/split-sql";
 
 const ACCOUNT_TYPES = ["checking", "savings", "joint", "credit", "other"] as const;
 type AccountType = (typeof ACCOUNT_TYPES)[number];
@@ -28,7 +29,8 @@ export async function GET() {
     const balanceRows = await db
       .select({ accountId: transactions.accountId, total: sum(transactions.amount) })
       .from(transactions)
-      .where(visibleTransactions(userId))
+      // Split children re-describe money the parent row already carries.
+      .where(and(visibleTransactions(userId), excludeSplitChildren()))
       .groupBy(transactions.accountId);
     const balanceByAccount = new Map(
       balanceRows.map((r) => [r.accountId, Number(r.total) || 0])

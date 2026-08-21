@@ -26,9 +26,12 @@ import {
   Receipt,
   Package,
   Repeat,
+  Split,
 } from "lucide-react";
 import { CategorizePopover } from "@/components/categorize-popover";
 import { RecurringLinkPopover } from "@/components/recurring-link-popover";
+import { SplitSection } from "@/components/split-transaction-editor/split-section";
+import { SplitBadge } from "@/components/split-badge";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useCategories } from "@/hooks/use-categories";
@@ -54,9 +57,16 @@ interface TransactionDetailDialogProps {
   transaction: Transaction | null;
   onOpenChange: (open: boolean) => void;
   onCategorized?: () => void;
+  /** Open straight into the split editor — set from the row context menu's "Split…"/"Edit split…". */
+  openSplitEditor?: boolean;
 }
 
-export function TransactionDetailDialog({ transaction, onOpenChange, onCategorized }: TransactionDetailDialogProps) {
+export function TransactionDetailDialog({
+  transaction,
+  onOpenChange,
+  onCategorized,
+  openSplitEditor,
+}: TransactionDetailDialogProps) {
   const { t, formatCurrency, formatDate, formatDateTime } = useI18n();
   // Scoped to this transaction's account: on a shared account the row lives in
   // the OWNER's space, and only their category ids are accepted on it.
@@ -178,17 +188,25 @@ export function TransactionDetailDialog({ transaction, onOpenChange, onCategoriz
           <div className="flex items-center gap-3">
             <Tag className="h-4 w-4 text-muted-foreground shrink-0" />
             <span className="text-muted-foreground w-20 shrink-0">{t("common.category")}</span>
-            <CategorizePopover
-              transactionId={tx.id}
-              transactionDescription={tx.name || tx.description}
-              currentCategoryId={tx.categoryId}
-              currentCategoryName={tx.categoryName}
-              currentCategoryColor={tx.categoryColor}
-              currentCategoryIcon={tx.categoryIcon}
-              categories={resolvedCategories}
-              canCreateRule={canCreateRule}
-              onCategorized={handleCategorized}
-            />
+            {/* A split parent carries no category of its own — only its parts
+                do, and the server rejects categorizing the wrapper. Same badge
+                the list rows show, so no surface offers a control that fails. */}
+            {tx.isSplitParent ? (
+              <SplitBadge className="text-xs" />
+            ) : (
+              <CategorizePopover
+                transactionId={tx.id}
+                transactionDescription={tx.name || tx.description}
+                currentCategoryId={tx.categoryId}
+                currentCategoryName={tx.categoryName}
+                currentCategoryColor={tx.categoryColor}
+                currentCategoryIcon={tx.categoryIcon}
+                categories={resolvedCategories}
+                accountId={tx.accountId}
+                canCreateRule={canCreateRule}
+                onCategorized={handleCategorized}
+              />
+            )}
           </div>
 
           {tx.balance !== null && (
@@ -204,6 +222,24 @@ export function TransactionDetailDialog({ transaction, onOpenChange, onCategoriz
             <span className="text-muted-foreground w-20 shrink-0 mt-1">{t("common.notes")}</span>
             <NotesEditor key={tx.id} transactionId={tx.id} initialNotes={tx.notes} />
           </div>
+
+          {tx.parentTransactionId ? (
+            <div className="flex items-center gap-3 text-xs text-muted-foreground">
+              <Split className="h-4 w-4 shrink-0" />
+              {t("tx.split.childNote")}
+            </div>
+          ) : (
+            (tx.type === "income" || tx.type === "expense") && (
+              <SplitSection
+                key={tx.id}
+                transaction={tx}
+                categories={resolvedCategories}
+                accountId={tx.accountId}
+                canCreateRule={canCreateRule}
+                autoOpen={openSplitEditor}
+              />
+            )
+          )}
 
           {isTransfer && (
             <div className="flex items-center gap-3">

@@ -113,6 +113,15 @@ describe("run-migrations pipeline", () => {
     await client.execute("ALTER TABLE category_rules DROP COLUMN match_field");
     // Created by 0018.
     await client.execute("ALTER TABLE transactions DROP COLUMN category_label");
+    // Created by 0020. The index goes first — SQLite refuses to drop an indexed
+    // column. (0019's owner_share_percent leaves with budget_plans above.)
+    await client.execute("DROP INDEX idx_transactions_parent");
+    await client.execute("ALTER TABLE transactions DROP COLUMN parent_transaction_id");
+    await client.execute("ALTER TABLE transactions DROP COLUMN is_split_parent");
+    await client.execute("DROP TABLE split_rule_lines");
+    await client.execute("DROP TABLE split_rules");
+    // Created by 0021.
+    await client.execute("ALTER TABLE categories DROP COLUMN kind");
     expect(await columnNames("user_preferences")).not.toContain("hide_internal_transfers");
 
     // Pre-0009 data for the backfill: checking, joint and savings accounts
@@ -137,6 +146,27 @@ describe("run-migrations pipeline", () => {
       sql: `INSERT INTO categories (id, user_id, name, created_at) VALUES ('mig-cat', ?, 'Migration Test Cat', ?)`,
       args: [seededUserId, nowIso],
     });
+    // Pre-0021 data for its backfill: the two seeded buckets that are not
+    // expenses, in both locales, plus the legacy income name. OR IGNORE because
+    // whichever locale this user was seeded in already owns two of these names,
+    // and (name, user_id) is unique — those rows serve the assertion equally
+    // well. Everything else — 'Migration Test Cat' above — must come out of the
+    // backfill an expense.
+    await client.execute({
+      sql: `INSERT OR IGNORE INTO categories (id, user_id, name, created_at)
+            VALUES ('mig-cat-salary', ?, 'Salary', ?),
+                   ('mig-cat-salaris', ?, 'Salaris', ?),
+                   ('mig-cat-legacy', ?, 'Income - Other', ?),
+                   ('mig-cat-transfer', ?, 'Internal Transfer', ?),
+                   ('mig-cat-overb', ?, 'Interne overboeking', ?)`,
+      args: [
+        seededUserId, nowIso,
+        seededUserId, nowIso,
+        seededUserId, nowIso,
+        seededUserId, nowIso,
+        seededUserId, nowIso,
+      ],
+    });
     await client.execute({
       sql: `INSERT INTO budgets (id, user_id, category_id, amount, period, is_active, status, source, created_at)
             VALUES ('mig-budget', ?, 'mig-cat', 100, 'monthly', 1, 'active', 'manual', ?)`,
@@ -145,6 +175,22 @@ describe("run-migrations pipeline", () => {
 
     // Must not error on the existing tables (no "table already exists").
     await expect(runMigrations()).resolves.not.toThrow();
+
+    // 0021 backfill: the income and transfer buckets are labelled per locale,
+    // and every other pre-existing category lands on the "expense" default.
+    const kindRows = (
+      await client.execute({
+        sql: "SELECT name, kind FROM categories WHERE user_id = ?",
+        args: [seededUserId],
+      })
+    ).rows as unknown as { name: string; kind: string }[];
+    const kindOf = new Map(kindRows.map((r) => [r.name, r.kind]));
+    expect(kindOf.get("Salary")).toBe("income");
+    expect(kindOf.get("Salaris")).toBe("income");
+    expect(kindOf.get("Income - Other")).toBe("income");
+    expect(kindOf.get("Internal Transfer")).toBe("transfer");
+    expect(kindOf.get("Interne overboeking")).toBe("transfer");
+    expect(kindOf.get("Migration Test Cat")).toBe("expense");
 
     // 0009 backfill: one Main plan per user with data, the budgetable accounts
     // attached, savings not, and the legacy budget row adopted into the plan.

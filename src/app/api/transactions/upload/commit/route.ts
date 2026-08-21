@@ -11,7 +11,7 @@ import {
   transactionGroups,
   reimbursementLinks,
 } from "@/db/schema";
-import { eq, and, lt, inArray } from "drizzle-orm";
+import { eq, and, lt, inArray, isNull } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { requireAccountAccess } from "@/lib/account-access";
 import { detectTransfers, findTransferCategory } from "@/lib/detect-transfers";
@@ -23,14 +23,16 @@ import {
   isIsoDate,
   isMatchType,
   isMatchField,
+  MONEY_EPSILON,
 } from "@/lib/validation";
 const TX_TYPES = ["income", "expense", "internal_transfer", "reimbursement"] as const;
 type TxType = (typeof TX_TYPES)[number];
 
 // Backstop against unbounded request bodies — a real bank CSV is far smaller.
 const MAX_IMPORT_ROWS = 5000;
-import { matchesRule, ruleMatchTarget, splitDuplicates } from "@/lib/csv-utils";
+import { canSplitImportRow, matchesRule, ruleMatchTarget, splitDuplicates, type SplitPart } from "@/lib/csv-utils";
 import { applyRuleToTransactions } from "@/lib/apply-rule";
+import { splitStamps } from "@/lib/transaction-split";
 
 interface CommitTransaction {
   tempId: string;
@@ -47,6 +49,44 @@ interface CommitTransaction {
   notes?: string | null;
   targetAccountId?: string;
   recurringTransactionId?: string | null;
+  /** Split this row into child rows on insert; the row itself becomes a wrapper. */
+  splits?: SplitPart[] | null;
+  /** Set while the parts are an untouched rule proposal — makes the children's category source "rule". */
+  splitRuleId?: string | null;
+}
+
+const MIN_SPLITS = 2;
+const MAX_SPLITS = 20;
+
+/**
+ * Validate a row's split parts the same way /api/transactions/[id]/split does:
+ * a splittable row, 2–20 parts, every part non-zero and signed like the row,
+ * summing to the row amount, all categories owned by the account owner.
+ * Returns an error message key, or null when the parts are fine.
+ */
+function validateSplits(
+  tx: CommitTransaction,
+  ownerCategoryIds: Set<string>,
+): "api.splitWrongType" | "api.splitTooFew" | "api.splitTooMany" | "api.splitInvalidAmount" | "api.splitSumMismatch" | "api.splitInvalidCategory" | null {
+  const splits = tx.splits ?? [];
+  if (!canSplitImportRow(tx)) return "api.splitWrongType";
+  if (splits.length < MIN_SPLITS) return "api.splitTooFew";
+  if (splits.length > MAX_SPLITS) return "api.splitTooMany";
+
+  const sign = Math.sign(tx.amount);
+  let sum = 0;
+  for (const part of splits) {
+    if (!part || typeof part !== "object") return "api.splitInvalidAmount";
+    if (!isFiniteNumber(part.amount) || part.amount === 0 || Math.sign(part.amount) !== sign) {
+      return "api.splitInvalidAmount";
+    }
+    if (part.categoryId && !ownerCategoryIds.has(part.categoryId)) {
+      return "api.splitInvalidCategory";
+    }
+    sum += part.amount;
+  }
+  if (Math.abs(sum - tx.amount) > MONEY_EPSILON) return "api.splitSumMismatch";
+  return null;
 }
 
 interface NewRule {
@@ -136,6 +176,13 @@ export async function POST(request: NextRequest) {
       if (tx.recurringTransactionId && !ownerPlanIds.has(tx.recurringTransactionId)) {
         return apiError("api.unknownRecurringOnRow", 400, { n: i + 1 });
       }
+      if (tx.splits != null) {
+        if (!Array.isArray(tx.splits)) {
+          return apiError("api.splitInvalidAmount", 400);
+        }
+        const splitError = validateSplits(tx, ownerCategoryIds);
+        if (splitError) return apiError(splitError, 400);
+      }
     }
 
     // Validate all rule patterns upfront so we don't write a partial import.
@@ -168,7 +215,10 @@ export async function POST(request: NextRequest) {
         description: transactions.description,
       })
       .from(transactions)
-      .where(and(eq(transactions.accountId, accountId), eq(transactions.userId, ownerId)));
+      // Split children share their parent's date and (by default) description
+      // with a fractional amount — without the parent filter they manufacture
+      // dedup keys that swallow genuine new rows from balance-less exports.
+      .where(and(eq(transactions.accountId, accountId), eq(transactions.userId, ownerId), isNull(transactions.parentTransactionId)));
     const { unique: uniqueTxList, duplicates } = splitDuplicates(existingRows, txList);
 
     // Create import batch — kept in the OWNER's import history regardless of
@@ -239,9 +289,14 @@ export async function POST(request: NextRequest) {
       isManual: boolean;
       importBatchId: string | null;
       createdAt: string;
+      isSplitParent?: boolean;
+      parentTransactionId?: string | null;
     }> = [];
 
     const mirrorRecords: typeof records = [];
+    // Split children, inserted after every parent so the parent row a
+    // parentTransactionId points at always exists first.
+    const childRecords: typeof records = [];
     // Reimbursement rows link to an expense chosen during review: either an
     // existing DB expense (expenseId) or another row in this same import
     // (expenseTempId, resolved to its new id after the map is fully built).
@@ -310,6 +365,45 @@ export async function POST(request: NextRequest) {
         const txType = (
           ["income", "expense", "internal_transfer", "reimbursement"] as const
         ).find((t) => t === tx.type) ?? "expense";
+        // A split row becomes a pure wrapper (no category of its own) with its
+        // parts inserted as children — the same shape applySplit produces.
+        const splits = tx.splits?.length ? tx.splits : null;
+        const recurringId =
+          (txType === "income" || txType === "expense") && tx.recurringTransactionId
+            ? tx.recurringTransactionId
+            : null;
+        if (splits) {
+          // "rule" only while the parts are still the rule's own proposal; the
+          // review UI drops splitRuleId the moment the user edits them.
+          const splitSource = tx.splitRuleId ? "rule" : "manual";
+          // Stamped a millisecond apart so the parts sort back in the order
+          // they were proposed — same reason as applySplit.
+          const stampedAt = splitStamps(splits.length);
+          for (const [partIndex, part] of splits.entries()) {
+            childRecords.push({
+              id: crypto.randomUUID(),
+              userId: ownerId,
+              accountId,
+              date: tx.date,
+              name: tx.name,
+              description: tx.description,
+              amount: part.amount,
+              balance: null,
+              categoryId: part.categoryId ?? null,
+              categorySource: part.categoryId ? splitSource : null,
+              type: txType,
+              groupId: null,
+              linkedTransactionId: null,
+              recurringTransactionId: recurringId,
+              notes: null,
+              createdBy: userId,
+              isManual: false,
+              importBatchId: batchId,
+              createdAt: stampedAt[partIndex],
+              parentTransactionId: sourceId,
+            });
+          }
+        }
         records.push({
           id: sourceId,
           userId: ownerId,
@@ -319,17 +413,17 @@ export async function POST(request: NextRequest) {
           description: tx.description,
           amount: tx.amount,
           balance: tx.balance,
-          categoryId: tx.categoryId,
-          categorySource: sourceForReviewedTx(tx.name, tx.description, tx.categoryId),
+          categoryId: splits ? null : tx.categoryId,
+          categorySource: splits
+            ? null
+            : sourceForReviewedTx(tx.name, tx.description, tx.categoryId),
+          isSplitParent: !!splits,
           type: txType,
           groupId: tx.groupId && ownerPotIds.has(tx.groupId) ? tx.groupId : null,
           linkedTransactionId: null,
           // Only carry the recurring link for income/expense rows; transfers
           // don't represent fixed-cost spending.
-          recurringTransactionId:
-            (txType === "income" || txType === "expense") && tx.recurringTransactionId
-              ? tx.recurringTransactionId
-              : null,
+          recurringTransactionId: recurringId,
           notes: note,
           createdBy: userId,
           isManual: false,
@@ -347,7 +441,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Batch insert all transactions (SQLite limit workaround)
-    const allRecords = [...records, ...mirrorRecords];
+    const allRecords = [...records, ...childRecords, ...mirrorRecords];
     const chunkSize = 50;
     for (let i = 0; i < allRecords.length; i += chunkSize) {
       const chunk = allRecords.slice(i, i + chunkSize);

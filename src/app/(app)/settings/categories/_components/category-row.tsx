@@ -27,8 +27,9 @@ import {
   useUpdateCategoryRule,
   useDeleteCategoryRule,
   useDeleteCategory,
+  useUpdateCategory,
 } from "@/hooks/use-categories";
-import type { CategoryWithDetails, RuleWithCategory } from "@/types/api";
+import type { CategoryKind, CategoryWithDetails, RuleWithCategory } from "@/types/api";
 import {
   MATCH_TYPES,
   MATCH_TYPE_LABEL_KEYS,
@@ -36,6 +37,14 @@ import {
   MATCH_FIELD_LABEL_KEYS,
 } from "@/lib/match-types";
 import { useI18n } from "@/lib/i18n/client";
+import type { MessageKey } from "@/lib/i18n/translate";
+
+// Single source for the kind select's options — shared with the add/edit dialog.
+export const CATEGORY_KIND_OPTIONS: { value: CategoryKind; labelKey: MessageKey }[] = [
+  { value: "income", labelKey: "categories.kind.income" },
+  { value: "expense", labelKey: "categories.kind.expense" },
+  { value: "transfer", labelKey: "categories.kind.transfer" },
+];
 
 interface CategoryRowProps {
   category: CategoryWithDetails;
@@ -62,6 +71,13 @@ export function CategoryRow({
   const updateRule = useUpdateCategoryRule();
   const deleteRule = useDeleteCategoryRule();
   const deleteCategory = useDeleteCategory();
+  const updateCategory = useUpdateCategory();
+
+  // The route writes only the fields it is given, so the kind travels alone —
+  // resending name/color/icon would rewrite a null colour as grey for no reason.
+  const handleKindChange = (kind: CategoryKind) => {
+    updateCategory.mutate({ id: category.id, kind });
+  };
 
   const [expanded, setExpanded] = useState(false);
   const [editingRule, setEditingRule] = useState<string | null>(null);
@@ -139,6 +155,24 @@ export function CategoryRow({
             {hasRules &&
               ` · ${plural(rules.length, "categories.ruleCount.one", "categories.ruleCount.other")}`}
           </p>
+        </div>
+
+        <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+          <Select value={category.kind} onValueChange={(v) => handleKindChange(v as CategoryKind)}>
+            <SelectTrigger
+              className="h-7 w-[110px] text-xs"
+              aria-label={t("categories.kind.label")}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {CATEGORY_KIND_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {t(o.labelKey)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="flex gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>

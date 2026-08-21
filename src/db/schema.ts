@@ -58,6 +58,17 @@ export const budgetPlans = sqliteTable("budget_plans", {
   // start). Switching a plan to yearly mid-year starts fresh here rather than
   // backfilling carry-over the user never saw. Null while the plan is monthly.
   periodStartedAt: text("period_started_at"),
+  // Cost-split key for a plan whose accounts are shared: the percentage of
+  // this budget the OWNER carries. Purely a display lens — allocations and
+  // spend are stored whole. Inert (and never shown) while the plan is not
+  // shared.
+  ownerSharePercent: integer("owner_share_percent").notNull().default(50),
+  // The rest of the key, per person: JSON `{"<email>": percent}` keyed by the
+  // invite address on account_members. Owner + members add up to 100; anyone
+  // without an entry falls back to an even slice of what the owner leaves
+  // (which is exactly the old two-party behaviour).
+  // ponytail: JSON blob, not a join table — nothing queries it by member.
+  sharePercents: text("share_percents"),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
@@ -143,6 +154,25 @@ export const transactions = sqliteTable("transactions", {
   isManual: integer("is_manual", { mode: "boolean" }).notNull().default(false),
   importBatchId: text("import_batch_id"), // Track which CSV upload this came from
   groupId: text("group_id"),
+  // Split transactions: a child slice references its parent wrapper row. The
+  // parent keeps the real bank amount/balance; children divide it across
+  // categories and must sum exactly to the parent amount.
+  //
+  // Migration 0020 DOES declare `ON DELETE cascade` on this column, but never
+  // rely on it: hosted libsql doesn't guarantee `foreign_keys=ON`, so the
+  // cascade may simply not fire. Children are removed explicitly by the code
+  // that deletes a parent (DELETE /api/transactions, and applySplit when
+  // re-splitting); the constraint is a backstop, not the mechanism. No
+  // onDelete is mirrored here so nobody reads this as the guarantee it isn't.
+  parentTransactionId: text("parent_transaction_id").references(
+    (): AnySQLiteColumn => transactions.id,
+  ),
+  // True while the row has split children. Denormalized so the many aggregate
+  // queries can exclude wrappers without an EXISTS per row; kept in sync by
+  // the split API (src/lib/transaction-split.ts).
+  isSplitParent: integer("is_split_parent", { mode: "boolean" })
+    .notNull()
+    .default(false),
   // Link to the recurring plan this transaction fulfills. When set, the
   // transaction is excluded from `spentThisMonth` because the plan's monthly
   // amount is already counted via `totalFixedCosts` — keeping both would
@@ -157,6 +187,7 @@ export const transactions = sqliteTable("transactions", {
   index("idx_transactions_user_category_type_date").on(table.userId, table.categoryId, table.type, table.date),
   index("idx_transactions_user_group").on(table.userId, table.groupId),
   index("idx_transactions_recurring").on(table.recurringTransactionId),
+  index("idx_transactions_parent").on(table.parentTransactionId),
 ]);
 
 // ─── Categories ──────────────────────────────────────────────────────────────
@@ -169,6 +200,11 @@ export const categories = sqliteTable("categories", {
   name: text("name").notNull(),
   icon: text("icon"), // Lucide icon name
   color: text("color"), // Hex color for charts
+  // Which side of the budget this category belongs to. "transfer" is neither:
+  // internal movement between own accounts, budgeted on no side at all.
+  kind: text("kind", { enum: ["income", "expense", "transfer"] })
+    .notNull()
+    .default("expense"),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: text("created_at")
     .notNull()
@@ -450,6 +486,55 @@ export const reimbursementLinks = sqliteTable("reimbursement_links", {
     .$defaultFn(() => new Date().toISOString()),
 }, (table) => [
   index("idx_reimbursement_expense").on(table.expenseId),
+]);
+
+// ─── Split Rules ────────────────────────────────────────────────────────────
+// Auto-split rules (e.g. "Hypotheek" -> 30% aflossing / 70% rente), matched
+// like category rules. Lines live in split_rule_lines; `mode` decides whether
+// lines carry percentages (summing to 100) or fixed amounts plus exactly one
+// remainder line that absorbs whatever the fixed amounts don't cover.
+export const splitRules = sqliteTable("split_rules", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  pattern: text("pattern").notNull(),
+  matchType: text("match_type", {
+    enum: ["contains", "exact", "starts_with"],
+  })
+    .notNull()
+    .default("contains"),
+  matchField: text("match_field", {
+    enum: ["both", "name", "description"],
+  })
+    .notNull()
+    .default("both"),
+  mode: text("mode", { enum: ["percentage", "fixed"] }).notNull(),
+  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
+export const splitRuleLines = sqliteTable("split_rule_lines", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  ruleId: text("rule_id")
+    .notNull()
+    .references(() => splitRules.id, { onDelete: "cascade" }),
+  categoryId: text("category_id")
+    .notNull()
+    .references(() => categories.id, { onDelete: "cascade" }),
+  // percentage mode: 0–100 share of the transaction amount. Null in fixed mode.
+  percentage: real("percentage"),
+  // fixed mode: absolute money amount for this line. Null in percentage mode
+  // and on the remainder line.
+  amount: real("amount"),
+  isRemainder: integer("is_remainder", { mode: "boolean" }).notNull().default(false),
+  sortOrder: integer("sort_order").notNull().default(0),
+}, (table) => [
+  index("idx_split_rule_lines_rule").on(table.ruleId),
 ]);
 
 // ─── Relations ───────────────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { apiError } from "@/lib/api-errors";
 import { db } from "@/db";
-import { transactions, accounts, categories } from "@/db/schema";
+import { transactions, accounts, categories, reimbursementLinks } from "@/db/schema";
 import { eq, desc, asc, and, gte, lte, like, or, sql, inArray, notInArray, isNull, isNotNull } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
@@ -9,6 +9,12 @@ import { parseSearchTerm } from "@/lib/search-query";
 import { effectiveExpenseAmount } from "@/lib/reimbursement-sql";
 import { requireAccountAccess, visibleTransactions } from "@/lib/account-access";
 import { isFiniteNumber, isIsoDate, sanitizeNote } from "@/lib/validation";
+import {
+  parentHasChildInCategories,
+  parentHasUncategorizedChild,
+  parentHasChildMatchingSearch,
+  childHasParentMatchingSearch,
+} from "@/lib/split-list";
 
 const VALID_TX_TYPES = ["income", "expense", "internal_transfer", "reimbursement"] as const;
 type TxType = (typeof VALID_TX_TYPES)[number];
@@ -89,10 +95,27 @@ export async function GET(request: NextRequest) {
       if (parsed.date) {
         matches.push(like(transactions.date, `${parsed.date}%`));
       }
+      // Split families: the parent has no useful text/amount/date of its own
+      // once split, so surface it when a hidden child matches (list side);
+      // and a child must count in totals when its PARENT matches (e.g. an
+      // amount search hitting the parent's total) even if its own slice
+      // doesn't — otherwise a family the list just surfaced totals to €0.
+      const childMatch = parentHasChildMatchingSearch(parsed);
+      if (childMatch) matches.push(childMatch);
+      const parentMatch = childHasParentMatchingSearch(parsed);
+      if (parentMatch) matches.push(parentMatch);
       if (matches.length) conditions.push(or(...matches)!);
     }
     if (uncategorized === "true") {
-      conditions.push(sql`${transactions.categoryId} IS NULL`);
+      // A split parent has no category of its own (cleared on split), so its
+      // NULL means nothing — it belongs in an "uncategorized" filter only when
+      // one of its hidden children is actually uncategorized.
+      conditions.push(
+        or(
+          and(isNull(transactions.categoryId), eq(transactions.isSplitParent, false)),
+          parentHasUncategorizedChild(),
+        )!,
+      );
     } else if (categoryIds.length) {
       // A pot carries its own category, and that is the one the budgets and
       // insights pages attribute its whole net to — regardless of how the
@@ -107,6 +130,10 @@ export async function GET(request: NextRequest) {
             WHERE g.user_id = "transactions"."user_id"
               AND ${inArray(sql`g.category_id`, categoryIds)}
           )`,
+          // The split parent itself never matches a category — its children
+          // do. Keep the parent row visible when a hidden split matches; the
+          // splits array attached below carries the actual match.
+          parentHasChildInCategories(categoryIds),
         )!,
       );
     }
@@ -123,7 +150,21 @@ export async function GET(request: NextRequest) {
       conditions.push(notInArray(transactions.type, excludeTypes as TxType[]));
     }
 
-    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+    // Split children never appear as their own top-level row — they ride
+    // along under their parent's `splits`. Only the list/pagination gets this
+    // restriction; the totals below deliberately don't (children must still
+    // count there, the parent wrapper must not).
+    //
+    // Exception: the reimbursement picker (`nearDate`/`nearAmount` ranking, or
+    // `reimbursesExpenseId` to list what's already linked) needs individual
+    // split children as candidate rows — a split can be a reimbursed expense
+    // (spec parity), so the picker must be able to offer one. Swap to hiding
+    // just the pure-wrapper parents instead of every child.
+    const isPickerMode = Boolean(nearDate) || Boolean(reimbursesExpenseId);
+    const splitVisibility = isPickerMode
+      ? eq(transactions.isSplitParent, false)
+      : isNull(transactions.parentTransactionId);
+    const whereClause = and(...conditions, splitVisibility);
 
     // Determine sort column
     const sortColumn = sortBy === "amount" ? transactions.amount
@@ -163,8 +204,10 @@ export async function GET(request: NextRequest) {
 
     // Get paginated results with joined data (including linked account name)
     const offset = (page - 1) * limit;
-    const rows = await db
-      .select({
+    // Reused verbatim for the split-children query below, so a parent's
+    // `splits` carry the exact same joined fields (category name/color,
+    // pot name, reimbursement info, …) as top-level rows.
+    const rowSelect = {
         id: transactions.id,
         accountId: transactions.accountId,
         accountName: accounts.name,
@@ -248,6 +291,11 @@ export async function GET(request: NextRequest) {
               AND am.user_id IS NOT NULL AND am.accepted_at IS NOT NULL AND am.revoked_at IS NULL)
             THEN (SELECT u.image FROM "user" u WHERE u.id = ${transactions.userId})
           ELSE NULL END)`,
+        // The list hides the byline on your own rows; the detail dialog still
+        // shows it. NULL created_by means the account owner.
+        createdBySelf: sql<boolean>`(COALESCE(${transactions.createdBy}, ${transactions.userId}) = ${userId})`.mapWith(
+          Boolean,
+        ),
         modifiedByName: sql<string | null>`(CASE
           WHEN ${transactions.modifiedBy} IS NOT NULL
             THEN (SELECT u.name FROM "user" u WHERE u.id = ${transactions.modifiedBy})
@@ -256,7 +304,11 @@ export async function GET(request: NextRequest) {
         isManual: transactions.isManual,
         importBatchId: transactions.importBatchId,
         createdAt: transactions.createdAt,
-      })
+        parentTransactionId: transactions.parentTransactionId,
+        isSplitParent: transactions.isSplitParent,
+    };
+    const rows = await db
+      .select(rowSelect)
       .from(transactions)
       .leftJoin(accounts, eq(transactions.accountId, accounts.id))
       .leftJoin(categories, eq(transactions.categoryId, categories.id))
@@ -264,6 +316,38 @@ export async function GET(request: NextRequest) {
       .orderBy(...orderBy)
       .limit(limit)
       .offset(offset);
+
+    // Attach each split parent's children (same joined shape as the rows
+    // above) so the list can render them indented beneath it without a
+    // separate round trip per parent. Children are never filtered out here —
+    // the full set rides along and the UI narrows it to an active category
+    // filter (falling back to all parts when the match was on a child's pot,
+    // which a child row doesn't carry).
+    const parentIds = rows.filter((r) => r.isSplitParent).map((r) => r.id);
+    const childRows = parentIds.length
+      ? await db
+          .select(rowSelect)
+          .from(transactions)
+          .leftJoin(accounts, eq(transactions.accountId, accounts.id))
+          .leftJoin(categories, eq(transactions.categoryId, categories.id))
+          .where(and(visibleTransactions(userId), inArray(transactions.parentTransactionId, parentIds)))
+          // Insertion order — every path that writes children stamps them a
+          // millisecond apart (splitStamps) precisely so this sorts back to
+          // the order the user, or the rule's sortOrder, put them in. Ordering
+          // by amount instead would reverse an expense's parts, since those
+          // amounts are negative.
+          .orderBy(asc(transactions.createdAt), asc(transactions.id))
+      : [];
+    const childrenByParent = new Map<string, typeof childRows>();
+    for (const child of childRows) {
+      const key = child.parentTransactionId!;
+      const list = childrenByParent.get(key) ?? [];
+      list.push(child);
+      childrenByParent.set(key, list);
+    }
+    const rowsWithSplits = rows.map((r) =>
+      r.isSplitParent ? { ...r, splits: childrenByParent.get(r.id) ?? [] } : r
+    );
 
     // Get distinct types that exist in the database
     const distinctTypes = await db
@@ -291,7 +375,10 @@ export async function GET(request: NextRequest) {
         totalReimbursements: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.type} = 'reimbursement' THEN ${transactions.amount} ELSE 0 END), 0)`,
       })
       .from(transactions)
-      .where(and(...conditions, isNull(transactions.groupId)));
+      // Split parents are pure wrappers and count in no totals — only their
+      // children (already covered by `conditions`, which is NOT restricted to
+      // top-level rows here) do.
+      .where(and(...conditions, eq(transactions.isSplitParent, false), isNull(transactions.groupId)));
 
     // Which pots the current filters touch. The row-level filters decide
     // *whether* a pot counts; they must not decide *how much* it counts, or a
@@ -354,7 +441,7 @@ export async function GET(request: NextRequest) {
     const net = income + expense + transfers;
 
     return NextResponse.json({
-      data: rows,
+      data: rowsWithSplits,
       pagination: {
         page,
         limit,
@@ -474,76 +561,158 @@ export async function POST(request: NextRequest) {
   }, "Failed to create transaction");
 }
 
-// DELETE /api/transactions — delete a transaction
+// One IN-list per statement instead of a request per row: deleting a page of
+// 100 selected rows was 100 round trips of the block below.
+//
+// Capped at 200 because the ids travel in the QUERY STRING: 200 uuids is ~7.4kB
+// of request line, and Node's default max header size is 16kB with session
+// cookies already eating into it. A higher cap here would just turn into an
+// opaque 431 before the handler ever runs. The largest page is 100 rows, so
+// this still clears any single-page selection with room to spare.
+const MAX_DELETE_IDS = 200;
+
+// DELETE /api/transactions?id=X — delete a transaction. `id` may be repeated or
+// comma-separated to delete a batch in one request.
 export async function DELETE(request: NextRequest) {
   return withUser(async (userId) => {
     const { searchParams } = new URL(request.url);
-    const id = searchParams.get("id");
+    const ids = [
+      ...new Set(
+        searchParams
+          .getAll("id")
+          .flatMap((v) => v.split(","))
+          .map((v) => v.trim())
+          .filter(Boolean),
+      ),
+    ];
 
-    if (!id) {
+    if (!ids.length) {
       return NextResponse.json(
         { error: "Transaction ID is required" },
         { status: 400 }
       );
     }
+    if (ids.length > MAX_DELETE_IDS) {
+      return NextResponse.json(
+        { error: `At most ${MAX_DELETE_IDS} transactions can be deleted at once` },
+        { status: 400 }
+      );
+    }
 
     // Row lookup is unscoped by caller — the write-access check below (via
-    // the row's account) decides who may delete it, not row ownership.
-    const [tx] = await db
-      .select({ accountId: transactions.accountId, linkedTransactionId: transactions.linkedTransactionId, userId: transactions.userId })
+    // each row's account) decides who may delete it, not row ownership.
+    const rows = await db
+      .select({ id: transactions.id, accountId: transactions.accountId, linkedTransactionId: transactions.linkedTransactionId, userId: transactions.userId, parentTransactionId: transactions.parentTransactionId, isSplitParent: transactions.isSplitParent })
       .from(transactions)
-      .where(eq(transactions.id, id));
-    if (!tx) {
+      .where(inArray(transactions.id, ids));
+    if (!rows.length) {
       return apiError("api.transactionNotFound", 404);
     }
-    const access = await requireAccountAccess(userId, tx.accountId, "write");
-    const ownerId = access.account.userId;
+    // Split children can only be removed via the split API — deleting one
+    // directly would silently break the sum invariant with its parent.
+    if (rows.some((r) => r.parentTransactionId)) {
+      return apiError("api.splitChildDelete", 400);
+    }
 
-    if (tx.linkedTransactionId) {
+    // Checked once per distinct account, not once per row — a bulk delete is
+    // almost always one or two accounts.
+    const ownerByAccount = new Map<string, string>();
+    for (const accountId of new Set(rows.map((r) => r.accountId))) {
+      const access = await requireAccountAccess(userId, accountId, "write");
+      ownerByAccount.set(accountId, access.account.userId);
+    }
+    const ownerIds = [...new Set(ownerByAccount.values())];
+    const deleteIds = rows.map((r) => r.id);
+
+    // Counterparts outside the batch. A pair where both legs are being deleted
+    // needs no cascade — the second leg is in `deleting` already.
+    const deleting = new Set(deleteIds);
+    const linkedIds = [
+      ...new Set(rows.map((r) => r.linkedTransactionId).filter((v): v is string => !!v)),
+    ].filter((linkedId) => !deleting.has(linkedId));
+
+    if (linkedIds.length) {
       // Scoped by the counterpart's OWN user_id, not this row's owner: transfer
       // detection pairs a private account with a shared one, so the two legs can
       // belong to different users. Leaving the far leg linked to a deleted row
       // would keep it typed internal_transfer forever.
-      const [linkedTx] = await db
+      const linked = await db
         .select({
           id: transactions.id,
           isManual: transactions.isManual,
-          amount: transactions.amount,
           userId: transactions.userId,
         })
         .from(transactions)
-        .where(eq(transactions.id, tx.linkedTransactionId));
+        .where(inArray(transactions.id, linkedIds));
 
-      if (linkedTx) {
-        if (linkedTx.isManual) {
-          // Mirror was auto-created, delete it
-          await db.delete(transactions).where(and(eq(transactions.id, linkedTx.id), eq(transactions.userId, linkedTx.userId)));
-        } else {
-          // Linked tx came from CSV, revert it to normal
-          await db
-            .update(transactions)
-            .set({
-              type: linkedTx.amount >= 0 ? "income" : "expense",
-              linkedTransactionId: null,
-              categoryId: null,
-              categorySource: null,
-              modifiedBy: userId,
-            })
-            .where(and(eq(transactions.id, linkedTx.id), eq(transactions.userId, linkedTx.userId)));
-        }
+      // Mirrors were auto-created, delete them
+      const mirrors = linked.filter((l) => l.isManual);
+      if (mirrors.length) {
+        await db.delete(transactions).where(and(
+          inArray(transactions.id, mirrors.map((m) => m.id)),
+          inArray(transactions.userId, [...new Set(mirrors.map((m) => m.userId))]),
+        ));
+      }
+
+      // The rest came from CSV, revert them to normal. The income/expense split
+      // is done in SQL so all of them revert in one statement.
+      const reverts = linked.filter((l) => !l.isManual);
+      if (reverts.length) {
+        await db
+          .update(transactions)
+          .set({
+            type: sql`CASE WHEN ${transactions.amount} >= 0 THEN 'income' ELSE 'expense' END`,
+            linkedTransactionId: null,
+            categoryId: null,
+            categorySource: null,
+            modifiedBy: userId,
+          })
+          .where(and(
+            inArray(transactions.id, reverts.map((r) => r.id)),
+            inArray(transactions.userId, [...new Set(reverts.map((r) => r.userId))]),
+          ));
       }
     }
 
-    await db.delete(transactions).where(and(eq(transactions.id, id), eq(transactions.userId, ownerId)));
+    // Split children first: `foreign_keys=ON` isn't guaranteed on libsql, so a
+    // split parent's children — and any reimbursement links pointing at them —
+    // are removed explicitly. A stale link would keep inflating the pro-rata
+    // divisor in effectiveExpenseAmount() forever.
+    const splitParentIds = rows.filter((r) => r.isSplitParent).map((r) => r.id);
+    if (splitParentIds.length) {
+      const childIdsQuery = db
+        .select({ id: transactions.id })
+        .from(transactions)
+        .where(and(
+          inArray(transactions.parentTransactionId, splitParentIds),
+          inArray(transactions.userId, ownerIds),
+        ));
+      await db.delete(reimbursementLinks).where(or(
+        inArray(reimbursementLinks.expenseId, childIdsQuery),
+        inArray(reimbursementLinks.reimbursementId, childIdsQuery),
+      ));
+      await db.delete(transactions).where(and(
+        inArray(transactions.parentTransactionId, splitParentIds),
+        inArray(transactions.userId, ownerIds),
+      ));
+    }
 
-    logDataEvent({
-      userId,
-      action: "transaction_delete",
-      targetId: id,
-      targetType: "transaction",
-      details: ownerId !== userId ? { accountOwnerId: ownerId } : undefined,
-    });
+    // The owner scope is per batch rather than per row: every id here came back
+    // from the lookup above, and every owner in the list owns an account the
+    // caller may write to, so the pair can't widen past the checked rows.
+    await db.delete(transactions).where(and(inArray(transactions.id, deleteIds), inArray(transactions.userId, ownerIds)));
 
-    return NextResponse.json({ success: true });
+    logDataEvent(rows.map((r) => {
+      const ownerId = ownerByAccount.get(r.accountId)!;
+      return {
+        userId,
+        action: "transaction_delete",
+        targetId: r.id,
+        targetType: "transaction",
+        details: ownerId !== userId ? { accountOwnerId: ownerId } : undefined,
+      };
+    }));
+
+    return NextResponse.json({ success: true, deleted: deleteIds.length });
   }, "Failed to delete transaction");
 }

@@ -8,6 +8,7 @@ import {
 import { and, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import type { BudgetSuggestion } from "@/types/api";
 import { effectiveExpenseAmount } from "@/lib/reimbursement-sql";
+import { excludeSplitParents } from "@/lib/split-sql";
 import { clampFrom, getStatsCutoff } from "@/lib/stat-reset";
 import type { ResolvedBudgetPlan } from "@/lib/budget-plan";
 
@@ -116,6 +117,7 @@ export async function regenerateBudgetSuggestions(
         eq(transactions.type, "expense"),
         sql`${transactions.groupId} IS NULL`,
         sql`${transactions.categoryId} IS NOT NULL`,
+        excludeSplitParents(),
         gte(transactions.date, from),
         lte(transactions.date, window.to),
         ...(txScope ? [txScope] : []),
@@ -223,6 +225,7 @@ export async function explainEmptyGenerate(
         eq(transactions.type, "expense"),
         sql`${transactions.groupId} IS NULL`,
         sql`${transactions.categoryId} IS NOT NULL`,
+        excludeSplitParents(),
         gte(transactions.date, from),
         lte(transactions.date, window.to),
         ...(plan ? [inArray(transactions.accountId, plan.accountIds)] : []),

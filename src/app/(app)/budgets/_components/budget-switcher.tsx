@@ -61,7 +61,10 @@ export function BudgetSwitcher({
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
       <DropdownMenu>
         <DropdownMenuTrigger className="flex items-center gap-2 rounded-md text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
-          <h1 className="text-2xl font-bold tracking-tight">
+          {/* Sized to sit level with the stat figures below it: the plan's name
+              and its numbers are the two things this page is, and neither
+              outranks the other. */}
+          <h1 className="text-2xl font-bold tracking-tight lg:text-[1.75rem]">
             {active ? active.name : t("budgets.fallbackTitle")}
           </h1>
           <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />

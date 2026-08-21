@@ -51,10 +51,13 @@ export async function applyRuleToTransactions({
       : matchField === "description"
         ? sql`LOWER(IIF(${transactions.name} IS NOT NULL, ${transactions.description}, ''))`
         : sql`LOWER(IIF(${transactions.name} IS NOT NULL, ${transactions.name} || ' — ', '') || ${transactions.description})`;
+  // A split parent's categoryId is cleared too (it's a pure wrapper, not
+  // "uncategorized") — rules must never touch it, only its already-normal
+  // children (see split-spec.md "Split rules"). isSplitParent = 0 keeps it out.
   const condition =
     type === "exact"
-      ? sql`${matchTargetSql} = LOWER(${pattern}) AND ${transactions.categoryId} IS NULL AND ${transactions.userId} = ${userId} AND ${transactions.type} IN ('income', 'expense')`
-      : sql`${matchTargetSql} LIKE LOWER(${sqlPattern}) ESCAPE '\\' AND ${transactions.categoryId} IS NULL AND ${transactions.userId} = ${userId} AND ${transactions.type} IN ('income', 'expense')`;
+      ? sql`${matchTargetSql} = LOWER(${pattern}) AND ${transactions.categoryId} IS NULL AND ${transactions.isSplitParent} = 0 AND ${transactions.userId} = ${userId} AND ${transactions.type} IN ('income', 'expense')`
+      : sql`${matchTargetSql} LIKE LOWER(${sqlPattern}) ESCAPE '\\' AND ${transactions.categoryId} IS NULL AND ${transactions.isSplitParent} = 0 AND ${transactions.userId} = ${userId} AND ${transactions.type} IN ('income', 'expense')`;
 
   const result = await db
     .update(transactions)

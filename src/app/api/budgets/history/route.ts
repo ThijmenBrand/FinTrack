@@ -5,6 +5,7 @@ import { budgets, categories, transactions, transactionGroups } from "@/db/schem
 import { eq, and, sql } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { effectiveExpenseAmount, potSpentAmount } from "@/lib/reimbursement-sql";
+import { excludeSplitParents } from "@/lib/split-sql";
 import { accountScopeFilter, resolveBudgetPlan } from "@/lib/budget-plan";
 import { getI18n } from "@/lib/i18n/server";
 
@@ -14,6 +15,9 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const categoryId = searchParams.get("categoryId");
     const budgetIdParam = searchParams.get("budgetId");
+    // Allowlisted: only "income" switches modes. Every existing caller omits
+    // this param and keeps the expense behaviour it always had.
+    const isIncome = searchParams.get("type") === "income";
 
     if (!categoryId) {
       return NextResponse.json(
@@ -58,72 +62,108 @@ export async function GET(request: NextRequest) {
 
     const currentBudgetAmount = budget?.amount || 0;
 
-    // Get monthly spending summaries grouped by month (excluding grouped transactions)
-    const monthlySpending = await db
-      .select({
-        month: sql<string>`substr(${transactions.date}, 1, 7)`,
-        spent: sql<number>`sum(${effectiveExpenseAmount()})`,
-        transactionCount: sql<number>`count(*)`,
-      })
-      .from(transactions)
-      .where(
-        and(
-          eq(transactions.categoryId, categoryId),
-          eq(transactions.type, "expense"),
-          sql`${transactions.groupId} IS NULL`,
-          eq(transactions.userId, dataUserId),
-          ...(scopeFilter ? [scopeFilter] : []),
+    let mergedSpending: { month: string; spent: number; transactionCount: number }[];
+
+    if (isIncome) {
+      // Income received per month. No pot merge here: pots are an
+      // expense-only accounting concept (a pot nets its own spend down to 0,
+      // see potSpentAmount) and income has no analogue, same as the plain
+      // `transactions.amount` sum budgets/route.ts uses for received income.
+      const monthlyIncome = await db
+        .select({
+          month: sql<string>`substr(${transactions.date}, 1, 7)`,
+          spent: sql<number>`sum(${transactions.amount})`,
+          transactionCount: sql<number>`count(*)`,
+        })
+        .from(transactions)
+        .where(
+          and(
+            eq(transactions.categoryId, categoryId),
+            eq(transactions.type, "income"),
+            sql`${transactions.groupId} IS NULL`,
+            excludeSplitParents(),
+            eq(transactions.userId, dataUserId),
+            ...(scopeFilter ? [scopeFilter] : []),
+          )
         )
-      )
-      .groupBy(sql`substr(${transactions.date}, 1, 7)`)
-      .orderBy(sql`substr(${transactions.date}, 1, 7) desc`);
+        .groupBy(sql`substr(${transactions.date}, 1, 7)`)
+        .orderBy(sql`substr(${transactions.date}, 1, 7) desc`);
 
-    // Get monthly pot spending for this category (pots with matching categoryId)
-    const potMonthlySpending = await db
-      .select({
-        month: sql<string>`substr(${transactions.date}, 1, 7)`,
-        potTotal: sql<number>`${potSpentAmount()}`,
-        potId: transactionGroups.id,
-      })
-      .from(transactionGroups)
-      .innerJoin(transactions, eq(transactions.groupId, transactionGroups.id))
-      .where(
-        and(
-          eq(transactionGroups.categoryId, categoryId),
-          eq(transactionGroups.userId, dataUserId),
-          eq(transactions.userId, dataUserId),
-          ...(scopeFilter ? [scopeFilter] : []),
-        ),
-      )
-      .groupBy(transactionGroups.id, sql`substr(${transactions.date}, 1, 7)`)
-      .orderBy(sql`substr(${transactions.date}, 1, 7) desc`);
+      mergedSpending = monthlyIncome.map((row) => ({
+        month: row.month,
+        spent: row.spent || 0,
+        transactionCount: row.transactionCount,
+      }));
+    } else {
+      // Get monthly spending summaries grouped by month (excluding grouped transactions)
+      const monthlySpending = await db
+        .select({
+          month: sql<string>`substr(${transactions.date}, 1, 7)`,
+          spent: sql<number>`sum(${effectiveExpenseAmount()})`,
+          transactionCount: sql<number>`count(*)`,
+        })
+        .from(transactions)
+        .where(
+          and(
+            eq(transactions.categoryId, categoryId),
+            eq(transactions.type, "expense"),
+            sql`${transactions.groupId} IS NULL`,
+            excludeSplitParents(),
+            eq(transactions.userId, dataUserId),
+            ...(scopeFilter ? [scopeFilter] : []),
+          )
+        )
+        .groupBy(sql`substr(${transactions.date}, 1, 7)`)
+        .orderBy(sql`substr(${transactions.date}, 1, 7) desc`);
 
-    // Aggregate pot spending per month
-    const potSpendingByMonth = new Map<string, number>();
-    for (const row of potMonthlySpending) {
-      const existing = potSpendingByMonth.get(row.month) || 0;
-      potSpendingByMonth.set(row.month, existing + row.potTotal);
+      // Get monthly pot spending for this category (pots with matching categoryId)
+      const potMonthlySpending = await db
+        .select({
+          month: sql<string>`substr(${transactions.date}, 1, 7)`,
+          potTotal: sql<number>`${potSpentAmount()}`,
+          potId: transactionGroups.id,
+        })
+        .from(transactionGroups)
+        .innerJoin(transactions, eq(transactions.groupId, transactionGroups.id))
+        .where(
+          and(
+            eq(transactionGroups.categoryId, categoryId),
+            eq(transactionGroups.userId, dataUserId),
+            eq(transactions.userId, dataUserId),
+            excludeSplitParents(),
+            ...(scopeFilter ? [scopeFilter] : []),
+          ),
+        )
+        .groupBy(transactionGroups.id, sql`substr(${transactions.date}, 1, 7)`)
+        .orderBy(sql`substr(${transactions.date}, 1, 7) desc`);
+
+      // Aggregate pot spending per month
+      const potSpendingByMonth = new Map<string, number>();
+      for (const row of potMonthlySpending) {
+        const existing = potSpendingByMonth.get(row.month) || 0;
+        potSpendingByMonth.set(row.month, existing + row.potTotal);
+      }
+
+      // Merge pot spending into monthly spending
+      const allMonths = new Set([
+        ...monthlySpending.map((r) => r.month),
+        ...potSpendingByMonth.keys(),
+      ]);
+
+      mergedSpending = Array.from(allMonths)
+        .sort((a, b) => b.localeCompare(a))
+        .map((month) => {
+          const txRow = monthlySpending.find((r) => r.month === month);
+          const txSpent = txRow?.spent || 0;
+          const txCount = txRow?.transactionCount || 0;
+          const potSpent = potSpendingByMonth.get(month) || 0;
+          return {
+            month,
+            spent: txSpent + potSpent,
+            transactionCount: txCount,
+          };
+        });
     }
-
-    // Merge pot spending into monthly spending
-    const allMonths = new Set([
-      ...monthlySpending.map((r) => r.month),
-      ...potSpendingByMonth.keys(),
-    ]);
-
-    const mergedSpending = Array.from(allMonths)
-      .sort((a, b) => b.localeCompare(a))
-      .map((month) => {
-        const txRow = monthlySpending.find((r) => r.month === month);
-        const txSpent = txRow?.spent || 0;
-        const txCount = txRow?.transactionCount || 0;
-        const potSpent = potSpendingByMonth.get(month) || 0;
-        return {
-          month,
-          spent: txSpent + potSpent,
-          transactionCount: txCount,
-        };
-      });
 
     // Current month for tagging
     const now = new Date();

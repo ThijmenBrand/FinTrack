@@ -21,7 +21,7 @@ import { Tag, Check } from "lucide-react";
 import { extractPattern } from "@/lib/csv-utils";
 import { MATCH_TYPES, MATCH_FIELDS } from "@/lib/match-types";
 import { CategoryIcon } from "@/components/category-icon";
-import { CategorySelect } from "@/components/category-select";
+import { CategoryPicker } from "@/components/category-picker";
 import { useCategorizeTransaction } from "@/hooks/use-transactions";
 import type { Category } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
@@ -34,6 +34,8 @@ interface CategorizePopoverProps {
   currentCategoryColor: string | null;
   currentCategoryIcon?: string | null;
   categories: Category[];
+  /** Account the transaction belongs to — new categories land in its owner's space. */
+  accountId?: string;
   /** Off on someone else's account — rules are the owner's config, and the
    *  server drops rule creation from anyone else (see the categorize route). */
   canCreateRule?: boolean;
@@ -48,6 +50,7 @@ export function CategorizePopover({
   currentCategoryColor,
   currentCategoryIcon,
   categories,
+  accountId,
   canCreateRule = true,
   onCategorized,
 }: CategorizePopoverProps) {
@@ -120,10 +123,12 @@ export function CategorizePopover({
 
           <div className="space-y-2">
             <Label className="text-xs">{t("common.category")}</Label>
-            <CategorySelect
-              value={selectedCategoryId}
-              onValueChange={setSelectedCategoryId}
+            <CategoryPicker
+              value={selectedCategoryId || null}
+              onChange={setSelectedCategoryId}
               categories={categories}
+              accountId={accountId}
+              className="h-8 text-sm"
             />
           </div>
 

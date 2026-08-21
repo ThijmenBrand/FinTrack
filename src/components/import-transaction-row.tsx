@@ -4,9 +4,9 @@ import { useState, memo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { CheckCircle2, StickyNote, Receipt } from "lucide-react";
+import { CheckCircle2, StickyNote, Receipt, Split, Pencil, X } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
-import type { PreviewTransaction } from "@/lib/csv-utils";
+import { canSplitImportRow, type PreviewTransaction } from "@/lib/csv-utils";
 import { useI18n } from "@/lib/i18n/client";
 import { CategoryPicker } from "@/components/category-picker";
 import { PotPicker } from "@/components/pot-picker";
@@ -34,6 +34,8 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
   onNotesChange,
   onPotChange,
   onToggleReimbursement,
+  onEditSplit,
+  onRemoveSplit,
   isAutoMatched,
   selected,
   onToggleSelect,
@@ -46,6 +48,9 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
   onNotesChange: (tempId: string, notes: string | null) => void;
   onPotChange: (tempId: string, groupId: string | null) => void;
   onToggleReimbursement: (tempId: string) => void;
+  /** Open the local split editor for this row (proposed or brand new). */
+  onEditSplit: (tempId: string) => void;
+  onRemoveSplit: (tempId: string) => void;
   isAutoMatched: boolean;
   selected: boolean;
   onToggleSelect: (tempId: string) => void;
@@ -54,8 +59,11 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
   const [expanded, setExpanded] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
   const isReimbursement = tx.type === "reimbursement";
-  // Reimbursement only makes sense for money coming in
-  const canReimburse = tx.type === "income" || isReimbursement;
+  const splits = tx.splits?.length ? tx.splits : null;
+  // Reimbursement only makes sense for money coming in; a split row owns its
+  // money already, so pot and reimbursement are off until the split is removed.
+  const canReimburse = (tx.type === "income" || isReimbursement) && !splits;
+  const canSplit = canSplitImportRow(tx);
   // Keep the note input visible whenever a note exists so it's never hidden data
   const showNoteInput = noteOpen || !!tx.notes;
 
@@ -66,7 +74,13 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
       ? "h-7 text-xs border-dashed"
       : "h-7 text-xs";
 
-  const categorySelect = (
+  const categorySelect = splits ? (
+    // The parts below carry the categories — the row itself has none.
+    <span className="flex h-7 items-center gap-1.5 text-xs text-muted-foreground">
+      <Split className="h-3 w-3" />
+      {t("import.split.partCount", { count: splits.length })}
+    </span>
+  ) : (
     <CategoryPicker
       categories={categories}
       value={tx.categoryId || null}
@@ -121,7 +135,7 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
         {/* Amount */}
         <span
           className={`text-sm font-mono font-medium text-right shrink-0 tabular-nums sm:w-24 ${
-            isReimbursement || tx.groupId
+            isReimbursement || tx.groupId || splits
               ? "text-muted-foreground"
               : tx.amount >= 0
                 ? "text-emerald-600 dark:text-emerald-400"
@@ -149,12 +163,34 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
           />
         </Button>
 
-        {/* Pot picker */}
-        <PotPicker
-          pots={pots}
-          currentId={tx.groupId ?? null}
-          onSelect={(potId) => onPotChange(tx.tempId, potId)}
-        />
+        {/* Split toggle — eligible rows only; spacer keeps columns aligned */}
+        {canSplit || splits ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 shrink-0"
+            aria-label={splits ? t("import.split.edit") : t("tx.split.button")}
+            title={splits ? t("import.split.edit") : t("tx.split.button")}
+            onClick={() => onEditSplit(tx.tempId)}
+          >
+            <Split
+              className={cn("h-3.5 w-3.5", splits ? "text-primary" : "text-muted-foreground")}
+            />
+          </Button>
+        ) : (
+          <span className="w-7 shrink-0" />
+        )}
+
+        {/* Pot picker — a split row's money is already allocated to its parts */}
+        {splits ? (
+          <span className="w-7 shrink-0" />
+        ) : (
+          <PotPicker
+            pots={pots}
+            currentId={tx.groupId ?? null}
+            onSelect={(potId) => onPotChange(tx.tempId, potId)}
+          />
+        )}
 
         {/* Reimbursement toggle — income rows only; spacer keeps columns aligned */}
         {canReimburse ? (
@@ -217,6 +253,58 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
               }
             }}
           />
+        </div>
+      )}
+
+      {/* Split parts — indented beneath the row, like the transactions list */}
+      {splits && (
+        // pr-4 keeps the part amounts clear of the list's scrollbar
+        <div className="ml-4 space-y-1 border-l-2 border-muted-foreground/20 pl-3 pr-4 sm:ml-[104px]">
+          {splits.map((part, i) => {
+            const cat = categories.find((c) => c.id === part.categoryId);
+            return (
+              <div key={i} className="flex items-center gap-2 text-xs">
+                <Split className="h-3 w-3 shrink-0 text-muted-foreground" />
+                <span
+                  className={cn(
+                    "flex min-w-0 flex-1 items-center gap-1.5",
+                    cat ? "text-muted-foreground" : "text-amber-600 dark:text-amber-400",
+                  )}
+                >
+                  {cat && (
+                    <span
+                      className="h-1.5 w-1.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: cat.color || "#94a3b8" }}
+                    />
+                  )}
+                  <span className="truncate">{cat?.name ?? t("import.split.noCategory")}</span>
+                </span>
+                <span className="shrink-0 font-mono tabular-nums text-muted-foreground">
+                  {formatCurrency(part.amount)}
+                </span>
+              </div>
+            );
+          })}
+          <div className="flex gap-1 pt-0.5">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-1.5 text-xs text-muted-foreground"
+              onClick={() => onEditSplit(tx.tempId)}
+            >
+              <Pencil className="h-3 w-3" />
+              {t("import.split.edit")}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-1.5 text-xs text-muted-foreground"
+              onClick={() => onRemoveSplit(tx.tempId)}
+            >
+              <X className="h-3 w-3" />
+              {t("import.split.remove")}
+            </Button>
+          </div>
         </div>
       )}
 

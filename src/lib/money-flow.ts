@@ -24,6 +24,7 @@ import {
   visibleCategories,
   visibleTransactions,
 } from "@/lib/account-access";
+import { excludeSplitParents } from "@/lib/split-sql";
 import type { MoneyFlowData } from "@/types/api";
 
 /** Beyond this the diagram is unreadable; the tail is merged into "Other". */
@@ -96,7 +97,9 @@ export async function buildMoneyFlow(
 ): Promise<MoneyFlowData> {
   const accountIds = range.accountIds ?? [];
 
-  const conds: SQL[] = [visibleTransactions(userId)];
+  // Split wrappers count in none of the legs below — only their children do.
+  // Transfers are never split, so the transfer legs are unaffected.
+  const conds: SQL[] = [visibleTransactions(userId), excludeSplitParents()];
   if (range.dateFrom) conds.push(gte(transactions.date, range.dateFrom));
   if (range.dateTo) conds.push(lte(transactions.date, range.dateTo));
   if (accountIds.length > 0)

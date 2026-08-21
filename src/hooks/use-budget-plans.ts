@@ -27,6 +27,8 @@ export function useCreateBudgetPlan() {
       name: string;
       accountIds?: string[];
       period?: BudgetPlanPeriod;
+      ownerSharePercent?: number;
+      sharePercents?: Record<string, number>;
     }) =>
       apiFetch<{ success: boolean; id: string }>("/api/budget-plans", {
         method: "POST",
@@ -46,6 +48,8 @@ export function useUpdateBudgetPlan() {
       accountIds?: string[];
       isMain?: boolean;
       period?: BudgetPlanPeriod;
+      ownerSharePercent?: number;
+      sharePercents?: Record<string, number>;
     }) =>
       apiFetch("/api/budget-plans", {
         method: "PUT",

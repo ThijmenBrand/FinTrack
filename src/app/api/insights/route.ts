@@ -10,6 +10,7 @@ import { trendWindow } from "@/lib/trend-window";
 import { resolveBudgetPlan } from "@/lib/budget-plan";
 import { getUserPreferences } from "@/lib/preferences";
 import { visibleCategories, visibleTransactions } from "@/lib/account-access";
+import { excludeSplitParents } from "@/lib/split-sql";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 /** Months of history the monthly bars always cover, current month included. */
@@ -77,8 +78,11 @@ export async function GET(request: NextRequest) {
       : sql`0`;
 
     const buildConditions = (from: string | null, to: string | null) => {
+      // Every aggregate in this route is a spend/income figure, so the split
+      // wrapper is excluded once here and only its children count.
       const conds: SQL[] = [
         plan ? eq(transactions.userId, dataUserId) : visibleTransactions(userId),
+        excludeSplitParents(),
       ];
       if (from) conds.push(gte(transactions.date, from));
       if (to) conds.push(lte(transactions.date, to));
@@ -99,7 +103,14 @@ export async function GET(request: NextRequest) {
           totalExpenses: sql<number>`sum(CASE WHEN ${transactions.type} = 'expense' THEN (
             ${effectiveExpenseAmount()}
           ) WHEN ${crossOut} THEN -${transactions.amount} ELSE 0 END)`,
-          txCount: sql<number>`count(CASE WHEN ${transactions.type} IN ('income', 'expense') OR ${crossIn} OR ${crossOut} THEN 1 END)`,
+          // DISTINCT over the parent id: the conditions exclude split wrappers
+          // and count their children instead, which is right for the money but
+          // would report one split transaction as three. Collapsing children
+          // back onto their parent keeps this a count of transactions.
+          txCount: sql<number>`count(DISTINCT CASE
+            WHEN ${transactions.type} IN ('income', 'expense') OR ${crossIn} OR ${crossOut}
+            THEN COALESCE(${transactions.parentTransactionId}, ${transactions.id})
+          END)`,
         })
         .from(transactions)
         .where(and(sql`${transactions.groupId} IS NULL`, ...conds));

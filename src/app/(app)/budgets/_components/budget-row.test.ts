@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { byUrgency, fixedCostStatus } from "./budget-row";
+import { byUrgency, fixedCostStatus, incomeStatus } from "./budget-row";
 
 describe("byUrgency", () => {
   it("puts exceeded first, then fullest budget, then untouched", () => {
@@ -49,5 +49,58 @@ describe("fixedCostStatus", () => {
       "phone",
       "alloc",
     ]);
+  });
+});
+
+describe("incomeStatus", () => {
+  it("warns amber while the money is still outstanding", () => {
+    expect(incomeStatus({ expected: 3000, received: 0 })).toMatchObject({
+      percentage: 0,
+      outstanding: 3000,
+      status: "warning",
+    });
+    expect(incomeStatus({ expected: 3000, received: 1500 })).toMatchObject({
+      percentage: 50,
+      status: "warning",
+    });
+  });
+
+  it("turns emerald once the income has landed", () => {
+    // Paid to the cent is in, not short — the same slack fixedCostStatus gives.
+    expect(incomeStatus({ expected: 3000, received: 3000 })).toMatchObject({
+      percentage: 100,
+      outstanding: 0,
+      status: "received",
+    });
+    expect(incomeStatus({ expected: 3000, received: 2999.995 }).status).toBe(
+      "received",
+    );
+  });
+
+  it("treats more than planned as good news, never as an overspend", () => {
+    const bonus = incomeStatus({ expected: 3000, received: 3500 });
+    expect(bonus.status).toBe("received");
+    expect(bonus.outstanding).toBe(-500);
+    // Unplanned income with no plan behind it is still a windfall, and reads
+    // as fully in rather than as an empty bar.
+    expect(incomeStatus({ expected: 0, received: 250 })).toMatchObject({
+      percentage: 100,
+      status: "received",
+    });
+    // ...but money leaving an income category with nothing planned is not.
+    expect(incomeStatus({ expected: 0, received: -40 })).toMatchObject({
+      percentage: 0,
+      status: "warning",
+    });
+  });
+
+  it("stays neutral when every plan in the category is paused", () => {
+    expect(incomeStatus()).toMatchObject({
+      expected: 0,
+      received: 0,
+      percentage: 0,
+      status: "ok",
+    });
+    expect(incomeStatus({ expected: 0, received: 0 }).status).toBe("ok");
   });
 });

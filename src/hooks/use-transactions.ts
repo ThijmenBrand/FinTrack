@@ -200,13 +200,12 @@ export function useBulkCategorizeTransactions() {
 export function useBulkDeleteTransactions() {
   const qc = useQueryClient();
   return useMutation({
-    // ponytail: sequential single deletes reuse the linked-transfer cascade
-    // logic in DELETE /api/transactions; add a bulk endpoint if this gets slow
-    mutationFn: async (ids: string[]) => {
-      for (const id of ids) {
-        await apiFetch(`/api/transactions?id=${id}`, { method: "DELETE" });
-      }
-    },
+    // One request for the whole selection — DELETE /api/transactions takes a
+    // comma-separated id list and runs the linked-transfer cascade set-based.
+    mutationFn: (ids: string[]) =>
+      apiFetch(`/api/transactions?id=${ids.map(encodeURIComponent).join(",")}`, {
+        method: "DELETE",
+      }),
     // onSettled so already-deleted rows leave the cache even when a later delete fails
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ["transactions"] });
@@ -259,6 +258,89 @@ export function useDeleteReimbursement() {
       qc.invalidateQueries({ queryKey: ["transactions"] });
       qc.invalidateQueries({ queryKey: ["budgets"] });
       qc.invalidateQueries({ queryKey: ["insights"] });
+    },
+  });
+}
+
+export interface SplitPartInput {
+  amount: number;
+  categoryId?: string | null;
+  description?: string | null;
+  notes?: string | null;
+}
+
+/** Create (POST) or replace (PUT) a transaction's splits. */
+export function useSplitTransaction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      transactionId,
+      splits,
+      isEdit,
+    }: {
+      transactionId: string;
+      splits: SplitPartInput[];
+      isEdit: boolean;
+    }) =>
+      apiFetch<{ success: boolean; childIds: string[] }>(
+        `/api/transactions/${transactionId}/split`,
+        {
+          method: isEdit ? "PUT" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ splits }),
+        },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["transactions"] });
+      qc.invalidateQueries({ queryKey: ["budgets"] });
+      qc.invalidateQueries({ queryKey: ["insights"] });
+    },
+  });
+}
+
+/** Delete a transaction's splits and restore it to a normal, uncategorized row. */
+export function useUnsplitTransaction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (transactionId: string) =>
+      apiFetch(`/api/transactions/${transactionId}/split`, { method: "DELETE" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["transactions"] });
+      qc.invalidateQueries({ queryKey: ["budgets"] });
+      qc.invalidateQueries({ queryKey: ["insights"] });
+    },
+  });
+}
+
+export interface SplitRuleLineInput {
+  categoryId: string;
+  percentage?: number;
+  amount?: number;
+  isRemainder?: boolean;
+  sortOrder: number;
+}
+
+/** Create a split rule (the "split future transactions like this" follow-up). */
+export function useCreateSplitRule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: {
+      pattern: string;
+      matchType: string;
+      matchField: string;
+      mode: "percentage" | "fixed";
+      lines: SplitRuleLineInput[];
+      applyToExisting?: boolean;
+    }) =>
+      apiFetch<{ success: boolean; ruleId: string; applied: number }>("/api/split-rules", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ["split-rules"] });
+      // A rule only reshapes existing rows when applied retroactively.
+      if (vars.applyToExisting) qc.invalidateQueries({ queryKey: ["transactions"] });
     },
   });
 }

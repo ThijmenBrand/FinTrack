@@ -24,9 +24,11 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useBulkDeleteCategories, useCategories, useCategoryRules, useReapplyCategoryRules, useReorderCategories } from "@/hooks/use-categories";
-import type { CategoryWithDetails, RuleWithCategory } from "@/types/api";
+import type { CategoryKind, CategoryWithDetails, RuleWithCategory } from "@/types/api";
+import { CATEGORY_KIND_OPTIONS } from "./_components/category-row";
 import { CategoryDialog } from "./_components/category-dialog";
 import { RuleDialog } from "./_components/rule-dialog";
+import { SplitRulesSection } from "./_components/split-rules-section";
 import { UncategorizedTransactions } from "./_components/uncategorized-transactions";
 import { CategoryRow } from "./_components/category-row";
 import { SettingsHeader } from "@/components/settings/settings-ui";
@@ -97,16 +99,24 @@ export default function CategoriesPage() {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
-  const handleDragEnd = async (event: DragEndEvent) => {
+  // The list is grouped by kind, but sortOrder is one global sequence shared
+  // by all categories (the PATCH endpoint just numbers whatever id list it's
+  // given 0..n). So an in-group drag reorders only that kind's slice, then
+  // splices it back into the same slots it held in the full list — every
+  // other group's order and position is left untouched.
+  const handleDragEnd = (kind: CategoryKind) => async (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
-    const oldIndex = categories.findIndex((c) => c.id === active.id);
-    const newIndex = categories.findIndex((c) => c.id === over.id);
+    const groupItems = categories.filter((c) => c.kind === kind);
+    const oldIndex = groupItems.findIndex((c) => c.id === active.id);
+    const newIndex = groupItems.findIndex((c) => c.id === over.id);
     if (oldIndex === -1 || newIndex === -1) return;
 
+    const reorderedGroup = arrayMove(groupItems, oldIndex, newIndex);
+    let cursor = 0;
     // Optimistic: writing the cache reorders every dropdown too, not just this page.
-    const reordered = arrayMove(categories, oldIndex, newIndex);
+    const reordered = categories.map((c) => (c.kind === kind ? reorderedGroup[cursor++] : c));
     qc.setQueryData(["categories"], reordered);
     try {
       await reorderCategories.mutateAsync(reordered.map((c) => c.id));
@@ -138,6 +148,7 @@ export default function CategoriesPage() {
   const [editingCategory, setEditingCategory] = useState<CategoryWithDetails | null>(null);
   const [reapplyResult, setReapplyResult] = useState<{
     transactionsCategorized: number;
+    transactionsSplit: number;
     totalTransactions: number;
     uncategorized: number;
   } | null>(null);
@@ -158,6 +169,7 @@ export default function CategoriesPage() {
       const data = await reapplyRules.mutateAsync();
       setReapplyResult({
         transactionsCategorized: data.transactionsCategorized,
+        transactionsSplit: data.transactionsSplit,
         totalTransactions: data.totalTransactions,
         uncategorized: data.uncategorized,
       });
@@ -223,6 +235,16 @@ export default function CategoriesPage() {
                 done: reapplyResult.transactionsCategorized,
                 total: reapplyResult.totalTransactions,
               })}
+              {reapplyResult.transactionsSplit > 0 && (
+                <span>
+                  {" "}
+                  {plural(
+                    reapplyResult.transactionsSplit,
+                    "categories.recalcSplit.one",
+                    "categories.recalcSplit.other",
+                  )}
+                </span>
+              )}
               {reapplyResult.uncategorized > 0 && (
                 <span className="text-muted-foreground">
                   {" "}
@@ -249,6 +271,8 @@ export default function CategoriesPage() {
       )}
 
       <UncategorizedTransactions />
+
+      <SplitRulesSection categories={categories} />
 
       {/* Categories with Grouped Rules */}
       <div className="space-y-3 pt-2">
@@ -298,30 +322,48 @@ export default function CategoriesPage() {
             ))}
           </div>
         ) : (
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragEnd={handleDragEnd}
-          >
-            <SortableContext
-              items={categories.map((c) => c.id)}
-              strategy={verticalListSortingStrategy}
-            >
-              <div className="space-y-2">
-                {categories.map((cat) => (
-                  <SortableCategoryRow
-                    key={cat.id}
-                    category={cat}
-                    rules={rulesByCategory[cat.id] || []}
-                    categories={categories}
-                    onEdit={openEditCategory}
-                    selected={selectedIds.includes(cat.id)}
-                    onToggleSelect={(sel) => toggleSelect(cat.id, sel)}
-                  />
-                ))}
-              </div>
-            </SortableContext>
-          </DndContext>
+          <div className="space-y-6">
+            {CATEGORY_KIND_OPTIONS.map(({ value: kind, labelKey }) => {
+              const groupCategories = categories.filter((c) => c.kind === kind);
+              // ponytail: skip empty groups rather than show a heading over nothing.
+              if (groupCategories.length === 0) return null;
+
+              return (
+                <div key={kind} className="space-y-2">
+                  <h4 className="text-sm font-semibold text-muted-foreground tracking-tight">
+                    {t(labelKey)}
+                  </h4>
+                  {/* A DndContext per group confines drag-and-drop to that
+                      group — the sortOrder space is global, but a row must
+                      only reorder among its own kind, not leap into another. */}
+                  <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={handleDragEnd(kind)}
+                  >
+                    <SortableContext
+                      items={groupCategories.map((c) => c.id)}
+                      strategy={verticalListSortingStrategy}
+                    >
+                      <div className="space-y-2">
+                        {groupCategories.map((cat) => (
+                          <SortableCategoryRow
+                            key={cat.id}
+                            category={cat}
+                            rules={rulesByCategory[cat.id] || []}
+                            categories={categories}
+                            onEdit={openEditCategory}
+                            selected={selectedIds.includes(cat.id)}
+                            onToggleSelect={(sel) => toggleSelect(cat.id, sel)}
+                          />
+                        ))}
+                      </div>
+                    </SortableContext>
+                  </DndContext>
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
     </div>

@@ -1,0 +1,1 @@
+ALTER TABLE `budget_plans` ADD `owner_share_percent` integer DEFAULT 50 NOT NULL;

@@ -30,6 +30,7 @@ import {
   Check,
   Filter,
   Search,
+  Split,
 } from "lucide-react";
 import { useCategorizeTransaction, useUpdateTransactionNotes } from "@/hooks/use-transactions";
 import { MAX_NOTE_LENGTH, sanitizeNote } from "@/lib/validation";
@@ -53,6 +54,21 @@ interface TransactionContextMenuProps {
   onDelete: (tx: Transaction) => void;
   onFilterByCategory: (tx: Transaction) => void;
   onFilterByName: (tx: Transaction) => void;
+  /** Opens the detail dialog with the split editor active — new split or edit. */
+  onSplit: (tx: Transaction) => void;
+  onUnsplit: (tx: Transaction) => void;
+}
+
+/** True for a row eligible to start a fresh split: income/expense, not a
+ *  split child or parent already, not in a pot, not reimbursement-linked. */
+function canSplit(tx: Transaction): boolean {
+  return (
+    (tx.type === "income" || tx.type === "expense") &&
+    !tx.parentTransactionId &&
+    !tx.isSplitParent &&
+    !tx.groupId &&
+    tx.reimbursementCount === 0
+  );
 }
 
 /** Right-click menu for transaction rows, anchored at the cursor. */
@@ -67,6 +83,8 @@ export function TransactionContextMenu({
   onDelete,
   onFilterByCategory,
   onFilterByName,
+  onSplit,
+  onUnsplit,
 }: TransactionContextMenuProps) {
   const { t } = useI18n();
   const categorize = useCategorizeTransaction();
@@ -97,56 +115,83 @@ export function TransactionContextMenu({
               {t("tx.menu.filterByCategory")}
             </DropdownMenuItem>
           )}
-          <DropdownMenuSeparator />
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-              <Tag />
-              {t("tx.menu.changeCategory")}
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="max-h-72 overflow-y-auto">
-              {categories.map((c) => (
-                <DropdownMenuItem
-                  key={c.id}
-                  onSelect={() => categorize.mutate({ transactionId: tx.id, categoryId: c.id })}
-                >
-                  <span
-                    className="h-2.5 w-2.5 rounded-full shrink-0"
-                    style={{ backgroundColor: c.color ?? undefined }}
-                  />
-                  <span className="truncate">{c.name}</span>
-                  {tx.categoryId === c.id && <Check className="ml-auto" />}
+          {!tx.isSplitParent && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <Tag />
+                  {t("tx.menu.changeCategory")}
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="max-h-72 overflow-y-auto">
+                  {categories.map((c) => (
+                    <DropdownMenuItem
+                      key={c.id}
+                      onSelect={() => categorize.mutate({ transactionId: tx.id, categoryId: c.id })}
+                    >
+                      <span
+                        className="h-2.5 w-2.5 rounded-full shrink-0"
+                        style={{ backgroundColor: c.color ?? undefined }}
+                      />
+                      <span className="truncate">{c.name}</span>
+                      {tx.categoryId === c.id && <Check className="ml-auto" />}
+                    </DropdownMenuItem>
+                  ))}
+                  {tx.categoryId && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onSelect={() => categorize.mutate({ transactionId: tx.id, categoryId: null })}
+                      >
+                        {t("tx.menu.removeCategory")}
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+              {!tx.groupId ? (
+                <DropdownMenuItem onSelect={() => onAddToPot(tx)}>
+                  <Package />
+                  {t("tx.row.addToPot")}
                 </DropdownMenuItem>
-              ))}
-              {tx.categoryId && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onSelect={() => categorize.mutate({ transactionId: tx.id, categoryId: null })}
-                  >
-                    {t("tx.menu.removeCategory")}
-                  </DropdownMenuItem>
-                </>
+              ) : (
+                <DropdownMenuItem onSelect={() => onRemoveFromPot(tx)}>
+                  <Minus />
+                  {t("tx.row.removeFromPot")}
+                </DropdownMenuItem>
               )}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-          {!tx.groupId ? (
-            <DropdownMenuItem onSelect={() => onAddToPot(tx)}>
-              <Package />
-              {t("tx.row.addToPot")}
-            </DropdownMenuItem>
-          ) : (
-            <DropdownMenuItem onSelect={() => onRemoveFromPot(tx)}>
-              <Minus />
-              {t("tx.row.removeFromPot")}
-            </DropdownMenuItem>
+              {(tx.type === "income" || tx.type === "reimbursement") && (
+                <DropdownMenuItem onSelect={() => onReimburse(tx)}>
+                  <Receipt />
+                  {tx.type === "reimbursement"
+                    ? t("tx.row.linkToExpenses")
+                    : t("tx.row.markReimbursement")}
+                </DropdownMenuItem>
+              )}
+            </>
           )}
-          {(tx.type === "income" || tx.type === "reimbursement") && (
-            <DropdownMenuItem onSelect={() => onReimburse(tx)}>
-              <Receipt />
-              {tx.type === "reimbursement"
-                ? t("tx.row.linkToExpenses")
-                : t("tx.row.markReimbursement")}
-            </DropdownMenuItem>
+          {tx.isSplitParent ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => onSplit(tx)}>
+                <Split />
+                {t("tx.menu.editSplit")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onUnsplit(tx)}>
+                <Split />
+                {t("tx.menu.unsplit")}
+              </DropdownMenuItem>
+            </>
+          ) : (
+            canSplit(tx) && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => onSplit(tx)}>
+                  <Split />
+                  {t("tx.menu.split")}
+                </DropdownMenuItem>
+              </>
+            )
           )}
           <DropdownMenuSeparator />
           <DropdownMenuItem
