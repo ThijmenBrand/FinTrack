@@ -270,4 +270,32 @@ describe("run-migrations pipeline", () => {
     expect(kinds.rows.map((r) => r.kind)).toEqual(["transfer", "income"]);
     expect(await columnNames("budget_plans")).toContain("share_percents");
   });
+
+  it("recovers when an earlier migration is pending and a later column exists", async () => {
+    // The state the previous recovery could not reach: 0019 genuinely never
+    // ran, but `categories.kind` (0021) is already there — added out of band,
+    // e.g. by initializeDatabase's drift repair, so "the batch is sequential,
+    // nothing after a pending migration can have run" does not hold. Bailing at
+    // 0019 handed 0021 back to the migrator and it died on "duplicate column
+    // name: kind". Each statement is now skipped on its own evidence.
+    await client.execute({
+      sql: "DELETE FROM __drizzle_migrations WHERE created_at >= ?",
+      args: [journal.entries[19].when],
+    });
+    await client.execute("ALTER TABLE budget_plans DROP COLUMN owner_share_percent"); // 0019
+    await client.execute("ALTER TABLE budget_plans DROP COLUMN share_percents"); // 0022
+    // 0020's tables and 0021's `kind` stay: re-running those must not throw.
+    await client.execute("UPDATE categories SET kind = 'expense'");
+
+    await expect(runMigrations()).resolves.not.toThrow();
+
+    expect(await columnNames("budget_plans")).toContain("owner_share_percent");
+    expect(await columnNames("budget_plans")).toContain("share_percents");
+    const kinds = await client.execute(
+      "SELECT name, kind FROM categories WHERE name IN ('Salary', 'Internal Transfer') ORDER BY name",
+    );
+    expect(kinds.rows.map((r) => r.kind)).toEqual(["transfer", "income"]);
+    const ledger = await client.execute("SELECT count(*) n FROM __drizzle_migrations");
+    expect(Number(ledger.rows[0].n)).toBe(migrationCount);
+  });
 });
