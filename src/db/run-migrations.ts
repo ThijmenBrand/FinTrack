@@ -48,6 +48,57 @@ export async function baselineIfPreMigration(client: Client) {
   });
 }
 
+const ADD_COLUMN = /^\s*ALTER\s+TABLE\s+`?(\w+)`?\s+ADD\s+(?:COLUMN\s+)?`?(\w+)`?/i;
+
+async function hasColumn(client: Client, table: string, column: string) {
+  const info = await client.execute({
+    sql: `SELECT 1 FROM pragma_table_info(?) WHERE name = ?`,
+    args: [table, column],
+  });
+  return info.rows.length > 0;
+}
+
+/**
+ * Recover a migration that ran but never got recorded. drizzle's libsql migrator
+ * sends every pending statement as ONE non-transactional batch (`stream.batch(false)`),
+ * so a batch that dies partway — Turso stream timeout, or two Vercel builds
+ * racing the same DB — leaves the earlier DDL committed with no ledger row, and
+ * every later deploy re-runs its `ALTER TABLE … ADD <col>` and hard-fails with
+ * "duplicate column name". When every column a pending migration adds is already
+ * there, replay its remaining statements (backfills, all idempotent) and stamp
+ * it, so the migrator sees it as done.
+ */
+export async function stampPartiallyAppliedMigrations(client: Client) {
+  const ledger = await client
+    .execute(`SELECT created_at FROM "__drizzle_migrations" ORDER BY created_at DESC LIMIT 1`)
+    .catch(() => null);
+  const lastApplied = Number(ledger?.rows[0]?.created_at ?? 0);
+  if (!lastApplied) return;
+
+  for (const [i, migration] of readMigrationFiles({
+    migrationsFolder: MIGRATIONS_FOLDER,
+  }).entries()) {
+    if (migration.folderMillis <= lastApplied) continue;
+    const added = migration.sql
+      .map((stmt) => ADD_COLUMN.exec(stmt))
+      .filter((m) => m !== null) as RegExpExecArray[];
+    if (added.length === 0) continue; // data-only: no evidence either way, let the migrator run it
+    for (const [, table, column] of added) {
+      // Genuinely pending. The batch is sequential, so nothing after it can have
+      // run either — hand the rest back to the migrator.
+      if (!(await hasColumn(client, table, column))) return;
+    }
+    console.log(`Migration #${i} already applied but unrecorded — replaying backfills, stamping.`);
+    for (const stmt of migration.sql) {
+      if (stmt.trim() && !ADD_COLUMN.test(stmt)) await client.execute(stmt);
+    }
+    await client.execute({
+      sql: `INSERT INTO "__drizzle_migrations" ("hash", "created_at") VALUES (?, ?)`,
+      args: [migration.hash, migration.folderMillis],
+    });
+  }
+}
+
 /**
  * Bring the database (Turso in prod, local SQLite file otherwise) fully up to
  * date: baseline a pre-migration DB, apply pending versioned migrations, then
@@ -59,6 +110,7 @@ export async function runMigrations() {
   const db = drizzle(client);
 
   await baselineIfPreMigration(client);
+  await stampPartiallyAppliedMigrations(client);
 
   // Fresh DB: applies 0000 (creates everything). Existing DB: 0000 is stamped,
   // so only newer migrations run.

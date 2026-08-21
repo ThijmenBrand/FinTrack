@@ -244,4 +244,30 @@ describe("run-migrations pipeline", () => {
     expect(await columnNames("transactions")).toContain("created_by");
     expect(await columnNames("user_preferences")).toContain("main_budget_plan_id");
   });
+
+  it("recovers from a migration applied without a ledger row", async () => {
+    // What took prod down: drizzle's libsql migrator batches every pending
+    // statement without a transaction, so a batch that dies partway leaves the
+    // DDL committed and the ledger row missing. Here 0021 added `kind` and then
+    // the batch died — before its backfill, before its ledger row, before 0022.
+    const from = journal.entries[21].when;
+    await client.execute({
+      sql: "DELETE FROM __drizzle_migrations WHERE created_at >= ?",
+      args: [from],
+    });
+    await client.execute("ALTER TABLE budget_plans DROP COLUMN share_percents"); // 0022
+    await client.execute("UPDATE categories SET kind = 'expense'"); // 0021's backfill never ran
+
+    // Previously: LibsqlError "duplicate column name: kind".
+    await expect(runMigrations()).resolves.not.toThrow();
+
+    const ledger = await client.execute("SELECT count(*) n FROM __drizzle_migrations");
+    expect(Number(ledger.rows[0].n)).toBe(migrationCount);
+    // 0021 replayed (its backfill is idempotent), 0022+ left to the migrator.
+    const kinds = await client.execute(
+      "SELECT name, kind FROM categories WHERE name IN ('Salary', 'Internal Transfer') ORDER BY name",
+    );
+    expect(kinds.rows.map((r) => r.kind)).toEqual(["transfer", "income"]);
+    expect(await columnNames("budget_plans")).toContain("share_percents");
+  });
 });
