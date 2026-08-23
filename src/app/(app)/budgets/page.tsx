@@ -228,6 +228,18 @@ export default function BudgetsPage() {
   );
   const { data: categoriesData } = useCategories();
   const categories = categoriesData ?? [];
+  // What the allocation picker may offer. An allocation is plan-owned data, so
+  // it references the PLAN OWNER's categories — on someone else's shared plan
+  // the caller's own ids are rejected by POST /api/budgets, and the ones
+  // already allocated there wouldn't match either, so the picker would offer
+  // duplicates it can't create. Own plans resolve to the same request as
+  // `useCategories()` above (same query key), so this costs nothing there.
+  // Also what a category created from the dialog is scoped to, for the same
+  // reason: it has to end up in the owner's space to be allocatable here.
+  const planAccountId =
+    activePlan && activePlan.role !== "owner" ? activePlan.accounts[0]?.id : undefined;
+  const { data: planCategoriesData } = useCategories(planAccountId);
+  const planCategories = planCategoriesData ?? [];
   const createBudget = useCreateBudget();
   const updateBudget = useUpdateBudget();
   const deleteBudget = useDeleteBudget();
@@ -351,10 +363,13 @@ export default function BudgetsPage() {
 
   if (!data) return null;
 
-  // Categories available for allocation (not already allocated and not a fixed cost category)
+  // Categories available for allocation. The exclusions are per plan, not per
+  // category: `data` only ever describes the active plan, so a category
+  // budgeted in another plan is still on offer here — two plans may budget the
+  // same category, one plan may not budget it twice.
   const fixedCatIds = new Set(data.fixedCosts.map((fc) => fc.categoryId));
   const allocatedCatIds = new Set(data.allocations.map((a) => a.categoryId));
-  const availableCategories = categories.filter(
+  const availableCategories = planCategories.filter(
     (c) => !allocatedCatIds.has(c.id) && !fixedCatIds.has(c.id) && isBudgetable(c.kind),
   );
 
@@ -791,6 +806,7 @@ export default function BudgetsPage() {
                         editingAlloc)
                     }
                     availableCategories={availableCategories}
+                    accountId={planAccountId}
                     categoryAverages={data.categoryAverages}
                     unallocated={data.unallocated}
                     yearly={isYearly}

@@ -360,3 +360,42 @@ describe("PUT /api/budgets — shared plan role (editing an existing allocation 
     expect(res.status).toBe(403);
   });
 });
+
+// One category, two plans: budgeting it in the second must not touch the
+// first, and each plan's GET must see only its own row — the "add allocation"
+// picker filters on exactly that list.
+describe("POST /api/budgets — the same category across plans", () => {
+  const addSecondPlan = async () => {
+    const now = new Date().toISOString();
+    await testDb.client.execute({
+      sql: `INSERT INTO budget_plans (id, user_id, name, is_main, created_at, updated_at)
+            VALUES ('plan-y', ?, 'Holiday', 0, ?, ?)`,
+      args: [OWNER, now, now],
+    });
+  };
+
+  it("allocates the same category in two plans as two independent rows", async () => {
+    await addSecondPlan();
+    expect(
+      (await postAllocation({ categoryId: "cat-x", amount: 100, budgetId: "plan-x" })).status,
+    ).toBe(201);
+    expect(
+      (await postAllocation({ categoryId: "cat-x", amount: 25, budgetId: "plan-y" })).status,
+    ).toBe(201);
+
+    const x = await (await getBudgets(`budgetId=plan-x&${MONTH_QUERY}`)).json();
+    const y = await (await getBudgets(`budgetId=plan-y&${MONTH_QUERY}`)).json();
+    expect(x.allocations.map((a: { amount: number }) => a.amount)).toEqual([100]);
+    expect(y.allocations.map((a: { amount: number }) => a.amount)).toEqual([25]);
+  });
+
+  it("budgeting a category twice in ONE plan updates the row instead of adding a second", async () => {
+    await postAllocation({ categoryId: "cat-x", amount: 100, budgetId: "plan-x" });
+    const again = await postAllocation({ categoryId: "cat-x", amount: 140, budgetId: "plan-x" });
+    expect(again.status).toBe(200);
+
+    const { allocations } = await (await getBudgets(`budgetId=plan-x&${MONTH_QUERY}`)).json();
+    expect(allocations).toHaveLength(1);
+    expect(allocations[0].amount).toBe(140);
+  });
+});
