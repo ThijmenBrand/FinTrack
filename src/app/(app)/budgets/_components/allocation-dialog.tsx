@@ -14,13 +14,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { CategoryPicker } from "@/components/category-picker";
 import { Plus } from "lucide-react";
 import { useI18n } from "@/lib/i18n/client";
 import { MONEY_EPSILON } from "@/lib/validation";
@@ -31,6 +25,8 @@ interface AllocationDialogProps {
   onOpenChange: (open: boolean) => void;
   editingAlloc: Allocation | null;
   availableCategories: CategoryWithDetails[];
+  /** Plan owner's account — a category created here lands in their space. */
+  accountId?: string;
   categoryAverages: Record<string, number>;
   unallocated: number;
   /** Yearly plans enter and display the annual figure; storage stays monthly. */
@@ -47,6 +43,7 @@ export function AllocationDialog({
   onOpenChange,
   editingAlloc,
   availableCategories,
+  accountId,
   categoryAverages,
   unallocated,
   yearly = false,
@@ -146,29 +143,18 @@ export function AllocationDialog({
           {!editingAlloc && (
             <div className="grid gap-2">
               <Label>{t("common.category")}</Label>
-              {availableCategories.length === 0 ? (
-                <p className="rounded-md border border-dashed px-3 py-3 text-sm text-muted-foreground">
+              {/* Same picker as the transaction flows: type to filter, and
+                  create the category on the spot when it isn't there yet. */}
+              <CategoryPicker
+                categories={availableCategories}
+                value={categoryId || null}
+                onChange={setCategoryId}
+                accountId={accountId}
+              />
+              {availableCategories.length === 0 && (
+                <p className="text-xs text-muted-foreground">
                   {t("budgets.alloc.noCategories")}
                 </p>
-              ) : (
-                <Select value={categoryId} onValueChange={setCategoryId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder={t("budgets.alloc.categoryPlaceholder")} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availableCategories.map((cat) => (
-                      <SelectItem key={cat.id} value={cat.id}>
-                        <span className="flex items-center gap-2">
-                          <span
-                            className="h-2 w-2 rounded-full"
-                            style={{ backgroundColor: cat.color || "#94a3b8" }}
-                          />
-                          {cat.name}
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
               )}
             </div>
           )}

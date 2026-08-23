@@ -234,9 +234,11 @@ export default function BudgetsPage() {
   // already allocated there wouldn't match either, so the picker would offer
   // duplicates it can't create. Own plans resolve to the same request as
   // `useCategories()` above (same query key), so this costs nothing there.
-  const { data: planCategoriesData } = useCategories(
-    activePlan && activePlan.role !== "owner" ? activePlan.accounts[0]?.id : undefined,
-  );
+  // Also what a category created from the dialog is scoped to, for the same
+  // reason: it has to end up in the owner's space to be allocatable here.
+  const planAccountId =
+    activePlan && activePlan.role !== "owner" ? activePlan.accounts[0]?.id : undefined;
+  const { data: planCategoriesData } = useCategories(planAccountId);
   const planCategories = planCategoriesData ?? [];
   const createBudget = useCreateBudget();
   const updateBudget = useUpdateBudget();
@@ -804,6 +806,7 @@ export default function BudgetsPage() {
                         editingAlloc)
                     }
                     availableCategories={availableCategories}
+                    accountId={planAccountId}
                     categoryAverages={data.categoryAverages}
                     unallocated={data.unallocated}
                     yearly={isYearly}
