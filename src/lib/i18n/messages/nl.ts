@@ -750,7 +750,7 @@ export const nl: Record<MessageKey, string> = {
   "budgets.alloc.addDescription": "Wijs toe vanuit je {amount} niet-toegewezen budget.",
   "budgets.alloc.categoryPlaceholder": "Kies een categorie...",
   "budgets.alloc.noCategories":
-    "Elke categorie heeft al een budget. Voeg een nieuwe categorie toe in instellingen om ervoor te budgetteren.",
+    "Elke categorie heeft al een budget in dit plan. Voeg een nieuwe categorie toe in instellingen om ervoor te budgetteren.",
   "budgets.alloc.monthlyAmount": "Maandbedrag",
   "budgets.alloc.yearlyAmount": "Jaarbedrag",
   "budgets.alloc.avgHintSuffixYearly": "/jr gemiddeld uit in deze categorie.",

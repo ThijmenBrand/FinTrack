@@ -228,6 +228,16 @@ export default function BudgetsPage() {
   );
   const { data: categoriesData } = useCategories();
   const categories = categoriesData ?? [];
+  // What the allocation picker may offer. An allocation is plan-owned data, so
+  // it references the PLAN OWNER's categories — on someone else's shared plan
+  // the caller's own ids are rejected by POST /api/budgets, and the ones
+  // already allocated there wouldn't match either, so the picker would offer
+  // duplicates it can't create. Own plans resolve to the same request as
+  // `useCategories()` above (same query key), so this costs nothing there.
+  const { data: planCategoriesData } = useCategories(
+    activePlan && activePlan.role !== "owner" ? activePlan.accounts[0]?.id : undefined,
+  );
+  const planCategories = planCategoriesData ?? [];
   const createBudget = useCreateBudget();
   const updateBudget = useUpdateBudget();
   const deleteBudget = useDeleteBudget();
@@ -351,10 +361,13 @@ export default function BudgetsPage() {
 
   if (!data) return null;
 
-  // Categories available for allocation (not already allocated and not a fixed cost category)
+  // Categories available for allocation. The exclusions are per plan, not per
+  // category: `data` only ever describes the active plan, so a category
+  // budgeted in another plan is still on offer here — two plans may budget the
+  // same category, one plan may not budget it twice.
   const fixedCatIds = new Set(data.fixedCosts.map((fc) => fc.categoryId));
   const allocatedCatIds = new Set(data.allocations.map((a) => a.categoryId));
-  const availableCategories = categories.filter(
+  const availableCategories = planCategories.filter(
     (c) => !allocatedCatIds.has(c.id) && !fixedCatIds.has(c.id) && isBudgetable(c.kind),
   );
 

@@ -765,7 +765,7 @@ export const en = {
   "budgets.alloc.addDescription": "Allocate from your {amount} unallocated budget.",
   "budgets.alloc.categoryPlaceholder": "Select a category...",
   "budgets.alloc.noCategories":
-    "Every category already has a budget. Add a new category in settings to budget for it.",
+    "Every category already has a budget in this plan. Add a new category in settings to budget for it.",
   "budgets.alloc.monthlyAmount": "Monthly Amount",
   "budgets.alloc.yearlyAmount": "Yearly Amount",
   "budgets.alloc.avgHintSuffixYearly": "/yr on average in this category.",
