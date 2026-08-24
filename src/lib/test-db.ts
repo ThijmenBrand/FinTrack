@@ -197,6 +197,7 @@ export async function setupTestDb(name: string): Promise<TestDb> {
       parent_id TEXT,
       name TEXT NOT NULL,
       amount REAL NOT NULL,
+      recurring_transaction_id TEXT,
       created_at TEXT NOT NULL
     )`,
     `CREATE TABLE IF NOT EXISTS reimbursement_links (

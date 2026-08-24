@@ -19,8 +19,17 @@ import { excludeSplitParents } from "@/lib/split-sql";
 import { isRegenerationDue } from "@/lib/auto-budget";
 import { getUserPreferences } from "@/lib/preferences";
 import { toMonthly, getCurrentMonthRange } from "@/lib/month-money";
-import { isFiniteNumber, MONEY_EPSILON } from "@/lib/validation";
-import { SUB_LINE_ERROR, SUB_LINE_ERROR_MESSAGE, sumSiblings } from "@/lib/budget-sub-lines";
+import { isFiniteNumber, isIsoDate, validateName } from "@/lib/validation";
+import { requireAccountAccess } from "@/lib/account-access";
+import type { MessageKey, Vars } from "@/lib/i18n/translate";
+import {
+  MAX_SUB_LINE_DEPTH,
+  MAX_SUB_LINES_PER_ALLOCATION,
+  SUB_LINE_ERROR,
+  SUB_LINE_ERROR_MESSAGE,
+  countSubLines,
+  resyncUpwards,
+} from "@/lib/budget-sub-lines";
 import { getStatsCutoff } from "@/lib/stat-reset";
 import { accountScopeFilter, resolveBudgetPlan, resolveBudgetRowAccess } from "@/lib/budget-plan";
 import {
@@ -157,14 +166,6 @@ function foldMonthlyAverages(
   }
   return map;
 }
-
-/**
- * Sum of an allocation's root sub-lines. Shrinking an allocation below this
- * would leave the sub-lines it already funds over-budget, so both write paths
- * block that edit.
- */
-const sumRootSubLines = (allocationId: string, userId: string) =>
-  sumSiblings(db, allocationId, userId, null);
 
 /**
  * GET /api/budgets — unified budget view
@@ -486,16 +487,57 @@ export async function GET(request: NextRequest) {
       if (list) list.push(row);
       else subLineRowsByAllocation.set(row.allocationId, [row]);
     }
+
+    // The plans linked sub-lines stand for, in one query for the whole page —
+    // a per-sub-line lookup would scale with the tree, not with the response.
+    const linkedRecurringIds = [
+      ...new Set(
+        subLineRows
+          .map((r) => r.recurringTransactionId)
+          .filter((id): id is string => !!id),
+      ),
+    ];
+    const linkedRecurringRows =
+      linkedRecurringIds.length > 0
+        ? await db
+            .select({
+              id: recurringTransactions.id,
+              amount: recurringTransactions.amount,
+              frequency: recurringTransactions.frequency,
+              dayOfWeek: recurringTransactions.dayOfWeek,
+              dayOfMonth: recurringTransactions.dayOfMonth,
+              monthOfYear: recurringTransactions.monthOfYear,
+              startDate: recurringTransactions.startDate,
+              isActive: recurringTransactions.isActive,
+            })
+            .from(recurringTransactions)
+            .where(
+              and(
+                inArray(recurringTransactions.id, linkedRecurringIds),
+                eq(recurringTransactions.userId, dataUserId),
+              ),
+            )
+        : [];
+    const linkedRecurringById = new Map(
+      linkedRecurringRows.map((r) => [r.id, r]),
+    );
+
     function buildSubLineTree(allocationId: string): BudgetSubLine[] {
       const rows = subLineRowsByAllocation.get(allocationId) ?? [];
       const nodes = new Map<string, BudgetSubLine>();
       for (const r of rows) {
+        // The recurring row keeps its per-occurrence amount as stored (signed);
+        // only the sub-line's monthly figure is scaled to the window.
+        const linked = r.recurringTransactionId
+          ? linkedRecurringById.get(r.recurringTransactionId)
+          : undefined;
         nodes.set(r.id, {
           id: r.id,
           parentId: r.parentId,
           name: r.name,
           amount: r.amount * monthsScale,
           children: [],
+          ...(linked ? { recurring: linked } : {}),
         });
       }
       const roots: BudgetSubLine[] = [];
@@ -889,7 +931,143 @@ export async function GET(request: NextRequest) {
   }, "Failed to fetch budget");
 }
 
-// POST /api/budgets — create a budget allocation for a category
+const FREQUENCIES = ["weekly", "biweekly", "monthly", "yearly"] as const;
+type Frequency = (typeof FREQUENCIES)[number];
+
+/** The create-new-plan half of a ChildInput, once validated. */
+interface RecurringInput {
+  accountId: string;
+  amount: number;
+  frequency: Frequency;
+  dayOfWeek: number | null;
+  dayOfMonth: number | null;
+  monthOfYear: number | null;
+  startDate: string;
+}
+
+/** One node of the submitted tree, after validation. */
+interface PreparedChild {
+  name: string;
+  amount: number;
+  children: PreparedChild[];
+  adoptRecurringId: string | null;
+  recurring: RecurringInput | null;
+}
+
+/**
+ * Two flavours of rejection: `rule` is a SUB_LINE_ERROR code the client
+ * translates itself, `key` an ordinary translatable message.
+ */
+type ParseResult =
+  | { ok: true; nodes: PreparedChild[] }
+  | { ok: false; rule?: string; key?: MessageKey; vars?: Vars };
+
+/** An absent optional integer, its value, or `false` when it is present but junk. */
+function optionalInt(v: unknown, min: number, max: number): number | null | false {
+  if (v === undefined || v === null) return null;
+  return typeof v === "number" && Number.isInteger(v) && v >= min && v <= max ? v : false;
+}
+
+/** Same rules POST /api/recurring applies; null when anything is off. */
+function parseRecurring(raw: unknown): RecurringInput | null {
+  const r = raw as Record<string, unknown>;
+  if (typeof r?.accountId !== "string" || !r.accountId) return null;
+  if (!isFiniteNumber(r.amount) || r.amount <= 0) return null;
+  if (!FREQUENCIES.includes(r.frequency as Frequency)) return null;
+  if (!isIsoDate(r.startDate)) return null;
+  const dayOfWeek = optionalInt(r.dayOfWeek, 0, 6);
+  const dayOfMonth = optionalInt(r.dayOfMonth, 1, 31);
+  const monthOfYear = optionalInt(r.monthOfYear, 1, 12);
+  if (dayOfWeek === false || dayOfMonth === false || monthOfYear === false) return null;
+  return {
+    accountId: r.accountId,
+    amount: r.amount,
+    frequency: r.frequency as Frequency,
+    dayOfWeek,
+    dayOfMonth,
+    monthOfYear,
+    startDate: r.startDate as string,
+  };
+}
+
+/**
+ * Validate the WHOLE submitted tree before anything is written — depth, count,
+ * every name and every amount — so a tree that breaks a cap is refused with
+ * nothing inserted.
+ */
+function parseChildren(
+  input: unknown,
+  depth: number,
+  counter: { n: number },
+): ParseResult {
+  if (!Array.isArray(input)) return { ok: false, key: "api.invalidBody" };
+  const nodes: PreparedChild[] = [];
+  for (const item of input) {
+    if (++counter.n > MAX_SUB_LINES_PER_ALLOCATION) {
+      return { ok: false, rule: SUB_LINE_ERROR.tooMany };
+    }
+    const raw = (item ?? {}) as Record<string, unknown>;
+    const name = validateName(raw.name);
+    if (!name.ok) return { ok: false, key: name.error, vars: name.vars };
+    if (!isFiniteNumber(raw.amount) || raw.amount <= 0) {
+      return { ok: false, key: "api.invalidAmount" };
+    }
+
+    const adopt = raw.adoptRecurringId;
+    if (adopt !== undefined && adopt !== null && typeof adopt !== "string") {
+      return { ok: false, key: "api.invalidBody" };
+    }
+    let recurring: RecurringInput | null = null;
+    if (raw.recurring !== undefined && raw.recurring !== null) {
+      if (adopt) return { ok: false, key: "api.invalidBody" };
+      recurring = parseRecurring(raw.recurring);
+      if (!recurring) return { ok: false, key: "api.invalidBody" };
+    }
+
+    const rawChildren = raw.children;
+    let children: PreparedChild[] = [];
+    if (Array.isArray(rawChildren) && rawChildren.length > 0) {
+      // A container's amount is its children's sum, so it cannot also be a
+      // recurring plan — that would be two sources for one number.
+      if (adopt || recurring) return { ok: false, key: "api.invalidBody" };
+      if (depth + 1 > MAX_SUB_LINE_DEPTH) return { ok: false, rule: SUB_LINE_ERROR.tooDeep };
+      const nested = parseChildren(rawChildren, depth + 1, counter);
+      if (!nested.ok) return nested;
+      children = nested.nodes;
+    } else if (rawChildren !== undefined && rawChildren !== null && !Array.isArray(rawChildren)) {
+      return { ok: false, key: "api.invalidBody" };
+    }
+
+    nodes.push({
+      name: name.value,
+      amount: raw.amount,
+      children,
+      adoptRecurringId: (adopt as string | undefined) ?? null,
+      recurring,
+    });
+  }
+  return { ok: true, nodes };
+}
+
+/**
+ * A recurring plan can back at most one sub-line. No translatable key names
+ * this case yet, so it travels as a machine code the client can map.
+ */
+function alreadyLinked() {
+  return NextResponse.json(
+    { error: "That recurring plan is already linked to a sub-line", code: "recurring_already_linked" },
+    { status: 409 },
+  );
+}
+
+/** Depth-first walk over a prepared tree, parents before their children. */
+function walkChildren(nodes: PreparedChild[]): PreparedChild[] {
+  return nodes.flatMap((n) => [n, ...walkChildren(n.children)]);
+}
+
+// POST /api/budgets — create a budget allocation for a category, optionally
+// with its whole sub-line tree (and the recurring plans some lines stand for)
+// in the same transaction.
 export async function POST(request: NextRequest) {
   return withUser(async (userId) => {
     const body = await request.json();
@@ -910,6 +1088,23 @@ export async function POST(request: NextRequest) {
     if (budgetId !== undefined && typeof budgetId !== "string") {
       return NextResponse.json({ error: "budgetId must be a string" }, { status: 400 });
     }
+
+    // The whole tree is checked here, before a single row is written.
+    const parsed: ParseResult =
+      body.children === undefined || body.children === null
+        ? { ok: true, nodes: [] }
+        : parseChildren(body.children, 1, { n: 0 });
+    if (!parsed.ok) {
+      if (parsed.rule) {
+        return NextResponse.json(
+          { error: SUB_LINE_ERROR_MESSAGE[parsed.rule], code: parsed.rule },
+          { status: 400 },
+        );
+      }
+      return apiError(parsed.key!, 400, parsed.vars);
+    }
+    const tree = parsed.nodes;
+    const allNodes = walkChildren(tree);
 
     // The plan the allocation belongs to — main when the caller didn't say.
     const plan = await resolveBudgetPlan(userId, budgetId ?? null);
@@ -934,6 +1129,120 @@ export async function POST(request: NextRequest) {
       return apiError("api.categoryNotFound", 404);
     }
 
+    // Plans a line adopts: the owner's own, an expense, and on an account this
+    // plan scopes — the same scope GET applies to recurring rows.
+    const adoptIds = allNodes
+      .map((n) => n.adoptRecurringId)
+      .filter((v): v is string => !!v);
+    const adoptedById = new Map<string, { amount: number; frequency: string }>();
+    if (adoptIds.length > 0) {
+      if (new Set(adoptIds).size !== adoptIds.length) return alreadyLinked();
+      const rows = await db
+        .select({
+          id: recurringTransactions.id,
+          amount: recurringTransactions.amount,
+          frequency: recurringTransactions.frequency,
+        })
+        .from(recurringTransactions)
+        .where(
+          and(
+            inArray(recurringTransactions.id, adoptIds),
+            eq(recurringTransactions.userId, dataUserId),
+            eq(recurringTransactions.type, "expense"),
+            ...(plan
+              ? [
+                  plan.accountIds.length > 0
+                    ? inArray(recurringTransactions.accountId, plan.accountIds)
+                    : sql`1=0`,
+                ]
+              : []),
+          ),
+        );
+      if (rows.length !== adoptIds.length) {
+        return apiError("api.recurringNotFound", 404);
+      }
+      for (const r of rows) adoptedById.set(r.id, r);
+    }
+
+    // A created plan lands in the same owner space as the allocation, so the
+    // account it hangs off has to be writable by the caller AND owned there —
+    // same rule the import endpoint applies.
+    for (const accountId of new Set(
+      allNodes.filter((n) => n.recurring).map((n) => n.recurring!.accountId),
+    )) {
+      const access = await requireAccountAccess(userId, accountId, "write");
+      if (access.account.userId !== dataUserId) {
+        return apiError("api.accountNotFound", 404);
+      }
+    }
+
+    // Derived amounts, resolved before the write so the rows go in already
+    // rolled up: a container is its children's sum, a linked line is its plan
+    // expressed monthly, and only a plain leaf keeps what was submitted.
+    const amountOf = new Map<PreparedChild, number>();
+    const resolveAmount = (node: PreparedChild): number => {
+      const adopted = node.adoptRecurringId
+        ? adoptedById.get(node.adoptRecurringId)
+        : undefined;
+      const value =
+        node.children.length > 0
+          ? node.children.reduce((sum, c) => sum + resolveAmount(c), 0)
+          : node.recurring
+            ? toMonthly(node.recurring.amount, node.recurring.frequency)
+            : adopted
+              ? toMonthly(adopted.amount, adopted.frequency)
+              : node.amount;
+      amountOf.set(node, value);
+      return value;
+    };
+    tree.forEach(resolveAmount);
+
+    const now = new Date().toISOString();
+    async function insertTree(
+      tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+      nodes: PreparedChild[],
+      allocationId: string,
+      parentId: string | null,
+    ): Promise<void> {
+      for (const node of nodes) {
+        const id = crypto.randomUUID();
+        let recurringId = node.adoptRecurringId;
+        if (node.recurring) {
+          recurringId = crypto.randomUUID();
+          await tx.insert(recurringTransactions).values({
+            id: recurringId,
+            userId: dataUserId,
+            accountId: node.recurring.accountId,
+            description: node.name,
+            // Expenses are stored negative — same convention POST /api/recurring
+            // writes; a positive expense row would corrupt every total.
+            amount: -Math.abs(node.recurring.amount),
+            type: "expense",
+            categoryId,
+            frequency: node.recurring.frequency,
+            dayOfWeek: node.recurring.dayOfWeek,
+            dayOfMonth: node.recurring.dayOfMonth,
+            monthOfYear: node.recurring.monthOfYear,
+            startDate: node.recurring.startDate,
+            endDate: null,
+            isActive: true,
+            createdAt: now,
+          });
+        }
+        await tx.insert(budgetSubLines).values({
+          id,
+          userId: dataUserId,
+          allocationId,
+          parentId,
+          name: node.name,
+          amount: amountOf.get(node)!,
+          recurringTransactionId: recurringId,
+          createdAt: now,
+        });
+        await insertTree(tx, node.children, allocationId, id);
+      }
+    }
+
     // Check if an active allocation already exists (suggestions are kept separate)
     const existing = await db
       .select()
@@ -950,58 +1259,88 @@ export async function POST(request: NextRequest) {
     const auditDetails = {
       categoryId,
       amount,
+      // The count, not the tree: an audit row is a trail, not a copy of the payload.
+      ...(allNodes.length > 0 ? { children: allNodes.length } : {}),
       ...(dataUserId !== userId ? { accountOwnerId: dataUserId } : {}),
     };
 
-    if (existing.length > 0) {
-      // Update existing
-      const rootSubLineSum = await sumRootSubLines(existing[0].id, dataUserId);
-      if (amount < rootSubLineSum - MONEY_EPSILON) {
-        return NextResponse.json(
-          {
-            error: SUB_LINE_ERROR_MESSAGE[SUB_LINE_ERROR.belowChildren],
-            code: SUB_LINE_ERROR.belowChildren,
-          },
-          { status: 400 },
-        );
-      }
-      await db
-        .update(budgets)
-        .set({ amount, source: "manual" })
-        .where(and(eq(budgets.id, existing[0].id), eq(budgets.userId, dataUserId)));
-      logDataEvent({
-        userId,
-        action: "budget_update",
-        targetId: existing[0].id,
-        targetType: "budget",
-        details: auditDetails,
-      });
-      return NextResponse.json({ success: true, id: existing[0].id });
-    }
+    const existingId: string | null = existing.length > 0 ? existing[0].id : null;
+    const allocationId = existingId ?? crypto.randomUUID();
 
-    const id = crypto.randomUUID();
-    await db.insert(budgets).values({
-      id,
-      budgetId: plan?.id ?? null,
-      categoryId,
-      amount,
-      period: "monthly",
-      isActive: true,
-      status: "active",
-      source: "manual",
-      createdAt: new Date().toISOString(),
-      userId: dataUserId,
+    // Allocation, every descendant and every plan they create or adopt land in
+    // one transaction — a tree that fails halfway must leave nothing behind.
+    // Every check runs before the first insert, so an early return commits an
+    // empty transaction rather than a partial one.
+    const outcome = await db.transaction(async (tx) => {
+      if (tree.length > 0) {
+        const alreadyThere = await countSubLines(tx, allocationId, dataUserId);
+        if (alreadyThere + allNodes.length > MAX_SUB_LINES_PER_ALLOCATION) {
+          return SUB_LINE_ERROR.tooMany;
+        }
+        if (adoptIds.length > 0) {
+          const linked = await tx
+            .select({ id: budgetSubLines.id })
+            .from(budgetSubLines)
+            .where(
+              and(
+                inArray(budgetSubLines.recurringTransactionId, adoptIds),
+                eq(budgetSubLines.userId, dataUserId),
+              ),
+            )
+            .limit(1);
+          if (linked.length > 0) return "already_linked";
+        }
+      }
+
+      if (existingId) {
+        await tx
+          .update(budgets)
+          .set({ amount, source: "manual" })
+          .where(and(eq(budgets.id, existingId), eq(budgets.userId, dataUserId)));
+      } else {
+        await tx.insert(budgets).values({
+          id: allocationId,
+          budgetId: plan?.id ?? null,
+          categoryId,
+          amount,
+          period: "monthly",
+          isActive: true,
+          status: "active",
+          source: "manual",
+          createdAt: now,
+          userId: dataUserId,
+        });
+      }
+
+      if (tree.length > 0) {
+        await insertTree(tx, tree, allocationId, null);
+        // The allocation now adds up from its roots — including any that were
+        // already there when children were submitted for an existing category.
+        await resyncUpwards(tx, allocationId, dataUserId, null);
+      }
+      return null;
     });
+
+    if (outcome === "already_linked") return alreadyLinked();
+    if (outcome === SUB_LINE_ERROR.tooMany) {
+      return NextResponse.json(
+        { error: SUB_LINE_ERROR_MESSAGE[outcome], code: outcome },
+        { status: 400 },
+      );
+    }
 
     logDataEvent({
       userId,
-      action: "budget_create",
-      targetId: id,
+      action: existingId ? "budget_update" : "budget_create",
+      targetId: allocationId,
       targetType: "budget",
       details: auditDetails,
     });
 
-    return NextResponse.json({ success: true, id }, { status: 201 });
+    return NextResponse.json(
+      { success: true, id: allocationId },
+      { status: existingId ? 200 : 201 },
+    );
   }, "Failed to create/update allocation");
 }
 
@@ -1040,17 +1379,6 @@ export async function PUT(request: NextRequest) {
       );
     }
     const dataUserId = access.dataUserId;
-
-    const rootSubLineSum = await sumRootSubLines(id, dataUserId);
-    if (amount < rootSubLineSum - MONEY_EPSILON) {
-      return NextResponse.json(
-        {
-          error: SUB_LINE_ERROR_MESSAGE[SUB_LINE_ERROR.belowChildren],
-          code: SUB_LINE_ERROR.belowChildren,
-        },
-        { status: 400 },
-      );
-    }
 
     await db
       .update(budgets)

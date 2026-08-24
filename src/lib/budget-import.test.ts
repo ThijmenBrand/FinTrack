@@ -7,7 +7,6 @@ import {
   detectRootType,
   effectiveAmount,
   extractTree,
-  findOverAllocated,
   flattenTree,
   type ImportNode,
 } from "./budget-import";
@@ -190,36 +189,6 @@ describe("tree helpers", () => {
     ]);
   });
 
-  it("findOverAllocated flags rows their children outgrow", () => {
-    // The monthly-parent-over-yearly-children case from the Hypotheek sheet.
-    expect(findOverAllocated(flattenTree(tree))).toEqual([0]);
-    // A remainder is fine, and so is a header with no amount of its own.
-    expect(
-      findOverAllocated([
-        { amount: 1000, depth: 0 },
-        { amount: 940, depth: 1 },
-        { amount: null, depth: 1 },
-        { amount: 30, depth: 2 },
-        { amount: 30, depth: 2 },
-      ]),
-    ).toEqual([]);
-    // Deep rows are judged against their own parent, not the root.
-    expect(
-      findOverAllocated([
-        { amount: 1000, depth: 0 },
-        { amount: 100, depth: 1 },
-        { amount: 250, depth: 2 },
-      ]),
-    ).toEqual([1]);
-    // Cent-level formula dust is not an overspend.
-    expect(
-      findOverAllocated([
-        { amount: 100, depth: 0 },
-        { amount: 100.004, depth: 1 },
-      ]),
-    ).toEqual([]);
-  });
-
   it("columnLabel spells spreadsheet columns", () => {
     expect([0, 1, 25, 26, 27].map(columnLabel)).toEqual(["A", "B", "Z", "AA", "AB"]);
   });
@@ -310,6 +279,41 @@ describe("buildSubmitRoots", () => {
         { type: "income", unit: "monthly" },
       ]),
     ).toMatchObject([{ name: "Salaris" }]);
+  });
+
+  it("marks a variable root's leaves as plans, and only those", () => {
+    const marked = rows.map((r) => ({ ...r, recurring: true }));
+    const [wonen, salaris] = buildSubmitRoots(marked, [
+      { type: "variable", unit: "monthly" },
+      { type: "income", unit: "monthly" },
+    ]);
+    // "Huur" is the only leaf under a variable root; "Wonen" is the allocation
+    // itself and "Salaris" belongs to a root that already plans every leaf.
+    expect(wonen.children[0].recurring).toBe(true);
+    expect(wonen.recurring).toBeUndefined();
+    expect(salaris.recurring).toBeUndefined();
+
+    const [fixedRoot] = buildSubmitRoots(marked, [
+      { type: "fixed", unit: "monthly" },
+      { type: "skip", unit: "monthly" },
+    ]);
+    expect(fixedRoot.children[0].recurring).toBeUndefined();
+  });
+
+  it("drops the marker from a row that turned out to have children", () => {
+    // "Huur" was marked, then a row got indented underneath it: a container
+    // takes its amount from its children, so it cannot also be a plan.
+    const [root] = buildSubmitRoots(
+      [
+        rows[0],
+        { ...rows[1], recurring: true },
+        { name: "Rente", amount: 500, depth: 2, income: false, rootIndex: 0 },
+      ],
+      [{ type: "variable", unit: "monthly" }],
+    );
+    expect(root.children[0]).toMatchObject({ name: "Huur" });
+    expect(root.children[0].recurring).toBeUndefined();
+    expect(root.children[0].children[0].recurring).toBeUndefined();
   });
 
   it("promotes orphans when the root row itself was unticked", () => {

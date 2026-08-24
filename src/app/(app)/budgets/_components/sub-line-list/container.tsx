@@ -1,18 +1,23 @@
 "use client";
 
 import { Fragment } from "react";
-import type { BudgetSubLine } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
 import { MONEY_EPSILON } from "@/lib/validation";
 import { AddSubLine } from "./add-sub-line";
 import { Dot, Row } from "./row";
 import { SubLineRow } from "./sub-line-row";
 import { MAX_SUB_LINE_DEPTH, cents, type Ctx } from "./constants";
+import type { LineNode } from "./draft";
 
 /**
- * One container's rows: each line (plus its own children), the implicit
- * remainder, the over-allocation warning, and the add affordance. The
- * allocation itself is the root container; caps cascade down the tree.
+ * One container's rows: each line (plus its own children), whatever the
+ * container has left over, and the add affordance. The allocation itself is
+ * the root container.
+ *
+ * A container now equals its children, so the leftover and over-allocated
+ * rows below are only ever reached by an allocation written before roll-up
+ * existed — nothing re-sums those on read, deliberately, so the page list has
+ * to keep being able to explain the gap.
  */
 export function Container({
   ctx,
@@ -21,22 +26,28 @@ export function Container({
   parentId,
   parentName,
   depth,
+  parentRecurring = false,
 }: {
   ctx: Ctx;
-  lines: BudgetSubLine[];
+  lines: LineNode[];
   cap: number;
   parentId: string | null;
   parentName?: string;
   depth: number;
+  /** The container's line stands for a recurring plan — it can't be split. */
+  parentRecurring?: boolean;
 }) {
   const { t, formatCurrency } = useI18n();
   const total = lines.reduce((sum, l) => sum + l.amount, 0);
   const remainder = cap - total;
-  // Adding lives in the edit dialog only; the page list stays read-quiet.
-  // Every container offers it, including empty ones — gating nested adds on
-  // "already has lines" made levels 2 and 3 unreachable, since the only way to
-  // get a first child was a button that first needed a child to appear.
-  const showAdd = !ctx.readOnly && ctx.variant === "dialog";
+  // Adding lives in the dialogs only; the page list stays read-quiet. Every
+  // container offers it, including empty ones — gating nested adds on "already
+  // has lines" made levels 2 and 3 unreachable, since the only way to get a
+  // first child was a button that first needed a child to appear.
+  // A recurring line's amount comes from its plan, so it cannot also be the
+  // sum of children — the tree endpoint refuses that shape. Don't offer what
+  // can't be saved.
+  const showAdd = ctx.variant === "dialog" && !parentRecurring ? ctx.actions : null;
 
   return (
     <>
@@ -51,6 +62,7 @@ export function Container({
               parentId={line.id}
               parentName={line.name}
               depth={depth + 1}
+              parentRecurring={Boolean(line.recurring)}
             />
           )}
         </Fragment>
@@ -70,7 +82,6 @@ export function Container({
         </Row>
       )}
 
-      {/* Auto-generate can lower the cap below an existing split. */}
       {total > cap + MONEY_EPSILON && (
         <Row ctx={ctx} depth={depth}>
           <span className="text-xs text-amber-600 dark:text-amber-400">
@@ -84,6 +95,7 @@ export function Container({
       {showAdd && (
         <AddSubLine
           ctx={ctx}
+          actions={showAdd}
           parentId={parentId}
           parentName={parentName}
           depth={depth}

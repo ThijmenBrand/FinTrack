@@ -112,6 +112,11 @@ describe("POST /api/budgets/import", () => {
     expect(allocs).toHaveLength(1);
     expect(allocs[0]).toMatchObject({ name: "Groceries", amount: 400 });
 
+    // Nothing was marked, so no sub-line stands for a plan.
+    expect(
+      await rows(`SELECT id FROM budget_sub_lines WHERE recurring_transaction_id IS NOT NULL`),
+    ).toHaveLength(0);
+
     const plans = await rows(
       `SELECT description, amount, type, frequency, start_date, account_id, user_id, is_active,
               day_of_month, month_of_year
@@ -131,6 +136,140 @@ describe("POST /api/budgets/import", () => {
       day_of_month: null,
       month_of_year: null,
     });
+  });
+
+  it("turns a marked leaf of a variable root into its own linked plan", async () => {
+    const res = await postImport(
+      payload([
+        {
+          type: "variable",
+          // The root's own figure is ignored: the allocation adds up from its
+          // sub-lines, remainder and all.
+          name: "Subscriptions",
+          amount: 500,
+          children: [
+            { name: "Netflix", amount: 12.5, children: [], recurring: true },
+            { name: "Apps", amount: 20, children: [] },
+          ],
+        },
+      ]),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      created: 1,
+      subLinesCreated: 2,
+      fixedPlansCreated: 1,
+      skipped: [],
+    });
+
+    const [alloc] = await rows(`SELECT amount FROM budgets`);
+    expect(alloc.amount).toBe(32.5);
+
+    const plans = await rows(
+      `SELECT id, description, amount, type, frequency, category_id, account_id, start_date
+       FROM recurring_transactions`,
+    );
+    expect(plans).toHaveLength(1);
+    // Expenses are stored negative, on the payload's account and start date.
+    expect(plans[0]).toMatchObject({
+      description: "Netflix",
+      amount: -12.5,
+      type: "expense",
+      frequency: "monthly",
+      account_id: "acc-own",
+      start_date: "2026-08-01",
+    });
+    const [cat] = await rows(`SELECT id FROM categories WHERE name = 'Subscriptions'`);
+    expect(plans[0].category_id).toBe(cat.id);
+
+    const subLines = await rows(
+      `SELECT name, amount, recurring_transaction_id FROM budget_sub_lines ORDER BY name`,
+    );
+    expect(subLines).toMatchObject([
+      { name: "Apps", amount: 20, recurring_transaction_id: null },
+      { name: "Netflix", amount: 12.5, recurring_transaction_id: plans[0].id },
+    ]);
+  });
+
+  it("keeps a marked leaf ordinary when the account already has that plan", async () => {
+    const now = new Date().toISOString();
+    await testDb.client.execute({
+      sql: `INSERT INTO categories (id, user_id, name, kind, created_at) VALUES ('cat-sub', ?, 'Subscriptions', 'expense', ?)`,
+      args: [OWNER, now],
+    });
+    await testDb.client.execute({
+      sql: `INSERT INTO recurring_transactions
+              (id, user_id, account_id, description, amount, type, category_id, frequency, start_date, is_active, created_at)
+            VALUES ('r-net', ?, 'acc-own', 'Netflix', -12.5, 'expense', 'cat-sub', 'monthly', '2026-01-01', 1, ?)`,
+      args: [OWNER, now],
+    });
+
+    const res = await postImport(
+      payload([
+        {
+          type: "variable",
+          name: "Subscriptions",
+          amount: 12.5,
+          children: [{ name: "Netflix", amount: 12.5, children: [], recurring: true }],
+        },
+      ]),
+    );
+    expect(await res.json()).toMatchObject({ fixedPlansCreated: 0, subLinesCreated: 1 });
+    expect(await rows(`SELECT id FROM recurring_transactions`)).toHaveLength(1);
+    const [line] = await rows(`SELECT recurring_transaction_id FROM budget_sub_lines`);
+    expect(line.recurring_transaction_id).toBeNull();
+  });
+
+  it("rejects a marked node that has children, writing nothing", async () => {
+    const res = await postImport(
+      payload([
+        { type: "variable", name: "Groceries", amount: 400, children: [] },
+        {
+          type: "variable",
+          name: "Subscriptions",
+          amount: 30,
+          children: [
+            {
+              name: "Streaming",
+              amount: 30,
+              recurring: true,
+              children: [{ name: "Netflix", amount: 30, children: [] }],
+            },
+          ],
+        },
+      ]),
+    );
+    expect(res.status).toBe(400);
+    // The whole import is one transaction and every check runs before the
+    // first insert — the healthy root ahead of the bad one is not committed.
+    expect(await rows(`SELECT id FROM budgets`)).toHaveLength(0);
+    expect(await rows(`SELECT id FROM categories`)).toHaveLength(0);
+    expect(await rows(`SELECT id FROM recurring_transactions`)).toHaveLength(0);
+  });
+
+  it("rejects a marker on a root, or under a root that already plans its leaves", async () => {
+    const onRoot = await postImport(
+      payload([
+        { type: "variable", name: "Groceries", amount: 400, recurring: true, children: [] },
+      ]),
+    );
+    expect(onRoot.status).toBe(400);
+
+    for (const type of ["fixed", "income"] as const) {
+      const res = await postImport(
+        payload([
+          {
+            type,
+            frequency: "monthly",
+            name: "Housing",
+            amount: null,
+            children: [{ name: "Rent", amount: 1200, children: [], recurring: true }],
+          },
+        ]),
+      );
+      expect(res.status).toBe(400);
+    }
+    expect(await rows(`SELECT id FROM recurring_transactions`)).toHaveLength(0);
   });
 
   it("creates income categories with kind=income", async () => {

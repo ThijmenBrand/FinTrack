@@ -1,21 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { apiError } from "@/lib/api-errors";
 import { db } from "@/db";
-import { budgets, budgetSubLines } from "@/db/schema";
-import { eq, and, inArray } from "drizzle-orm";
+import { budgets, budgetSubLines, recurringTransactions } from "@/db/schema";
+import { eq, and, inArray, ne, sql } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
-import { resolveBudgetRowAccess } from "@/lib/budget-plan";
-import { isFiniteNumber, validateName, MONEY_EPSILON } from "@/lib/validation";
+import { resolveBudgetPlan, resolveBudgetRowAccess } from "@/lib/budget-plan";
+import { isFiniteNumber, validateName } from "@/lib/validation";
+import { toMonthly } from "@/lib/recurring";
 import {
   MAX_SUB_LINE_DEPTH,
   MAX_SUB_LINES_PER_ALLOCATION,
   SUB_LINE_ERROR,
   SUB_LINE_ERROR_MESSAGE,
   countSubLines,
+  resyncUpwards,
   subLineDepth,
-  sumChildren,
-  sumSiblings,
 } from "@/lib/budget-sub-lines";
 
 /** A rule violation, as both a translatable code and an English fallback. */
@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
     }
 
     const [allocation] = await db
-      .select({ id: budgets.id, amount: budgets.amount, userId: budgets.userId, budgetId: budgets.budgetId })
+      .select({ id: budgets.id, userId: budgets.userId, budgetId: budgets.budgetId })
       .from(budgets)
       .where(eq(budgets.id, allocationId))
       .limit(1);
@@ -66,40 +66,39 @@ export async function POST(request: NextRequest) {
     }
     const dataUserId = access.dataUserId;
 
-    // Cap check and insert share one transaction: read-then-write across two
-    // connections lets two concurrent creates both see room that only one of
-    // them can actually have.
+    // Cap check, insert and roll-up share one transaction: read-then-write
+    // across two connections lets two concurrent creates both see room that
+    // only one of them can actually have, and lets one overwrite the other's
+    // re-summed parent.
     const id = crypto.randomUUID();
     const outcome = await db.transaction(async (tx) => {
       if ((await countSubLines(tx, allocationId, dataUserId)) >= MAX_SUB_LINES_PER_ALLOCATION) {
         return SUB_LINE_ERROR.tooMany;
       }
 
-      let cap = allocation.amount;
       let resolvedParentId: string | null = null;
 
       if (parentId) {
         const [parent] = await tx
           .select({
             id: budgetSubLines.id,
-            amount: budgetSubLines.amount,
             allocationId: budgetSubLines.allocationId,
+            recurringTransactionId: budgetSubLines.recurringTransactionId,
           })
           .from(budgetSubLines)
           .where(and(eq(budgetSubLines.id, parentId), eq(budgetSubLines.userId, dataUserId)))
           .limit(1);
         if (!parent || parent.allocationId !== allocationId) return "parent_not_found";
+        // Same rule POST /api/budgets applies to a submitted tree: a line's
+        // money comes from its plan or from its children, never both.
+        if (parent.recurringTransactionId) return "parent_recurring";
 
         if ((await subLineDepth(tx, parent.id, dataUserId)) + 1 > MAX_SUB_LINE_DEPTH) {
           return SUB_LINE_ERROR.tooDeep;
         }
 
-        cap = parent.amount;
         resolvedParentId = parent.id;
       }
-
-      const siblingSum = await sumSiblings(tx, allocationId, dataUserId, resolvedParentId);
-      if (siblingSum + amount > cap + MONEY_EPSILON) return SUB_LINE_ERROR.exceedsParent;
 
       await tx.insert(budgetSubLines).values({
         id,
@@ -110,11 +109,21 @@ export async function POST(request: NextRequest) {
         amount,
         createdAt: new Date().toISOString(),
       });
+      await resyncUpwards(tx, allocationId, dataUserId, resolvedParentId);
       return { parentId: resolvedParentId };
     });
 
     if (outcome === "parent_not_found") {
       return apiError("api.parentSubLineNotFound", 404);
+    }
+    if (outcome === "parent_recurring") {
+      return NextResponse.json(
+        {
+          error: "A recurring sub-line's amount comes from its plan; it can't be broken down",
+          code: "sub_line_parent_recurring",
+        },
+        { status: 400 },
+      );
     }
     if (typeof outcome === "string") return ruleError(outcome);
 
@@ -142,17 +151,22 @@ export async function POST(request: NextRequest) {
   }, "Failed to create sub-line");
 }
 
-// PUT /api/budgets/sub-lines — update a sub-line's name and/or amount
+// PUT /api/budgets/sub-lines — update a sub-line's name, amount, and/or its
+// link to a recurring plan
 export async function PUT(request: NextRequest) {
   return withUser(async (userId) => {
     const body = await request.json();
-    const { id, name, amount } = body;
+    const { id, name, amount, recurringId } = body;
 
     if (!id || typeof id !== "string") {
       return NextResponse.json({ error: "Sub-line ID is required" }, { status: 400 });
     }
+    // `null` unlinks; a string links; absent leaves the link untouched.
+    if (recurringId !== undefined && recurringId !== null && typeof recurringId !== "string") {
+      return NextResponse.json({ error: "Invalid recurringId" }, { status: 400 });
+    }
 
-    const updates: { name?: string; amount?: number } = {};
+    const updates: { name?: string; amount?: number; recurringTransactionId?: string | null } = {};
 
     if (name !== undefined) {
       const validatedName = validateName(name);
@@ -193,8 +207,48 @@ export async function PUT(request: NextRequest) {
     }
     const dataUserId = access.dataUserId;
 
-    // Same reasoning as POST: the caps are only meaningful if the row they
-    // describe can't move between the check and the write.
+    // Same rules as `adoptRecurringId` in POST /api/budgets: the owner's own
+    // plan, an expense, on an account this allocation's plan scopes. Resolved
+    // before the transaction, same as the plan lookup there.
+    if (typeof recurringId === "string") {
+      const plan = await resolveBudgetPlan(userId, allocation.budgetId);
+      const [linkTarget] = await db
+        .select({
+          amount: recurringTransactions.amount,
+          frequency: recurringTransactions.frequency,
+        })
+        .from(recurringTransactions)
+        .where(
+          and(
+            eq(recurringTransactions.id, recurringId),
+            eq(recurringTransactions.userId, dataUserId),
+            eq(recurringTransactions.type, "expense"),
+            ...(plan
+              ? [
+                  plan.accountIds.length > 0
+                    ? inArray(recurringTransactions.accountId, plan.accountIds)
+                    : sql`1=0`,
+                ]
+              : []),
+          ),
+        )
+        .limit(1);
+      if (!linkTarget) {
+        return apiError("api.recurringNotFound", 404);
+      }
+      // Linking takes the line's amount, same as an adopted line in POST.
+      updates.recurringTransactionId = recurringId;
+      updates.amount = toMonthly(linkTarget.amount, linkTarget.frequency);
+    } else if (recurringId === null) {
+      // Unlinking leaves the amount exactly where it is — the line just goes
+      // back to being an ordinary planning line.
+      updates.recurringTransactionId = null;
+    }
+
+    // Same reasoning as POST: the row, the write and the roll-up it triggers
+    // have to see one snapshot. `updates` only carries what the caller
+    // actually sent, so an edit that doesn't mention `recurringId` leaves an
+    // existing link alone.
     const outcome = await db.transaction(async (tx) => {
       const [existing] = await tx
         .select()
@@ -203,49 +257,35 @@ export async function PUT(request: NextRequest) {
         .limit(1);
       if (!existing) return "not_found";
 
-      if (updates.amount !== undefined) {
-        let cap: number;
-        if (existing.parentId) {
-          const [parent] = await tx
-            .select({ amount: budgetSubLines.amount })
-            .from(budgetSubLines)
-            .where(
-              and(
-                eq(budgetSubLines.id, existing.parentId),
-                eq(budgetSubLines.userId, dataUserId),
-              ),
-            )
-            .limit(1);
-          cap = parent?.amount ?? 0;
-        } else {
-          const [allocation] = await tx
-            .select({ amount: budgets.amount })
-            .from(budgets)
-            .where(
-              and(
-                eq(budgets.id, existing.allocationId),
-                eq(budgets.userId, dataUserId),
-              ),
-            )
-            .limit(1);
-          cap = allocation?.amount ?? 0;
-        }
+      if (typeof recurringId === "string") {
+        // A plan can back at most one sub-line — enforced here rather than a
+        // partial unique index (see the sub-lines migration notes).
+        const [linked] = await tx
+          .select({ id: budgetSubLines.id })
+          .from(budgetSubLines)
+          .where(
+            and(
+              eq(budgetSubLines.recurringTransactionId, recurringId),
+              eq(budgetSubLines.userId, dataUserId),
+              ne(budgetSubLines.id, id),
+            ),
+          )
+          .limit(1);
+        if (linked) return "already_linked";
 
-        const siblingSum = await sumSiblings(
-          tx,
-          existing.allocationId,
-          dataUserId,
-          existing.parentId,
-          existing.id,
-        );
-        if (siblingSum + updates.amount > cap + MONEY_EPSILON) {
-          return SUB_LINE_ERROR.exceedsParent;
-        }
-
-        const childrenSum = await sumChildren(tx, existing.id, dataUserId);
-        if (updates.amount < childrenSum - MONEY_EPSILON) {
-          return SUB_LINE_ERROR.belowChildren;
-        }
+        // The other half of the same rule: a container already gets its amount
+        // from its children, so it can't take a plan's on top.
+        const [child] = await tx
+          .select({ id: budgetSubLines.id })
+          .from(budgetSubLines)
+          .where(
+            and(
+              eq(budgetSubLines.parentId, id),
+              eq(budgetSubLines.userId, dataUserId),
+            ),
+          )
+          .limit(1);
+        if (child) return "has_children";
       }
 
       if (Object.keys(updates).length > 0) {
@@ -254,13 +294,36 @@ export async function PUT(request: NextRequest) {
           .set(updates)
           .where(and(eq(budgetSubLines.id, id), eq(budgetSubLines.userId, dataUserId)));
       }
+      if (updates.amount !== undefined) {
+        // From the row itself, not its container: a leaf has no children so it
+        // resolves to the same walk, but a row that DOES have children snaps
+        // straight back onto their sum. The client makes such a field
+        // read-only; this is what keeps a direct API call honest too.
+        await resyncUpwards(tx, existing.allocationId, dataUserId, existing.id);
+      }
       return "ok";
     });
 
     if (outcome === "not_found") {
       return apiError("api.subLineNotFound", 404);
     }
-    if (outcome !== "ok") return ruleError(outcome);
+    if (outcome === "has_children") {
+      return NextResponse.json(
+        {
+          error: "A sub-line that adds up from its children can't also stand for a recurring plan",
+          code: "sub_line_has_children",
+        },
+        { status: 400 },
+      );
+    }
+    if (outcome === "already_linked") {
+      // No translatable key for this yet — same machine code POST /api/budgets
+      // uses for the equivalent conflict, so the client maps it once.
+      return NextResponse.json(
+        { error: "That recurring plan is already linked to a sub-line", code: "recurring_already_linked" },
+        { status: 409 },
+      );
+    }
 
     if (Object.keys(updates).length > 0) {
       logDataEvent({
@@ -320,7 +383,11 @@ export async function DELETE(request: NextRequest) {
 
     const found = await db.transaction(async (tx) => {
       const [existing] = await tx
-        .select({ id: budgetSubLines.id })
+        .select({
+          id: budgetSubLines.id,
+          allocationId: budgetSubLines.allocationId,
+          parentId: budgetSubLines.parentId,
+        })
         .from(budgetSubLines)
         .where(and(eq(budgetSubLines.id, id), eq(budgetSubLines.userId, dataUserId)))
         .limit(1);
@@ -346,12 +413,15 @@ export async function DELETE(request: NextRequest) {
       }
 
       // One statement for the whole subtree — nothing can observe a state
-      // where a child outlived its parent.
+      // where a child outlived its parent. The linked recurring plans, if any,
+      // survive: only the breakdown lines go.
       await tx
         .delete(budgetSubLines)
         .where(
           and(inArray(budgetSubLines.id, doomed), eq(budgetSubLines.userId, dataUserId)),
         );
+      // The row's own subtree left with it, so the change is in its container.
+      await resyncUpwards(tx, existing.allocationId, dataUserId, existing.parentId);
       return true;
     });
 

@@ -146,6 +146,29 @@ export function toMonthly(amount: number, frequency: string): number {
 }
 
 /**
+ * Inverse of `toMonthly`. A sub-line stores its money monthly; a linked
+ * recurring row stores it per occurrence — linking the two means converting
+ * both ways. `toMonthly` folds sign via `Math.abs`, so this returns a
+ * positive per-occurrence figure too; the caller owns the sign convention of
+ * the row it writes.
+ */
+export function fromMonthly(monthly: number, frequency: string): number {
+  const value = Math.abs(monthly);
+  switch (frequency) {
+    case "weekly":
+      return value / 4.33;
+    case "biweekly":
+      return value / 2.17;
+    case "monthly":
+      return value;
+    case "yearly":
+      return value * 12;
+    default:
+      return value;
+  }
+}
+
+/**
  * Calculate the next occurrence date for a recurring transaction.
  */
 export function getNextOccurrence(

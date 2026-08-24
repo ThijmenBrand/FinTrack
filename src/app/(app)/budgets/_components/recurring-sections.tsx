@@ -72,6 +72,7 @@ export function useRecurringPlans({
   yearScope,
   accounts,
   categories,
+  linkedRecurringIds,
 }: {
   /** Accounts this plan owns; null when no plan scopes the page (= all). */
   planAccountIds: string[] | null;
@@ -82,6 +83,12 @@ export function useRecurringPlans({
   yearScope: boolean;
   accounts: Account[];
   categories: CategoryWithDetails[];
+  /**
+   * Plans already absorbed by a sub-line row (see `linkedRecurringIds` in
+   * `./budget-row`). Dropped before grouping so a linked plan never gets a
+   * standalone row of its own — the category's other plans are unaffected.
+   */
+  linkedRecurringIds: Set<string>;
 }) {
   const { t } = useI18n();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -108,6 +115,9 @@ export function useRecurringPlans({
     const groups = new Map<string, { fc?: FixedCost; items: RecurringTx[] }>();
     const incomePlans = new Map<string, RecurringTx[]>();
     for (const item of scoped) {
+      // Absorbed by its sub-line row already — showing it again here would be
+      // the same bill counted as two rows.
+      if (linkedRecurringIds.has(item.id)) continue;
       const key = item.categoryId ?? UNCATEGORIZED;
       if (item.type === "income") {
         const plans = incomePlans.get(key) ?? [];
@@ -164,7 +174,7 @@ export function useRecurringPlans({
       expenseGroups: ordered,
       showAccount: new Set(scoped.map((i) => i.accountId)).size > 1,
     };
-  }, [allItems, planAccountIds, fixedCosts, incomeLines, yearScope]);
+  }, [allItems, planAccountIds, fixedCosts, incomeLines, yearScope, linkedRecurringIds]);
 
   const handleSubmit = async (payload: Record<string, unknown>) => {
     await (editing
@@ -248,20 +258,24 @@ export function PlanRows({
  *
  * The same expandable row as an allocation — a fixed-cost category is spent
  * against like any other, so it owes the same facts and the same history.
- * Editing stays on the plan rows underneath: the category has no budget line
- * of its own to edit or delete.
+ * There is nothing to delete (the category has no budget line yet), but the
+ * pencil opens one seeded with this category, so a category can grow a cap and
+ * sub-lines without being retyped somewhere else.
  */
 export function FixedCostRow({
   group,
   rowProps,
   split,
   onHistory,
+  onEdit,
 }: {
   group: FixedCostGroup;
   rowProps: PlanRowProps;
   /** Who carries this bill on a shared budget; see BudgetRow. */
   split?: SplitShare[];
   onHistory: (target: HistoryTarget) => void;
+  /** Opens the allocation dialog on this category. Absent = read-only period. */
+  onEdit?: (group: FixedCostGroup) => void;
 }) {
   const { t, plural, formatCurrency } = useI18n();
   const first = group.items[0];
@@ -313,8 +327,9 @@ export function FixedCostRow({
             </span>
           </>
         }
-        readOnly
-        // Uncategorized plans have no category to look history up by.
+        // Uncategorized plans have no category to budget or look history up by.
+        readOnly={!onEdit || group.categoryId === UNCATEGORIZED}
+        onEdit={() => onEdit?.(group)}
         onHistory={
           group.categoryId === UNCATEGORIZED
             ? undefined

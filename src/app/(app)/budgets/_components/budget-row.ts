@@ -1,3 +1,5 @@
+import type { BudgetSubLine } from "@/types/api";
+
 // One shape for every line of the plan: a disclosure chevron, then the category
 // and its progress bar taking whatever width is going, then a fixed-width column
 // on the right carrying the budgeted amount over how the period is going.
@@ -166,4 +168,30 @@ export function byUrgency(
     Number(b.status === "exceeded") - Number(a.status === "exceeded") ||
     b.percentage - a.percentage
   );
+}
+
+/**
+ * Every recurring plan id already absorbed by a sub-line, at any depth, across
+ * every allocation on screen. The sub-line row shows the plan's frequency and
+ * next-due date itself, so `useRecurringPlans` must drop these ids from the
+ * standalone recurring rows it groups per category — otherwise the same bill
+ * renders twice: once as a sub-line, once as its own row underneath.
+ *
+ * Keyed by plan id rather than by category: a category's allocation can carry
+ * one linked sub-line and two ordinary ones, and only the linked plan's row
+ * should disappear — the rest of that category's plans stay exactly as
+ * visible as before.
+ */
+export function linkedRecurringIds(
+  allocations: { subLines: BudgetSubLine[] }[],
+): Set<string> {
+  const ids = new Set<string>();
+  const walk = (lines: BudgetSubLine[]) => {
+    for (const line of lines) {
+      if (line.recurring) ids.add(line.recurring.id);
+      if (line.children.length > 0) walk(line.children);
+    }
+  };
+  for (const alloc of allocations) walk(alloc.subLines);
+  return ids;
 }

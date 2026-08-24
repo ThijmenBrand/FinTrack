@@ -3,9 +3,9 @@
  * sub-lines endpoint and the allocation endpoint check them, and the client
  * mirrors the depth cap when it renders.
  */
-import { and, eq, isNull, ne, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import type { db } from "@/db";
-import { budgetSubLines } from "@/db/schema";
+import { budgets, budgetSubLines } from "@/db/schema";
 
 /** Deepest tree the API accepts; level 1 hangs directly off the allocation. */
 export const MAX_SUB_LINE_DEPTH = 3;
@@ -21,16 +21,12 @@ export const MAX_SUB_LINES_PER_ALLOCATION = 100;
  * the endpoint's English back at a Dutch user.
  */
 export const SUB_LINE_ERROR = {
-  exceedsParent: "sub_line_exceeds_parent",
-  belowChildren: "sub_line_below_children",
   tooDeep: "sub_line_too_deep",
   tooMany: "sub_line_too_many",
 } as const;
 
 /** English fallbacks, paired with the codes above for non-UI callers. */
 export const SUB_LINE_ERROR_MESSAGE: Record<string, string> = {
-  [SUB_LINE_ERROR.exceedsParent]: "Sub-lines cannot exceed their parent amount",
-  [SUB_LINE_ERROR.belowChildren]: "Amount is below the total of its sub-lines",
   [SUB_LINE_ERROR.tooDeep]: `Sub-lines can only nest ${MAX_SUB_LINE_DEPTH} levels deep`,
   [SUB_LINE_ERROR.tooMany]: `An allocation can hold at most ${MAX_SUB_LINES_PER_ALLOCATION} sub-lines`,
 };
@@ -41,20 +37,26 @@ export const SUB_LINE_ERROR_MESSAGE: Record<string, string> = {
  */
 type Reader = Pick<typeof db, "select">;
 
+/** Reads and writes, so only a transaction handle should be handed in. */
+type Writer = Pick<typeof db, "select" | "update">;
+
 /**
- * Total of everything sharing a container: `parentId` null means the
- * allocation's own root row set. `excludeId` leaves the row being updated out,
- * so its new amount can be tested against its siblings alone.
+ * How much one container holds and how many rows it holds it in — both in a
+ * single statement, because the roll-up needs the count to tell "children sum
+ * to zero" from "no children at all".
+ * `parentId` null means the allocation's own root row set.
  */
-export async function sumSiblings(
+async function containerTotal(
   reader: Reader,
   allocationId: string,
   userId: string,
   parentId: string | null,
-  excludeId?: string,
-): Promise<number> {
+): Promise<{ total: number; count: number }> {
   const [row] = await reader
-    .select({ total: sql<number>`coalesce(sum(${budgetSubLines.amount}), 0)` })
+    .select({
+      total: sql<number>`coalesce(sum(${budgetSubLines.amount}), 0)`,
+      count: sql<number>`count(*)`,
+    })
     .from(budgetSubLines)
     .where(
       and(
@@ -63,23 +65,54 @@ export async function sumSiblings(
         parentId === null
           ? isNull(budgetSubLines.parentId)
           : eq(budgetSubLines.parentId, parentId),
-        ...(excludeId ? [ne(budgetSubLines.id, excludeId)] : []),
       ),
     );
-  return row?.total ?? 0;
+  return { total: row?.total ?? 0, count: Number(row?.count ?? 0) };
 }
 
-/** Total of one sub-line's direct children — the floor it cannot shrink below. */
-export async function sumChildren(
-  reader: Reader,
-  id: string,
+/**
+ * Push a change up the tree: re-sum the line's parent chain, then the
+ * allocation itself from its root lines. No-op above a container that has no
+ * children left — the last child's removal leaves the parent's amount where it
+ * was rather than zeroing a budget.
+ *
+ * Runs inside the caller's transaction and never opens its own: reading a sum
+ * and writing the parent it feeds must see one snapshot.
+ */
+export async function resyncUpwards(
+  tx: Writer,
+  allocationId: string,
   userId: string,
-): Promise<number> {
-  const [row] = await reader
-    .select({ total: sql<number>`coalesce(sum(${budgetSubLines.amount}), 0)` })
-    .from(budgetSubLines)
-    .where(and(eq(budgetSubLines.parentId, id), eq(budgetSubLines.userId, userId)));
-  return row?.total ?? 0;
+  fromParentId: string | null,
+): Promise<void> {
+  let cursor: string | null = fromParentId;
+  // Bounded like subLineDepth: a parentId that shouldn't be reachable can't
+  // spin this forever, it just stops climbing.
+  for (let level = 0; cursor !== null && level < MAX_SUB_LINE_DEPTH; level++) {
+    const rows: { parentId: string | null }[] = await tx
+      .select({ parentId: budgetSubLines.parentId })
+      .from(budgetSubLines)
+      .where(and(eq(budgetSubLines.id, cursor), eq(budgetSubLines.userId, userId)))
+      .limit(1);
+    if (rows.length === 0) break;
+
+    const { total, count } = await containerTotal(tx, allocationId, userId, cursor);
+    if (count > 0) {
+      await tx
+        .update(budgetSubLines)
+        .set({ amount: total })
+        .where(and(eq(budgetSubLines.id, cursor), eq(budgetSubLines.userId, userId)));
+    }
+    cursor = rows[0].parentId;
+  }
+
+  const roots = await containerTotal(tx, allocationId, userId, null);
+  if (roots.count > 0) {
+    await tx
+      .update(budgets)
+      .set({ amount: roots.total })
+      .where(and(eq(budgets.id, allocationId), eq(budgets.userId, userId)));
+  }
 }
 
 /** How many rows the allocation's whole tree already holds. */

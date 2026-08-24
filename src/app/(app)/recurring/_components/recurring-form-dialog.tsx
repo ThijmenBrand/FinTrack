@@ -32,10 +32,20 @@ function weekdayNames(intlLocale: string): string[] {
   return Array.from({ length: 7 }, (_, i) => fmt.format(new Date(2024, 0, 7 + i)));
 }
 
+/**
+ * Seeds the create form's fields without switching the dialog into edit mode —
+ * for a caller that already knows the answer (a sub-line's name and amount)
+ * but is creating a brand new plan, not editing one. `id` keys the remount the
+ * same way `editing.id` does, so moving to another target re-derives fields.
+ */
+export type RecurringPrefill = Pick<RecurringTx, "id" | "accountId" | "description" | "amount"> &
+  Partial<Pick<RecurringTx, "categoryId" | "frequency" | "dayOfWeek" | "dayOfMonth" | "startDate">>;
+
 export function RecurringFormDialog({
   open,
   onOpenChange,
   editing,
+  prefill,
   accounts,
   categories,
   onSubmit,
@@ -44,6 +54,8 @@ export function RecurringFormDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   editing: RecurringTx | null;
+  /** Ignored when `editing` is set. Seeds a create; never renders as "Edit". */
+  prefill?: RecurringPrefill | null;
   accounts: Account[];
   categories: CategoryWithDetails[];
   onSubmit: (payload: Record<string, unknown>) => Promise<void>;
@@ -51,6 +63,7 @@ export function RecurringFormDialog({
   trigger?: ReactNode;
 }) {
   const { t } = useI18n();
+  const seed = editing ?? prefill ?? null;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger asChild>
@@ -62,11 +75,12 @@ export function RecurringFormDialog({
         )}
       </DialogTrigger>
       <DialogContent className="sm:max-w-lg">
-        {/* Remount on open/edit-target change so fields re-derive from `editing` without an effect. */}
+        {/* Remount on open/target change so fields re-derive from the seed without an effect. */}
         {open && (
           <RecurringFormBody
-            key={editing?.id ?? "new"}
+            key={seed?.id ?? "new"}
             editing={editing}
+            seed={seed}
             accounts={accounts}
             categories={categories}
             onSubmit={onSubmit}
@@ -80,34 +94,36 @@ export function RecurringFormDialog({
 
 function RecurringFormBody({
   editing,
+  seed,
   accounts,
   categories,
   onSubmit,
   onCancel,
 }: {
   editing: RecurringTx | null;
+  seed: RecurringTx | RecurringPrefill | null;
   accounts: Account[];
   categories: CategoryWithDetails[];
   onSubmit: (payload: Record<string, unknown>) => Promise<void>;
   onCancel: () => void;
 }) {
   const { t, intlLocale } = useI18n();
-  const [fAccountId, setFAccountId] = useState(editing?.accountId ?? "");
-  const [fDescription, setFDescription] = useState(editing?.description ?? "");
+  const [fAccountId, setFAccountId] = useState(seed?.accountId ?? "");
+  const [fDescription, setFDescription] = useState(seed?.description ?? "");
   const [fAmount, setFAmount] = useState(
-    editing ? String(Math.abs(editing.amount)) : ""
+    seed ? String(Math.abs(seed.amount)) : ""
   );
   const [fType, setFType] = useState<"income" | "expense">(
     (editing?.type as "income" | "expense") ?? "expense"
   );
-  const [fCategoryId, setFCategoryId] = useState(editing?.categoryId ?? "");
-  const [fFrequency, setFFrequency] = useState(editing?.frequency ?? "monthly");
-  const [fDayOfWeek, setFDayOfWeek] = useState(String(editing?.dayOfWeek ?? 1));
+  const [fCategoryId, setFCategoryId] = useState(seed?.categoryId ?? "");
+  const [fFrequency, setFFrequency] = useState(seed?.frequency ?? "monthly");
+  const [fDayOfWeek, setFDayOfWeek] = useState(String(seed?.dayOfWeek ?? 1));
   const [fDayOfMonth, setFDayOfMonth] = useState(
-    String(editing?.dayOfMonth ?? 1)
+    String(seed?.dayOfMonth ?? 1)
   );
   const [fStartDate, setFStartDate] = useState(
-    editing?.startDate ?? new Date().toISOString().slice(0, 10)
+    seed?.startDate ?? new Date().toISOString().slice(0, 10)
   );
   const [submitting, setSubmitting] = useState(false);
 

@@ -41,10 +41,41 @@ export function useBudgets(opts?: {
   });
 }
 
+/**
+ * A sub-line draft in the add/edit modal, as POST /api/budgets accepts it. A
+ * node with children derives its amount from them; a node with `recurring` or
+ * `adoptRecurringId` derives it from that plan — both server-side, so what is
+ * sent for those is ignored.
+ */
+export interface BudgetChildInput {
+  name: string;
+  amount: number;
+  children?: BudgetChildInput[];
+  /** Link an existing plan the user chose to adopt. */
+  adoptRecurringId?: string;
+  /** Or create one, in the shape POST /api/recurring validates. */
+  recurring?: {
+    accountId: string;
+    /** Per occurrence, positive; the server applies the expense sign. */
+    amount: number;
+    frequency: "weekly" | "biweekly" | "monthly" | "yearly";
+    dayOfWeek?: number | null;
+    dayOfMonth?: number | null;
+    monthOfYear?: number | null;
+    startDate: string;
+  };
+}
+
 export function useCreateBudget() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { categoryId: string; amount: number; budgetId?: string }) =>
+    mutationFn: (payload: {
+      categoryId: string;
+      amount: number;
+      budgetId?: string;
+      /** Ignored for the allocation's own amount when non-empty: it becomes their sum. */
+      children?: BudgetChildInput[];
+    }) =>
       apiFetch("/api/budgets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["budgets"] }); },
   });
@@ -167,7 +198,13 @@ export function useCreateSubLine() {
 export function useUpdateSubLine() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { id: string; name?: string; amount?: number }) =>
+    mutationFn: (payload: {
+      id: string;
+      name?: string;
+      amount?: number;
+      /** Link to an existing recurring plan, or `null` to unlink. Absent leaves the link untouched. */
+      recurringId?: string | null;
+    }) =>
       apiFetch("/api/budgets/sub-lines", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["budgets"] }); },
   });
