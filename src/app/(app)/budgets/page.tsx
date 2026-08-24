@@ -1,7 +1,8 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, Suspense, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   useBudgets,
   useCreateBudget,
@@ -82,6 +83,14 @@ const OLDEST_MONTH_OFFSET = 11;
 const OLDEST_YEAR_OFFSET = 3;
 
 export default function BudgetsPage() {
+  return (
+    <Suspense>
+      <BudgetsPageInner />
+    </Suspense>
+  );
+}
+
+function BudgetsPageInner() {
   const i18n = useI18n();
   const { t, plural, formatCurrency, formatDate, intlLocale } = i18n;
   const [monthOffset, setMonthOffset] = useState(0);
@@ -92,10 +101,19 @@ export default function BudgetsPage() {
   // just the allocation list and the period picker.
   const simple = prefs?.simpleMode ?? false;
 
-  // Which plan the page shows. Null until the user picks one → main plan.
+  // Which plan the page shows, kept in the URL so a refresh (or a shared link)
+  // lands on the same budget. Absent or unknown id → main plan.
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { data: plansData } = useBudgetPlans();
   const plans = plansData?.plans ?? [];
-  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
+  const selectedPlanId = searchParams.get("plan");
+  // null clears the param (plan deleted) so the fallback picks the main plan.
+  const setSelectedPlanId = (planId: string | null) =>
+    router.replace(
+      planId ? `/budgets?plan=${encodeURIComponent(planId)}` : "/budgets",
+      { scroll: false },
+    );
   const activePlan =
     plans.find((p) => p.id === selectedPlanId) ??
     plans.find((p) => p.isMain) ??
