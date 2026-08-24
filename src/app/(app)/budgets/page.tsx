@@ -108,8 +108,12 @@ function BudgetsPageInner() {
   const { data: plansData } = useBudgetPlans();
   const plans = plansData?.plans ?? [];
   const selectedPlanId = searchParams.get("plan");
-  const setSelectedPlanId = (planId: string) =>
-    router.replace(`/budgets?plan=${planId}`, { scroll: false });
+  // null clears the param (plan deleted) so the fallback picks the main plan.
+  const setSelectedPlanId = (planId: string | null) =>
+    router.replace(
+      planId ? `/budgets?plan=${encodeURIComponent(planId)}` : "/budgets",
+      { scroll: false },
+    );
   const activePlan =
     plans.find((p) => p.id === selectedPlanId) ??
     plans.find((p) => p.isMain) ??
