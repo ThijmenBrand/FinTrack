@@ -286,6 +286,32 @@ describe("DELETE /api/categories", () => {
   });
 });
 
+describe("client-supplied id", () => {
+  const post = (body: unknown) =>
+    import("./route").then(({ POST }) =>
+      POST(
+        new Request("http://x/api/categories", {
+          method: "POST",
+          body: JSON.stringify(body),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        }) as any,
+      ),
+    );
+
+  it("keeps a client uuid, so the picker can select before the POST lands", async () => {
+    const id = "11111111-2222-4333-8444-555555555555";
+    const res = await post({ id, name: "Groceries" });
+    expect(res.status).toBe(201);
+    expect((await res.json()).id).toBe(id);
+  });
+
+  it("generates an id when the client sends a non-uuid", async () => {
+    const res = await post({ id: "'; drop table categories--", name: "Groceries" });
+    expect(res.status).toBe(201);
+    expect((await res.json()).id).not.toBe("'; drop table categories--");
+  });
+});
+
 describe("category kind", () => {
   it("POST without kind defaults to expense", async () => {
     const { POST } = await import("./route");

@@ -186,6 +186,7 @@ export function BudgetWizard({
     setError(null);
     try {
       const cat = (await createCategory.mutateAsync({
+        id: crypto.randomUUID(),
         name: query.trim(),
         color: DEFAULT_COLOR,
         icon: null,

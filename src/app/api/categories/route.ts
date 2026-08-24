@@ -24,6 +24,8 @@ function isCategoryKind(v: unknown): v is CategoryKind {
   return typeof v === "string" && (CATEGORY_KINDS as readonly string[]).includes(v);
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // GET /api/categories — list all categories with transaction counts.
 // Rows on a shared account carry the OWNER's category ids, so a member's own
 // ids are rejected by every write path (see the commit/categorize routes).
@@ -101,7 +103,11 @@ export async function POST(request: NextRequest) {
       ? (await requireAccountAccess(userId, accountId, "write")).account.userId
       : userId;
 
-    const id = crypto.randomUUID();
+    // Clients may supply the id so they can select the category before this
+    // request lands. Format-checked only — a stolen id collides on the primary
+    // key and fails the insert, so it can never overwrite someone else's row.
+    // ponytail: no pre-flight uniqueness SELECT; the PK is the check.
+    const id = UUID_RE.test(body.id ?? "") ? (body.id as string) : crypto.randomUUID();
     // New categories land at the bottom of the user's order.
     const [{ total }] = await db.select({ total: count() }).from(categories).where(eq(categories.userId, ownerId));
 

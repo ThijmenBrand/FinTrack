@@ -32,8 +32,9 @@ interface SearchCreatePickerProps<T extends PickerItem> {
   /** Currently selected id, if any — drives the check/highlight. */
   value: string | null;
   onSelect: (id: string) => void;
-  /** Omit to drop the create-on-the-fly row. Resolves to the new item's id. */
-  onCreate?: (name: string) => Promise<string | null>;
+  /** Omit to drop the create-on-the-fly row. Gives the new item's id, either
+   *  straight away (optimistic create) or once the request resolves. */
+  onCreate?: (name: string) => string | null | Promise<string | null>;
   creating?: boolean;
   /** Omit to drop the "clear selection" row. */
   onClear?: () => void;
@@ -97,8 +98,9 @@ export function SearchCreatePicker<T extends PickerItem>({
 
   const handleCreate = async () => {
     if (!onCreate) return;
-    // A failed create leaves the popover open with the text intact, so the
-    // user can retry or pick an existing entry instead of losing what they typed.
+    // A create that hands back no id leaves the popover open with the text
+    // intact, so the user can retry or pick an existing entry instead of losing
+    // what they typed. An optimistic create returns its id here and closes now.
     const created = await onCreate(name);
     if (created) {
       onSelect(created);
@@ -170,7 +172,10 @@ export function SearchCreatePicker<T extends PickerItem>({
       }}
     >
       <PopoverTrigger asChild>{trigger}</PopoverTrigger>
-      <PopoverContent className="w-64 p-1" align={align}>
+      <PopoverContent
+        className="w-(--radix-popover-trigger-width) min-w-64 p-1"
+        align={align}
+      >
         <Input
           role="combobox"
           aria-expanded

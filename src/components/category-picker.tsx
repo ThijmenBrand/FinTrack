@@ -55,19 +55,17 @@ export function CategoryPicker({
       value={value}
       onSelect={onChange}
       creating={createCategory.isPending}
-      onCreate={async (name) => {
-        try {
-          // ponytail: default grey + no icon; recolor in settings if it matters.
-          const created = await createCategory.mutateAsync({
-            name,
-            color: DEFAULT_COLOR,
-            icon: null,
-          });
-          return (created as { id: string }).id;
-        } catch (err) {
-          console.error("Failed to create category:", err);
-          return null;
-        }
+      onCreate={(name) => {
+        // The id is ours, so the picker can close on the new category right
+        // away; the hook drops the row from the list again if the POST fails,
+        // which leaves anything holding this id back on "no category".
+        const id = crypto.randomUUID();
+        // ponytail: default grey + no icon; recolor in settings if it matters.
+        createCategory.mutate(
+          { id, name, color: DEFAULT_COLOR, icon: null },
+          { onError: (err) => console.error("Failed to create category:", err) },
+        );
+        return id;
       }}
       labels={{
         search: "categoryPicker.search",
