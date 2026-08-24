@@ -293,11 +293,14 @@ export const budgetSubLines = sqliteTable("budget_sub_lines", {
   name: text("name").notNull(),
   // Stored monthly, like budgets.amount
   amount: real("amount").notNull(),
+  // Links this sub-line to a recurring plan; the line IS that plan, expressed monthly.
+  recurringTransactionId: text("recurring_transaction_id").references((): AnySQLiteColumn => recurringTransactions.id, { onDelete: "set null" }),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
 }, (table) => [
   index("idx_budget_sub_lines_allocation").on(table.allocationId),
+  index("idx_budget_sub_lines_recurring").on(table.recurringTransactionId),
 ]);
 
 // ─── Budget Month Targets ────────────────────────────────────────────────────

@@ -13,6 +13,8 @@ export interface ImportNode {
   amount: number | null;
   /** Sign differed from the sheet's expense convention — feeds type detection. */
   income?: boolean;
+  /** Set in the review list, never by parsing: this leaf is a recurring plan. */
+  recurring?: boolean;
   children: ImportNode[];
 }
 
@@ -28,7 +30,9 @@ export interface ImportNode {
  *
  * `fixed` deliberately creates no allocation: the budgets page sums fixed
  * costs and allocations into one total, so a category carrying both would
- * count twice.
+ * count twice. A `variable` root is not bound by that — its leaves may be
+ * marked recurring individually (see ImportSubmitNode.recurring), and a
+ * linked sub-line renders once, absorbing the plan it stands for.
  */
 export type RowType = "variable" | "fixed" | "income" | "categoryOnly" | "skip";
 
@@ -37,6 +41,14 @@ export interface ImportSubmitNode {
   name: string;
   /** Monthly for `variable`; the plan's own amount for `fixed`/`income`. */
   amount: number | null;
+  /**
+   * `variable` roots only: this leaf is also a recurring plan, linked to the
+   * sub-line it creates. The cadence is the root's `frequency` — the sheet
+   * knows a name and an amount, nothing more, so there is nothing per-leaf to
+   * pick. A node with children takes its amount from them and so can never
+   * carry this.
+   */
+  recurring?: boolean;
   children: ImportSubmitNode[];
 }
 
@@ -69,6 +81,8 @@ export interface FlatImportRow {
   amount: number | null;
   depth: number;
   income: boolean;
+  /** Ticked in review: make this leaf a recurring plan too. `variable` only. */
+  recurring?: boolean;
   /** Index of the root this row hangs under; the type control lives there. */
   rootIndex: number;
 }
@@ -308,37 +322,6 @@ export function effectiveAmount(node: ImportNode): number {
   return Math.max(node.amount ?? 0, childSum);
 }
 
-/** Amounts are rounded to cents, so anything under half a cent is formula dust. */
-const CENT = 0.005;
-
-/**
- * Sub-lines may leave a remainder but never overspend their parent — the same
- * rule the sub-lines endpoint enforces (SUB_LINE_ERROR.exceedsParent). A sheet
- * that breaks it is usually a monthly parent sitting over yearly children, and
- * without this the import would silently raise the parent to fit (see
- * effectiveAmount). Returns the positions of the offending rows, depth-first.
- */
-export function findOverAllocated(
-  rows: { amount: number | null; depth: number }[],
-): number[] {
-  const over: number[] = [];
-  /** Effective total of the subtree at `i`, plus where that subtree ends. */
-  const walk = (i: number): { total: number; next: number } => {
-    const row = rows[i];
-    let childSum = 0;
-    let j = i + 1;
-    while (j < rows.length && rows[j].depth > row.depth) {
-      const child = walk(j);
-      childSum += child.total;
-      j = child.next;
-    }
-    if (row.amount !== null && childSum > row.amount + CENT) over.push(i);
-    return { total: Math.max(row.amount ?? 0, childSum), next: j };
-  };
-  for (let i = 0; i < rows.length; i = walk(i).next);
-  return over;
-}
-
 export function flattenTree(nodes: ImportNode[]): FlatImportRow[] {
   const out: FlatImportRow[] = [];
   const walk = (list: ImportNode[], depth: number, rootIndex: number) => {
@@ -491,15 +474,26 @@ export function buildSubmitRoots(
     const config = rootConfig[rootIndex];
     if (!config || config.type === "skip") continue;
     const perMonth = config.type === "variable" && config.unit === "yearly";
-    const scale = (node: ImportNode): ImportSubmitNode => ({
+    // Depth guards the recurring marker: a root becomes the allocation itself
+    // (there is no sub-line to link), a container takes its amount from its
+    // children, and only a `variable` root has sub-lines at all. Anything else
+    // the server refuses, so a marker left behind by an edited row is dropped
+    // here rather than sent.
+    const scale = (node: ImportNode, depth: number): ImportSubmitNode => ({
       name: node.name,
       amount:
         node.amount === null || !perMonth ? node.amount : node.amount / MONTHS_PER_YEAR,
-      children: node.children.map(scale),
+      children: node.children.map((c) => scale(c, depth + 1)),
+      ...(node.recurring &&
+      depth > 0 &&
+      config.type === "variable" &&
+      node.children.length === 0
+        ? { recurring: true }
+        : {}),
     });
     for (const tree of buildTree(groupRows)) {
       out.push({
-        ...scale(tree),
+        ...scale(tree, 0),
         type: config.type,
         ...(config.type === "fixed" || config.type === "income"
           ? { frequency: config.unit }
@@ -511,13 +505,18 @@ export function buildSubmitRoots(
 }
 
 export function buildTree(
-  rows: { name: string; amount: number | null; depth: number }[],
+  rows: { name: string; amount: number | null; depth: number; recurring?: boolean }[],
 ): ImportNode[] {
   const roots: ImportNode[] = [];
   const stack: ImportNode[] = [];
   for (const row of rows) {
     const depth = Math.min(Math.max(row.depth, 0), stack.length, MAX_IMPORT_DEPTH - 1);
-    const node: ImportNode = { name: row.name, amount: row.amount, children: [] };
+    const node: ImportNode = {
+      name: row.name,
+      amount: row.amount,
+      children: [],
+      ...(row.recurring ? { recurring: true } : {}),
+    };
     (depth === 0 ? roots : stack[depth - 1].children).push(node);
     stack.length = depth;
     stack.push(node);

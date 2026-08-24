@@ -5,11 +5,13 @@ import {
   recurringTransactions,
   accounts,
   categories,
+  budgetSubLines,
 } from "@/db/schema";
 import { eq, and, or, inArray } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { memberAccountIds, requireAccountAccess } from "@/lib/account-access";
-import { getNextOccurrence } from "@/lib/recurring";
+import { getNextOccurrence, toMonthly } from "@/lib/recurring";
+import { resyncUpwards } from "@/lib/budget-sub-lines";
 import { isFiniteNumber, isIsoDate } from "@/lib/validation";
 
 const RECURRING_TYPES = ["income", "expense"] as const;
@@ -235,12 +237,46 @@ export async function PUT(request: NextRequest) {
         effectiveType === "income" ? Math.abs(body.amount) : -Math.abs(body.amount);
     }
 
-    if (Object.keys(updates).length > 0) {
-      await db
-        .update(recurringTransactions)
-        .set(updates)
-        .where(and(eq(recurringTransactions.id, id), eq(recurringTransactions.userId, ownerId)));
-    }
+    // The update and the linked sub-line's re-normalisation must land
+    // together: a reader can't be allowed to see the recurring row's new
+    // amount before the budget tree that mirrors it has caught up.
+    await db.transaction(async (tx) => {
+      if (Object.keys(updates).length > 0) {
+        await tx
+          .update(recurringTransactions)
+          .set(updates)
+          .where(and(eq(recurringTransactions.id, id), eq(recurringTransactions.userId, ownerId)));
+      }
+
+      // A sub-line linked to this plan carries the same money, expressed
+      // monthly — only amount/frequency changes affect what that monthly
+      // figure is. A type or category change is left alone here: re-parenting
+      // the sub-line into a different allocation is a separate decision, not
+      // something this endpoint should guess at.
+      if ("amount" in updates || "frequency" in updates) {
+        const effectiveAmount = updates.amount ?? existing.amount;
+        const effectiveFrequency = updates.frequency ?? existing.frequency;
+        const [linked] = await tx
+          .select({ id: budgetSubLines.id, allocationId: budgetSubLines.allocationId })
+          .from(budgetSubLines)
+          .where(
+            and(
+              eq(budgetSubLines.recurringTransactionId, id),
+              eq(budgetSubLines.userId, ownerId),
+            ),
+          )
+          .limit(1);
+        if (linked) {
+          // toMonthly takes the absolute value; the recurring row's amount is
+          // signed (expenses negative) but a sub-line amount is always positive.
+          await tx
+            .update(budgetSubLines)
+            .set({ amount: toMonthly(effectiveAmount, effectiveFrequency) })
+            .where(and(eq(budgetSubLines.id, linked.id), eq(budgetSubLines.userId, ownerId)));
+          await resyncUpwards(tx, linked.allocationId, ownerId, linked.id);
+        }
+      }
+    });
 
     return NextResponse.json({ success: true });
   }, "Failed to update recurring transaction");
@@ -270,10 +306,28 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ success: true });
     }
     const access = await requireAccountAccess(userId, existing.accountId, "write");
+    const ownerId = access.account.userId;
 
-    await db
-      .delete(recurringTransactions)
-      .where(and(eq(recurringTransactions.id, id), eq(recurringTransactions.userId, access.account.userId)));
+    // Explicit cleanup instead of relying on the FK's `on delete set null` —
+    // libsql connections don't guarantee foreign_keys=ON (see the DELETE in
+    // /api/budgets/sub-lines/route.ts for the same precedent). The sub-line
+    // keeps its amount and becomes an ordinary planning line, so no re-sum:
+    // its contribution to every ancestor's sum hasn't changed, only the link
+    // that used to explain where the number came from.
+    await db.transaction(async (tx) => {
+      await tx
+        .update(budgetSubLines)
+        .set({ recurringTransactionId: null })
+        .where(
+          and(
+            eq(budgetSubLines.recurringTransactionId, id),
+            eq(budgetSubLines.userId, ownerId),
+          ),
+        );
+      await tx
+        .delete(recurringTransactions)
+        .where(and(eq(recurringTransactions.id, id), eq(recurringTransactions.userId, ownerId)));
+    });
 
     return NextResponse.json({ success: true });
   }, "Failed to delete recurring transaction");

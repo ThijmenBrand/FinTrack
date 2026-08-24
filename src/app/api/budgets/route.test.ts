@@ -399,3 +399,313 @@ describe("POST /api/budgets — the same category across plans", () => {
     expect(allocations[0].amount).toBe(140);
   });
 });
+
+// The atomic create: allocation + sub-line tree + the recurring plans some of
+// those lines stand for, in one POST.
+describe("POST /api/budgets — children tree", () => {
+  const subLines = () =>
+    testDb.client.execute(
+      `SELECT id, parent_id, name, amount, recurring_transaction_id FROM budget_sub_lines ORDER BY name`,
+    );
+  const allocationAmount = async (id: string) =>
+    (
+      await testDb.client.execute({
+        sql: `SELECT amount FROM budgets WHERE id = ?`,
+        args: [id],
+      })
+    ).rows[0]?.amount;
+
+  it("still creates a flat allocation when no children are submitted", async () => {
+    const res = await postAllocation({ categoryId: "cat-x", amount: 120, budgetId: "plan-x" });
+    expect(res.status).toBe(201);
+    const { id } = await res.json();
+    expect(await allocationAmount(id)).toBe(120);
+    expect((await subLines()).rows).toHaveLength(0);
+  });
+
+  it("sets the allocation to the sum of its children, ignoring the submitted amount", async () => {
+    const res = await postAllocation({
+      categoryId: "cat-x",
+      amount: 999,
+      budgetId: "plan-x",
+      children: [
+        { name: "Supermarket", amount: 300 },
+        { name: "Market", amount: 50 },
+      ],
+    });
+    expect(res.status).toBe(201);
+    const { id } = await res.json();
+    expect(await allocationAmount(id)).toBe(350);
+    expect((await subLines()).rows.map((r) => r.amount)).toEqual([50, 300]);
+  });
+
+  it("rolls a nested tree up two levels", async () => {
+    const res = await postAllocation({
+      categoryId: "cat-x",
+      amount: 1,
+      budgetId: "plan-x",
+      children: [
+        {
+          name: "Food",
+          amount: 1,
+          children: [
+            { name: "Supermarket", amount: 200 },
+            {
+              name: "Out",
+              amount: 1,
+              children: [
+                { name: "Lunch", amount: 40 },
+                { name: "Dinner", amount: 60 },
+              ],
+            },
+          ],
+        },
+        { name: "Household", amount: 25 },
+      ],
+    });
+    expect(res.status).toBe(201);
+    const { id } = await res.json();
+
+    const byName = new Map(
+      (await subLines()).rows.map((r) => [r.name as string, r.amount as number]),
+    );
+    expect(byName.get("Out")).toBe(100);
+    expect(byName.get("Food")).toBe(300);
+    expect(await allocationAmount(id)).toBe(325);
+  });
+
+  it("creates a signed recurring row for a `recurring` child and stores the line monthly", async () => {
+    const res = await postAllocation({
+      categoryId: "cat-x",
+      amount: 1,
+      budgetId: "plan-x",
+      children: [
+        {
+          name: "Insurance",
+          amount: 1,
+          recurring: {
+            accountId: "acc-shared",
+            amount: 600,
+            frequency: "yearly",
+            startDate: `${YM}-01`,
+          },
+        },
+      ],
+    });
+    expect(res.status).toBe(201);
+    const { id } = await res.json();
+
+    const line = (await subLines()).rows[0];
+    // A €600 yearly bill is a €50 sub-line.
+    expect(line.amount).toBe(50);
+    expect(await allocationAmount(id)).toBe(50);
+
+    const rec = (
+      await testDb.client.execute({
+        sql: `SELECT * FROM recurring_transactions WHERE id = ?`,
+        args: [line.recurring_transaction_id],
+      })
+    ).rows[0];
+    // Expenses are stored negative — a positive row would corrupt every total.
+    expect(rec.amount).toBe(-600);
+    expect(rec.type).toBe("expense");
+    expect(rec.frequency).toBe("yearly");
+    expect(rec.description).toBe("Insurance");
+    expect(rec.category_id).toBe("cat-x");
+    expect(rec.user_id).toBe(OWNER);
+  });
+
+  it("adopts an existing plan and takes its monthly amount", async () => {
+    await addRecurring({ id: "rec-gym", amount: -40, type: "expense", categoryId: "cat-x" });
+    const res = await postAllocation({
+      categoryId: "cat-x",
+      amount: 1,
+      budgetId: "plan-x",
+      children: [{ name: "Gym", amount: 999, adoptRecurringId: "rec-gym" }],
+    });
+    expect(res.status).toBe(201);
+    const { id } = await res.json();
+
+    const line = (await subLines()).rows[0];
+    expect(line.recurring_transaction_id).toBe("rec-gym");
+    expect(line.amount).toBe(40);
+    expect(await allocationAmount(id)).toBe(40);
+  });
+
+  it("refuses to adopt a plan another sub-line already links", async () => {
+    await addRecurring({ id: "rec-gym", amount: -40, type: "expense", categoryId: "cat-x" });
+    await postAllocation({
+      categoryId: "cat-x",
+      amount: 1,
+      budgetId: "plan-x",
+      children: [{ name: "Gym", amount: 40, adoptRecurringId: "rec-gym" }],
+    });
+
+    await addCategory("cat-other", "Sport", "expense");
+    const res = await postAllocation({
+      categoryId: "cat-other",
+      amount: 1,
+      budgetId: "plan-x",
+      children: [{ name: "Gym again", amount: 40, adoptRecurringId: "rec-gym" }],
+    });
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe("recurring_already_linked");
+    // The second allocation never happened.
+    expect(
+      (
+        await testDb.client.execute(
+          `SELECT id FROM budgets WHERE category_id = 'cat-other'`,
+        )
+      ).rows,
+    ).toHaveLength(0);
+  });
+
+  it("refuses to adopt another user's plan, writing nothing", async () => {
+    const now = new Date().toISOString();
+    await testDb.client.execute({
+      sql: `INSERT INTO "user" (id, name, email, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+      args: ["outsider", "outsider", "outsider@test.dev", Date.now(), Date.now()],
+    });
+    await testDb.client.execute({
+      sql: `INSERT INTO accounts (id, user_id, name, type, currency, initial_balance, sort_order, created_at, updated_at)
+            VALUES ('acc-outsider', 'outsider', 'Theirs', 'checking', 'EUR', 0, 0, ?, ?)`,
+      args: [now, now],
+    });
+    await testDb.client.execute({
+      sql: `INSERT INTO recurring_transactions
+              (id, user_id, account_id, description, amount, type, frequency, start_date, is_active, created_at)
+            VALUES ('rec-theirs', 'outsider', 'acc-outsider', 'Theirs', -99, 'expense', 'monthly', ?, 1, ?)`,
+      args: [`${YM}-01`, now],
+    });
+
+    const res = await postAllocation({
+      categoryId: "cat-x",
+      amount: 1,
+      budgetId: "plan-x",
+      children: [{ name: "Theirs", amount: 99, adoptRecurringId: "rec-theirs" }],
+    });
+    expect(res.status).toBe(404);
+    expect((await testDb.client.execute(`SELECT id FROM budgets`)).rows).toHaveLength(0);
+    expect((await subLines()).rows).toHaveLength(0);
+  });
+
+  it("rejects a tree deeper than the cap and leaves no partial rows behind", async () => {
+    const res = await postAllocation({
+      categoryId: "cat-x",
+      amount: 1,
+      budgetId: "plan-x",
+      children: [
+        {
+          name: "L1",
+          amount: 1,
+          children: [
+            {
+              name: "L2",
+              amount: 1,
+              children: [{ name: "L3", amount: 1, children: [{ name: "L4", amount: 10 }] }],
+            },
+          ],
+        },
+      ],
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("sub_line_too_deep");
+    expect((await testDb.client.execute(`SELECT id FROM budgets`)).rows).toHaveLength(0);
+    expect((await subLines()).rows).toHaveLength(0);
+  });
+
+  it("rejects a tree over the count cap and leaves no partial rows behind", async () => {
+    const res = await postAllocation({
+      categoryId: "cat-x",
+      amount: 1,
+      budgetId: "plan-x",
+      children: Array.from({ length: 101 }, (_, i) => ({ name: `L${i}`, amount: 1 })),
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("sub_line_too_many");
+    expect((await testDb.client.execute(`SELECT id FROM budgets`)).rows).toHaveLength(0);
+    expect((await subLines()).rows).toHaveLength(0);
+  });
+
+  it("counts the rows already under an allocation against the cap, writing nothing", async () => {
+    const first = await (
+      await postAllocation({
+        categoryId: "cat-x",
+        amount: 1,
+        budgetId: "plan-x",
+        children: Array.from({ length: 100 }, (_, i) => ({ name: `L${i}`, amount: 1 })),
+      })
+    ).json();
+
+    const res = await postAllocation({
+      categoryId: "cat-x",
+      amount: 1,
+      budgetId: "plan-x",
+      children: [{ name: "One too many", amount: 5 }],
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("sub_line_too_many");
+    // The rejected call touched neither the tree nor the allocation's total.
+    expect((await subLines()).rows).toHaveLength(100);
+    expect(await allocationAmount(first.id)).toBe(100);
+  });
+
+  it("attaches children to an already-allocated category and re-sums it", async () => {
+    const first = await (
+      await postAllocation({
+        categoryId: "cat-x",
+        amount: 100,
+        budgetId: "plan-x",
+        children: [{ name: "Supermarket", amount: 100 }],
+      })
+    ).json();
+
+    const res = await postAllocation({
+      categoryId: "cat-x",
+      amount: 5,
+      budgetId: "plan-x",
+      children: [{ name: "Market", amount: 60 }],
+    });
+    expect(res.status).toBe(200);
+    expect((await res.json()).id).toBe(first.id);
+
+    expect((await subLines()).rows).toHaveLength(2);
+    expect(await allocationAmount(first.id)).toBe(160);
+  });
+});
+
+describe("GET /api/budgets — linked sub-lines", () => {
+  it("emits the recurring object on a linked line and omits it on a plain one", async () => {
+    await addRecurring({ id: "rec-gym", amount: -40, type: "expense", categoryId: "cat-x" });
+    await postAllocation({
+      categoryId: "cat-x",
+      amount: 1,
+      budgetId: "plan-x",
+      children: [
+        { name: "Gym", amount: 40, adoptRecurringId: "rec-gym" },
+        { name: "Snacks", amount: 10 },
+      ],
+    });
+
+    const body = await (await getBudgets(`budgetId=plan-x&${MONTH_QUERY}`)).json();
+    const lines: {
+      name: string;
+      amount: number;
+      recurring?: { id: string; amount: number; frequency: string; isActive: boolean };
+    }[] = body.allocations[0].subLines;
+
+    const gym = lines.find((l) => l.name === "Gym")!;
+    expect(gym.recurring).toEqual({
+      id: "rec-gym",
+      // Per occurrence, as stored — signed, unscaled.
+      amount: -40,
+      frequency: "monthly",
+      dayOfWeek: null,
+      dayOfMonth: null,
+      monthOfYear: null,
+      startDate: `${YM}-01`,
+      isActive: true,
+    });
+    expect(lines.find((l) => l.name === "Snacks")!.recurring).toBeUndefined();
+  });
+});

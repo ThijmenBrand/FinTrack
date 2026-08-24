@@ -234,18 +234,24 @@ export function BudgetRow({
                 {t("budgets.row.fullHistory")}
               </button>
             )}
-            {!readOnly && editable && onEdit && onDelete && (
+            {/* Edit and delete travel separately: a fixed-cost category has
+                something to budget for but no budget line to remove yet. */}
+            {!readOnly && editable && (onEdit || onDelete) && (
               <span className="ml-auto flex items-center gap-0.5">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  onClick={onEdit}
-                  aria-label={t("common.edit")}
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                </Button>
-                <ConfirmDeleteButton onConfirm={onDelete} pending={deletePending} />
+                {onEdit && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={onEdit}
+                    aria-label={t("common.edit")}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+                {onDelete && (
+                  <ConfirmDeleteButton onConfirm={onDelete} pending={deletePending} />
+                )}
               </span>
             )}
           </div>

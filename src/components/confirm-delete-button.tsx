@@ -105,7 +105,10 @@ export function ConfirmDeleteButton({
   }
   return (
     <>
+      {/* Marks the armed state for rows that only reveal their actions on
+          hover: an armed delete must not slide away under the pointer. */}
       <Button
+        data-confirming=""
         variant="destructive"
         size="icon"
         className="h-7 w-7"

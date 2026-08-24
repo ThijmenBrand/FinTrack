@@ -15,8 +15,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { ChevronLeft, Loader2, Search, Users } from "lucide-react";
+import { ChevronLeft, Loader2, Plus, Search, Users } from "lucide-react";
 import { useCreateBudgetPlan, useUpdateBudgetPlan } from "@/hooks/use-budget-plans";
+import { useCreateCategory } from "@/hooks/use-categories";
 import { useCreateBudget } from "@/hooks/use-budgets";
 import { BUDGETABLE_ACCOUNT_TYPES } from "@/lib/account-scope";
 import { isBudgetable } from "@/lib/default-categories";
@@ -56,8 +57,10 @@ interface BudgetWizardProps {
   onCreated?: (planId: string) => void;
 }
 
-/** Below this a filter box is just another control in the way. */
-const SEARCH_THRESHOLD = 8;
+/** New categories made here: grey, no icon — recolor in settings if it matters. */
+const DEFAULT_COLOR = "#94a3b8";
+
+type WizardCategory = Pick<CategoryWithDetails, "id" | "name" | "color" | "kind">;
 
 const STEPS = [
   { label: "budgets.wizard.step1", description: "budgets.wizard.step1Description" },
@@ -89,6 +92,7 @@ export function BudgetWizard({
   const createPlan = useCreateBudgetPlan();
   const updatePlan = useUpdateBudgetPlan();
   const createBudget = useCreateBudget();
+  const createCategory = useCreateCategory();
 
   const [step, setStep] = useState(0);
   const [name, setName] = useState("");
@@ -97,6 +101,8 @@ export function BudgetWizard({
   /** Picked categories: present = budgeted, value = the amount being typed. */
   const [limits, setLimits] = useState<Record<string, string>>({});
   const [query, setQuery] = useState("");
+  /** Categories made in step 2 — kept until the refetched prop carries them. */
+  const [added, setAdded] = useState<WizardCategory[]>([]);
   const [makeMain, setMakeMain] = useState(false);
   const [creating, setCreating] = useState(false);
   const [done, setDone] = useState(0);
@@ -119,12 +125,17 @@ export function BudgetWizard({
     Math.round((yearly ? monthly * MONTHS_PER_YEAR : monthly) * 100) / 100;
   const toStored = (shown: number) => (yearly ? shown / MONTHS_PER_YEAR : shown);
 
-  const budgetableCategories = categories.filter((c) => isBudgetable(c.kind));
-  const visibleCategories = query.trim()
-    ? budgetableCategories.filter((c) =>
-        c.name.toLowerCase().includes(query.trim().toLowerCase()),
-      )
+  const budgetableCategories: WizardCategory[] = [
+    ...categories,
+    ...added.filter((a) => !categories.some((c) => c.id === a.id)),
+  ].filter((c) => isBudgetable(c.kind));
+  const needle = query.trim().toLowerCase();
+  const visibleCategories = needle
+    ? budgetableCategories.filter((c) => c.name.toLowerCase().includes(needle))
     : budgetableCategories;
+  // Offer to make what was searched for, unless it already exists.
+  const creatable =
+    needle.length > 0 && !budgetableCategories.some((c) => c.name.toLowerCase() === needle);
 
   const entries = Object.entries(limits).filter(
     ([, v]) => parseFloat(v) > 0,
@@ -171,6 +182,23 @@ export function BudgetWizard({
     });
   };
 
+  const addCategory = async () => {
+    setError(null);
+    try {
+      const cat = (await createCategory.mutateAsync({
+        name: query.trim(),
+        color: DEFAULT_COLOR,
+        icon: null,
+      })) as WizardCategory;
+      setAdded((prev) => [...prev, cat]);
+      // Ticked with no amount on purpose: there is no history to suggest one.
+      setLimits((prev) => ({ ...prev, [cat.id]: "" }));
+      setQuery("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t("common.somethingWentWrong"));
+    }
+  };
+
   const reset = () => {
     setStep(0);
     setName("");
@@ -178,6 +206,7 @@ export function BudgetWizard({
     setSelectedIds([]);
     setLimits({});
     setQuery("");
+    setAdded([]);
     setMakeMain(false);
     setCreating(false);
     setDone(0);
@@ -309,117 +338,137 @@ export function BudgetWizard({
 
           {step === 1 && (
             <div className="space-y-2">
-              {budgetableCategories.length === 0 ? (
-                <p className="rounded-lg border border-dashed px-3 py-4 text-sm text-muted-foreground">
-                  {t("budgets.wizard.noCategories")}
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && creatable) {
+                      e.preventDefault();
+                      void addCategory();
+                    }
+                  }}
+                  placeholder={t("budgets.wizard.searchCategories")}
+                  className="pl-9"
+                  aria-label={t("budgets.wizard.searchCategories")}
+                />
+              </div>
+
+              <ul className="max-h-72 divide-y overflow-y-auto rounded-lg border">
+                {visibleCategories.map((cat) => {
+                  const checked = cat.id in limits;
+                  const avg = toDisplay(categoryAverages[cat.id] ?? 0);
+                  return (
+                    <li
+                      key={cat.id}
+                      className={cn(
+                        "flex items-center gap-3 px-3 py-2 transition-colors duration-150",
+                        checked ? "bg-primary/5" : "hover:bg-muted/40",
+                      )}
+                    >
+                      <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
+                        <Checkbox
+                          checked={checked}
+                          onCheckedChange={(v) => toggleCategory(cat.id, v === true)}
+                        />
+                        <span
+                          aria-hidden
+                          className="h-2 w-2 shrink-0 rounded-full"
+                          style={{ backgroundColor: cat.color || DEFAULT_COLOR }}
+                        />
+                        <span className="truncate text-sm">{cat.name}</span>
+                      </label>
+
+                      {checked ? (
+                        <div className="relative shrink-0">
+                          <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                            &euro;
+                          </span>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={limits[cat.id]}
+                            onChange={(e) =>
+                              setLimits((prev) => ({
+                                ...prev,
+                                [cat.id]: e.target.value,
+                              }))
+                            }
+                            aria-label={cat.name}
+                            className="h-8 w-28 pl-6 text-right tabular-nums"
+                          />
+                        </div>
+                      ) : (
+                        avg > 0 && (
+                          // The reason to tick this row, stated in the row.
+                          <button
+                            type="button"
+                            onClick={() => toggleCategory(cat.id, true)}
+                            className="shrink-0 rounded px-1 text-xs tabular-nums text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                          >
+                            {t("budgets.wizard.typically", {
+                              amount: formatCurrency(avg),
+                            })}
+                          </button>
+                        )
+                      )}
+                    </li>
+                  );
+                })}
+
+                {/* Nothing to pick is a reason to make one, not a dead end. */}
+                {creatable && (
+                  <li>
+                    <button
+                      type="button"
+                      onClick={addCategory}
+                      disabled={createCategory.isPending}
+                      className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm transition-colors duration-150 hover:bg-muted/40 disabled:opacity-60"
+                    >
+                      {createCategory.isPending ? (
+                        <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                      ) : (
+                        <Plus className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      )}
+                      <span className="truncate">
+                        {t("categoryPicker.create", { name: query.trim() })}
+                      </span>
+                    </button>
+                  </li>
+                )}
+
+                {visibleCategories.length === 0 && !creatable && (
+                  <li className="px-3 py-6 text-center text-sm text-muted-foreground">
+                    {t(
+                      budgetableCategories.length === 0
+                        ? "budgets.wizard.noCategories"
+                        : "budgets.wizard.noMatch",
+                      { query: query.trim() },
+                    )}
+                  </li>
+                )}
+              </ul>
+
+              {/* A ticked row with a blank amount would be dropped on
+                  save; saying so beats a Next button that just sits
+                  there dead. */}
+              {limitsComplete ? (
+                <p className="text-xs text-muted-foreground">
+                  {entries.length === 0
+                    ? t("budgets.wizard.categoriesOptional")
+                    : t(
+                        yearly
+                          ? "budgets.wizard.plannedYearly"
+                          : "budgets.wizard.plannedMonthly",
+                        { amount: formatCurrency(plannedTotal) },
+                      )}
                 </p>
               ) : (
-                <>
-                  {budgetableCategories.length > SEARCH_THRESHOLD && (
-                    <div className="relative">
-                      <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                      <Input
-                        value={query}
-                        onChange={(e) => setQuery(e.target.value)}
-                        placeholder={t("budgets.wizard.searchCategories")}
-                        className="pl-9"
-                        aria-label={t("budgets.wizard.searchCategories")}
-                      />
-                    </div>
-                  )}
-
-                  <ul className="max-h-72 divide-y overflow-y-auto rounded-lg border">
-                    {visibleCategories.map((cat) => {
-                      const checked = cat.id in limits;
-                      const avg = toDisplay(categoryAverages[cat.id] ?? 0);
-                      return (
-                        <li
-                          key={cat.id}
-                          className={cn(
-                            "flex items-center gap-3 px-3 py-2 transition-colors duration-150",
-                            checked ? "bg-primary/5" : "hover:bg-muted/40",
-                          )}
-                        >
-                          <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
-                            <Checkbox
-                              checked={checked}
-                              onCheckedChange={(v) =>
-                                toggleCategory(cat.id, v === true)
-                              }
-                            />
-                            <span
-                              aria-hidden
-                              className="h-2 w-2 shrink-0 rounded-full"
-                              style={{ backgroundColor: cat.color || "#94a3b8" }}
-                            />
-                            <span className="truncate text-sm">{cat.name}</span>
-                          </label>
-
-                          {checked ? (
-                            <div className="relative shrink-0">
-                              <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
-                                &euro;
-                              </span>
-                              <Input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                value={limits[cat.id]}
-                                onChange={(e) =>
-                                  setLimits((prev) => ({
-                                    ...prev,
-                                    [cat.id]: e.target.value,
-                                  }))
-                                }
-                                aria-label={cat.name}
-                                className="h-8 w-28 pl-6 text-right tabular-nums"
-                              />
-                            </div>
-                          ) : (
-                            avg > 0 && (
-                              // The reason to tick this row, stated in the row.
-                              <button
-                                type="button"
-                                onClick={() => toggleCategory(cat.id, true)}
-                                className="shrink-0 rounded px-1 text-xs tabular-nums text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                              >
-                                {t("budgets.wizard.typically", {
-                                  amount: formatCurrency(avg),
-                                })}
-                              </button>
-                            )
-                          )}
-                        </li>
-                      );
-                    })}
-
-                    {visibleCategories.length === 0 && (
-                      <li className="px-3 py-6 text-center text-sm text-muted-foreground">
-                        {t("budgets.wizard.noMatch", { query: query.trim() })}
-                      </li>
-                    )}
-                  </ul>
-
-                  {/* A ticked row with a blank amount would be dropped on
-                      save; saying so beats a Next button that just sits
-                      there dead. */}
-                  {limitsComplete ? (
-                    <p className="text-xs text-muted-foreground">
-                      {entries.length === 0
-                        ? t("budgets.wizard.categoriesOptional")
-                        : t(
-                            yearly
-                              ? "budgets.wizard.plannedYearly"
-                              : "budgets.wizard.plannedMonthly",
-                            { amount: formatCurrency(plannedTotal) },
-                          )}
-                    </p>
-                  ) : (
-                    <p className="text-xs text-amber-700 dark:text-amber-400">
-                      {t("budgets.wizard.limitsIncomplete")}
-                    </p>
-                  )}
-                </>
+                <p className="text-xs text-amber-700 dark:text-amber-400">
+                  {t("budgets.wizard.limitsIncomplete")}
+                </p>
               )}
             </div>
           )}

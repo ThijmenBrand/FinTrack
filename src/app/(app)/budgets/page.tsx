@@ -57,9 +57,14 @@ import {
   IncomeRow,
   FixedCostRow,
   PlanRows,
+  type FixedCostGroup,
 } from "./_components/recurring-sections";
 import { SectionHeader } from "./_components/section-header";
-import { byUrgency, fixedCostStatus } from "./_components/budget-row";
+import {
+  byUrgency,
+  fixedCostStatus,
+  linkedRecurringIds,
+} from "./_components/budget-row";
 import { callerShareOf, planIsShared, splitShares } from "@/lib/budget-split";
 import { BudgetSwitcher } from "./_components/budget-switcher";
 import { PeriodNav, type PeriodScope } from "./_components/period-nav";
@@ -257,10 +262,20 @@ export default function BudgetsPage() {
     yearScope,
     accounts: accountsData ?? [],
     categories,
+    // A linked plan's frequency and next-due date already show on its
+    // sub-line row, so its standalone recurring row is dropped here rather
+    // than drawn twice.
+    linkedRecurringIds: linkedRecurringIds(data?.allocations ?? []),
   });
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingAlloc, setEditingAlloc] = useState<Allocation | null>(null);
+  // A fixed-cost category has no allocation to edit, so its pencil opens the
+  // add dialog seeded with that category and what its bills cost today.
+  const [addPrefill, setAddPrefill] = useState<{
+    categoryId: string;
+    amount: number;
+  } | null>(null);
   const [historyAlloc, setHistoryAlloc] = useState<HistoryTarget | null>(null);
   const [suggestionsDialogOpen, setSuggestionsDialogOpen] = useState(false);
   const [regenerateConfirmOpen, setRegenerateConfirmOpen] = useState(false);
@@ -269,7 +284,17 @@ export default function BudgetsPage() {
   const [emptyReason, setEmptyReason] = useState<EmptyGenerateReason | null>(null);
 
   const openEdit = (alloc: Allocation) => {
+    setAddPrefill(null);
     setEditingAlloc(alloc);
+    setDialogOpen(true);
+  };
+
+  const openFixedCostEdit = (group: FixedCostGroup) => {
+    setEditingAlloc(null);
+    setAddPrefill({
+      categoryId: group.categoryId,
+      amount: group.fc?.monthlyAmount ?? 0,
+    });
     setDialogOpen(true);
   };
 
@@ -367,10 +392,15 @@ export default function BudgetsPage() {
   // category: `data` only ever describes the active plan, so a category
   // budgeted in another plan is still on offer here — two plans may budget the
   // same category, one plan may not budget it twice.
-  const fixedCatIds = new Set(data.fixedCosts.map((fc) => fc.categoryId));
+  //
+  // A category whose bills already run as recurring plans stays on offer: the
+  // rent is not all of Housing, so the category still needs a line to cap the
+  // rest of it. Its plans then hang under that allocation — adopted into the
+  // sub-line tree, or listed beneath it — instead of keeping a fixed-cost row
+  // of their own.
   const allocatedCatIds = new Set(data.allocations.map((a) => a.categoryId));
   const availableCategories = planCategories.filter(
-    (c) => !allocatedCatIds.has(c.id) && !fixedCatIds.has(c.id) && isBudgetable(c.kind),
+    (c) => !allocatedCatIds.has(c.id) && isBudgetable(c.kind),
   );
 
   // Card totals are summed from the rows themselves so the header always
@@ -792,12 +822,16 @@ export default function BudgetsPage() {
                 {recurring.formDialog}
                 {isCurrentPeriod && canEdit && (
                   <AllocationDialog
-                    key={editingAlloc?.id ?? "new"}
+                    key={editingAlloc?.id ?? addPrefill?.categoryId ?? "new"}
                     open={dialogOpen}
                     onOpenChange={(open) => {
                       setDialogOpen(open);
-                      if (!open) setEditingAlloc(null);
+                      if (!open) {
+                        setEditingAlloc(null);
+                        setAddPrefill(null);
+                      }
                     }}
+                    prefill={addPrefill}
                     editingAlloc={
                       // The state snapshot goes stale after a sub-line mutation;
                       // the cache copy carries the fresh tree.
@@ -810,6 +844,10 @@ export default function BudgetsPage() {
                     categoryAverages={data.categoryAverages}
                     unallocated={data.unallocated}
                     yearly={isYearly}
+                    // The dialog writes children through its own POST, so it
+                    // needs the plan by name: without it those rows would land
+                    // in the main plan no matter which budget is on screen.
+                    budgetId={activePlanId}
                     onCreate={(categoryId, amount) =>
                       createBudget
                         .mutateAsync({ categoryId, amount, budgetId: activePlanId })
@@ -922,6 +960,9 @@ export default function BudgetsPage() {
                         rowProps={recurring.rowProps}
                         split={split}
                         onHistory={setHistoryAlloc}
+                        onEdit={
+                          isCurrentPeriod && canEdit ? openFixedCostEdit : undefined
+                        }
                       />
                     ) : (
                       <Fragment key={row.alloc.id}>
@@ -968,6 +1009,7 @@ export default function BudgetsPage() {
                     rowProps={recurring.rowProps}
                     split={split}
                     onHistory={setHistoryAlloc}
+                    onEdit={isCurrentPeriod && canEdit ? openFixedCostEdit : undefined}
                   />
                 ))}
             </>

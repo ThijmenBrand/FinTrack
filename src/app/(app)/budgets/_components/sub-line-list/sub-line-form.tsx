@@ -18,6 +18,7 @@ export function SubLineForm({
   depth,
   initialName = "",
   initialAmount,
+  lockedHint,
   pending,
   error,
   onSubmit,
@@ -28,6 +29,11 @@ export function SubLineForm({
   initialName?: string;
   /** Stored units; blank when adding. */
   initialAmount?: number;
+  /**
+   * Why this line's money isn't typeable here — it adds up from children, or
+   * it belongs to a recurring plan. The field shows the figure and refuses it.
+   */
+  lockedHint?: string;
   pending: boolean;
   error: string | null;
   onSubmit: (name: string, displayAmount: number) => void;
@@ -40,7 +46,7 @@ export function SubLineForm({
   );
 
   const parsed = parseFloat(amount);
-  const valid = !!name.trim() && parsed > 0;
+  const valid = !!name.trim() && (!!lockedHint || parsed > 0);
 
   return (
     <Row ctx={ctx} depth={depth}>
@@ -60,7 +66,8 @@ export function SubLineForm({
             placeholder="0.00"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            className="h-7 w-24 text-sm"
+            readOnly={!!lockedHint}
+            className={`h-7 w-24 text-sm${lockedHint ? " text-muted-foreground" : ""}`}
           />
           <Button
             variant="ghost"
@@ -86,6 +93,7 @@ export function SubLineForm({
             <X className="h-3.5 w-3.5" />
           </Button>
         </div>
+        {lockedHint && <p className="text-xs text-muted-foreground">{lockedHint}</p>}
         {error && <p className="text-xs text-destructive">{error}</p>}
       </div>
     </Row>

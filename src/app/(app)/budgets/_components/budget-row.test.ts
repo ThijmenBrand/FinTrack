@@ -1,5 +1,39 @@
 import { describe, it, expect } from "vitest";
-import { byUrgency, fixedCostStatus, incomeStatus } from "./budget-row";
+import {
+  byUrgency,
+  fixedCostStatus,
+  incomeStatus,
+  linkedRecurringIds,
+} from "./budget-row";
+import type { BudgetSubLine } from "@/types/api";
+
+/** A leaf sub-line, optionally linked to a recurring plan. */
+function line(
+  id: string,
+  opts: { recurringId?: string; children?: BudgetSubLine[] } = {},
+): BudgetSubLine {
+  return {
+    id,
+    parentId: null,
+    name: id,
+    amount: 0,
+    children: opts.children ?? [],
+    ...(opts.recurringId
+      ? {
+          recurring: {
+            id: opts.recurringId,
+            amount: 0,
+            frequency: "monthly",
+            dayOfWeek: null,
+            dayOfMonth: null,
+            monthOfYear: null,
+            startDate: "2026-01-01",
+            isActive: true,
+          },
+        }
+      : {}),
+  };
+}
 
 describe("byUrgency", () => {
   it("puts exceeded first, then fullest budget, then untouched", () => {
@@ -102,5 +136,47 @@ describe("incomeStatus", () => {
       status: "ok",
     });
     expect(incomeStatus({ expected: 0, received: 0 }).status).toBe("ok");
+  });
+});
+
+describe("linkedRecurringIds", () => {
+  it("collects a linked plan at the root", () => {
+    const ids = linkedRecurringIds([
+      { subLines: [line("rent", { recurringId: "rec-1" }), line("groceries")] },
+    ]);
+    expect(ids).toEqual(new Set(["rec-1"]));
+  });
+
+  it("finds a link nested under an unlinked parent, at any depth", () => {
+    const ids = linkedRecurringIds([
+      {
+        subLines: [
+          line("bills", {
+            children: [line("phone", { recurringId: "rec-2" })],
+          }),
+        ],
+      },
+    ]);
+    expect(ids).toEqual(new Set(["rec-2"]));
+  });
+
+  it("dedupes and merges across every allocation on screen", () => {
+    const ids = linkedRecurringIds([
+      { subLines: [line("rent", { recurringId: "rec-1" })] },
+      {
+        subLines: [
+          line("insurance", { recurringId: "rec-3" }),
+          line("rent-copy", { recurringId: "rec-1" }),
+        ],
+      },
+    ]);
+    expect(ids).toEqual(new Set(["rec-1", "rec-3"]));
+  });
+
+  it("returns an empty set when nothing is linked", () => {
+    expect(
+      linkedRecurringIds([{ subLines: [line("groceries")] }]),
+    ).toEqual(new Set());
+    expect(linkedRecurringIds([])).toEqual(new Set());
   });
 });

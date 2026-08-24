@@ -398,6 +398,17 @@ export interface BudgetSubLine {
   name: string;
   amount: number;
   children: BudgetSubLine[];
+  /** Present when this line is a recurring plan expressed monthly. */
+  recurring?: {
+    id: string;
+    amount: number;
+    frequency: "weekly" | "biweekly" | "monthly" | "yearly";
+    dayOfWeek: number | null;
+    dayOfMonth: number | null;
+    monthOfYear: number | null;
+    startDate: string;
+    isActive: boolean;
+  };
 }
 
 export interface Allocation {

@@ -7,7 +7,8 @@ import { withUser } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
 import { requireAccountAccess } from "@/lib/account-access";
 import { resolveBudgetPlan } from "@/lib/budget-plan";
-import { MAX_SUB_LINES_PER_ALLOCATION } from "@/lib/budget-sub-lines";
+import { MAX_SUB_LINES_PER_ALLOCATION, resyncUpwards } from "@/lib/budget-sub-lines";
+import { fromMonthly, toMonthly } from "@/lib/recurring";
 import { isFiniteNumber, isIsoDate, validateName, type ValidationFailure } from "@/lib/validation";
 import {
   DEFAULT_CATEGORIES,
@@ -18,8 +19,6 @@ import {
   MAX_IMPORT_ROWS,
   MAX_IMPORT_DEPTH,
   effectiveAmount,
-  findOverAllocated,
-  flattenTree,
   type ImportNode,
   type RowType,
 } from "@/lib/budget-import";
@@ -56,12 +55,20 @@ function validateNodes(
     if (++counter.total > MAX_IMPORT_ROWS) {
       return { ok: false, error: "api.tooManyRowsSimple", vars: { max: MAX_IMPORT_ROWS } };
     }
-    const raw = item as { name?: unknown; amount?: unknown; children?: unknown };
+    const raw = item as {
+      name?: unknown;
+      amount?: unknown;
+      children?: unknown;
+      recurring?: unknown;
+    };
     const nameCheck = validateName(raw?.name);
     if (!nameCheck.ok) return nameCheck;
     const amount = raw?.amount ?? null;
     if (amount !== null && (!isFiniteNumber(amount) || amount < 0)) {
       return { ok: false, error: "api.amountsInvalid" };
+    }
+    if (raw?.recurring !== undefined && typeof raw.recurring !== "boolean") {
+      return { ok: false, error: "api.invalidBody" };
     }
     let children: ImportNode[] = [];
     if (raw?.children !== undefined && (raw.children as unknown[])?.length) {
@@ -72,7 +79,18 @@ function validateNodes(
       if ("error" in nested) return nested;
       children = nested;
     }
-    out.push({ name: nameCheck.value, amount: amount as number | null, children });
+    // Same rule POST /api/budgets applies: a container's amount is its
+    // children's sum, so it cannot also be a plan — that would be two sources
+    // for one number.
+    if (raw?.recurring === true && children.length > 0) {
+      return { ok: false, error: "api.invalidBody" };
+    }
+    out.push({
+      name: nameCheck.value,
+      amount: amount as number | null,
+      children,
+      ...(raw?.recurring === true ? { recurring: true } : {}),
+    });
   }
   return out;
 }
@@ -92,6 +110,20 @@ function validateRoots(input: unknown): ImportRoot[] | ValidationFailure {
 /** Every leaf of the subtree — one recurring plan each. A childless root is its own leaf. */
 function leaves(node: ImportNode): ImportNode[] {
   return node.children.length ? node.children.flatMap(leaves) : [node];
+}
+
+/** Does anything in this subtree, the node included, ask to be a plan? */
+function anyRecurring(node: ImportNode): boolean {
+  return !!node.recurring || node.children.some(anyRecurring);
+}
+
+/**
+ * What a marked leaf's plan charges per occurrence. The sheet's figure is
+ * already monthly (the wizard resolves units), so the root's cadence decides
+ * how much lands on one occurrence of it.
+ */
+function planAmount(node: ImportNode, frequency: string): number {
+  return fromMonthly(node.amount ?? 0, frequency);
 }
 
 // POST /api/budgets/import — bulk-create categories, allocations, sub-lines
@@ -128,11 +160,11 @@ export async function POST(request: NextRequest) {
       if (!ROOT_TYPES.includes(root.type) || !FREQUENCIES.includes(root.frequency)) {
         return apiError("api.invalidBody", 400);
       }
-      // Same rule as the sub-lines endpoint: children may leave a remainder,
-      // never overspend. Without it effectiveAmount would quietly inflate the
-      // allocation past what the sheet said the category costs.
-      if (root.type !== "categoryOnly" && findOverAllocated(flattenTree([root])).length) {
-        return apiError("api.subLinesExceedParent", 400);
+      // The marker belongs to a leaf under a `variable` root: only those get
+      // sub-lines to link a plan to. A root becomes the allocation itself, and
+      // `fixed`/`income` roots already turn every leaf into a plan.
+      if (root.recurring || (root.type !== "variable" && anyRecurring(root))) {
+        return apiError("api.invalidBody", 400);
       }
     }
 
@@ -213,37 +245,98 @@ export async function POST(request: NextRequest) {
     const skipped: SkippedEntry[] = [];
     const now = new Date().toISOString();
 
+    /**
+     * Bottom-up amounts for a whole subtree, resolved before the write the way
+     * POST /api/budgets does it: a container is the sum of its children, a
+     * marked leaf is its plan expressed monthly, and a plain leaf keeps what
+     * the sheet gave it.
+     */
+    function resolveAmounts(
+      node: ImportNode,
+      frequency: ImportRoot["frequency"],
+      into: Map<ImportNode, number>,
+    ): number {
+      const value = node.children.length
+        ? node.children.reduce((sum, c) => sum + resolveAmounts(c, frequency, into), 0)
+        : node.recurring
+          ? toMonthly(planAmount(node, frequency), frequency)
+          : (node.amount ?? 0);
+      into.set(node, value);
+      return value;
+    }
+
+    /** What one root's sub-lines need beyond the tree itself. */
+    interface SubTreeContext {
+      categoryId: string;
+      frequency: ImportRoot["frequency"];
+      amounts: Map<ImportNode, number>;
+    }
+
     // Declared outside the loop so it closes over dataUserId/now and the
-    // counters without being rebuilt per root.
-    async function createSubTree(
+    // counters without being rebuilt per root. An expression, not a hoisted
+    // declaration: that is what lets it see `accountId` and `startDate` as the
+    // strings the guards above proved them to be.
+    const createSubTree = async (
       tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
       node: ImportNode,
       allocationId: string,
       parentId: string | null,
       state: { room: number; capHit: boolean },
-    ): Promise<number> {
+      ctx: SubTreeContext,
+    ): Promise<void> => {
       if (state.room <= 0) {
         state.capHit = true;
-        return 0;
+        return;
       }
       state.room--;
       const id = crypto.randomUUID();
-      const amount = effectiveAmount(node);
+      // A marked leaf IS a recurring plan, expressed monthly by the sub-line.
+      // Same rule as everywhere in this endpoint: a plan already on the
+      // account under this category and description is left alone, and the
+      // line imports as an ordinary sub-line rather than doubling it.
+      let recurringId: string | null = null;
+      if (
+        node.recurring &&
+        (node.amount ?? 0) > 0 &&
+        !existingPlanKeys.has(planKey(ctx.categoryId, node.name))
+      ) {
+        existingPlanKeys.add(planKey(ctx.categoryId, node.name));
+        recurringId = crypto.randomUUID();
+        await tx.insert(recurringTransactions).values({
+          id: recurringId,
+          userId: dataUserId,
+          accountId,
+          description: node.name,
+          // Same sign convention as POST /api/recurring and POST /api/budgets.
+          amount: -planAmount(node, ctx.frequency),
+          type: "expense",
+          categoryId: ctx.categoryId,
+          frequency: ctx.frequency,
+          dayOfWeek: null,
+          dayOfMonth: null,
+          monthOfYear: null,
+          startDate,
+          endDate: null,
+          isActive: true,
+          createdAt: now,
+        });
+        fixedPlansCreated++;
+      }
       await tx.insert(budgetSubLines).values({
         id,
         userId: dataUserId,
         allocationId,
         parentId,
         name: node.name,
-        amount,
+        amount: ctx.amounts.get(node) ?? 0,
+        recurringTransactionId: recurringId,
         createdAt: now,
       });
       subLinesCreated++;
       for (const child of node.children) {
-        await createSubTree(tx, child, allocationId, id, state);
+        await createSubTree(tx, child, allocationId, id, state, ctx);
       }
-      return amount;
-    }
+    };
 
     // One transaction for the whole payload. An import is a single user action
     // over a tree the client already validated, so a failure on root 7 of 12
@@ -366,9 +459,20 @@ export async function POST(request: NextRequest) {
         // A duplicate root name later in the payload is reported as
         // alreadyBudgeted instead of inserting a second allocation.
         allocByCategory.set(categoryId, values);
+        const amounts = new Map<ImportNode, number>();
         for (const child of root.children) {
-          await createSubTree(tx, child, allocationId, null, budgetState);
+          resolveAmounts(child, root.frequency, amounts);
         }
+        for (const child of root.children) {
+          await createSubTree(tx, child, allocationId, null, budgetState, {
+            categoryId,
+            frequency: root.frequency,
+            amounts,
+          });
+        }
+        // The allocation adds up from its root sub-lines — never a hand-rolled
+        // sum here. A childless root keeps the amount inserted above.
+        await resyncUpwards(tx, allocationId, dataUserId, null);
         created++;
         if (budgetState.capHit) {
           skipped.push({ name: root.name, reason: "tooManySubLines" });

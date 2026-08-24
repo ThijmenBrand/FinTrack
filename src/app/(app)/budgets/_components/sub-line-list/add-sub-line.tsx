@@ -2,30 +2,30 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { useCreateSubLine } from "@/hooks/use-budgets";
 import { useI18n } from "@/lib/i18n/client";
 import { Plus } from "lucide-react";
 import { Row } from "./row";
 import { SubLineForm } from "./sub-line-form";
 import { useSubLineError } from "./use-sub-line-error";
-import type { Ctx } from "./constants";
+import type { Ctx, TreeActions } from "./constants";
 
 export function AddSubLine({
   ctx,
+  actions,
   parentId,
   depth,
   /** The line this one would sit under; absent at the top level. */
   parentName,
 }: {
   ctx: Ctx;
+  actions: TreeActions;
   parentId: string | null;
   depth: number;
   parentName?: string;
 }) {
   const { t } = useI18n();
-  const create = useCreateSubLine();
   const [open, setOpen] = useState(false);
-  const { error, setError, guard } = useSubLineError();
+  const { error, setError, pending, guard } = useSubLineError();
 
   if (!open) {
     return (
@@ -52,7 +52,7 @@ export function AddSubLine({
     <SubLineForm
       ctx={ctx}
       depth={depth}
-      pending={create.isPending}
+      pending={pending}
       error={error}
       onCancel={() => {
         setError(null);
@@ -60,12 +60,7 @@ export function AddSubLine({
       }}
       onSubmit={async (name, displayAmount) => {
         const ok = await guard(() =>
-          create.mutateAsync({
-            allocationId: ctx.allocationId,
-            parentId,
-            name,
-            amount: ctx.toStored(displayAmount),
-          }),
+          actions.add(parentId, name, ctx.toStored(displayAmount)),
         );
         if (ok) setOpen(false);
       }}

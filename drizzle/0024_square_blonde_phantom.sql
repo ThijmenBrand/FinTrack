@@ -1,0 +1,2 @@
+ALTER TABLE `budget_sub_lines` ADD `recurring_transaction_id` text REFERENCES recurring_transactions(id);--> statement-breakpoint
+CREATE INDEX `idx_budget_sub_lines_recurring` ON `budget_sub_lines` (`recurring_transaction_id`);

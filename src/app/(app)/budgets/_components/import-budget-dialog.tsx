@@ -21,7 +21,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ChevronLeft, ChevronRight, FileSpreadsheet, Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, FileSpreadsheet, Loader2, Repeat } from "lucide-react";
 import type { WorkBook } from "xlsx";
 import { useI18n } from "@/lib/i18n/client";
 import { MAX_USERNAME_LENGTH } from "@/lib/validation";
@@ -35,7 +35,6 @@ import {
   detectRootType,
   effectiveAmount,
   extractTree,
-  findOverAllocated,
   flattenTree,
   MAX_IMPORT_DEPTH,
   MAX_IMPORT_ROWS,
@@ -294,14 +293,6 @@ export function ImportBudgetDialog({
   }, []);
   const keptRows = keptIndices.map((i) => rows[i]);
   const submitRoots = buildSubmitRoots(keptRows, rootConfigs);
-  // Rows whose sub-lines total past them, mapped back to their list position.
-  // `categoryOnly` roots carry no amounts anywhere, so nothing to overspend.
-  const budgeted = keptIndices.filter(
-    (i) => rootConfigs[rows[i].rootIndex]?.type !== "categoryOnly",
-  );
-  const overAllocated = new Set(
-    findOverAllocated(budgeted.map((i) => rows[i])).map((k) => budgeted[k]),
-  );
   // Money going out only: netting income against expenses here would read as a
   // budget total while being neither.
   const total = submitRoots
@@ -310,6 +301,17 @@ export function ImportBudgetDialog({
 
   /** View-only narrowing to the roots detection was unsure about. */
   const isVisible = (row: ReviewRow) => !uncertainOnly || confident[row.rootIndex] === false;
+
+  /**
+   * Where a per-line plan makes sense: a leaf under a `variable` root. Only
+   * those become sub-lines a plan can link to — a root becomes the allocation
+   * itself, a row with children takes its amount from them, and `fixed` and
+   * `income` roots already turn every leaf into a plan.
+   */
+  const canRecur = (row: ReviewRow, index: number) =>
+    row.depth > 0 &&
+    rootConfigs[row.rootIndex]?.type === "variable" &&
+    (index + 1 >= rows.length || rows[index + 1].depth <= row.depth);
 
   const scrollToRow = (index: number) => {
     // The row may be hidden behind the filter; the filter is only a view, so
@@ -332,13 +334,6 @@ export function ImportBudgetDialog({
     if (firstTooLong !== undefined) {
       setError(t("budgetImport.namesTooLong", { max: MAX_USERNAME_LENGTH }));
       scrollToRow(firstTooLong);
-      return;
-    }
-    // The server refuses these too — catching it here points at the row.
-    const firstOver = keptIndices.find((i) => overAllocated.has(i));
-    if (firstOver !== undefined) {
-      setError(t("budgetImport.subLinesExceedParent"));
-      scrollToRow(firstOver);
       return;
     }
     if (keptRows.length > MAX_IMPORT_ROWS) {
@@ -633,12 +628,11 @@ export function ImportBudgetDialog({
                 const tooLong = isNameTooLong(row.name);
                 const config = rootConfigs[row.rootIndex];
                 const conflict = kindConflict(row);
-                const over = overAllocated.has(i);
                 return (
                   <li
                     key={i}
                     data-row={i}
-                    className={`py-1 pr-2 ${row.checked ? "" : "opacity-50"} ${tooLong || over ? "bg-destructive/10" : ""}`}
+                    className={`py-1 pr-2 ${row.checked ? "" : "opacity-50"} ${tooLong ? "bg-destructive/10" : ""}`}
                     style={{ paddingLeft: `${0.5 + row.depth}rem` }}
                   >
                     <div className="flex items-center gap-2">
@@ -653,7 +647,7 @@ export function ImportBudgetDialog({
                         onChange={(e) => updateRow(i, { name: e.target.value })}
                         aria-invalid={tooLong || undefined}
                         aria-describedby={
-                          tooLong || conflict || over ? `row-msg-${i}` : undefined
+                          tooLong || conflict ? `row-msg-${i}` : undefined
                         }
                         className={`h-7 flex-1 px-1 shadow-none focus-visible:ring-1 ${
                           tooLong ? "border border-destructive text-destructive" : "border-0"
@@ -666,16 +660,28 @@ export function ImportBudgetDialog({
                         value={row.amount ?? ""}
                         placeholder="—"
                         aria-label={t("budgetImport.amountColumn")}
-                        aria-invalid={over || undefined}
                         onChange={(e) =>
                           updateRow(i, {
                             amount: e.target.value === "" ? null : parseFloat(e.target.value),
                           })
                         }
-                        className={`h-7 w-28 text-right tabular-nums ${
-                          over ? "border-destructive text-destructive" : ""
-                        }`}
+                        className="h-7 w-28 text-right tabular-nums"
                       />
+                      {canRecur(row, i) && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className={`h-6 w-6 p-0 ${
+                            row.recurring ? "text-primary" : "text-muted-foreground"
+                          }`}
+                          title={t("budgets.import.leafRecurring")}
+                          aria-label={`${t("budgets.import.leafRecurring")} — ${row.name}`}
+                          aria-pressed={!!row.recurring}
+                          onClick={() => updateRow(i, { recurring: !row.recurring })}
+                        >
+                          <Repeat className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="sm"
@@ -734,13 +740,11 @@ export function ImportBudgetDialog({
                       </div>
                     )}
 
-                    {(tooLong || conflict || over) && (
+                    {(tooLong || conflict) && (
                       <p id={`row-msg-${i}`} className="mt-1 text-xs text-destructive">
                         {tooLong
                           ? t("budgetImport.namesTooLong", { max: MAX_USERNAME_LENGTH })
-                          : over
-                            ? t("budgetImport.subLinesExceedParent")
-                            : t("budgetImport.kindConflict")}
+                          : t("budgetImport.kindConflict")}
                       </p>
                     )}
                   </li>

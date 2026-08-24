@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { generateOccurrences, getNextOccurrence } from "./recurring";
+import { generateOccurrences, getNextOccurrence, toMonthly, fromMonthly } from "./recurring";
 
 const d = (y: number, m: number, day: number) => new Date(y, m - 1, day);
 
@@ -134,5 +134,24 @@ describe("getNextOccurrence", () => {
     expect(getNextOccurrence("yearly", "2024-10-14", null, 14, 10, d(2026, 8, 5))).toBe(
       "2026-10-14"
     );
+  });
+});
+
+describe("fromMonthly", () => {
+  const frequencies = ["weekly", "biweekly", "monthly", "yearly"] as const;
+  const amounts = [899, 600, 12.5, 1000];
+
+  for (const frequency of frequencies) {
+    for (const amount of amounts) {
+      it(`round-trips ${amount} through toMonthly/fromMonthly at ${frequency}`, () => {
+        const monthly = toMonthly(amount, frequency);
+        expect(fromMonthly(monthly, frequency)).toBeCloseTo(amount, 2);
+      });
+    }
+  }
+
+  it("is the concrete inverse of toMonthly for a €600/yr bill", () => {
+    expect(toMonthly(600, "yearly")).toBe(50);
+    expect(fromMonthly(50, "yearly")).toBe(600);
   });
 });
