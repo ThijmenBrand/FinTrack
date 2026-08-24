@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import {
-  callerShareOf,
   evenSplitPercents,
   memberSharePercents,
   planIsShared,
@@ -100,42 +99,38 @@ describe("memberSharePercents", () => {
   });
 });
 
-describe("callerShareOf", () => {
-  it("splits an amount by the caller's own percent", () => {
-    expect(callerShareOf(2000, plan("owner", 60))).toBe(1200);
-    expect(callerShareOf(2000, plan("viewer", 40))).toBe(800);
-  });
-
-  it("keeps every side adding back to the whole on a key that does not divide evenly", () => {
-    // 33/33/34 of 100 — the three shares must still reconstruct the budgeted
-    // total, or the shared-budget line would quietly lose (or invent) a euro.
-    const total = [33, 33, 34].reduce((sum, pct) => sum + callerShareOf(100, plan("owner", pct)), 0);
-    expect(total).toBeCloseTo(100, 10);
-  });
-
-  it("splits a negative amount the same way", () => {
-    expect(callerShareOf(-2000, plan("owner", 60))).toBe(-1200);
-  });
-
-  it("passes zero through rather than producing NaN", () => {
-    expect(callerShareOf(0, plan("owner", 60))).toBe(0);
-  });
-
-  it("hands the whole budget to one side at 0 and 100", () => {
-    expect(callerShareOf(2000, plan("owner", 100))).toBe(2000);
-    expect(callerShareOf(2000, plan("viewer", 0))).toBe(0);
-  });
-});
-
 describe("splitShares", () => {
   const LABELS = { you: "You", others: "Others" };
-  const owned = (ownerPct: number, stored: Record<string, number> | null = null) => ({
-    role: "owner" as const,
+  /** Everything a key needs; each test overrides only the side it is about. */
+  const base = {
     accounts: [{ id: "joint", name: "Joint", type: "joint" }],
-    ownerName: null,
+    ownerName: null as string | null,
+    ownerSharePercent: 50,
+    sharePercents: {} as Record<string, number>,
+    sharePercent: 50,
+    splitMode: "percent" as const,
+    ownerShareAmount: null as number | null,
+    shareAmounts: {} as Record<string, number | null>,
+    shareAmount: null as number | null,
+    others: { fixedAmount: 0, restCount: 0 },
+  };
+  const owned = (ownerPct: number, stored: Record<string, number> | null = null) => ({
+    ...base,
+    role: "owner" as const,
     ownerSharePercent: ownerPct,
     sharePercents: stored ?? {},
     sharePercent: ownerPct,
+  });
+  /** An amount-mode plan of the caller's own: null anywhere means "the rest". */
+  const ownedAmounts = (
+    ownerAmount: number | null,
+    members: Record<string, number | null> = {},
+  ) => ({
+    ...base,
+    role: "owner" as const,
+    splitMode: "amount" as const,
+    ownerShareAmount: ownerAmount,
+    shareAmounts: members,
   });
   const jointWith = (...people: { name: string | null; email: string | null }[]) => [
     {
@@ -144,47 +139,70 @@ describe("splitShares", () => {
       sharedWithUsers: people.map((p) => ({ ...p, image: null })),
     },
   ];
+  const pcts = (shares: { name: string; percent: number }[]) =>
+    shares.map((s) => [s.name, s.percent]);
+  const euros = (shares: { name: string; amount: number }[]) =>
+    shares.map((s) => [s.name, s.amount]);
 
   it("is empty on a budget nobody shares", () => {
-    expect(splitShares(owned(50), [{ id: "joint", sharedWith: 0, sharedWithUsers: [] }], LABELS)).toEqual([]);
+    expect(
+      splitShares(owned(50), [{ id: "joint", sharedWith: 0, sharedWithUsers: [] }], LABELS, 1000),
+    ).toEqual([]);
   });
 
   it("names the caller first, then each member on their resolved percent", () => {
-    expect(
-      splitShares(
-        owned(60),
-        jointWith({ name: "Sanne", email: "sanne@x.dev" }),
-        LABELS,
-      ),
-    ).toEqual([
-      { name: "You", percent: 60 },
-      { name: "Sanne", percent: 40 },
+    const shares = splitShares(
+      owned(60),
+      jointWith({ name: "Sanne", email: "sanne@x.dev" }),
+      LABELS,
+      2000,
+    );
+    expect(pcts(shares)).toEqual([
+      ["You", 60],
+      ["Sanne", 40],
     ]);
+    expect(euros(shares)).toEqual([
+      ["You", 1200],
+      ["Sanne", 800],
+    ]);
+  });
+
+  it("marks the caller's own row so a view need not match on the name", () => {
+    const shares = splitShares(
+      owned(60),
+      jointWith({ name: "Sanne", email: "sanne@x.dev" }),
+      LABELS,
+      2000,
+    );
+    expect(shares.map((s) => s.isYou)).toEqual([true, false]);
   });
 
   it("splits by the stored key rather than evenly once one is set", () => {
     expect(
-      splitShares(
-        owned(40, { "a@x.dev": 45 }),
-        jointWith(
-          { name: "Ada", email: "a@x.dev" },
-          { name: "Bo", email: "b@x.dev" },
+      pcts(
+        splitShares(
+          owned(40, { "a@x.dev": 45 }),
+          jointWith(
+            { name: "Ada", email: "a@x.dev" },
+            { name: "Bo", email: "b@x.dev" },
+          ),
+          LABELS,
+          1000,
         ),
-        LABELS,
       ),
     ).toEqual([
-      { name: "You", percent: 40 },
-      { name: "Ada", percent: 45 },
-      { name: "Bo", percent: 15 },
+      ["You", 40],
+      ["Ada", 45],
+      ["Bo", 15],
     ]);
   });
 
   it("shows a pending invite under the address it was sent to", () => {
     expect(
-      splitShares(owned(70), jointWith({ name: null, email: "new@x.dev" }), LABELS),
+      pcts(splitShares(owned(70), jointWith({ name: null, email: "new@x.dev" }), LABELS, 100)),
     ).toEqual([
-      { name: "You", percent: 70 },
-      { name: "new@x.dev", percent: 30 },
+      ["You", 70],
+      ["new@x.dev", 30],
     ]);
   });
 
@@ -200,10 +218,11 @@ describe("splitShares", () => {
         { id: "savings", sharedWith: 1, sharedWithUsers: [person] },
       ],
       LABELS,
+      1000,
     );
-    expect(shares).toEqual([
-      { name: "You", percent: 50 },
-      { name: "Sanne", percent: 50 },
+    expect(pcts(shares)).toEqual([
+      ["You", 50],
+      ["Sanne", 50],
     ]);
   });
 
@@ -216,50 +235,218 @@ describe("splitShares", () => {
           { name: "Bo", email: "b@x.dev" },
         ),
         LABELS,
+        1000,
       );
       expect(shares.reduce((sum, s) => sum + s.percent, 0)).toBe(100);
+      expect(shares.reduce((sum, s) => sum + s.amount, 0)).toBeCloseTo(1000, 10);
     }
+  });
+
+  it("passes a budget of nothing through rather than producing NaN", () => {
+    const shares = splitShares(owned(50), jointWith({ name: "Ada", email: "a@x.dev" }), LABELS, 0);
+    expect(euros(shares)).toEqual([
+      ["You", 0],
+      ["Ada", 0],
+    ]);
   });
 
   it("names the owner and the caller on a shared-in plan, the rest anonymously", () => {
     expect(
-      splitShares(
-        {
-          role: "viewer",
-          accounts: [{ id: "theirs", name: "Joint", type: "joint" }],
-          ownerName: "Thijmen",
-          ownerSharePercent: 50,
-          // Never sent to a member — the other addresses are not theirs to see.
-          sharePercents: {},
-          sharePercent: 30,
-        },
-        [],
-        LABELS,
+      pcts(
+        splitShares(
+          {
+            ...base,
+            role: "viewer",
+            accounts: [{ id: "theirs", name: "Joint", type: "joint" }],
+            ownerName: "Thijmen",
+            ownerSharePercent: 50,
+            // Never sent to a member — the other addresses are not theirs to see.
+            sharePercents: {},
+            sharePercent: 30,
+          },
+          [],
+          LABELS,
+          1000,
+        ),
       ),
     ).toEqual([
-      { name: "Thijmen", percent: 50 },
-      { name: "You", percent: 30 },
-      { name: "Others", percent: 20 },
+      ["Thijmen", 50],
+      ["You", 30],
+      ["Others", 20],
     ]);
   });
 
   it("leaves out the remainder when a shared-in plan has only two sides", () => {
     expect(
-      splitShares(
-        {
-          role: "viewer",
-          accounts: [{ id: "theirs", name: "Joint", type: "joint" }],
-          ownerName: "Thijmen",
-          ownerSharePercent: 65,
-          sharePercents: {},
-          sharePercent: 35,
-        },
-        [],
-        LABELS,
+      pcts(
+        splitShares(
+          {
+            ...base,
+            role: "viewer",
+            accounts: [{ id: "theirs", name: "Joint", type: "joint" }],
+            ownerName: "Thijmen",
+            ownerSharePercent: 65,
+            sharePercents: {},
+            sharePercent: 35,
+          },
+          [],
+          LABELS,
+          1000,
+        ),
       ),
     ).toEqual([
-      { name: "Thijmen", percent: 65 },
-      { name: "You", percent: 35 },
+      ["Thijmen", 65],
+      ["You", 35],
+    ]);
+  });
+});
+
+describe("splitShares — fixed amounts", () => {
+  const LABELS = { you: "You", others: "Others" };
+  const base = {
+    accounts: [{ id: "joint", name: "Joint", type: "joint" }],
+    ownerName: null as string | null,
+    ownerSharePercent: 50,
+    sharePercents: {} as Record<string, number>,
+    sharePercent: 50,
+    splitMode: "amount" as const,
+    ownerShareAmount: null as number | null,
+    shareAmounts: {} as Record<string, number | null>,
+    shareAmount: null as number | null,
+    others: { fixedAmount: 0, restCount: 0 },
+  };
+  const jointWith = (...emails: string[]) => [
+    {
+      id: "joint",
+      sharedWith: emails.length,
+      sharedWithUsers: emails.map((email) => ({ name: email.split("@")[0], email, image: null })),
+    },
+  ];
+  const euros = (shares: { name: string; amount: number }[]) =>
+    shares.map((s) => [s.name, s.amount]);
+
+  it("gives the fixed share what it asks for and the rest to whoever is left", () => {
+    const shares = splitShares(
+      { ...base, role: "owner" as const, ownerShareAmount: 600 },
+      jointWith("ada@x.dev"),
+      LABELS,
+      1463.9,
+    );
+    expect(euros(shares)).toEqual([
+      ["You", 600],
+      ["ada", 863.9],
+    ]);
+    expect(shares.map((s) => s.rest)).toEqual([false, true]);
+  });
+
+  it("reads the fixed share as its percentage of the budget it came out of", () => {
+    const [mine] = splitShares(
+      { ...base, role: "owner" as const, ownerShareAmount: 500 },
+      jointWith("ada@x.dev"),
+      LABELS,
+      2000,
+    );
+    expect(mine.percent).toBe(25);
+  });
+
+  it("splits the whole budget evenly when nobody carries a fixed amount", () => {
+    expect(
+      euros(splitShares({ ...base, role: "owner" as const }, jointWith("ada@x.dev"), LABELS, 1000)),
+    ).toEqual([
+      ["You", 500],
+      ["ada", 500],
+    ]);
+  });
+
+  it("puts a member invited after the key was written on the rest, not on nothing", () => {
+    expect(
+      euros(
+        splitShares(
+          { ...base, role: "owner" as const, ownerShareAmount: 400, shareAmounts: { "ada@x.dev": 200 } },
+          jointWith("ada@x.dev", "new@x.dev"),
+          LABELS,
+          1000,
+        ),
+      ),
+    ).toEqual([
+      ["You", 400],
+      ["ada", 200],
+      ["new", 400],
+    ]);
+  });
+
+  it("hands the cents a division does not come out on to the first on the rest", () => {
+    const shares = splitShares(
+      { ...base, role: "owner" as const },
+      jointWith("ada@x.dev", "bo@x.dev"),
+      LABELS,
+      100,
+    );
+    expect(euros(shares)).toEqual([
+      ["You", 33.34],
+      ["ada", 33.33],
+      ["bo", 33.33],
+    ]);
+    expect(shares.reduce((sum, s) => sum + s.amount, 0)).toBeCloseTo(100, 10);
+  });
+
+  it("leaves the rest at nothing when the fixed shares already exceed the budget", () => {
+    const shares = splitShares(
+      { ...base, role: "owner" as const, ownerShareAmount: 1200 },
+      jointWith("ada@x.dev"),
+      LABELS,
+      1000,
+    );
+    // The overrun is reported by the section that draws this, in words. Nobody
+    // is owed money for being on a shared budget.
+    expect(euros(shares)).toEqual([
+      ["You", 1200],
+      ["ada", 0],
+    ]);
+  });
+
+  it("works out a shared-in caller's rest from the anonymous totals it is given", () => {
+    const shares = splitShares(
+      {
+        ...base,
+        role: "viewer" as const,
+        accounts: [{ id: "theirs", name: "Joint", type: "joint" }],
+        ownerName: "Thijmen",
+        ownerShareAmount: 900,
+        shareAmount: null,
+        others: { fixedAmount: 100, restCount: 0 },
+      },
+      [],
+      LABELS,
+      1500,
+    );
+    expect(euros(shares)).toEqual([
+      ["Thijmen", 900],
+      ["You", 500],
+      ["Others", 100],
+    ]);
+  });
+
+  it("drops the anonymous row when nobody else is on the plan", () => {
+    expect(
+      euros(
+        splitShares(
+          {
+            ...base,
+            role: "viewer" as const,
+            accounts: [{ id: "theirs", name: "Joint", type: "joint" }],
+            ownerName: "Thijmen",
+            ownerShareAmount: 900,
+            shareAmount: null,
+          },
+          [],
+          LABELS,
+          1500,
+        ),
+      ),
+    ).toEqual([
+      ["Thijmen", 900],
+      ["You", 600],
     ]);
   });
 });

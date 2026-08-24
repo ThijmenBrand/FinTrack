@@ -256,6 +256,18 @@ describe("cost-split key — one percentage per person", () => {
       })
     ).rows[0].share_percents;
 
+  const storedAmounts = async (id: string) =>
+    (
+      await testDb.client.execute({
+        sql: "SELECT split_mode, owner_share_amount, share_amounts FROM budget_plans WHERE id = ?",
+        args: [id],
+      })
+    ).rows[0] as unknown as {
+      split_mode: string;
+      owner_share_amount: number | null;
+      share_amounts: string | null;
+    };
+
   const plansOfCaller = async () => {
     const { GET } = await import("./route");
     return (await (await GET()).json()).plans;
@@ -365,6 +377,122 @@ describe("cost-split key — one percentage per person", () => {
     expect(shared.sharePercent).toBe(30);
     // The other members' addresses are not the caller's to see.
     expect(shared.sharePercents).toEqual({});
+  });
+
+  it("stores an amount key and hands the owner back every field of it", async () => {
+    const id = await createPlan();
+    const res = await call("PUT", {
+      id,
+      splitMode: "amount",
+      ownerShareAmount: 600,
+      shareAmounts: { "a@x.dev": null },
+    });
+    expect(res.status).toBe(200);
+    expect(await storedAmounts(id)).toEqual({
+      split_mode: "amount",
+      owner_share_amount: 600,
+      share_amounts: '{"a@x.dev":null}',
+    });
+
+    const plan = (await plansOfCaller()).find((p: { id: string }) => p.id === id);
+    expect(plan.splitMode).toBe("amount");
+    expect(plan.ownerShareAmount).toBe(600);
+    // Null is the answer "they take the rest", not a missing value.
+    expect(plan.shareAmounts).toEqual({ "a@x.dev": null });
+  });
+
+  it("stores an amount key given at creation time, including a null owner", async () => {
+    const res = await call("POST", {
+      name: "Joint",
+      accountIds: ["r-check"],
+      splitMode: "amount",
+      ownerShareAmount: null,
+      shareAmounts: { "a@x.dev": 900 },
+    });
+    expect(res.status).toBe(201);
+    expect(await storedAmounts((await res.json()).id)).toEqual({
+      split_mode: "amount",
+      owner_share_amount: null,
+      share_amounts: '{"a@x.dev":900}',
+    });
+  });
+
+  it("rejects amounts that are not money", async () => {
+    const id = await createPlan();
+    // Infinity and NaN are left out on purpose: JSON turns both into null,
+    // which is the legitimate answer "this person takes the rest".
+    for (const bad of [-1, "600", 1e9, true]) {
+      expect((await call("PUT", { id, ownerShareAmount: bad })).status).toBe(400);
+    }
+    for (const bad of [{ "a@x.dev": -1 }, { "a@x.dev": "600" }, [600]]) {
+      expect((await call("PUT", { id, shareAmounts: bad })).status).toBe(400);
+    }
+    expect((await call("PUT", { id, splitMode: "euros" })).status).toBe(400);
+    expect(await storedAmounts(id)).toEqual({
+      split_mode: "percent",
+      owner_share_amount: null,
+      share_amounts: null,
+    });
+  });
+
+  it("drops amounts for people the plan is not shared with", async () => {
+    const now = new Date().toISOString();
+    const id = await createPlan();
+    await testDb.client.execute({
+      sql: "UPDATE accounts SET budget_id = ? WHERE id = 'r-check'",
+      args: [id],
+    });
+    await testDb.client.execute({
+      sql: `INSERT INTO account_members (id, account_id, user_id, email, role, accepted_at, created_at)
+            VALUES ('pm1', 'r-check', NULL, 'real@x.dev', 'viewer', NULL, ?)`,
+      args: [now],
+    });
+
+    expect(
+      (
+        await call("PUT", {
+          id,
+          splitMode: "amount",
+          ownerShareAmount: null,
+          shareAmounts: { "real@x.dev": 400, "ghost@x.dev": 100 },
+        })
+      ).status,
+    ).toBe(200);
+    expect((await storedAmounts(id)).share_amounts).toBe('{"real@x.dev":400}');
+  });
+
+  it("gives a shared-in member their own amount and the others as one total", async () => {
+    const now = new Date().toISOString();
+    await testDb.client.execute({
+      sql: `INSERT INTO "user" (id, name, email, created_at, updated_at) VALUES ('other', 'Other', 'other@x.dev', ?, ?)`,
+      args: [Date.now(), Date.now()],
+    });
+    await testDb.client.execute({
+      sql: `INSERT INTO budget_plans (id, user_id, name, is_main, period, owner_share_percent, split_mode, owner_share_amount, share_amounts, created_at, updated_at)
+            VALUES ('their-plan', 'other', 'Theirs', 1, 'monthly', 50, 'amount', 900, '{"me@x.dev":null,"third@x.dev":100}', ?, ?)`,
+      args: [now, now],
+    });
+    await testDb.client.execute({
+      sql: `INSERT INTO accounts (id, user_id, name, type, currency, initial_balance, sort_order, budget_id, created_at, updated_at)
+            VALUES ('their-joint', 'other', 'Joint', 'joint', 'EUR', 0, 0, 'their-plan', ?, ?)`,
+      args: [now, now],
+    });
+    await testDb.client.execute({
+      sql: `INSERT INTO account_members (id, account_id, user_id, email, role, accepted_at, created_at)
+            VALUES ('m1', 'their-joint', ?, 'me@x.dev', 'viewer', ?, ?), ('m2', 'their-joint', NULL, 'third@x.dev', 'viewer', NULL, ?)`,
+      args: [USER, now, now, now],
+    });
+
+    const shared = (await plansOfCaller()).find(
+      (p: { id: string }) => p.id === "their-plan",
+    );
+    expect(shared.splitMode).toBe("amount");
+    expect(shared.ownerShareAmount).toBe(900);
+    // The caller is on the rest, and gets the others' fixed euros as one
+    // anonymous total so they can work out what that rest comes to.
+    expect(shared.shareAmount).toBeNull();
+    expect(shared.others).toEqual({ fixedAmount: 100, restCount: 0 });
+    expect(shared.shareAmounts).toEqual({});
   });
 
   it("falls back to an even slice of the remainder for a member with no key", async () => {

@@ -69,6 +69,22 @@ export const budgetPlans = sqliteTable("budget_plans", {
   // (which is exactly the old two-party behaviour).
   // ponytail: JSON blob, not a join table — nothing queries it by member.
   sharePercents: text("share_percents"),
+  // Which unit the key above is read in. "percent" is the columns just above;
+  // "amount" is the two below — one household splits a budget by proportion,
+  // another by "you pay the rent, I pay the rest", and neither can be
+  // expressed as the other: a fixed amount that stayed a percentage would
+  // move the moment the budget did.
+  splitMode: text("split_mode", { enum: ["percent", "amount"] })
+    .notNull()
+    .default("percent"),
+  // Euros per period the OWNER carries, in amount mode. NULL means they carry
+  // whatever the fixed amounts leave — the remainder is split evenly between
+  // everyone left NULL, which for the usual pair is exactly "A pays 600, B
+  // pays the rest", and for nobody-set is an even split.
+  ownerShareAmount: real("owner_share_amount"),
+  // The rest of the key in amount mode: JSON `{"<email>": euros | null}`,
+  // keyed like share_percents. Same NULL rule as the owner's column.
+  shareAmounts: text("share_amounts"),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),

@@ -81,6 +81,9 @@ export async function setupTestDb(name: string): Promise<TestDb> {
       period_started_at TEXT,
       owner_share_percent INTEGER NOT NULL DEFAULT 50,
       share_percents TEXT,
+      split_mode TEXT NOT NULL DEFAULT 'percent',
+      owner_share_amount REAL,
+      share_amounts TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )`,

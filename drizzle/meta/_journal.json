@@ -176,6 +176,13 @@
       "when": 1787514894519,
       "tag": "0024_square_blonde_phantom",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1787606839408,
+      "tag": "0025_budget_split_amounts",
+      "breakpoints": true
     }
   ]
 }

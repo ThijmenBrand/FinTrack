@@ -14,6 +14,10 @@ import { memberSharePercents } from "@/lib/budget-split";
 
 const MAX_NAME_LENGTH = 60;
 const MAX_SHARE_MEMBERS = 50;
+/** A ceiling on one person's fixed share, in euros per period. */
+const MAX_SHARE_AMOUNT = 10_000_000;
+const SPLIT_MODES = ["percent", "amount"] as const;
+type SplitMode = (typeof SPLIT_MODES)[number];
 const PERIODS = ["monthly", "yearly"] as const;
 type PlanPeriod = (typeof PERIODS)[number];
 
@@ -48,6 +52,55 @@ function shareTotalIs100(owner: number, shares: Record<string, number>): boolean
 }
 
 /**
+ * One entry of an amount key: euros this person carries every period, or null
+ * for "whatever is left". Capped well above any household budget — the point
+ * is to reject nonsense and overflow, not to have an opinion about rent.
+ */
+function isShareAmount(v: unknown): v is number | null {
+  return (
+    v === null ||
+    (typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= MAX_SHARE_AMOUNT)
+  );
+}
+
+/** Per-member euros, keyed like `sharePercents`. */
+function isAmountMap(v: unknown): v is Record<string, number | null> {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return false;
+  const entries = Object.entries(v);
+  return (
+    entries.length <= MAX_SHARE_MEMBERS &&
+    entries.every(
+      ([email, amount]) =>
+        email.length > 0 && email.length <= 254 && isShareAmount(amount),
+    )
+  );
+}
+
+function isSplitMode(v: unknown): v is SplitMode {
+  return typeof v === "string" && (SPLIT_MODES as readonly string[]).includes(v);
+}
+
+/**
+ * The amount side of a submitted key, or the message to send back. Unlike the
+ * percentages there is no total to reconcile: whoever is left null carries
+ * what the fixed shares leave, so any set of amounts resolves — the budget
+ * being smaller than the fixed shares is a thing the page reports, not a save
+ * the API can refuse without losing the number the user just typed.
+ */
+function amountKeyError(mode: unknown, owner: unknown, members: unknown): string | null {
+  if (mode !== undefined && !isSplitMode(mode)) {
+    return "splitMode must be 'percent' or 'amount'";
+  }
+  if (owner !== undefined && !isShareAmount(owner)) {
+    return `ownerShareAmount must be null or a number between 0 and ${MAX_SHARE_AMOUNT}`;
+  }
+  if (members !== undefined && !isAmountMap(members)) {
+    return "shareAmounts must be null or numbers keyed by email";
+  }
+  return null;
+}
+
+/**
  * Invite addresses the plan's accounts are currently shared with — the only
  * keys a stored cost-split key may carry. Revoked invites are left out; a
  * pending one counts, since it is already shown on the plan.
@@ -72,6 +125,16 @@ function parseShares(json: string | null): Record<string, number> {
   try {
     const parsed = JSON.parse(json);
     return isShareMap(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function parseAmounts(json: string | null): Record<string, number | null> {
+  if (!json) return {};
+  try {
+    const parsed = JSON.parse(json);
+    return isAmountMap(parsed) ? parsed : {};
   } catch {
     return {};
   }
@@ -115,6 +178,12 @@ async function listPlans(userId: string) {
     ownerSharePercent: p.ownerSharePercent,
     sharePercents: parseShares(p.sharePercents),
     sharePercent: p.ownerSharePercent,
+    splitMode: p.splitMode,
+    ownerShareAmount: p.ownerShareAmount,
+    shareAmounts: parseAmounts(p.shareAmounts),
+    shareAmount: p.ownerShareAmount,
+    // The owner sees the whole key by name, so there is no anonymous rest.
+    others: { fixedAmount: 0, restCount: 0 },
     createdAt: p.createdAt,
     role: "owner" as "owner" | "viewer",
     ownerName: null as string | null,
@@ -167,6 +236,17 @@ async function listPlans(userId: string) {
         plan.ownerSharePercent,
         parseShares(plan.sharePercents),
       );
+      // The amount key, as much of it as is the caller's to see: their own
+      // euros, the owner's, and everybody else's rolled into one total. Named
+      // shares would hand out the other members' addresses; without the total,
+      // a caller who is on "the rest" could not work out what they owe.
+      const amounts = parseAmounts(plan.shareAmounts);
+      const myAmount = myEmail ? (amounts[myEmail] ?? null) : null;
+      const otherEmails = emails.filter((e) => e !== myEmail);
+      const others = {
+        fixedAmount: otherEmails.reduce((sum, e) => sum + (amounts[e] ?? 0), 0),
+        restCount: otherEmails.filter((e) => amounts[e] == null).length,
+      };
       return {
         id: plan.id,
         name: plan.name,
@@ -178,6 +258,11 @@ async function listPlans(userId: string) {
         // caller's to see.
         sharePercents: {} as Record<string, number>,
         sharePercent: myEmail ? (resolved[myEmail] ?? 0) : 100 - plan.ownerSharePercent,
+        splitMode: plan.splitMode,
+        ownerShareAmount: plan.ownerShareAmount,
+        shareAmounts: {} as Record<string, number | null>,
+        shareAmount: myAmount,
+        others,
         createdAt: plan.createdAt,
         role: "viewer" as const,
         ownerName,
@@ -250,12 +335,24 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   return withUser(async (userId) => {
     const body = await request.json();
-    const { name, accountIds, period, ownerSharePercent, sharePercents } = body as {
+    const {
+      name,
+      accountIds,
+      period,
+      ownerSharePercent,
+      sharePercents,
+      splitMode,
+      ownerShareAmount,
+      shareAmounts,
+    } = body as {
       name?: unknown;
       accountIds?: unknown;
       period?: unknown;
       ownerSharePercent?: unknown;
       sharePercents?: unknown;
+      splitMode?: unknown;
+      ownerShareAmount?: unknown;
+      shareAmounts?: unknown;
     };
 
     if (!validName(name)) {
@@ -285,6 +382,10 @@ export async function POST(request: NextRequest) {
       !shareTotalIs100(isSharePercent(ownerSharePercent) ? ownerSharePercent : 50, sharePercents)
     ) {
       return NextResponse.json({ error: "the cost split must add up to 100%" }, { status: 400 });
+    }
+    const amountError = amountKeyError(splitMode, ownerShareAmount, shareAmounts);
+    if (amountError) {
+      return NextResponse.json({ error: amountError }, { status: 400 });
     }
     const planPeriod: PlanPeriod = isPeriod(period) ? period : "monthly";
     const ids = Array.isArray(accountIds)
@@ -326,6 +427,15 @@ export async function POST(request: NextRequest) {
       ...(isShareMap(sharePercents)
         ? { sharePercents: JSON.stringify(sharePercents) }
         : {}),
+      ...(isSplitMode(splitMode) ? { splitMode } : {}),
+      // Sent as null on purpose — the owner carries the rest — so the key is
+      // written whenever the field is present, not whenever it is truthy.
+      ...(ownerShareAmount !== undefined
+        ? { ownerShareAmount: ownerShareAmount as number | null }
+        : {}),
+      ...(shareAmounts !== undefined
+        ? { shareAmounts: JSON.stringify(shareAmounts) }
+        : {}),
     });
 
     const accountError = await setPlanAccounts(userId, id, ids);
@@ -362,16 +472,29 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   return withUser(async (userId) => {
     const body = await request.json();
-    const { id, name, accountIds, isMain, period, ownerSharePercent, sharePercents } =
-      body as {
-        id?: unknown;
-        name?: unknown;
-        accountIds?: unknown;
-        isMain?: unknown;
-        period?: unknown;
-        ownerSharePercent?: unknown;
-        sharePercents?: unknown;
-      };
+    const {
+      id,
+      name,
+      accountIds,
+      isMain,
+      period,
+      ownerSharePercent,
+      sharePercents,
+      splitMode,
+      ownerShareAmount,
+      shareAmounts,
+    } = body as {
+      id?: unknown;
+      name?: unknown;
+      accountIds?: unknown;
+      isMain?: unknown;
+      period?: unknown;
+      ownerSharePercent?: unknown;
+      sharePercents?: unknown;
+      splitMode?: unknown;
+      ownerShareAmount?: unknown;
+      shareAmounts?: unknown;
+    };
 
     if (typeof id !== "string" || !id) {
       return NextResponse.json({ error: "Plan ID is required" }, { status: 400 });
@@ -425,7 +548,17 @@ export async function PUT(request: NextRequest) {
 
     // The cost-split key. Owner-only by construction: this route never
     // resolves anything but the caller's own plans.
-    if (ownerSharePercent !== undefined || sharePercents !== undefined) {
+    if (
+      ownerSharePercent !== undefined ||
+      sharePercents !== undefined ||
+      splitMode !== undefined ||
+      ownerShareAmount !== undefined ||
+      shareAmounts !== undefined
+    ) {
+      const amountError = amountKeyError(splitMode, ownerShareAmount, shareAmounts);
+      if (amountError) {
+        return NextResponse.json({ error: amountError }, { status: 400 });
+      }
       if (ownerSharePercent !== undefined && !isSharePercent(ownerSharePercent)) {
         return NextResponse.json(
           { error: "ownerSharePercent must be a whole number between 0 and 100" },
@@ -463,12 +596,30 @@ export async function PUT(request: NextRequest) {
       if (Object.keys(members).length > 0 && !shareTotalIs100(owner, members)) {
         return NextResponse.json({ error: "the cost split must add up to 100%" }, { status: 400 });
       }
+      // Amounts get the same narrowing for the same reason: a key that keeps
+      // accumulating revoked addresses would hand part of the budget to
+      // people who left it.
+      const submittedAmounts = isAmountMap(shareAmounts)
+        ? shareAmounts
+        : parseAmounts(plan.shareAmounts);
+      const memberAmounts = memberEmails.size
+        ? Object.fromEntries(
+            Object.entries(submittedAmounts).filter(([email]) => memberEmails.has(email)),
+          )
+        : submittedAmounts;
       await db
         .update(budgetPlans)
         .set({
           ownerSharePercent: owner,
           ...(sharePercents !== undefined
             ? { sharePercents: JSON.stringify(members) }
+            : {}),
+          ...(isSplitMode(splitMode) ? { splitMode } : {}),
+          ...(ownerShareAmount !== undefined
+            ? { ownerShareAmount: ownerShareAmount as number | null }
+            : {}),
+          ...(shareAmounts !== undefined
+            ? { shareAmounts: JSON.stringify(memberAmounts) }
             : {}),
           updatedAt: new Date().toISOString(),
         })
@@ -505,7 +656,17 @@ export async function PUT(request: NextRequest) {
       action: "budget_plan_update",
       targetId: id,
       targetType: "budget_plan",
-      details: { name, isMain, accountIds, period, ownerSharePercent, sharePercents },
+      details: {
+        name,
+        isMain,
+        accountIds,
+        period,
+        ownerSharePercent,
+        sharePercents,
+        splitMode,
+        ownerShareAmount,
+        shareAmounts,
+      },
     });
 
     return NextResponse.json({ success: true });
