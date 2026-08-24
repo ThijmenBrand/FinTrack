@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus } from "lucide-react";
+import { Loader2, Plus } from "lucide-react";
 import type { Account, CategoryWithDetails, RecurringTx } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
 
@@ -311,6 +311,7 @@ function RecurringFormBody({
           onClick={handleSubmit}
           disabled={!fAccountId || !fDescription || !fAmount || submitting}
         >
+          {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           {editing ? t("accounts.saveChanges") : t("common.create")}
         </Button>
       </DialogFooter>

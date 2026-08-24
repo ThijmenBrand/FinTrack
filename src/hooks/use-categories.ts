@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import { apiFetch } from "@/lib/api";
 import { useAccounts } from "@/hooks/use-accounts";
 import type {
+  Account,
   CategoryKind,
   CategoryWithDetails,
   RuleWithCategory,
@@ -68,10 +69,16 @@ export function useAccountCategories() {
   }, [categories, accounts]);
 }
 
+/**
+ * Creates a category optimistically: the caller passes the `id`, so it can
+ * select the new category before the request lands. The row goes into every
+ * cached category list right away and is pulled back out if the POST fails.
+ */
 export function useCreateCategory(accountId?: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (payload: {
+      id: string;
       name: string;
       color: string;
       icon: string | null;
@@ -82,7 +89,49 @@ export function useCreateCategory(accountId?: string) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(accountId ? { ...payload, accountId } : payload),
       }),
-    onSuccess: () => {
+    onMutate: async (payload) => {
+      await qc.cancelQueries({ queryKey: ["categories"] });
+      const previous = qc.getQueriesData<CategoryWithDetails[]>({ queryKey: ["categories"] });
+
+      // The owner decides which group the row lands in under ?scope=visible:
+      // the account's owner when we're working on one, else our own — read off
+      // our own cached list. An owner we can't resolve (nothing cached yet)
+      // only costs the row its place in that grouped list.
+      const accounts = qc.getQueryData<Account[]>(["accounts"]) ?? [];
+      const userId =
+        (accountId
+          ? accounts.find((a) => a.id === accountId)?.userId
+          : qc.getQueryData<CategoryWithDetails[]>(["categories", null])?.[0]?.userId) ?? "";
+
+      const optimistic: CategoryWithDetails = {
+        id: payload.id,
+        name: payload.name,
+        color: payload.color,
+        icon: payload.icon,
+        kind: payload.kind ?? "expense",
+        userId,
+        createdAt: new Date().toISOString(),
+        transactionCount: 0,
+        rules: [],
+      };
+
+      // Only the lists this category actually belongs to: the scope it was
+      // created in, plus the cross-account one that groups by owner. Another
+      // account's list would be showing someone else's category.
+      const scope = accountId ?? null;
+      for (const [key, data] of previous) {
+        const keyScope = (key as [string, string | null])[1];
+        if (!data || (keyScope !== scope && keyScope !== "visible")) continue;
+        qc.setQueryData<CategoryWithDetails[]>(key, [...data, optimistic]);
+      }
+      return { previous };
+    },
+    onError: (_err, _vars, ctx) => {
+      // Anything already pointing at the rolled-back id falls back to its
+      // "no category" state, since the id now matches nothing in the list.
+      for (const [key, data] of ctx?.previous ?? []) qc.setQueryData(key, data);
+    },
+    onSettled: () => {
       qc.invalidateQueries({ queryKey: ["categories"] });
       qc.invalidateQueries({ queryKey: ["budgets"] });
     },

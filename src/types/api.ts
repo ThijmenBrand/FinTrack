@@ -454,6 +454,8 @@ export interface UnbudgetedSpending {
 }
 
 export type BudgetPlanPeriod = "monthly" | "yearly";
+/** How a shared budget's cost split is read: proportions, or euros per period. */
+export type SplitMode = "percent" | "amount";
 
 /** How a category's yearly envelope is doing — see budget-ledger.ts. */
 export type EnvelopeStatus = "ok" | "month-over" | "year-over";
@@ -565,6 +567,24 @@ export interface BudgetPlanData {
   sharePercents: Record<string, number>;
   /** The CALLER's own percent of this plan — resolved server-side. */
   sharePercent: number;
+  /**
+   * Which unit the key is read in. "amount" swaps the four percentages above
+   * for the four fields below: everyone's euros per period, with whoever has
+   * none set carrying whatever the fixed shares leave.
+   */
+  splitMode: SplitMode;
+  /** Euros per period the OWNER carries; null means they carry the rest. */
+  ownerShareAmount: number | null;
+  /** Euros per member, keyed by invite email; null means the rest. Empty on plans you don't own. */
+  shareAmounts: Record<string, number | null>;
+  /** The CALLER's own euros; null means they carry the rest. */
+  shareAmount: number | null;
+  /**
+   * Everyone else on a plan you don't own, as one anonymous total: their
+   * addresses are not yours to see, but without their fixed euros the rest
+   * you carry can't be worked out.
+   */
+  others: { fixedAmount: number; restCount: number };
   createdAt: string;
   accounts: { id: string; name: string; type: string }[];
   /** "owner" for the user's own plans; "editor"/"viewer" for plans reached through a shared account. */

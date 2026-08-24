@@ -84,7 +84,7 @@ function CategoryForm({
     if (isPending) return;
     setError(null);
     const payload: Record<string, unknown> = {
-      ...(category ? { id: category.id } : {}),
+      id: category?.id ?? crypto.randomUUID(),
       name,
       color,
       icon,

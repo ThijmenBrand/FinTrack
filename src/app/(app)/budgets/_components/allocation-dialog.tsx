@@ -15,7 +15,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { CategoryPicker } from "@/components/category-picker";
-import { Plus, Repeat } from "lucide-react";
+import { Loader2, Plus, Repeat } from "lucide-react";
 import { useI18n } from "@/lib/i18n/client";
 import { useAccounts } from "@/hooks/use-accounts";
 import { useBudgetPlans } from "@/hooks/use-budget-plans";
@@ -137,6 +137,10 @@ export function AllocationDialog({
   const [draft, setDraft] = useState<DraftLine[]>([]);
   const [recurringFor, setRecurringFor] = useState<RecurringTarget | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Covers the whole submit, not just this dialog's own POST: onCreate and
+  // onUpdate are the caller's mutations, and those are the paths a plain
+  // allocation takes.
+  const [saving, setSaving] = useState(false);
 
   const createBudget = useCreateBudget();
   const createRecurring = useCreateRecurring();
@@ -252,23 +256,28 @@ export function AllocationDialog({
     });
 
   const handleSubmit = async () => {
-    if (stored === null || stored <= 0) return;
-    if (editingAlloc) {
-      await onUpdate(editingAlloc.id, stored);
-    } else if (draft.length > 0) {
-      const ok = await attempt(() =>
-        createBudget.mutateAsync({
-          categoryId,
-          amount: stored,
-          budgetId,
-          children: toChildInput(draft),
-        }),
-      );
-      if (!ok) return;
-    } else {
-      await onCreate(categoryId, stored);
+    if (stored === null || stored <= 0 || saving) return;
+    setSaving(true);
+    try {
+      if (editingAlloc) {
+        await onUpdate(editingAlloc.id, stored);
+      } else if (draft.length > 0) {
+        const ok = await attempt(() =>
+          createBudget.mutateAsync({
+            categoryId,
+            amount: stored,
+            budgetId,
+            children: toChildInput(draft),
+          }),
+        );
+        if (!ok) return;
+      } else {
+        await onCreate(categoryId, stored);
+      }
+      handleOpenChange(false);
+    } finally {
+      setSaving(false);
     }
-    handleOpenChange(false);
   };
 
   const handleRecurringSubmit = async (payload: Record<string, unknown>) => {
@@ -588,9 +597,13 @@ export function AllocationDialog({
               stored === null ||
               stored <= 0 ||
               (!editingAlloc && !categoryId) ||
+              saving ||
+              // An adopt or a make-recurring is still writing the tree this
+              // would save the total of.
               createBudget.isPending
             }
           >
+            {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {editingAlloc ? t("common.save") : t("budgets.alloc.allocate")}
           </Button>
         </DialogFooter>

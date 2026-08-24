@@ -211,7 +211,10 @@ export function BudgetRow({
                   <span className="truncate" title={person.name}>
                     {person.name}
                   </span>
-                  <span className="tabular-nums">{person.percent}%</span>
+                  {/* Rounded for the eye only: the euros beside it are worked
+                      out from the exact share, so a key set in amounts (where
+                      the percentage is derived) still adds back to the line. */}
+                  <span className="tabular-nums">{Math.round(person.percent)}%</span>
                   <span className="text-right font-medium tabular-nums text-foreground">
                     {formatCurrency((limit * person.percent) / 100)}
                   </span>

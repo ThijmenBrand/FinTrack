@@ -66,7 +66,7 @@ import {
   fixedCostStatus,
   linkedRecurringIds,
 } from "./_components/budget-row";
-import { callerShareOf, planIsShared, splitShares } from "@/lib/budget-split";
+import { splitShares } from "@/lib/budget-split";
 import { BudgetSwitcher } from "./_components/budget-switcher";
 import { PeriodNav, type PeriodScope } from "./_components/period-nav";
 import { BudgetPlanDialog } from "./_components/budget-plan-dialog";
@@ -74,6 +74,7 @@ import { BudgetWizard } from "./_components/budget-wizard";
 import { SimpleHero } from "./_components/simple-hero";
 import { MonthStats, YearStats } from "./_components/budget-stats";
 import { NoticeLine } from "./_components/notice-line";
+import { SplitSummary } from "./_components/split-summary";
 import { EmptyGenerateNotice } from "./_components/empty-generate-notice";
 import { formatRelative, getFinancialMonthForOffset } from "./_components/dates";
 
@@ -477,16 +478,6 @@ function BudgetsPageInner() {
   // pre-plan users) stay fully editable.
   const canEdit = activePlan ? activePlan.role !== "viewer" : true;
 
-  // Who carries this budget, for the split under every spending row. The
-  // amounts on the rows themselves stay whole — this is the same money read
-  // per person, so the columns always add back to the line above them.
-  const split = activePlan
-    ? splitShares(activePlan, accountsData ?? [], {
-        you: t("budgets.plan.splitYou"),
-        others: t("budgets.split.others"),
-      })
-    : [];
-
   // Import only ever creates rows, so it is only offered on a budget with no
   // allocations of its own. Fixed costs and income lines deliberately don't
   // count: those come from recurring plans, which hang off ACCOUNTS rather
@@ -543,6 +534,20 @@ function BudgetsPageInner() {
   // up to, so the stats and the list header can no longer drift apart.
   const headlineLimit = listLimit;
   const headlineSpent = listSpent;
+
+  // Who carries this budget, for the split under every spending row. The
+  // amounts on the rows themselves stay whole — this is the same money read
+  // per person, so the columns always add back to the line above them.
+  const split = activePlan
+    ? splitShares(
+        activePlan,
+        accountsData ?? [],
+        { you: t("budgets.plan.splitYou"), others: t("budgets.split.others") },
+        // The period on screen, so the euros in the summary and the euros on
+        // the rows are slices of the same budget.
+        headlineLimit,
+      )
+    : [];
 
   const periodLabel = isYearly
     ? yearScope
@@ -631,18 +636,6 @@ function BudgetsPageInner() {
           />
         )}
 
-        {/* A shared budget is planned whole but paid in parts. The split key
-            says which part is yours — the rows below stay the full amounts. */}
-        {activePlan && planIsShared(activePlan, accountsData ?? []) && (
-          <p className="text-xs text-muted-foreground">
-            {t("budgets.split.yourShare", {
-              pct: activePlan.sharePercent,
-              limit: formatCurrency(callerShareOf(headlineLimit, activePlan)),
-              spent: formatCurrency(callerShareOf(headlineSpent, activePlan)),
-            })}
-          </p>
-        )}
-
         {/* Every "avg /mo" in the rows below is computed from this date
             onward. Saying so once here beats repeating it on each row. */}
         {data.statsCutoff && (
@@ -654,6 +647,12 @@ function BudgetsPageInner() {
           </p>
         )}
       </div>
+
+      {/* A shared budget is planned whole but paid in parts. The stats above
+          are the whole; this is the same period read per person, so the
+          question "what do I owe this month" has an answer on the page rather
+          than one hiding behind every category row. */}
+      <SplitSummary shares={split} total={headlineLimit} spent={headlineSpent} />
 
       {!yearly && data.unallocated < 0 && (
         <NoticeLine icon={AlertTriangle}>

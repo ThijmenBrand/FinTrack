@@ -1,10 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/lib/i18n/client";
 import { toMonthly } from "@/lib/recurring";
 import type { RecurringTx } from "@/types/api";
-import { Plus } from "lucide-react";
+import { Loader2, Plus } from "lucide-react";
 import { cents } from "./constants";
 
 /**
@@ -32,9 +33,13 @@ export function AdoptList({
   /** Plans already standing in the tree — nothing left to offer for those. */
   adoptedIds: Set<string>;
   toDisplay: (stored: number) => number;
-  onAdopt: (plan: RecurringTx) => void;
+  /** Writes straight through on a saved allocation, so it can be in flight. */
+  onAdopt: (plan: RecurringTx) => void | Promise<unknown>;
 }) {
   const { t, formatCurrency } = useI18n();
+  // Which plan is being written. The whole list locks while one is: the rows
+  // re-order as plans drop out, and a second click would land on a moved row.
+  const [adopting, setAdopting] = useState<string | null>(null);
   const offered = plans.filter((p) => !adoptedIds.has(p.id));
   if (offered.length === 0) return null;
 
@@ -56,9 +61,21 @@ export function AdoptList({
             variant="ghost"
             size="sm"
             className="h-7 shrink-0 px-2 text-xs"
-            onClick={() => onAdopt(plan)}
+            disabled={adopting !== null}
+            onClick={async () => {
+              setAdopting(plan.id);
+              try {
+                await onAdopt(plan);
+              } finally {
+                setAdopting(null);
+              }
+            }}
           >
-            <Plus className="mr-1 h-3 w-3" />
+            {adopting === plan.id ? (
+              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+            ) : (
+              <Plus className="mr-1 h-3 w-3" />
+            )}
             {t("budgets.subLines.adopt")}
           </Button>
         </div>

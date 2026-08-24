@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
-import type { BudgetPlanData, BudgetPlanPeriod } from "@/types/api";
+import type { BudgetPlanData, BudgetPlanPeriod, SplitMode } from "@/types/api";
 
 export function useBudgetPlans() {
   return useQuery({
@@ -29,6 +29,9 @@ export function useCreateBudgetPlan() {
       period?: BudgetPlanPeriod;
       ownerSharePercent?: number;
       sharePercents?: Record<string, number>;
+      splitMode?: SplitMode;
+      ownerShareAmount?: number | null;
+      shareAmounts?: Record<string, number | null>;
     }) =>
       apiFetch<{ success: boolean; id: string }>("/api/budget-plans", {
         method: "POST",
@@ -50,6 +53,9 @@ export function useUpdateBudgetPlan() {
       period?: BudgetPlanPeriod;
       ownerSharePercent?: number;
       sharePercents?: Record<string, number>;
+      splitMode?: SplitMode;
+      ownerShareAmount?: number | null;
+      shareAmounts?: Record<string, number | null>;
     }) =>
       apiFetch("/api/budget-plans", {
         method: "PUT",
