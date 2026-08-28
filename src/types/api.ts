@@ -318,6 +318,8 @@ export interface RecurringTx {
   amount: number;
   type: string;
   categoryId: string | null;
+  /** Null when the plan has no category. "transfer" = counts on neither side. */
+  categoryKind: CategoryKind | null;
   categoryName: string | null;
   categoryColor: string | null;
   frequency: string;

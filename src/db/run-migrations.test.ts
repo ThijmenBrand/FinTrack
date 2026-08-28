@@ -271,6 +271,24 @@ describe("run-migrations pipeline", () => {
     expect(await columnNames("budget_plans")).toContain("share_percents");
   });
 
+  it("repairs a category whose kind fell outside the enum", async () => {
+    // 0027. The settings list groups strictly by kind, so a row with any other
+    // value is filtered out of every group — invisible, while the heading still
+    // counts it. Budgets, insights and transfer detection ask by kind too.
+    await client.execute("UPDATE categories SET kind = 'bogus' WHERE kind = 'expense'");
+    await client.execute({
+      sql: "DELETE FROM __drizzle_migrations WHERE created_at >= ?",
+      args: [journal.entries[27].when],
+    });
+
+    await runMigrations();
+
+    const kinds = await client.execute(
+      "SELECT kind, count(*) n FROM categories GROUP BY kind ORDER BY kind",
+    );
+    expect(kinds.rows.map((r) => r.kind)).toEqual(["expense", "income", "transfer"]);
+  });
+
   it("recovers when an earlier migration is pending and a later column exists", async () => {
     // The state the previous recovery could not reach: 0019 genuinely never
     // ran, but `categories.kind` (0021) is already there — added out of band,

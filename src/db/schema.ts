@@ -159,6 +159,14 @@ export const transactions = sqliteTable("transactions", {
   }).notNull(),
   // Link to the matching transaction in another account (for internal transfers)
   linkedTransactionId: text("linked_transaction_id"),
+  // Set when the user pressed "Not a transfer" on this row. detectTransfers
+  // runs on every import commit, so without this the next CSV would re-pair
+  // the two legs and wipe the categories the user set on both.
+  // ponytail: per row, not per pair — the pair link is gone by then. Means the
+  // row is out of detection for good; add an un-dismiss if that ever bites.
+  transferDismissed: integer("transfer_dismissed", { mode: "boolean" })
+    .notNull()
+    .default(false),
   // Link to the expense this transaction reimburses (for split bills)
   reimbursesTransactionId: text("reimburses_transaction_id"),
   notes: text("notes"),

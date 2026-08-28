@@ -182,6 +182,16 @@ export function getNextOccurrence(
   const ref = new Date(refDate);
   ref.setHours(0, 0, 0, 0);
 
+  // A plan that hasn't started yet can't recur before its start date. Walk
+  // from the day before startDate so every branch below still steps forward
+  // onto the start date itself when that is the first occurrence.
+  const start = new Date(startDate);
+  start.setHours(0, 0, 0, 0);
+  if (start > ref) {
+    ref.setTime(start.getTime());
+    ref.setDate(ref.getDate() - 1);
+  }
+
   switch (frequency) {
     case "weekly": {
       const targetDow = dayOfWeek ?? new Date(startDate).getDay();
@@ -233,4 +243,30 @@ export function getNextOccurrence(
     default:
       return startDate;
   }
+}
+
+/** Nominal length of one cycle, used to decide which occurrence a payment settles. */
+const PERIOD_DAYS: Record<string, number> = {
+  weekly: 7,
+  biweekly: 14,
+  monthly: 30,
+  yearly: 365,
+};
+
+/**
+ * True when the plan's latest linked transaction (`lastPaid`) sits closer to
+ * this occurrence than to its neighbours — the money already left the account,
+ * a few days early or late, so the occurrence is settled and no longer
+ * upcoming. Half a period of tolerance either way keeps a payment attached to
+ * the occurrence it actually belongs to.
+ */
+export function isOccurrencePaid(
+  frequency: string,
+  date: string,
+  lastPaid: string | null | undefined
+): boolean {
+  if (!lastPaid) return false;
+  const days =
+    Math.abs(new Date(date).getTime() - new Date(lastPaid).getTime()) / 86_400_000;
+  return days < (PERIOD_DAYS[frequency] ?? 30) / 2;
 }

@@ -46,6 +46,7 @@ export function RecurringFormDialog({
   onOpenChange,
   editing,
   prefill,
+  defaultType,
   accounts,
   categories,
   onSubmit,
@@ -56,6 +57,8 @@ export function RecurringFormDialog({
   editing: RecurringTx | null;
   /** Ignored when `editing` is set. Seeds a create; never renders as "Edit". */
   prefill?: RecurringPrefill | null;
+  /** Which type a fresh create starts on — the section the add came from. */
+  defaultType?: "income" | "expense";
   accounts: Account[];
   categories: CategoryWithDetails[];
   onSubmit: (payload: Record<string, unknown>) => Promise<void>;
@@ -78,8 +81,9 @@ export function RecurringFormDialog({
         {/* Remount on open/target change so fields re-derive from the seed without an effect. */}
         {open && (
           <RecurringFormBody
-            key={seed?.id ?? "new"}
+            key={seed?.id ?? defaultType ?? "new"}
             editing={editing}
+            defaultType={defaultType}
             seed={seed}
             accounts={accounts}
             categories={categories}
@@ -95,6 +99,7 @@ export function RecurringFormDialog({
 function RecurringFormBody({
   editing,
   seed,
+  defaultType,
   accounts,
   categories,
   onSubmit,
@@ -102,6 +107,7 @@ function RecurringFormBody({
 }: {
   editing: RecurringTx | null;
   seed: RecurringTx | RecurringPrefill | null;
+  defaultType?: "income" | "expense";
   accounts: Account[];
   categories: CategoryWithDetails[];
   onSubmit: (payload: Record<string, unknown>) => Promise<void>;
@@ -114,7 +120,7 @@ function RecurringFormBody({
     seed ? String(Math.abs(seed.amount)) : ""
   );
   const [fType, setFType] = useState<"income" | "expense">(
-    (editing?.type as "income" | "expense") ?? "expense"
+    (editing?.type as "income" | "expense") ?? defaultType ?? "expense"
   );
   const [fCategoryId, setFCategoryId] = useState(seed?.categoryId ?? "");
   const [fFrequency, setFFrequency] = useState(seed?.frequency ?? "monthly");

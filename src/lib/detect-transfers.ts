@@ -1,5 +1,5 @@
 import { db as defaultDb } from "@/db";
-import { transactions, categories } from "@/db/schema";
+import { transactions, categories, accounts } from "@/db/schema";
 import { eq, and, notInArray, inArray, asc, or, isNull } from "drizzle-orm";
 import { writableTransactions } from "@/lib/account-access";
 import { excludeSplitParents } from "@/lib/split-sql";
@@ -22,14 +22,19 @@ export async function findTransferCategory(db: typeof defaultDb, userId: string)
 }
 
 /**
- * Undo a transfer pairing: both legs drop back to plain income/expense by sign
- * and lose the transfer category.
+ * Undo a transfer pairing: both legs drop back to plain income/expense by sign,
+ * lose the transfer category, and are marked `transferDismissed` so the next
+ * import can't re-pair them.
  *
  * Needed because `detectTransfers` pairs on amount + direction + date alone: a
  * repayment from someone else lands in the same shape as a move between your own
  * accounts (you front a €101,85 bill on one account, they pay you back on
  * another the next day), and the detector cannot tell them apart. Without this,
  * a wrong guess is only fixable by deleting the row.
+ *
+ * Returns the OTHER leg(s) alongside the count: undoing rewrites a row on a
+ * different account, and the caller is the only one who can tell the user it
+ * now needs a category of its own.
  *
  * ponytail: reverts, never deletes. An import-created mirror leg has no CSV row
  * of its own, so deleting it would move the far account's balance; leaving it as
@@ -50,7 +55,7 @@ export async function undoTransfer(
     })
     .from(transactions)
     .where(eq(transactions.id, txId));
-  if (!tx) return { reverted: 0 };
+  if (!tx) return { reverted: 0, counterparts: [] };
 
   // The row itself, whatever it points at, and anything pointing back at it —
   // so a half-written link still gets cleaned up from either side.
@@ -59,8 +64,14 @@ export async function undoTransfer(
       id: transactions.id,
       amount: transactions.amount,
       userId: transactions.userId,
+      accountId: transactions.accountId,
+      accountName: accounts.name,
+      description: transactions.description,
     })
     .from(transactions)
+    // leftJoin, not inner: the revert below must never be blocked by a missing
+    // account row — the name is a label, not a condition.
+    .leftJoin(accounts, eq(accounts.id, transactions.accountId))
     .where(
       or(
         inArray(
@@ -79,6 +90,7 @@ export async function undoTransfer(
         linkedTransactionId: null,
         categoryId: null,
         categorySource: null,
+        transferDismissed: true,
         modifiedBy: actorId,
       })
       // Scoped by the leg's OWN user_id: a pair can span a private account and a
@@ -86,7 +98,20 @@ export async function undoTransfer(
       .where(and(eq(transactions.id, leg.id), eq(transactions.userId, leg.userId)));
   }
 
-  return { reverted: legs.length };
+  // Every leg but the one the user clicked. Its account name and amount are
+  // already visible on the row's "Linked to …" line, so this exposes nothing
+  // the caller could not already see.
+  const counterparts = legs
+    .filter((leg) => leg.id !== txId)
+    .map((leg) => ({
+      id: leg.id,
+      amount: leg.amount,
+      accountId: leg.accountId,
+      accountName: leg.accountName,
+      description: leg.description,
+    }));
+
+  return { reverted: legs.length, counterparts };
 }
 
 /**
@@ -128,6 +153,10 @@ export async function detectTransfers(db: typeof defaultDb, userId: string) {
     .where(
       and(
         notInArray(transactions.type, excludedTypes),
+        // Rows the user explicitly un-paired with "Not a transfer". Detection
+        // runs on every import commit; without this it would re-pair them and
+        // wipe the categories they set on both legs.
+        eq(transactions.transferDismissed, false),
         writableTransactions(userId),
         excludeSplitParents(),
         isNull(transactions.parentTransactionId),

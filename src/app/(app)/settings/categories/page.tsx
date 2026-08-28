@@ -25,7 +25,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { useBulkDeleteCategories, useCategories, useCategoryRules, useReapplyCategoryRules, useReorderCategories } from "@/hooks/use-categories";
 import type { CategoryKind, CategoryWithDetails, RuleWithCategory } from "@/types/api";
-import { CATEGORY_KIND_OPTIONS } from "./_components/category-row";
+import { CATEGORY_KIND_OPTIONS, groupKind } from "./_components/category-row";
 import { CategoryDialog } from "./_components/category-dialog";
 import { RuleDialog } from "./_components/rule-dialog";
 import { SplitRulesSection } from "./_components/split-rules-section";
@@ -108,7 +108,7 @@ export default function CategoriesPage() {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
-    const groupItems = categories.filter((c) => c.kind === kind);
+    const groupItems = categories.filter((c) => groupKind(c.kind) === kind);
     const oldIndex = groupItems.findIndex((c) => c.id === active.id);
     const newIndex = groupItems.findIndex((c) => c.id === over.id);
     if (oldIndex === -1 || newIndex === -1) return;
@@ -116,7 +116,7 @@ export default function CategoriesPage() {
     const reorderedGroup = arrayMove(groupItems, oldIndex, newIndex);
     let cursor = 0;
     // Optimistic: writing the cache reorders every dropdown too, not just this page.
-    const reordered = categories.map((c) => (c.kind === kind ? reorderedGroup[cursor++] : c));
+    const reordered = categories.map((c) => (groupKind(c.kind) === kind ? reorderedGroup[cursor++] : c));
     qc.setQueryData(["categories"], reordered);
     try {
       await reorderCategories.mutateAsync(reordered.map((c) => c.id));
@@ -324,7 +324,7 @@ export default function CategoriesPage() {
         ) : (
           <div className="space-y-6">
             {CATEGORY_KIND_OPTIONS.map(({ value: kind, labelKey }) => {
-              const groupCategories = categories.filter((c) => c.kind === kind);
+              const groupCategories = categories.filter((c) => groupKind(c.kind) === kind);
               // ponytail: skip empty groups rather than show a heading over nothing.
               if (groupCategories.length === 0) return null;
 

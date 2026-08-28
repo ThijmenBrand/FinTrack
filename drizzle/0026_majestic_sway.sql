@@ -1,0 +1,1 @@
+ALTER TABLE `transactions` ADD `transfer_dismissed` integer DEFAULT false NOT NULL;

@@ -10,7 +10,8 @@ import {
 import { eq, and, or, inArray } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { memberAccountIds, requireAccountAccess } from "@/lib/account-access";
-import { getNextOccurrence, toMonthly } from "@/lib/recurring";
+import { getNextOccurrence, isOccurrencePaid, toMonthly } from "@/lib/recurring";
+import { lastPaidByPlan } from "@/lib/recurring-paid";
 import { resyncUpwards } from "@/lib/budget-sub-lines";
 import { isFiniteNumber, isIsoDate } from "@/lib/validation";
 
@@ -69,6 +70,9 @@ export async function GET() {
         amount: recurringTransactions.amount,
         type: recurringTransactions.type,
         categoryId: recurringTransactions.categoryId,
+        // Transfer-category plans move money between the user's own accounts,
+        // so the list keeps them out of its income/expense totals.
+        categoryKind: categories.kind,
         categoryName: categories.name,
         categoryColor: categories.color,
         frequency: recurringTransactions.frequency,
@@ -95,18 +99,32 @@ export async function GET() {
         ),
       );
 
-    const withNextOccurrence = rows.map((r) => ({
-      ...r,
-      nextOccurrence: r.isActive
-        ? getNextOccurrence(
-            r.frequency,
-            r.startDate,
-            r.dayOfWeek,
-            r.dayOfMonth,
-            r.monthOfYear
-          )
-        : null,
-    }));
+    const lastPaid = await lastPaidByPlan(rows.map((r) => r.id), userId);
+
+    const withNextOccurrence = rows.map((r) => {
+      if (!r.isActive) return { ...r, nextOccurrence: null };
+      const next = getNextOccurrence(
+        r.frequency,
+        r.startDate,
+        r.dayOfWeek,
+        r.dayOfMonth,
+        r.monthOfYear
+      );
+      // Payment already in for that date? Skip ahead to the one after it.
+      return {
+        ...r,
+        nextOccurrence: isOccurrencePaid(r.frequency, next, lastPaid.get(r.id))
+          ? getNextOccurrence(
+              r.frequency,
+              r.startDate,
+              r.dayOfWeek,
+              r.dayOfMonth,
+              r.monthOfYear,
+              new Date(next)
+            )
+          : next,
+      };
+    });
 
     return NextResponse.json(withNextOccurrence);
   }, "Failed to fetch recurring transactions");

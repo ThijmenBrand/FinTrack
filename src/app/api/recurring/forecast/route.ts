@@ -9,7 +9,8 @@ import {
 } from "@/db/schema";
 import { eq, and, sum, isNotNull, gte, lte } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
-import { generateOccurrences } from "@/lib/recurring";
+import { generateOccurrences, isOccurrencePaid } from "@/lib/recurring";
+import { lastPaidByPlan } from "@/lib/recurring-paid";
 import { toMonthly } from "@/lib/month-money";
 import { getI18n } from "@/lib/i18n/server";
 import { excludeSplitChildren } from "@/lib/split-sql";
@@ -54,6 +55,10 @@ export async function GET(request: NextRequest) {
         description: recurringTransactions.description,
         amount: recurringTransactions.amount,
         type: recurringTransactions.type,
+        // A plan in a transfer category moves money between your own accounts.
+        // It is neither income nor expense — same rule as `isBudgetable` on the
+        // budget side.
+        categoryKind: categories.kind,
         categoryName: categories.name,
         categoryColor: categories.color,
         frequency: recurringTransactions.frequency,
@@ -88,6 +93,11 @@ export async function GET(request: NextRequest) {
 
     const events: ForecastEvent[] = [];
 
+    // An occurrence whose payment already landed is history, not forecast —
+    // keeping it would show a paid bill as upcoming and double-count it in the
+    // projected balance.
+    const lastPaid = await lastPaidByPlan(recurring.map((r) => r.id), userId);
+
     for (const r of recurring) {
       const occurrences = generateOccurrences(
         r.frequency,
@@ -100,11 +110,16 @@ export async function GET(request: NextRequest) {
         forecastTo
       );
       for (const date of occurrences) {
+        if (isOccurrencePaid(r.frequency, date, lastPaid.get(r.id))) continue;
         events.push({
           date,
           description: r.description,
           amount: r.amount,
-          type: r.type,
+          // Kept in the event list so it still shows under Upcoming — but as
+          // its own type, which drops it out of both monthly sums below and so
+          // leaves the projected balance untouched, which is the truth: the
+          // money moved between two accounts this forecast already adds up.
+          type: r.categoryKind === "transfer" ? "transfer" : r.type,
           categoryName: r.categoryName,
           categoryColor: r.categoryColor,
           source: "recurring",
@@ -200,12 +215,17 @@ export async function GET(request: NextRequest) {
     // 6. Smart advice
     const advice: { type: "info" | "warning" | "success"; message: string }[] = [];
 
-    // Monthly recurring totals
-    const monthlyRecurringIncome = recurring
+    // Monthly recurring totals. Transfers are left out of both sides: the
+    // outgoing leg and its matching incoming leg would otherwise inflate the
+    // gross in/out figures — and the savings rate derived from them — by the
+    // same amount of money that never entered or left.
+    const cashFlowPlans = recurring.filter((r) => r.categoryKind !== "transfer");
+
+    const monthlyRecurringIncome = cashFlowPlans
       .filter((r) => r.type === "income")
       .reduce((s, r) => s + toMonthly(r.amount, r.frequency), 0);
 
-    const monthlyRecurringExpenses = recurring
+    const monthlyRecurringExpenses = cashFlowPlans
       .filter((r) => r.type === "expense")
       .reduce((s, r) => s + toMonthly(r.amount, r.frequency), 0);
 
@@ -254,7 +274,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Subscription check
-    const subscriptionCount = recurring.filter(
+    const subscriptionCount = cashFlowPlans.filter(
       (r) => r.type === "expense" && (r.frequency === "monthly" || r.frequency === "yearly")
     ).length;
     if (subscriptionCount > 5) {

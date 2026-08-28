@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { generateOccurrences, getNextOccurrence, toMonthly, fromMonthly } from "./recurring";
+import {
+  generateOccurrences,
+  getNextOccurrence,
+  isOccurrencePaid,
+  toMonthly,
+  fromMonthly,
+} from "./recurring";
 
 const d = (y: number, m: number, day: number) => new Date(y, m - 1, day);
 
@@ -130,6 +136,23 @@ describe("getNextOccurrence", () => {
     );
   });
 
+  it("never reports a date before a future start date", () => {
+    // Plan starts 1 Feb 2027; on 28 Aug 2026 the next due date is the start,
+    // not the coming 1 September.
+    expect(getNextOccurrence("monthly", "2027-02-01", null, 1, null, d(2026, 8, 28))).toBe(
+      "2027-02-01"
+    );
+    expect(getNextOccurrence("weekly", "2027-02-01", 1, null, null, d(2026, 8, 28))).toBe(
+      "2027-02-01"
+    );
+    expect(getNextOccurrence("biweekly", "2027-02-01", null, null, null, d(2026, 8, 28))).toBe(
+      "2027-02-01"
+    );
+    expect(getNextOccurrence("yearly", "2027-02-01", null, 1, 2, d(2026, 8, 28))).toBe(
+      "2027-02-01"
+    );
+  });
+
   it("keeps a yearly plan on its own month and day", () => {
     expect(getNextOccurrence("yearly", "2024-10-14", null, 14, 10, d(2026, 8, 5))).toBe(
       "2026-10-14"
@@ -153,5 +176,19 @@ describe("fromMonthly", () => {
   it("is the concrete inverse of toMonthly for a €600/yr bill", () => {
     expect(toMonthly(600, "yearly")).toBe(50);
     expect(fromMonthly(50, "yearly")).toBe(600);
+  });
+});
+
+describe("isOccurrencePaid", () => {
+  it("settles the occurrence the payment landed nearest to", () => {
+    // Bill due the 29th, direct debit taken a day early on 28 Aug.
+    expect(isOccurrencePaid("monthly", "2026-08-29", "2026-08-28")).toBe(true);
+    // The next one is still open.
+    expect(isOccurrencePaid("monthly", "2026-09-29", "2026-08-28")).toBe(false);
+    // A late payment for July doesn't clear August.
+    expect(isOccurrencePaid("monthly", "2026-08-29", "2026-08-02")).toBe(false);
+    expect(isOccurrencePaid("weekly", "2026-08-29", "2026-08-27")).toBe(true);
+    expect(isOccurrencePaid("weekly", "2026-08-29", "2026-08-24")).toBe(false);
+    expect(isOccurrencePaid("monthly", "2026-08-29", null)).toBe(false);
   });
 });

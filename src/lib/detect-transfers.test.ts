@@ -284,20 +284,32 @@ describe("detectTransfers", () => {
       const repayment = await insertTx({ accountId: "B", date: "2026-05-02", amount: 101.85 });
       expect((await detectTransfers(db, USER)).matchedPairs).toBe(1);
 
-      expect(await undoTransfer(db, repayment, USER)).toEqual({ reverted: 2 });
+      const undone = await undoTransfer(db, repayment, USER);
+      expect(undone.reverted).toBe(2);
+      // The far leg comes back so the UI can point at it: it sits on another
+      // account, uncategorized, and is otherwise invisible to the user.
+      expect(undone.counterparts).toEqual([
+        expect.objectContaining({ id: expense, amount: -101.85, accountId: "A" }),
+      ]);
 
       for (const [id, type] of [[expense, "expense"], [repayment, "income"]] as const) {
         const row = await getTx(id);
         expect(row.type).toBe(type);
         expect(row.linkedTransactionId).toBeNull();
         expect(row.categoryId).toBeNull();
+        expect(row.transferDismissed).toBe(true);
       }
       // Both rows survive — deleting a leg would move that account's balance.
-      expect((await detectTransfers(db, USER)).matchedPairs).toBe(1);
+      expect(await getTx(expense)).toBeTruthy();
+      expect(await getTx(repayment)).toBeTruthy();
+      // ...and detection leaves them alone from now on. It reruns on every
+      // import commit, so re-pairing would silently undo the decision and wipe
+      // the categories the user set on both legs.
+      expect((await detectTransfers(db, USER)).matchedPairs).toBe(0);
     });
 
     it("is a no-op on an unknown id", async () => {
-      expect(await undoTransfer(db, "nope", USER)).toEqual({ reverted: 0 });
+      expect(await undoTransfer(db, "nope", USER)).toEqual({ reverted: 0, counterparts: [] });
     });
   });
 });
