@@ -195,3 +195,32 @@ export function linkedRecurringIds(
   for (const alloc of allocations) walk(alloc.subLines);
   return ids;
 }
+
+/**
+ * The fields a new income plan starts with when the pencil on an income row
+ * opens the recurring form. What a category expects IS its recurring income,
+ * so this is what "edit this income category" writes.
+ *
+ * The amount is what actually landed but only while nothing is planned yet:
+ * with plans already there this is an extra source of income, and the
+ * category's total says nothing about what that one pays.
+ */
+export function incomePlanSeed(
+  group: {
+    categoryId: string;
+    /** The API's line for this category; absent while every plan is paused. */
+    line?: { categoryName: string; received: number };
+    items: { categoryName?: string | null }[];
+  },
+  accountId: string,
+) {
+  return {
+    // Keys the form's remount, so moving to another row re-seeds it.
+    id: `income-${group.categoryId}`,
+    accountId,
+    description: group.line?.categoryName ?? group.items[0]?.categoryName ?? "",
+    amount: group.items.length > 0 ? 0 : group.line?.received ?? 0,
+    categoryId: group.categoryId,
+    frequency: "monthly" as const,
+  };
+}

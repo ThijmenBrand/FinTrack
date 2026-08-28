@@ -32,11 +32,12 @@ import { CategorizePopover } from "@/components/categorize-popover";
 import { RecurringLinkPopover } from "@/components/recurring-link-popover";
 import { SplitSection } from "@/components/split-transaction-editor/split-section";
 import { SplitBadge } from "@/components/split-badge";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useCategories } from "@/hooks/use-categories";
 import { useAccounts } from "@/hooks/use-accounts";
-import { useUndoTransfer } from "@/hooks/use-transactions";
+import { useUndoTransfer, type UndoneCounterpart } from "@/hooks/use-transactions";
 import { NotesEditor } from "@/components/notes-editor";
 
 import type { Transaction, ReimbursementDetail } from "@/types/api";
@@ -73,6 +74,16 @@ export function TransactionDetailDialog({
   const { data: resolvedCategories = [] } = useCategories(transaction?.accountId);
   const { data: accounts = [] } = useAccounts();
   const undoTransfer = useUndoTransfer();
+  // The far legs the last undo rewrote. They live on another account and lost
+  // their category with the pairing, so they are shown here to be recategorized
+  // — otherwise only the half the user was looking at ever gets fixed.
+  // Keyed by the row it came from: this dialog is never unmounted between
+  // transactions, so an unkeyed result would leak onto the next one opened.
+  const [undoResult, setUndoResult] = useState<{
+    txId: string;
+    legs: UndoneCounterpart[];
+  } | null>(null);
+  const undone = undoResult && undoResult.txId === transaction?.id ? undoResult.legs : [];
   const account = accounts.find((a) => a.id === transaction?.accountId);
   // Rules are the owner's config; the server drops them from anyone else.
   const canCreateRule = !account || account.role === "owner";
@@ -107,7 +118,9 @@ export function TransactionDetailDialog({
   }
 
   const tx = transaction;
-  const isTransfer = tx.type === "internal_transfer";
+  // `undone` also covers callers that pass a stale transaction: once the undo
+  // has run, this row is no longer a transfer whatever the prop still says.
+  const isTransfer = tx.type === "internal_transfer" && undone.length === 0;
   const isReimbursement = tx.type === "reimbursement";
   const hasReimbursements = tx.reimbursementCount > 0;
   const typeInfo = isTransfer
@@ -253,12 +266,22 @@ export function TransactionDetailDialog({
                 size="sm"
                 className="ml-auto h-7 shrink-0 text-xs text-muted-foreground"
                 disabled={undoTransfer.isPending}
-                onClick={() => undoTransfer.mutate(tx.id, { onSuccess: () => onOpenChange(false) })}
+                onClick={() =>
+                  undoTransfer.mutate(tx.id, {
+                    // Stays open on purpose — the counterparts below are the
+                    // whole point, and closing would hide them.
+                    onSuccess: (r) => setUndoResult({ txId: tx.id, legs: r.counterparts }),
+                  })
+                }
               >
                 {t("txDetail.notATransfer")}
               </Button>
             </div>
           )}
+
+          {undone.map((leg) => (
+            <UndoneCounterpartRow key={leg.id} leg={leg} />
+          ))}
 
           {tx.groupName && (
             <div className="flex items-center gap-3">
@@ -376,5 +399,44 @@ export function TransactionDetailDialog({
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * The far leg of a pairing the user just undid. It is a real row on another
+ * account that lost its category along with the transfer, and it is almost
+ * never in the list behind this dialog — so it gets categorized from here or
+ * not at all.
+ */
+function UndoneCounterpartRow({ leg }: { leg: UndoneCounterpart }) {
+  const { t, formatCurrency } = useI18n();
+  // The far account has its own owner on a shared setup, and only that owner's
+  // category ids are accepted on its rows.
+  const { data: categories = [] } = useCategories(leg.accountId);
+  const { data: accounts = [] } = useAccounts();
+  const role = accounts.find((a) => a.id === leg.accountId)?.role;
+
+  return (
+    <div className="flex items-start gap-3 rounded-md border border-dashed p-3">
+      <ArrowLeftRight className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+      <div className="min-w-0 space-y-2">
+        <p className="text-xs text-muted-foreground">
+          {t("txDetail.otherLegNeedsCategory", {
+            amount: formatCurrency(leg.amount),
+            account: leg.accountName || t("tx.row.anotherAccount"),
+          })}
+        </p>
+        <CategorizePopover
+          transactionId={leg.id}
+          transactionDescription={leg.description}
+          currentCategoryId={null}
+          currentCategoryName={null}
+          currentCategoryColor={null}
+          categories={categories}
+          accountId={leg.accountId}
+          canCreateRule={!role || role === "owner"}
+        />
+      </div>
+    </div>
   );
 }

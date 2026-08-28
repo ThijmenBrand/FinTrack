@@ -75,12 +75,21 @@ export function useDetectTransfers() {
   });
 }
 
+/** The far leg an undo rewrote: another account, now plain uncategorized income/expense. */
+export type UndoneCounterpart = {
+  id: string;
+  amount: number;
+  accountId: string;
+  accountName: string | null;
+  description: string;
+};
+
 /** Undo one wrong transfer pairing — both legs go back to income/expense. */
 export function useUndoTransfer() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      apiFetch<{ success: boolean; reverted: number }>(
+      apiFetch<{ success: boolean; reverted: number; counterparts: UndoneCounterpart[] }>(
         `/api/transactions/detect-transfers?id=${id}`,
         { method: "DELETE" },
       ),

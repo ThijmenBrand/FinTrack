@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   byUrgency,
   fixedCostStatus,
+  incomePlanSeed,
   incomeStatus,
   linkedRecurringIds,
 } from "./budget-row";
@@ -178,5 +179,36 @@ describe("linkedRecurringIds", () => {
       linkedRecurringIds([{ subLines: [line("groceries")] }]),
     ).toEqual(new Set());
     expect(linkedRecurringIds([])).toEqual(new Set());
+  });
+});
+
+describe("incomePlanSeed", () => {
+  const line = { categoryName: "Salary", received: 2500 };
+
+  it("seeds a first plan with what actually landed", () => {
+    expect(incomePlanSeed({ categoryId: "cat-1", line, items: [] }, "acc-1")).toEqual({
+      id: "income-cat-1",
+      accountId: "acc-1",
+      description: "Salary",
+      amount: 2500,
+      categoryId: "cat-1",
+      frequency: "monthly",
+    });
+  });
+
+  it("leaves the amount empty when the category already has plans", () => {
+    const seed = incomePlanSeed(
+      { categoryId: "cat-1", line, items: [{}, {}] },
+      "acc-1",
+    );
+    expect(seed.amount).toBe(0);
+  });
+
+  it("names the category off its plans when no line describes it", () => {
+    const seed = incomePlanSeed(
+      { categoryId: "cat-1", items: [{ categoryName: "Side gig" }] },
+      "acc-1",
+    );
+    expect(seed).toMatchObject({ description: "Side gig", amount: 0 });
   });
 });

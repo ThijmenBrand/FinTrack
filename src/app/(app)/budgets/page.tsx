@@ -36,7 +36,6 @@ import {
   Loader2,
   Coins,
   Sparkles,
-  TrendingUp,
   Wallet,
   X,
 } from "lucide-react";
@@ -535,6 +534,31 @@ function BudgetsPageInner() {
   const headlineLimit = listLimit;
   const headlineSpent = listSpent;
 
+  // Both halves of the list summed in its one header. They wrap onto separate
+  // lines rather than being cut short: on a phone the two phrases together are
+  // wider than the column they hug.
+  const listNote =
+    recurring.incomeGroups.length > 0 || allocationsCount > 0 ? (
+      <span className="flex flex-wrap justify-end gap-x-3">
+        {recurring.incomeGroups.length > 0 && (
+          <span className="text-emerald-600 dark:text-emerald-400">
+            {t("budgets.incomeReceived", {
+              received: formatCurrency(incomeReceived),
+              expected: formatCurrency(incomeExpected),
+            })}
+          </span>
+        )}
+        {allocationsCount > 0 && (
+          <span>
+            {t("budgets.allocationsSpent", {
+              spent: formatCurrency(listSpent),
+              limit: formatCurrency(listLimit),
+            })}
+          </span>
+        )}
+      </span>
+    ) : undefined;
+
   // Who carries this budget, for the split under every spending row. The
   // amounts on the rows themselves stay whole — this is the same money read
   // per person, so the columns always add back to the line above them.
@@ -746,50 +770,21 @@ function BudgetsPageInner() {
       )}
 
       {/* The whole plan as one list, in the order money moves: what comes in on
-          top, what it is committed to underneath. Both halves are read the same
-          way — a category is the line, the recurring plans behind it are the
-          sub-lines — so a salary and a fixed cost look alike even though one is
-          owed to you and the other by you. A fixed cost queues among the
+          top, what it is committed to underneath. A fixed cost queues among the
           allocations rather than in a section of its own: it is a budgeted
           expense like any other. */}
       <Card className="overflow-hidden">
         <ul className="divide-y">
-          {recurring.incomeGroups.length > 0 && (
-            <>
-              <SectionHeader
-                icon={TrendingUp}
-                iconClassName="text-emerald-600 dark:text-emerald-400"
-                label={t("budgets.incomeHeading", {
-                  count: recurring.incomeGroups.length,
-                })}
-                note={t("budgets.incomeReceived", {
-                  received: formatCurrency(incomeReceived),
-                  expected: formatCurrency(incomeExpected),
-                })}
-              />
-              {recurring.incomeGroups.map((group) => (
-                <IncomeRow
-                  key={group.categoryId}
-                  group={group}
-                  rowProps={recurring.rowProps}
-                  yearScope={yearScope}
-                  onHistory={setHistoryAlloc}
-                />
-              ))}
-            </>
-          )}
-
+          {/* One band over the whole plan: everything that adds to it, and what
+              it adds up to on both sides. The list under it runs straight
+              through from income into spending — one plan read top to bottom,
+              rather than two sections with a row of controls wedged between. */}
           <SectionHeader
             icon={Coins}
-            label={t("budgets.allocationsHeading", { count: allocationsCount })}
-            note={
-              allocationsCount > 0
-                ? t("budgets.allocationsSpent", {
-                    spent: formatCurrency(listSpent),
-                    limit: formatCurrency(listLimit),
-                  })
-                : undefined
-            }
+            label={t("budgets.planHeading", {
+              count: recurring.incomeGroups.length + allocationsCount,
+            })}
+            note={listNote}
             action={
               <>
                 {isCurrentPeriod && !simple && canEdit && (
@@ -878,6 +873,23 @@ function BudgetsPageInner() {
               </>
             }
           />
+
+          {/* What comes in, then what it is committed to. Same row either way:
+              a category is the line, the recurring plans behind it are the
+              sub-lines — so a salary and a fixed cost look alike even though
+              one is owed to you and the other by you. */}
+          {recurring.incomeGroups.map((group) => (
+            <IncomeRow
+              key={group.categoryId}
+              group={group}
+              rowProps={recurring.rowProps}
+              yearScope={yearScope}
+              onHistory={setHistoryAlloc}
+              // Not gated on the period: a recurring plan describes every month,
+              // not the one on screen.
+              onEdit={canEdit ? recurring.editIncome : undefined}
+            />
+          ))}
 
           {allocationsCount === 0 ? (
             <li className="flex flex-col items-center justify-center px-6 py-10 text-center">

@@ -34,15 +34,26 @@ export default function RecurringPage() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<RecurringTx | null>(null);
+  const [addType, setAddType] = useState<"income" | "expense" | undefined>();
+
+  const openAdd = (type: "income" | "expense") => {
+    setEditing(null);
+    setAddType(type);
+    setDialogOpen(true);
+  };
 
   const openEdit = (item: RecurringTx) => {
     setEditing(item);
+    setAddType(undefined);
     setDialogOpen(true);
   };
 
   const handleDialogOpenChange = (open: boolean) => {
     setDialogOpen(open);
-    if (!open) setEditing(null);
+    if (!open) {
+      setEditing(null);
+      setAddType(undefined);
+    }
   };
 
   const handleFormSubmit = async (payload: Record<string, unknown>) => {
@@ -81,6 +92,7 @@ export default function RecurringPage() {
         open={dialogOpen}
         onOpenChange={handleDialogOpenChange}
         editing={editing}
+        defaultType={addType}
         accounts={accounts}
         categories={categories}
         onSubmit={handleFormSubmit}
@@ -166,6 +178,7 @@ export default function RecurringPage() {
         <div className="lg:col-span-3">
           <RecurringList
             items={items}
+            onAdd={openAdd}
             onEdit={openEdit}
             onDelete={handleDelete}
             onToggle={toggleActive}

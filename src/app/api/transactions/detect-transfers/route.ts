@@ -35,6 +35,10 @@ export async function POST() {
  * Undo one wrong guess: the row and its counterpart go back to plain
  * income/expense. Money you got back from someone else looks identical to a
  * move between your own accounts, so the detector needs an escape hatch.
+ *
+ * `counterparts` is the far leg(s) this rewrote — on another account, now
+ * uncategorized. Returned so the UI can say so instead of leaving half the
+ * pair silently broken.
  */
 export async function DELETE(request: NextRequest) {
   return withUser(async (userId) => {
@@ -60,7 +64,7 @@ export async function DELETE(request: NextRequest) {
     if (tx.type !== "internal_transfer") return apiError("api.notATransfer", 400);
 
     const access = await requireAccountAccess(userId, tx.accountId, "write");
-    const { reverted } = await undoTransfer(db, id, userId);
+    const { reverted, counterparts } = await undoTransfer(db, id, userId);
 
     logDataEvent({
       userId,
@@ -70,6 +74,6 @@ export async function DELETE(request: NextRequest) {
       details: access.account.userId !== userId ? { accountOwnerId: access.account.userId } : undefined,
     });
 
-    return NextResponse.json({ success: true, reverted });
+    return NextResponse.json({ success: true, reverted, counterparts });
   }, "Failed to undo transfer");
 }

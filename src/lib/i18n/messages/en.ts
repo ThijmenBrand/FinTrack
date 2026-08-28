@@ -361,9 +361,20 @@ export const en = {
   "recurring.listActive": "{count} active",
   "recurring.listPaused": "{count} paused",
   "recurring.listTotalsNote": "monthly totals exclude paused plans",
+  "recurring.transfersNote": "transfers between your own accounts count on neither side",
   "recurring.noIncomeYet": "No recurring income yet.",
   "recurring.noExpensesYet": "No recurring expenses yet.",
   "recurring.paused": "Paused",
+  "recurring.searchPlaceholder": "Search plans...",
+  "recurring.noMatches": "No plans match these filters.",
+  "recurring.addIncome": "Add recurring income",
+  "recurring.addExpense": "Add recurring expense",
+  "recurring.status.all": "All",
+  "recurring.status.active": "Active",
+  "recurring.status.paused": "Paused",
+  "recurring.sort.next": "Next date",
+  "recurring.sort.amount": "Amount",
+  "recurring.sort.name": "Name",
   "recurring.pause": "Pause",
   "recurring.resume": "Resume",
   "recurring.pauseLabel": "Pause {name}",
@@ -731,7 +742,7 @@ export const en = {
   "budgets.legend.allocated": "Allocated {pct}%",
   "budgets.legend.unallocated": "Unallocated {pct}%",
   "budgets.overAllocatedBy": "You've over-allocated by {amount}.",
-  "budgets.allocationsHeading": "Spending · {count}",
+  "budgets.planHeading": "Budget · {count}",
   "budgets.allocationsSpent": "{spent} of {limit} spent",
   "budgets.allocationsHint": "sorted by urgency · click a row for details",
   "budgets.simple.left": "left to spend",
@@ -754,7 +765,6 @@ export const en = {
 
   // ─── Budgets — the income side of the list ─────────────────────────────────
   // Mirrors the expense trio above: still to come, all in, more than planned.
-  "budgets.incomeHeading": "Income · {count}",
   "budgets.incomeReceived": "{received} of {expected} received",
   "budgets.expectedAmount": "{amount} expected",
   "budgets.received": "received",
@@ -1462,6 +1472,10 @@ export const en = {
   "txDetail.balance": "Balance",
   "txDetail.linkedTo": "Linked to",
   "txDetail.notATransfer": "Not a transfer",
+  // Shown after un-pairing: the other leg lives on a different account, so it
+  // is almost never in the list the user is looking at.
+  "txDetail.otherLegNeedsCategory":
+    "Also un-paired: {amount} on {account}. Give it a category too, or it won't count in that account's budget.",
   "txDetail.pot": "Pot",
   "txDetail.recurring": "Recurring",
   "txDetail.reimburses": "Reimburses",

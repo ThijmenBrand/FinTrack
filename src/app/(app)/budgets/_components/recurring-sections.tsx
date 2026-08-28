@@ -18,10 +18,13 @@ import type {
   RecurringTx,
 } from "@/types/api";
 import { RecurringItem } from "@/app/(app)/recurring/_components/recurring-item";
-import { RecurringFormDialog } from "@/app/(app)/recurring/_components/recurring-form-dialog";
+import {
+  RecurringFormDialog,
+  type RecurringPrefill,
+} from "@/app/(app)/recurring/_components/recurring-form-dialog";
 import { BudgetRow } from "./allocation-row";
 import type { SplitShare } from "@/lib/budget-split";
-import { fixedCostStatus, incomeStatus } from "./budget-row";
+import { fixedCostStatus, incomePlanSeed, incomeStatus } from "./budget-row";
 import type { HistoryTarget } from "@/components/budget-history-dialog";
 
 /** Server-side bucket key for a recurring row with no category. */
@@ -62,8 +65,8 @@ export interface IncomeGroup {
  * A hook rather than a section component because a fixed cost is a budgeted
  * expense like any other — the page sorts those groups in among the
  * allocations rather than stacking them below in a section of their own.
- * Income does get a section, but its rows are built the same way: the API's
- * line joined to the plans that promise it.
+ * Income rows are built the same way and queue above them in the same list:
+ * the API's line joined to the plans that promise it.
  */
 export function useRecurringPlans({
   planAccountIds,
@@ -93,6 +96,8 @@ export function useRecurringPlans({
   const { t } = useI18n();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<RecurringTx | null>(null);
+  // Seeds a NEW plan for an income category that has none to edit yet.
+  const [prefill, setPrefill] = useState<RecurringPrefill | null>(null);
 
   const { data: allItems = [] } = useRecurring();
   const createRecurring = useCreateRecurring();
@@ -182,6 +187,28 @@ export function useRecurringPlans({
       : createRecurring.mutateAsync(payload));
     setDialogOpen(false);
     setEditing(null);
+    setPrefill(null);
+  };
+
+  /**
+   * The pencil on an income row. What a category expects is the sum of the
+   * recurring income behind it — there is no separate number to edit — so
+   * editing the category means editing that plan, or writing the first one.
+   * With several plans there is no single one to mean, so it adds another,
+   * seeded with what the category takes in today.
+   */
+  const editIncome = (group: IncomeGroup) => {
+    if (group.items.length === 1) {
+      setPrefill(null);
+      setEditing(group.items[0]);
+      setDialogOpen(true);
+      return;
+    }
+    setEditing(null);
+    setPrefill(
+      incomePlanSeed(group, planAccountIds?.[0] ?? accounts[0]?.id ?? ""),
+    );
+    setDialogOpen(true);
   };
 
   // `mutate`, not `mutateAsync` — these fire from a row with nothing awaiting
@@ -203,6 +230,7 @@ export function useRecurringPlans({
     incomeGroups,
     expenseGroups,
     rowProps,
+    editIncome,
     /**
      * Add/edit form for both kinds of plan — the form itself picks income or
      * expense. Rendered in the list header: it is also what the pencil on a
@@ -213,9 +241,16 @@ export function useRecurringPlans({
         open={dialogOpen}
         onOpenChange={(next) => {
           setDialogOpen(next);
-          if (!next) setEditing(null);
+          if (!next) {
+            setEditing(null);
+            setPrefill(null);
+          }
         }}
         editing={editing}
+        prefill={prefill}
+        // Only a seeded create knows which side it is: the plain "add" button
+        // opens on expense, as it always has.
+        defaultType={prefill ? "income" : undefined}
         accounts={accounts}
         categories={categories}
         onSubmit={handleSubmit}
@@ -355,20 +390,24 @@ export function FixedCostRow({
  * reconciled exactly the way a bill is, so it should read the same way. Only
  * the direction of "good" flips: beating the plan is a windfall rather than an
  * overspend, which `incomeStatus` handles by topping out at emerald and never
- * reaching red. Editing stays on the plan rows underneath; the category itself
- * has no budget line to change.
+ * reaching red. The pencil edits the same thing a spending row's does — what
+ * this category is planned to be — which on the income side is the recurring
+ * plan behind it (see `editIncome`).
  */
 export function IncomeRow({
   group,
   rowProps,
   yearScope,
   onHistory,
+  onEdit,
 }: {
   group: IncomeGroup;
   rowProps: PlanRowProps;
   /** The figures are a whole year's when set — the row's unit says so. */
   yearScope?: boolean;
   onHistory: (target: HistoryTarget) => void;
+  /** Opens the plan behind this category. Absent = read-only budget. */
+  onEdit?: (group: IncomeGroup) => void;
 }) {
   const { t, plural, formatCurrency } = useI18n();
   const first = group.items[0];
@@ -429,7 +468,9 @@ export function IncomeRow({
             </span>
           </>
         }
-        readOnly
+        // Uncategorized income has no category to plan against.
+        readOnly={!onEdit || group.categoryId === UNCATEGORIZED}
+        onEdit={() => onEdit?.(group)}
         // Uncategorized plans have no category to look history up by.
         onHistory={
           group.categoryId === UNCATEGORIZED

@@ -46,6 +46,14 @@ export const CATEGORY_KIND_OPTIONS: { value: CategoryKind; labelKey: MessageKey 
   { value: "transfer", labelKey: "categories.kind.transfer" },
 ];
 
+// Every row must land in one of those three groups. A kind outside the enum
+// (drifted data — the column's own default is "expense") would otherwise be
+// filtered out of every group and vanish from the list while still being
+// counted in the heading.
+export function groupKind(kind: string): CategoryKind {
+  return CATEGORY_KIND_OPTIONS.some((o) => o.value === kind) ? (kind as CategoryKind) : "expense";
+}
+
 interface CategoryRowProps {
   category: CategoryWithDetails;
   rules: RuleWithCategory[];
@@ -158,7 +166,7 @@ export function CategoryRow({
         </div>
 
         <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
-          <Select value={category.kind} onValueChange={(v) => handleKindChange(v as CategoryKind)}>
+          <Select value={groupKind(category.kind)} onValueChange={(v) => handleKindChange(v as CategoryKind)}>
             <SelectTrigger
               className="h-7 w-[110px] text-xs"
               aria-label={t("categories.kind.label")}
