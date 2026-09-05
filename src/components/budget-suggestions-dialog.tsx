@@ -71,7 +71,7 @@ export function BudgetSuggestionsDialog({ open, onOpenChange, suggestions, lookb
     return sum;
   }, [selected, overrides, suggestions]);
 
-  const handleAccept = async () => {
+  const handleAccept = () => {
     const items = suggestions
       .filter((s) => selected[s.id])
       .map((s) => {
@@ -80,13 +80,17 @@ export function BudgetSuggestionsDialog({ open, onOpenChange, suggestions, lookb
         return { id: s.id, amount };
       });
     if (items.length === 0) return;
-    await accept.mutateAsync(items);
+    // Both writes are optimistic — the rows are already off the list behind
+    // this dialog — so it closes on the click. `mutate` rather than
+    // `mutateAsync`: a failure puts the suggestions back and has no dialog
+    // left to report itself in.
+    accept.mutate(items);
     onOpenChange(false);
   };
 
-  const handleRejectAll = async () => {
+  const handleRejectAll = () => {
     if (suggestions.length === 0) return;
-    await reject.mutateAsync(suggestions.map((s) => s.id));
+    reject.mutate(suggestions.map((s) => s.id));
     onOpenChange(false);
   };
 

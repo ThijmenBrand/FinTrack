@@ -160,6 +160,10 @@ export function SearchCreatePicker<T extends PickerItem>({
 
   return (
     <Popover
+      // modal: inside a dialog, react-remove-scroll cancels wheel events over
+      // portaled content, so the list below only scrolls by dragging its bar.
+      // A modal popover brings its own scroll lock and takes the wheel back.
+      modal
       open={open}
       onOpenChange={(next) => {
         if (next) {

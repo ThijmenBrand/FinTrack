@@ -1,5 +1,11 @@
 import type { BudgetChildInput } from "@/hooks/use-budgets";
+import { sumLines } from "@/lib/budget-cache";
 import { toMonthly } from "@/lib/recurring";
+
+// The tree edits are the same at every level of this feature — a draft, a
+// saved sub-line and an optimistic cache patch all key on `id` and hold
+// `children` — so they live next to the cache patches that also need them.
+export { addLine, removeLine, sumLines, updateLine } from "@/lib/budget-cache";
 
 /**
  * The plan a line stands for, reduced to what a row has to show: which cadence
@@ -12,6 +18,8 @@ export interface LinkedPlan {
   dayOfMonth: number | null;
   monthOfYear: number | null;
   startDate: string;
+  /** Absent on a drafted line — nothing that has never been saved is paused. */
+  isActive?: boolean;
 }
 
 /**
@@ -28,6 +36,8 @@ export interface LineNode {
   amount: number;
   children: LineNode[];
   recurring?: LinkedPlan;
+  /** Client-side only: an optimistic write for this line is still in flight. */
+  pending?: boolean;
 }
 
 /**
@@ -36,7 +46,8 @@ export interface LineNode {
  * step in the middle.
  */
 export interface DraftLine {
-  key: string;
+  /** Local until the line is written; `LineNode.id` reads it straight. */
+  id: string;
   name: string;
   /** Ignored once the line has children — they are what it adds up to. */
   amount: number;
@@ -45,53 +56,6 @@ export interface DraftLine {
   adoptRecurringId?: string;
   /** Or one to create alongside it, in the shape the POST validates. */
   recurring?: NonNullable<BudgetChildInput["recurring"]>;
-}
-
-/**
- * What a set of lines adds up to. A line with children is worth its children
- * rather than its own stored figure — that inversion is the whole feature, and
- * it has to hold for an allocation that predates it and was never re-summed.
- */
-export function sumLines<T extends { amount: number; children: T[] }>(
-  lines: readonly T[],
-): number {
-  return lines.reduce(
-    (total, line) =>
-      total + (line.children.length > 0 ? sumLines(line.children) : line.amount),
-    0,
-  );
-}
-
-/** Append a line to a container, or to the roots when `parentKey` is null. */
-export function addLine(
-  lines: DraftLine[],
-  parentKey: string | null,
-  line: DraftLine,
-): DraftLine[] {
-  if (parentKey === null) return [...lines, line];
-  return lines.map((l) =>
-    l.key === parentKey
-      ? { ...l, children: [...l.children, line] }
-      : { ...l, children: addLine(l.children, parentKey, line) },
-  );
-}
-
-export function updateLine(
-  lines: DraftLine[],
-  key: string,
-  patch: Partial<DraftLine>,
-): DraftLine[] {
-  return lines.map((l) =>
-    l.key === key
-      ? { ...l, ...patch }
-      : { ...l, children: updateLine(l.children, key, patch) },
-  );
-}
-
-export function removeLine(lines: DraftLine[], key: string): DraftLine[] {
-  return lines
-    .filter((l) => l.key !== key)
-    .map((l) => ({ ...l, children: removeLine(l.children, key) }));
 }
 
 /**
@@ -164,7 +128,7 @@ export function adoptDrafts(
   return plans
     .filter((p) => p.isActive)
     .map((p) => ({
-      key: crypto.randomUUID(),
+      id: crypto.randomUUID(),
       name: p.description,
       amount: toMonthly(p.amount, p.frequency),
       children: [],
@@ -195,7 +159,7 @@ export function toLineNodes(
         ? planOf(line.adoptRecurringId)
         : undefined;
     return {
-      id: line.key,
+      id: line.id,
       name: line.name,
       amount: children.length > 0 ? sumLines(children) : line.amount,
       children,

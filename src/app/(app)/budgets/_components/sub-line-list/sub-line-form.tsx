@@ -49,7 +49,7 @@ export function SubLineForm({
   const valid = !!name.trim() && (!!lockedHint || parsed > 0);
 
   return (
-    <Row ctx={ctx} depth={depth}>
+    <Row ctx={ctx} depth={depth} full>
       <div className="w-full space-y-1">
         <div className="flex items-center gap-2">
           <Input

@@ -1,8 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Plus, Repeat } from "lucide-react";
+import { Pause, Pencil, Play, Plus, Repeat, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
+import { toMonthly } from "@/lib/recurring";
 import {
   useRecurring,
   useCreateRecurring,
@@ -17,14 +19,15 @@ import type {
   IncomeLine,
   RecurringTx,
 } from "@/types/api";
-import { RecurringItem } from "@/app/(app)/recurring/_components/recurring-item";
 import {
   RecurringFormDialog,
   type RecurringPrefill,
 } from "@/app/(app)/recurring/_components/recurring-form-dialog";
 import { BudgetRow } from "./allocation-row";
 import type { SplitShare } from "@/lib/budget-split";
+import type { MessageKey } from "@/lib/i18n/translate";
 import { fixedCostStatus, incomePlanSeed, incomeStatus } from "./budget-row";
+import { PausedBadge, PlanMeta, SubRow } from "./sub-row";
 import type { HistoryTarget } from "@/components/budget-history-dialog";
 
 /** Server-side bucket key for a recurring row with no category. */
@@ -33,7 +36,6 @@ const UNCATEGORIZED = "uncategorized";
 /** What every recurring row needs; identical for income and fixed costs. */
 export interface PlanRowProps {
   showAccount: boolean;
-  inBudgetList: boolean;
   onEdit: (item: RecurringTx) => void;
   onDelete: (id: string) => void;
   onToggle: (item: RecurringTx) => void;
@@ -216,7 +218,6 @@ export function useRecurringPlans({
   // than an unhandled rejection.
   const rowProps: PlanRowProps = {
     showAccount,
-    inBudgetList: true,
     onEdit: (item) => {
       setEditing(item);
       setDialogOpen(true);
@@ -274,7 +275,31 @@ export function useRecurringPlans({
   };
 }
 
-/** The recurring plans under a category, indented like its sub-lines. */
+/**
+ * What the amount column would say if this plan ran every month — the figure
+ * the whisper under it converts from. A "/2wk" of its own would be one more
+ * unit on a page that already talks in months.
+ */
+const FREQ_SHORT_KEYS: Record<string, MessageKey> = {
+  weekly: "recurring.perWeekShort",
+  biweekly: "recurring.perTwoWeeksShort",
+  monthly: "recurring.perMonthShort",
+  yearly: "recurring.perYearShort",
+};
+
+/**
+ * The recurring plans under a category — the same row as that category's
+ * sub-lines, because that is what they are: a named part of what the category
+ * costs. Only the controls differ, since a plan can be paused and a sub-line
+ * cannot.
+ *
+ * The headline figure is the plan's MONTHLY equivalent, not what the bank will
+ * actually take. The column it sits in is the category's monthly cap and the
+ * sub-lines beside it are stored monthly too, so a yearly bill showing €600
+ * here would read as blowing a €200 budget it in fact uses a quarter of. The
+ * real charge and its period go underneath, where they answer "what leaves the
+ * account" without pretending to answer "what does this cost a month".
+ */
 export function PlanRows({
   items,
   rowProps,
@@ -283,8 +308,89 @@ export function PlanRows({
   rowProps: PlanRowProps;
 }) {
   return items.map((item) => (
-    <RecurringItem key={item.id} item={item} className="sm:pl-9" {...rowProps} />
+    <PlanRow key={item.id} item={item} {...rowProps} />
   ));
+}
+
+function PlanRow({
+  item,
+  showAccount,
+  onEdit,
+  onDelete,
+  onToggle,
+}: { item: RecurringTx } & PlanRowProps) {
+  const { t, formatCurrency } = useI18n();
+
+  return (
+    <SubRow
+      color={item.categoryColor}
+      name={item.description}
+      muted={!item.isActive}
+      nameSuffix={
+        <>
+          {!item.isActive && <PausedBadge />}
+          {/* Which account gets debited sits on the title line, not the meta
+              line: it's the detail that decides whether a plan is affordable,
+              and at the end of the meta line it was the first thing to
+              truncate. */}
+          {showAccount && item.accountName && (
+            <span
+              className="flex min-w-0 max-w-[9rem] shrink items-center gap-1 rounded border px-1.5 py-px text-[10px] text-muted-foreground"
+              title={`${t("common.account")}: ${item.accountName}`}
+            >
+              <Wallet className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
+              <span className="truncate">{item.accountName}</span>
+            </span>
+          )}
+        </>
+      }
+      meta={<PlanMeta frequency={item.frequency} next={item.nextOccurrence} />}
+      amount={formatCurrency(toMonthly(item.amount, item.frequency))}
+      amountNote={
+        item.frequency !== "monthly" && (
+          <>
+            {formatCurrency(Math.abs(item.amount))}
+            {FREQ_SHORT_KEYS[item.frequency] && t(FREQ_SHORT_KEYS[item.frequency])}
+          </>
+        )
+      }
+      actions={
+        <>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={() => onToggle(item)}
+            aria-label={
+              item.isActive
+                ? t("recurring.pauseLabel", { name: item.description })
+                : t("recurring.resumeLabel", { name: item.description })
+            }
+            title={item.isActive ? t("recurring.pause") : t("recurring.resume")}
+          >
+            {item.isActive ? (
+              <Pause className="h-3.5 w-3.5" />
+            ) : (
+              <Play className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+            )}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={() => onEdit(item)}
+            aria-label={t("recurring.editLabel", { name: item.description })}
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </Button>
+          <ConfirmDeleteButton
+            onConfirm={() => onDelete(item.id)}
+            label={t("recurring.deleteLabel", { name: item.description })}
+          />
+        </>
+      }
+    />
+  );
 }
 
 /**

@@ -20,20 +20,34 @@ export const ROW_ASIDE = "shrink-0 text-right w-[7.5rem] sm:w-60 lg:w-72";
 export const ROW_INDENT = "pl-9";
 
 /**
- * Sub-rows of the same list: the recurring plans that sit under a category, and
- * the loading skeleton. They carry no bar and no disclosure, so they get a grid
- * rather than the shell — but the amount is the LAST track, at the same 8rem
- * from the right edge the shell's aside ends at, so every figure on the page
- * still falls in one column. The controls sit inboard of it rather than past
- * it, which is the only way both can be true.
+ * Every row that hangs *under* a category: the allocation's sub-lines and the
+ * recurring plans the category pays. They are the same kind of thing — a named
+ * slice of the cap above them — so they are one template, and `SubRow` in
+ * `./sub-row` is the only thing allowed to build one.
+ *
+ * They carry no bar and no disclosure, so they get a grid rather than the
+ * shell — but the amount is the LAST track, at the same 8rem from the right
+ * edge the shell's aside ends at, so every figure on the page still falls in
+ * one column. The controls sit inboard of it rather than past it, which is the
+ * only way both can be true.
  *
  * Mobile stacks to two lines: dot · name · amount, then the controls under it.
  */
 export const SUB_ROW_GRID =
   "grid grid-cols-[auto_minmax(0,1fr)_minmax(0,auto)] items-center gap-x-3 gap-y-1.5 px-4 py-2.5 sm:grid-cols-[auto_minmax(0,1fr)_6rem_8rem]";
+/**
+ * Indent per nesting depth. Level 1 lands on `ROW_INDENT`, so a sub-row's name
+ * starts exactly where its category's name does.
+ */
+export const SUB_ROW_INDENT = ["pl-9", "pl-12", "pl-16"];
+/**
+ * Both cells name their track outright rather than auto-placing: a read-only
+ * row has no controls, and an auto-placed amount would slide left into the
+ * empty controls track and break the column it exists to hold.
+ */
 export const CELL_ACTIONS =
-  "col-start-3 row-start-2 justify-self-end sm:col-auto sm:row-auto";
-export const CELL_AMOUNT = "col-start-3 row-start-1 sm:col-auto sm:row-auto";
+  "col-start-3 row-start-2 justify-self-end sm:col-start-3 sm:row-start-1";
+export const CELL_AMOUNT = "col-start-3 row-start-1 sm:col-start-4 sm:row-start-1";
 
 /**
  * Red for spent-out, amber for tight. Every row of the plan reads the same:

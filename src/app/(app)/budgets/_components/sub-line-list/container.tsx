@@ -6,6 +6,7 @@ import { MONEY_EPSILON } from "@/lib/validation";
 import { AddSubLine } from "./add-sub-line";
 import { Dot, Row } from "./row";
 import { SubLineRow } from "./sub-line-row";
+import { CELL_AMOUNT } from "../budget-row";
 import { MAX_SUB_LINE_DEPTH, cents, type Ctx } from "./constants";
 import type { LineNode } from "./draft";
 
@@ -76,14 +77,18 @@ export function Container({
           <span className="min-w-0 flex-1 truncate text-xs italic text-muted-foreground/70">
             {t("budgets.subLines.everythingElse")}
           </span>
-          <span className="text-xs tabular-nums text-muted-foreground/70">
+          <span
+            className={`whitespace-nowrap text-right text-xs tabular-nums text-muted-foreground/70 ${
+              ctx.variant === "list" ? CELL_AMOUNT : ""
+            }`}
+          >
             {formatCurrency(cents(ctx.toDisplay(remainder)))}
           </span>
         </Row>
       )}
 
       {total > cap + MONEY_EPSILON && (
-        <Row ctx={ctx} depth={depth}>
+        <Row ctx={ctx} depth={depth} full>
           <span className="text-xs text-amber-600 dark:text-amber-400">
             {t("budgets.subLines.overBy", {
               amount: formatCurrency(cents(ctx.toDisplay(total - cap))),
