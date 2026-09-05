@@ -300,6 +300,18 @@ function BudgetsPageInner() {
   // Why the last generate run came back empty. Without this the button just
   // does nothing and the user is left guessing.
   const [emptyReason, setEmptyReason] = useState<EmptyGenerateReason | null>(null);
+  // Every write below is optimistic, so a failure arrives after the row has
+  // already moved (and been put back). There is no toast layer in this app, so
+  // it says so here — once, above the list the rollback happened in.
+  const [writeError, setWriteError] = useState<string | null>(null);
+  const report = async (write: Promise<unknown>) => {
+    setWriteError(null);
+    try {
+      await write;
+    } catch {
+      setWriteError(t("budgets.writeFailed"));
+    }
+  };
 
   const openEdit = (alloc: Allocation) => {
     setAddPrefill(null);
@@ -339,13 +351,11 @@ function BudgetsPageInner() {
     await runGenerate();
   };
 
-  const handleAcceptOne = async (s: BudgetSuggestion) => {
-    await acceptSuggestions.mutateAsync([{ id: s.id, amount: s.suggestedAmount }]);
-  };
+  const handleAcceptOne = (s: BudgetSuggestion) =>
+    report(acceptSuggestions.mutateAsync([{ id: s.id, amount: s.suggestedAmount }]));
 
-  const handleRejectOne = async (s: BudgetSuggestion) => {
-    await rejectSuggestions.mutateAsync([s.id]);
-  };
+  const handleRejectOne = (s: BudgetSuggestion) =>
+    report(rejectSuggestions.mutateAsync([s.id]));
 
   // One step back or forward through whatever the stepper is currently
   // walking: rolling months, months inside a financial year, or years. Both
@@ -678,6 +688,8 @@ function BudgetsPageInner() {
           than one hiding behind every category row. */}
       <SplitSummary shares={split} total={headlineLimit} spent={headlineSpent} />
 
+      {writeError && <NoticeLine icon={AlertTriangle}>{writeError}</NoticeLine>}
+
       {!yearly && data.unallocated < 0 && (
         <NoticeLine icon={AlertTriangle}>
           {t("budgets.overAllocatedBy", {
@@ -719,7 +731,9 @@ function BudgetsPageInner() {
               aria-label={t("budgets.dismissAll")}
               disabled={rejectSuggestions.isPending}
               onClick={() =>
-                rejectSuggestions.mutate(data.suggestions.map((s) => s.id))
+                report(
+                  rejectSuggestions.mutateAsync(data.suggestions.map((s) => s.id)),
+                )
               }
             >
               <X className="h-3.5 w-3.5" />
@@ -861,12 +875,16 @@ function BudgetsPageInner() {
                     // in the main plan no matter which budget is on screen.
                     budgetId={activePlanId}
                     onCreate={(categoryId, amount) =>
-                      createBudget
-                        .mutateAsync({ categoryId, amount, budgetId: activePlanId })
-                        .then(() => {})
+                      report(
+                        createBudget.mutateAsync({
+                          categoryId,
+                          amount,
+                          budgetId: activePlanId,
+                        }),
+                      )
                     }
                     onUpdate={(id, amount) =>
-                      updateBudget.mutateAsync({ id, amount }).then(() => {})
+                      report(updateBudget.mutateAsync({ id, amount }))
                     }
                   />
                 )}
@@ -934,9 +952,7 @@ function BudgetsPageInner() {
                           onHistory={() => alloc && setHistoryAlloc(alloc)}
                           onEdit={() => alloc && openEdit(alloc)}
                           onDelete={() =>
-                            alloc
-                              ? deleteBudget.mutateAsync(alloc.id).then(() => {})
-                              : Promise.resolve()
+                            alloc ? report(deleteBudget.mutateAsync(alloc.id)) : undefined
                           }
                         />
                         {alloc &&
@@ -1002,9 +1018,7 @@ function BudgetsPageInner() {
                           deletePending={deleteBudget.isPending}
                           onHistory={() => setHistoryAlloc(row.alloc)}
                           onEdit={() => openEdit(row.alloc)}
-                          onDelete={() =>
-                            deleteBudget.mutateAsync(row.alloc.id).then(() => {})
-                          }
+                          onDelete={() => report(deleteBudget.mutateAsync(row.alloc.id))}
                         />
                         {row.alloc.subLines.length > 0 && (
                           <SubLineList

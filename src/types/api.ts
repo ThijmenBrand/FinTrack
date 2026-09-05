@@ -400,6 +400,8 @@ export interface BudgetSubLine {
   name: string;
   amount: number;
   children: BudgetSubLine[];
+  /** Client-side only: an optimistic write for this line is still in flight. */
+  pending?: boolean;
   /** Present when this line is a recurring plan expressed monthly. */
   recurring?: {
     id: string;
@@ -426,6 +428,8 @@ export interface Allocation {
   avgMonthly: number;
   avgMonths: number;
   subLines: BudgetSubLine[];
+  /** Client-side only: an optimistic write for this row is still in flight. */
+  pending?: boolean;
 }
 
 export interface BudgetSuggestion {

@@ -73,6 +73,11 @@ interface AllocationDialogProps {
    * what it costs today. Keyed on by the caller, so switching rows re-seeds.
    */
   prefill?: { categoryId: string; amount: number } | null;
+  /**
+   * The two plain writes, which the caller makes optimistically. Neither may
+   * reject: this dialog is already gone by the time they settle, so reporting
+   * a failure is the caller's job.
+   */
   onCreate: (categoryId: string, amount: number) => Promise<void>;
   onUpdate: (id: string, amount: number) => Promise<void>;
 }
@@ -219,7 +224,7 @@ export function AllocationDialog({
     add: (parentId, name, lineAmount) =>
       setDraft((d) =>
         addLine(d, parentId, {
-          key: crypto.randomUUID(),
+          id: crypto.randomUUID(),
           name,
           amount: lineAmount,
           children: [],
@@ -257,24 +262,31 @@ export function AllocationDialog({
 
   const handleSubmit = async () => {
     if (stored === null || stored <= 0 || saving) return;
+    // The plain paths are optimistic — the row is already on the list behind
+    // this dialog — so it closes on the click rather than on the response.
+    // Only a tree still waits: its rows and the plans they create go in one
+    // POST this dialog owns, and its failures have nowhere else to show.
+    if (editingAlloc) {
+      void onUpdate(editingAlloc.id, stored);
+      handleOpenChange(false);
+      return;
+    }
+    if (draft.length === 0) {
+      void onCreate(categoryId, stored);
+      handleOpenChange(false);
+      return;
+    }
     setSaving(true);
     try {
-      if (editingAlloc) {
-        await onUpdate(editingAlloc.id, stored);
-      } else if (draft.length > 0) {
-        const ok = await attempt(() =>
-          createBudget.mutateAsync({
-            categoryId,
-            amount: stored,
-            budgetId,
-            children: toChildInput(draft),
-          }),
-        );
-        if (!ok) return;
-      } else {
-        await onCreate(categoryId, stored);
-      }
-      handleOpenChange(false);
+      const ok = await attempt(() =>
+        createBudget.mutateAsync({
+          categoryId,
+          amount: stored,
+          budgetId,
+          children: toChildInput(draft),
+        }),
+      );
+      if (ok) handleOpenChange(false);
     } finally {
       setSaving(false);
     }
@@ -300,7 +312,7 @@ export function AllocationDialog({
       setDraft((d) =>
         recurringFor.lineId === null
           ? addLine(d, null, {
-              key: crypto.randomUUID(),
+              id: crypto.randomUUID(),
               name,
               amount: monthly,
               children: [],
@@ -344,7 +356,7 @@ export function AllocationDialog({
     if (!editingAlloc) {
       setDraft((d) =>
         addLine(d, null, {
-          key: crypto.randomUUID(),
+          id: crypto.randomUUID(),
           name: adopted.description,
           amount: monthly,
           children: [],

@@ -14,11 +14,11 @@ import {
 import type { BudgetSubLine } from "@/types/api";
 
 function draft(
-  key: string,
+  id: string,
   amount: number,
   children: DraftLine[] = [],
 ): DraftLine {
-  return { key, name: key, amount, children };
+  return { id, name: id, amount, children };
 }
 
 describe("sumLines", () => {
@@ -62,7 +62,7 @@ describe("tree edits", () => {
   const tree = [draft("a", 10, [draft("a1", 4)]), draft("b", 2)];
 
   it("appends to the roots", () => {
-    expect(addLine(tree, null, draft("c", 1)).map((l) => l.key)).toEqual([
+    expect(addLine(tree, null, draft("c", 1)).map((l) => l.id)).toEqual([
       "a",
       "b",
       "c",
@@ -71,7 +71,7 @@ describe("tree edits", () => {
 
   it("appends into a nested container", () => {
     const next = addLine(tree, "a1", draft("a1a", 1));
-    expect(next[0].children[0].children.map((l) => l.key)).toEqual(["a1a"]);
+    expect(next[0].children[0].children.map((l) => l.id)).toEqual(["a1a"]);
     expect(sumLines(next)).toBe(3);
   });
 
@@ -83,7 +83,7 @@ describe("tree edits", () => {
 
   it("removes a line at any depth", () => {
     expect(removeLine(tree, "a1")[0].children).toEqual([]);
-    expect(removeLine(tree, "b").map((l) => l.key)).toEqual(["a"]);
+    expect(removeLine(tree, "b").map((l) => l.id)).toEqual(["a"]);
   });
 
   it("leaves the input alone", () => {

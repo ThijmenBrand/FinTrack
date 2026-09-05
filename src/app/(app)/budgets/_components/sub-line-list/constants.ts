@@ -5,8 +5,7 @@ import type { LineNode } from "./draft";
 
 export { MAX_SUB_LINE_DEPTH } from "@/lib/budget-sub-lines";
 
-/** Indent per depth, in each of the two places the list is rendered. */
-export const LIST_INDENT = ["pl-9", "pl-12", "pl-16"];
+/** Indent per depth inside the dialog; the page list uses `SUB_ROW_INDENT`. */
 export const DIALOG_INDENT = ["pl-2", "pl-6", "pl-10"];
 
 export const cents = (n: number) => Math.round(n * 100) / 100;
@@ -43,6 +42,8 @@ export interface RowProps {
   depth: number;
   /** Row-level extras — the hover surface a line row paints, and nothing else. */
   className?: string;
+  /** One wide thing (a form, an error) rather than a name and an amount. */
+  full?: boolean;
   children: ReactNode;
 }
 

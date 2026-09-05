@@ -8,20 +8,17 @@ import type { RecurringTx } from "@/types/api";
 import { relativeDay } from "./dates";
 import { useI18n } from "@/lib/i18n/client";
 import type { MessageKey } from "@/lib/i18n/translate";
-// The budget list's sub-row template. In the budget these rows *are* the plan's
-// income and fixed-cost lines, so their amounts have to land in the same column
-// as the categories above them — a plan's amount ragging against the allocation
-// amounts was what made that page read as three stacked lists instead of one.
-// The cell classes suit both templates; only the tracks differ.
+// The state palette, shared with the budgets page so "money in" and "money out"
+// are one pair of colours across the app.
 import {
-  SUB_ROW_GRID as BUDGET_GRID,
   CELL_AMOUNT,
   CELL_ACTIONS,
   TONE_TEXT,
 } from "@/app/(app)/budgets/_components/budget-row";
 
-// Standalone page: nothing above these rows to line up with, so the description
-// takes the room the budget list spends on holding a column open.
+// This page only. Inside a budget these plans are sub-rows of the category they
+// belong to and are built by `PlanRow` there, off the shared `SubRow` template,
+// so their amounts land in the same column as the categories above them.
 const OWN_GRID =
   "grid grid-cols-[auto_minmax(0,1fr)_minmax(0,auto)] items-center gap-x-3 gap-y-1.5 px-4 py-2.5 sm:grid-cols-[auto_minmax(0,1fr)_5.5rem_9.5rem]";
 
@@ -39,7 +36,6 @@ export function RecurringItem({
   onDelete,
   onToggle,
   className = "",
-  inBudgetList = false,
 }: {
   item: RecurringTx;
   /** Off when every plan is on the same account — the column says nothing then. */
@@ -47,10 +43,8 @@ export function RecurringItem({
   onEdit: (item: RecurringTx) => void;
   onDelete: (id: string) => void;
   onToggle: (item: RecurringTx) => void;
-  /** Extra row classes — the budgets page indents these under a category. */
+  /** Extra row classes from the list that renders it. */
   className?: string;
-  /** Line the row up with the budget list's allocation rows. */
-  inBudgetList?: boolean;
 }) {
   const { t, formatCurrency, formatDayMonth } = useI18n();
   const isIncome = item.type === "income";
@@ -59,7 +53,7 @@ export function RecurringItem({
 
   return (
     <li
-      className={`group transition-colors hover:bg-muted/50 ${inBudgetList ? BUDGET_GRID : OWN_GRID} ${className}`}
+      className={`group transition-colors hover:bg-muted/50 ${OWN_GRID} ${className}`}
     >
       <span
         className={`h-2 w-2 shrink-0 rounded-full ${item.isActive ? "" : "opacity-40"}`}

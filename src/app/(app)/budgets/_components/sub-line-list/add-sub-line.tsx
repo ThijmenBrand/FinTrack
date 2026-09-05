@@ -29,7 +29,7 @@ export function AddSubLine({
 
   if (!open) {
     return (
-      <Row ctx={ctx} depth={depth}>
+      <Row ctx={ctx} depth={depth} full>
         <Button
           variant="ghost"
           size="sm"

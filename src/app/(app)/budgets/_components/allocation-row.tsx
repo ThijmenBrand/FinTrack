@@ -6,7 +6,7 @@ import type { SplitShare } from "@/lib/budget-split";
 import { Button } from "@/components/ui/button";
 import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
 import { useI18n } from "@/lib/i18n/client";
-import { ChevronRight, Pencil } from "lucide-react";
+import { ChevronRight, Loader2, Pencil } from "lucide-react";
 import {
   ROW_SHELL,
   ROW_CHEVRON,
@@ -43,6 +43,11 @@ interface BudgetRowProps {
    */
   split?: SplitShare[];
   readOnly?: boolean;
+  /**
+   * The row is an optimistic write still in flight: it shows what was asked
+   * for, says so, and refuses a second change until the server has answered.
+   */
+  pending?: boolean;
   /** False when there is no allocation behind the row to edit or delete. */
   editable?: boolean;
   deletePending?: boolean;
@@ -76,6 +81,7 @@ export function BudgetRow({
   facts,
   split,
   readOnly = false,
+  pending = false,
   editable = true,
   deletePending,
   onHistory,
@@ -93,7 +99,9 @@ export function BudgetRow({
   const showSplit = !!split && split.length > 0 && limit > 0;
 
   return (
-    <li>
+    // Faded while the write is in flight: the figures are what was asked for,
+    // not yet what the server has confirmed.
+    <li className={pending ? "opacity-60 transition-opacity" : undefined}>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -117,12 +125,19 @@ export function BudgetRow({
             <span className="truncate text-sm font-medium sm:text-[0.9375rem]">
               {name}
             </span>
-            {badge && (
-              <span
-                className={`hidden shrink-0 rounded-full border px-1.5 py-px text-[10px] font-semibold sm:inline ${tone.badge}`}
-              >
-                {badge}
-              </span>
+            {pending ? (
+              <Loader2
+                className="h-3 w-3 shrink-0 animate-spin text-muted-foreground"
+                aria-label={t("common.saving")}
+              />
+            ) : (
+              badge && (
+                <span
+                  className={`hidden shrink-0 rounded-full border px-1.5 py-px text-[10px] font-semibold sm:inline ${tone.badge}`}
+                >
+                  {badge}
+                </span>
+              )
             )}
             {subNote && (
               <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">
@@ -239,7 +254,7 @@ export function BudgetRow({
             )}
             {/* Edit and delete travel separately: a fixed-cost category has
                 something to budget for but no budget line to remove yet. */}
-            {!readOnly && editable && (onEdit || onDelete) && (
+            {!readOnly && !pending && editable && (onEdit || onDelete) && (
               <span className="ml-auto flex items-center gap-0.5">
                 {onEdit && (
                   <Button
@@ -307,6 +322,7 @@ export function AllocationRow({
       percentage={alloc.percentage}
       spent={alloc.spent}
       limit={alloc.amount}
+      pending={alloc.pending}
       delta={
         alloc.status === "exceeded"
           ? t("budgets.row.overAmount", {
@@ -446,6 +462,7 @@ export function YearlyAllocationRow({
         </>
       }
       editable={!!alloc}
+      pending={alloc?.pending}
       {...actions}
     />
   );
