@@ -67,12 +67,17 @@ export function RecurringList({
   onEdit,
   onDelete,
   onToggle,
+  deletingId,
+  togglingId,
 }: {
   items: RecurringTx[];
   onAdd: (type: "income" | "expense") => void;
   onEdit: (item: RecurringTx) => void;
   onDelete: (id: string) => void;
   onToggle: (item: RecurringTx) => void;
+  /** The row whose delete / pause is still in flight, if any. */
+  deletingId?: string | null;
+  togglingId?: string | null;
 }) {
   const { t, plural, formatCurrency } = useI18n();
   const [search, setSearch] = useState("");
@@ -208,6 +213,8 @@ export function RecurringList({
                     onEdit={onEdit}
                     onDelete={onDelete}
                     onToggle={onToggle}
+                    deleting={deletingId === item.id}
+                    toggling={togglingId === item.id}
                   />
                 ))}
               </ul>
