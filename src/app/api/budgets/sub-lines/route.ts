@@ -8,7 +8,7 @@ import { requireAccountAccess } from "@/lib/account-access";
 import { logDataEvent } from "@/lib/audit";
 import { resolveBudgetPlan, resolveBudgetRowAccess } from "@/lib/budget-plan";
 import { isFiniteNumber, validateName } from "@/lib/validation";
-import { toMonthly } from "@/lib/recurring";
+import { fromMonthly, toMonthly } from "@/lib/recurring";
 import {
   MAX_SUB_LINE_DEPTH,
   MAX_SUB_LINES_PER_ALLOCATION,
@@ -331,6 +331,44 @@ export async function PUT(request: NextRequest) {
           )
           .limit(1);
         if (child) return "has_children";
+      }
+
+      // A linked line's money IS the plan's money, so a new amount here is a
+      // new amount there — the other direction of the mirror PUT /api/recurring
+      // already keeps. Only while the link stays put: linking takes its amount
+      // from the plan, and unlinking hands the line back to itself.
+      if (
+        updates.amount !== undefined &&
+        recurringId === undefined &&
+        existing.recurringTransactionId
+      ) {
+        const [plan] = await tx
+          .select({
+            type: recurringTransactions.type,
+            frequency: recurringTransactions.frequency,
+          })
+          .from(recurringTransactions)
+          .where(
+            and(
+              eq(recurringTransactions.id, existing.recurringTransactionId),
+              eq(recurringTransactions.userId, dataUserId),
+            ),
+          )
+          .limit(1);
+        if (plan) {
+          // Sub-line amounts are always positive and monthly; a recurring row
+          // is per occurrence and signed by its type, same as PUT /api/recurring.
+          const perOccurrence = fromMonthly(updates.amount, plan.frequency);
+          await tx
+            .update(recurringTransactions)
+            .set({ amount: plan.type === "income" ? perOccurrence : -perOccurrence })
+            .where(
+              and(
+                eq(recurringTransactions.id, existing.recurringTransactionId),
+                eq(recurringTransactions.userId, dataUserId),
+              ),
+            );
+        }
       }
 
       if (Object.keys(updates).length > 0) {

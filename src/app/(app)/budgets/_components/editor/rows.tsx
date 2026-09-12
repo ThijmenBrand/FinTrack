@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Repeat } from "lucide-react";
+import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CategoryPicker } from "@/components/category-picker";
@@ -62,7 +62,7 @@ export function AllocationEditor({
   onRestore: () => void;
   onHistory?: () => void;
 }) {
-  const { t, plural, formatCurrency } = useI18n();
+  const { t, formatCurrency } = useI18n();
   // A new row has a local tree; a saved one has the server's, with this
   // session's ops already laid over it.
   const lines = row.isNew ? toLineNodes(row.lines ?? []) : row.subLines;
@@ -117,21 +117,7 @@ export function AllocationEditor({
         actions={actions}
         color={row.categoryColor}
       />
-      {plans.length > 0 && (
-        <>
-          {/* The bills this category already owes. They are not the cap's to
-              set, but they are the reason it has to be at least this big. */}
-          <li className="flex items-center gap-1.5 pb-1 pl-16 pr-4 pt-2 text-[11px] uppercase tracking-wider text-muted-foreground">
-            <Repeat className="h-3 w-3" aria-hidden="true" />
-            {plural(
-              plans.length,
-              "budgets.stat.recurringPayments.one",
-              "budgets.stat.recurringPayments.other",
-            )}
-          </li>
-          <PlanRows items={plans} rowProps={planRowProps} />
-        </>
-      )}
+      <PlanRows items={plans} rowProps={planRowProps} />
       {/* Not under a row on its way out: it has no bills left to gain. */}
       {onAddPlan && !row.removed && <AddPlanRow onAdd={onAddPlan} />}
     </EditorRow>

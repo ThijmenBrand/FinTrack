@@ -804,7 +804,7 @@ export const nl: Record<MessageKey, string> = {
   "budgets.subLines.errTooMany": "Dit budget heeft al het maximale aantal subregels",
   "budgets.subLines.errGeneric": "Opslaan is niet gelukt — probeer het opnieuw",
   "budgets.subLines.derivedTotal": "Wordt opgeteld uit de subregels.",
-  "budgets.subLines.recurringLocked": "Bedrag komt van de terugkerende betaling.",
+  "budgets.subLines.recurringSyncs": "Dit bedrag aanpassen past ook de terugkerende betaling aan.",
   "budgets.subLines.unlinkTitle": "Deze subregel verwijderen?",
   "budgets.subLines.unlinkBody": "{name} blijft een terugkerende betaling — alleen de regel in dit budget verdwijnt.",
   "budgets.suggestion.new": "Nieuw",
