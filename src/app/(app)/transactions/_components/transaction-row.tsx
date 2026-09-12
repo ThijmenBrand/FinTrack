@@ -287,6 +287,8 @@ export function TransactionRow({
               currentCategoryName={tx.categoryName}
               currentCategoryColor={tx.categoryColor}
               currentCategoryIcon={tx.categoryIcon}
+              currentSubLineId={tx.subLineId}
+              currentSubLineName={tx.subLineName}
               categories={categories}
               accountId={tx.accountId}
               canCreateRule={canCreateRule}

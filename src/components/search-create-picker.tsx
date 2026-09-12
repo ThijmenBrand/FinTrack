@@ -15,6 +15,11 @@ import type { MessageKey } from "@/lib/i18n/translate";
 export interface PickerItem {
   id: string;
   name: string;
+  /** Indent level in the list. 0 (or absent) is a top-level row. */
+  depth?: number;
+  /** The top-level row this one sits under. Widens the search to the parent's
+   *  name, and labels the row when that parent is filtered out from above it. */
+  group?: { id: string; name: string };
 }
 
 /** One activatable line in the popover: a match, the create row, or clear. */
@@ -25,6 +30,8 @@ interface Option {
   selected?: boolean;
   muted?: boolean;
   disabled?: boolean;
+  /** Pixels of left padding, for a row nested under another. */
+  indent?: number;
 }
 
 interface SearchCreatePickerProps<T extends PickerItem> {
@@ -82,13 +89,24 @@ export function SearchCreatePicker<T extends PickerItem>({
   const name = query.trim();
   const q = name.toLowerCase();
   // No truncation: the list scrolls instead, so "not in the first five" never
-  // reads as "doesn't exist".
-  const matches = items.filter((item) => item.name.toLowerCase().includes(q));
+  // reads as "doesn't exist". A nested row also matches on the name of the
+  // group it sits under, so searching a parent keeps its children in view.
+  const matches = items.filter(
+    (item) =>
+      item.name.toLowerCase().includes(q) ||
+      !!item.group?.name.toLowerCase().includes(q),
+  );
+  // Every row still on screen, so a nested one can tell whether the row it
+  // hangs under is above it — when it isn't, it says where it came from
+  // instead of hanging off nothing.
+  const visibleIds = new Set(matches.map((item) => item.id));
   const canCreate =
     !!onCreate &&
     !!labels.create &&
     name.length > 0 &&
-    !items.some((item) => item.name.toLowerCase() === q);
+    // Only a top-level row can collide: what gets created is a top-level thing,
+    // so a nested "Fuel" under Transport must not hide "Create category Fuel".
+    !items.some((item) => !item.group && item.name.toLowerCase() === q);
 
   const close = () => {
     setOpen(false);
@@ -115,8 +133,22 @@ export function SearchCreatePicker<T extends PickerItem>({
         <>
           {renderLeading?.(item)}
           <span className="truncate">{item.name}</span>
+          {/* Always announced, so a nested option never reads as a bare word;
+              only shown once the row it hangs under has been filtered away. */}
+          {item.group && (
+            <span
+              className={
+                visibleIds.has(item.group.id)
+                  ? "sr-only"
+                  : "ml-auto shrink-0 truncate pl-2 text-xs text-muted-foreground"
+              }
+            >
+              {item.group.name}
+            </span>
+          )}
         </>
       ),
+      indent: item.depth ? 8 + item.depth * 14 : undefined,
       selected: item.id === value,
       onSelect: () => {
         onSelect(item.id);
@@ -223,6 +255,7 @@ export function SearchCreatePicker<T extends PickerItem>({
               disabled={option.disabled}
               onClick={option.onSelect}
               onMouseEnter={() => setActive(i)}
+              style={option.indent ? { paddingLeft: option.indent } : undefined}
               className={cn(
                 "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm disabled:opacity-50",
                 i === active && "bg-accent",

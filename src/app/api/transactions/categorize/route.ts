@@ -6,6 +6,7 @@ import { eq, and, inArray } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { validatePattern, isMatchType, isMatchField } from "@/lib/validation";
 import { applyRuleToTransactions } from "@/lib/apply-rule";
+import { subLineCategories } from "@/lib/budget-sub-lines";
 import { writableTransactions } from "@/lib/account-access";
 
 // PUT /api/transactions/categorize — categorize one or more transactions
@@ -18,6 +19,7 @@ export async function PUT(request: NextRequest) {
       transactionId,
       transactionIds,
       categoryId,
+      subLineId,
       createRule,
       rulePattern,
       ruleMatchType,
@@ -71,6 +73,22 @@ export async function PUT(request: NextRequest) {
       categoryOwnerId = targetCategory.userId;
     }
 
+    // A sub-line only ever narrows the category being set, so it has to plan
+    // for exactly that category in exactly that owner's space. Anything else —
+    // another category's line, someone else's line, or one sent while the
+    // category is being cleared — is rejected rather than quietly dropped.
+    let resolvedSubLineId: string | null = null;
+    if (subLineId) {
+      if (typeof subLineId !== "string" || !categoryOwnerId) {
+        return apiError("api.subCategoryWrongCategory", 400);
+      }
+      const ownerSubLines = await subLineCategories(db, categoryOwnerId);
+      if (ownerSubLines.get(subLineId) !== categoryId) {
+        return apiError("api.subCategoryWrongCategory", 400);
+      }
+      resolvedSubLineId = subLineId;
+    }
+
     // writableTransactions already excludes viewer-shared rows; ids the
     // caller can't write to (or, when setting a category, whose account owner
     // doesn't match the category's owner) are silently skipped — same
@@ -83,6 +101,9 @@ export async function PUT(request: NextRequest) {
       .set({
         categoryId: categoryId || null,
         categorySource: categoryId ? "manual" : null,
+        // Written on every categorization, never left behind: a row moved to
+        // another category cannot keep the old one's sub-line.
+        subLineId: resolvedSubLineId,
         // Any manual (re)categorization retires the deleted-category label.
         categoryLabel: null,
         modifiedBy: userId,

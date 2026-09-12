@@ -40,6 +40,7 @@ const MAX_IMPORT_ROWS = 5000;
 import { canSplitImportRow, matchesRule, ruleMatchTarget, splitDuplicates, type SplitPart } from "@/lib/csv-utils";
 import { applyRuleToTransactions } from "@/lib/apply-rule";
 import { splitStamps } from "@/lib/transaction-split";
+import { subLineCategories } from "@/lib/budget-sub-lines";
 
 interface CommitTransaction {
   tempId: string;
@@ -50,6 +51,8 @@ interface CommitTransaction {
   balance: number | null;
   type: string;
   categoryId: string | null;
+  /** Budget sub-line under `categoryId` the reviewer narrowed the row to. */
+  subLineId?: string | null;
   groupId?: string | null;
   reimbursesExpenseId?: string | null;
   reimbursesTempId?: string | null;
@@ -165,6 +168,9 @@ export async function POST(request: NextRequest) {
       .from(categories)
       .where(eq(categories.userId, ownerId));
     const ownerCategoryIds = new Set(ownerCategoryRows.map((c) => c.id));
+    // id → the category the sub-line plans for, so a row can only be narrowed
+    // to a line of the category it was actually filed under.
+    const ownerSubLines = await subLineCategories(db, ownerId);
 
     // Validate every row before writing anything — no partial imports.
     for (const [i, tx] of txList.entries()) {
@@ -188,6 +194,9 @@ export async function POST(request: NextRequest) {
       }
       if (tx.categoryId && !ownerCategoryIds.has(tx.categoryId)) {
         return apiError("api.unknownCategoryOnRow", 400, { n: i + 1 });
+      }
+      if (tx.subLineId && ownerSubLines.get(tx.subLineId) !== tx.categoryId) {
+        return apiError("api.unknownSubCategoryOnRow", 400, { n: i + 1 });
       }
       if (tx.targetAccountId && !ownerAccountIds.has(tx.targetAccountId)) {
         return apiError("api.unknownAccountOnRow", 400, { n: i + 1 });
@@ -389,6 +398,7 @@ export async function POST(request: NextRequest) {
       balance: number | null;
       categoryId: string | null;
       categorySource: "manual" | "rule" | null;
+      subLineId?: string | null;
       type: "income" | "expense" | "internal_transfer" | "reimbursement";
       groupId: string | null;
       linkedTransactionId: string | null;
@@ -573,6 +583,10 @@ export async function POST(request: NextRequest) {
           categorySource: splits
             ? null
             : sourceForReviewedTx(tx.name, tx.description, tx.categoryId),
+          // A wrapper carries no category, so it carries no sub-line either.
+          // ponytail: the parts don't take one — a split already answers
+          // "which part of this went where". Add it if a part ever needs both.
+          subLineId: splits ? null : tx.subLineId ?? null,
           isSplitParent: !!splits,
           type: txType,
           groupId: tx.groupId && ownerPotIds.has(tx.groupId) ? tx.groupId : null,

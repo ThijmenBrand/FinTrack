@@ -94,6 +94,28 @@ describe("applyOps", () => {
 });
 
 describe("toSteps", () => {
+  it("creates a category added at zero from its breakdown alone", () => {
+    const steps = toSteps({
+      ...EMPTY,
+      added: [
+        {
+          key: "k",
+          categoryId: "cat-a",
+          categoryName: "Appartment",
+          categoryColor: null,
+          // Left at 0 on the add row: the sub-lines are the cap.
+          amount: 0,
+          lines: [
+            { id: "l1", name: "Rent", amount: 900, children: [] },
+            { id: "l2", name: "Gas", amount: 100, children: [] },
+          ],
+        },
+      ],
+    });
+    expect(steps).toHaveLength(1);
+    expect(steps[0]).toMatchObject({ kind: "create", amount: 1000 });
+  });
+
   it("deletes before it creates, so a freed category can be re-budgeted", () => {
     const steps = toSteps({
       ...EMPTY,

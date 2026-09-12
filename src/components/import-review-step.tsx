@@ -30,7 +30,7 @@ import {
 import { ReimbursementPicker } from "@/components/reimbursement-picker";
 import { CategoryPicker } from "@/components/category-picker";
 import type { PreviewTransaction } from "@/lib/csv-utils";
-import type { TransactionAttachment } from "@/types/api";
+import type { SubCategoryOption, TransactionAttachment } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
 
 interface PendingRule {
@@ -44,6 +44,8 @@ interface ImportReviewStepProps {
   categories: Category[];
   /** When the target account sits in a budget plan: the ids that plan covers. */
   budgetCategoryIds?: Set<string> | null;
+  /** That plan's sub-lines, offered under their category in every picker here. */
+  subCategories: SubCategoryOption[];
   pots: ImportPot[];
   accountId: string;
   skipped: number;
@@ -87,6 +89,9 @@ interface BatchApplyBanner {
   triggerTxId: string;
   pattern: string;
   categoryId: string;
+  /** Applied to the matches alongside the category; rules can't express one. */
+  subLineId: string | null;
+  /** "Category › Sub-category" once the trigger row was narrowed to a sub-line. */
   categoryName: string;
   matchCount: number;
   matchIds: string[];
@@ -98,6 +103,7 @@ export function ImportReviewStep({
   transactions: initialTransactions,
   categories,
   budgetCategoryIds,
+  subCategories,
   pots,
   accountId,
   skipped,
@@ -159,10 +165,10 @@ export function ImportReviewStep({
   );
 
   const handleCategoryChange = useCallback(
-    (tempId: string, categoryId: string) => {
+    (tempId: string, categoryId: string, subLineId: string | null) => {
       // Update the single transaction
       setTransactions((prev) =>
-        prev.map((tx) => (tx.tempId === tempId ? { ...tx, categoryId } : tx))
+        prev.map((tx) => (tx.tempId === tempId ? { ...tx, categoryId, subLineId } : tx))
       );
 
       // Check for similar uncategorized transactions
@@ -172,13 +178,17 @@ export function ImportReviewStep({
       const pattern = extractPattern(tx.name || tx.description);
       const similar = findSimilar(pattern, tempId, transactions);
       const cat = categories.find((c) => c.id === categoryId);
+      const sub = subCategories.find((s) => s.id === subLineId);
 
       if (similar.length > 0) {
         setBatchBanner({
           triggerTxId: tempId,
           pattern,
           categoryId,
-          categoryName: cat?.name || t("csvReview.unknownCategory"),
+          subLineId,
+          categoryName: [cat?.name || t("csvReview.unknownCategory"), sub?.name]
+            .filter(Boolean)
+            .join(" › "),
           matchCount: similar.length,
           matchIds: similar.map((s) => s.tempId),
           createRule: true,
@@ -188,18 +198,18 @@ export function ImportReviewStep({
         setBatchBanner(null);
       }
     },
-    [transactions, categories, t]
+    [transactions, categories, subCategories, t]
   );
 
   const handleBatchApply = useCallback(() => {
     if (!batchBanner) return;
 
-    const { matchIds, categoryId, createRule, pattern, ruleMatchType } = batchBanner;
+    const { matchIds, categoryId, subLineId, createRule, pattern, ruleMatchType } = batchBanner;
 
     // Apply category to all matching transactions
     setTransactions((prev) =>
       prev.map((tx) =>
-        matchIds.includes(tx.tempId) ? { ...tx, categoryId } : tx
+        matchIds.includes(tx.tempId) ? { ...tx, categoryId, subLineId } : tx
       )
     );
 
@@ -280,7 +290,10 @@ export function ImportReviewStep({
           tx.tempId === tempId
             ? {
                 ...tx,
+                // The parts carry the categories now, so the row's own
+                // category — and the sub-line narrowing it — go with them.
                 categoryId: null,
+                subLineId: null,
                 splitRuleId: null,
                 splits: rows.map((r) => ({
                   amount: (sign * splitCents(r.amount)) / 100,
@@ -398,10 +411,12 @@ export function ImportReviewStep({
     });
   }, []);
 
-  const handleBulkCategory = (categoryId: string) => {
+  const handleBulkCategory = (categoryId: string, subLineId: string | null) => {
     setTransactions((prev) =>
       prev.map((tx) =>
-        selectedIds.has(tx.tempId) && !tx.splits?.length ? { ...tx, categoryId } : tx
+        selectedIds.has(tx.tempId) && !tx.splits?.length
+          ? { ...tx, categoryId, subLineId }
+          : tx
       )
     );
     setSelectedIds(new Set());
@@ -452,7 +467,7 @@ export function ImportReviewStep({
             <span className="w-7 shrink-0" />
             <span className="w-7 shrink-0" />
             <span className="w-7 shrink-0" />
-            <span className="w-44 shrink-0 hidden sm:block">{t("csvReview.colCategory")}</span>
+            <span className="w-52 shrink-0 hidden sm:block">{t("csvReview.colCategory")}</span>
           </div>
 
           {visible.map((tx) => (
@@ -460,6 +475,7 @@ export function ImportReviewStep({
               <ImportTransactionRow
                 tx={tx}
                 categories={pickable}
+                subCategories={subCategories}
                 pots={pots}
                 accountId={accountId}
                 onCategoryChange={handleCategoryChange}
@@ -651,6 +667,7 @@ export function ImportReviewStep({
           <div className="w-52">
             <CategoryPicker
               categories={pickable}
+              subCategories={subCategories}
               value={null}
               onChange={handleBulkCategory}
               className="h-8 text-xs"

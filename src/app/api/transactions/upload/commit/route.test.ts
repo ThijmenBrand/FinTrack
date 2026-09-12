@@ -458,3 +458,72 @@ describe("POST /api/transactions/upload/commit — attachments", () => {
     expect(await claimedTo("att-taken")).toBe("tx-elsewhere");
   });
 });
+
+describe("POST /api/transactions/upload/commit — sub-categories", () => {
+  /** An allocation for `categoryId` with one sub-line hanging off it. */
+  const putSubLine = async (
+    id: string,
+    categoryId: string,
+    userId = OWNER,
+  ) => {
+    const now = new Date().toISOString();
+    await testDb.client.execute({
+      sql: `INSERT INTO budgets (id, user_id, budget_id, category_id, amount, period, is_active, status, source, created_at)
+            VALUES (?, ?, NULL, ?, 100, 'monthly', 1, 'active', 'manual', ?)`,
+      args: [`alloc-${id}`, userId, categoryId, now],
+    });
+    await testDb.client.execute({
+      sql: `INSERT INTO budget_sub_lines (id, user_id, allocation_id, parent_id, name, amount, created_at)
+            VALUES (?, ?, ?, NULL, ?, 40, ?)`,
+      args: [id, userId, `alloc-${id}`, id, now],
+    });
+  };
+
+  it("stores a sub-line that plans for the row's own category", async () => {
+    await putSubLine("sub-a", "cat-a");
+
+    const res = await commit([row({ categoryId: "cat-a", subLineId: "sub-a" })]);
+    expect(res.status).toBe(200);
+
+    const rows = await storedRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].category_id).toBe("cat-a");
+    expect(rows[0].sub_line_id).toBe("sub-a");
+  });
+
+  it("rejects a sub-line belonging to another category, importing nothing", async () => {
+    await putSubLine("sub-b", "cat-b");
+
+    const res = await commit([row({ categoryId: "cat-a", subLineId: "sub-b" })]);
+    expect(res.status).toBe(400);
+    expect(await storedRows()).toHaveLength(0);
+  });
+
+  it("rejects a sub-line from someone else's budget", async () => {
+    await putSubLine("sub-theirs", "cat-other", "someone-else");
+
+    const res = await commit([row({ categoryId: "cat-a", subLineId: "sub-theirs" })]);
+    expect(res.status).toBe(400);
+    expect(await storedRows()).toHaveLength(0);
+  });
+
+  it("leaves a split parent without one — the parts carry the categories", async () => {
+    await putSubLine("sub-c", "cat-a");
+
+    const res = await commit([
+      row({
+        categoryId: "cat-a",
+        subLineId: "sub-c",
+        splits: [
+          { amount: -400, categoryId: "cat-a" },
+          { amount: -600, categoryId: "cat-b" },
+        ],
+      }),
+    ]);
+    expect(res.status).toBe(200);
+
+    const rows = await storedRows();
+    expect(rows).toHaveLength(3);
+    expect(rows.every((r) => r.sub_line_id === null)).toBe(true);
+  });
+});

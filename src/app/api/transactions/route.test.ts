@@ -696,3 +696,59 @@ describe("PUT /api/transactions/categorize — split parents", () => {
     expect(await categoryOf("tx-slice")).toBe("cat-owner");
   });
 });
+
+describe("GET /api/transactions — sub-categories", () => {
+  // `sub_line_id` has no cascade and a dozen paths rewrite `category_id`
+  // without clearing it, so the read is what decides whether the pair is still
+  // real. Nothing else in the app looks at the column.
+  beforeEach(async () => {
+    const now = new Date().toISOString();
+    await testDb.client.execute({
+      sql: `INSERT INTO budgets (id, user_id, budget_id, category_id, amount, period, is_active, status, source, created_at)
+            VALUES ('alloc-groceries', ?, NULL, 'cat-owner', 100, 'monthly', 1, 'active', 'manual', ?)`,
+      args: [OWNER, now],
+    });
+    await testDb.client.execute({
+      sql: `INSERT INTO budget_sub_lines (id, user_id, allocation_id, parent_id, name, amount, created_at)
+            VALUES ('sub-veg', ?, 'alloc-groceries', NULL, 'Veg', 40, ?)`,
+      args: [OWNER, now],
+    });
+  });
+
+  const insert = (id: string, categoryId: string | null, subLineId: string | null) =>
+    testDb.client.execute({
+      sql: `INSERT INTO transactions (id, user_id, account_id, date, description, amount, type, category_id, sub_line_id, created_at)
+            VALUES (?, ?, 'acc-private', '2026-08-09', 'Shop', -20, 'expense', ?, ?, ?)`,
+      args: [id, OWNER, categoryId, subLineId, new Date().toISOString()],
+    });
+
+  const row = async (id: string) => {
+    const body = await (await get("limit=50")).json();
+    return body.data.find((r: { id: string }) => r.id === id);
+  };
+
+  it("names the sub-line a row is filed under", async () => {
+    await insert("tx-sub", "cat-owner", "sub-veg");
+    expect(await row("tx-sub")).toMatchObject({
+      subLineId: "sub-veg",
+      subLineName: "Veg",
+    });
+  });
+
+  it("drops a sub-line left behind by a recategorization", async () => {
+    // cat-editor has no allocation holding sub-veg, so the pair is stale.
+    await insert("tx-moved", "cat-editor", "sub-veg");
+    expect(await row("tx-moved")).toMatchObject({ subLineId: null, subLineName: null });
+  });
+
+  it("drops it on a row that lost its category — a split parent carries none", async () => {
+    await insert("tx-wrapper", null, "sub-veg");
+    expect(await row("tx-wrapper")).toMatchObject({ subLineId: null, subLineName: null });
+  });
+
+  it("drops it once the line is deleted from the budget", async () => {
+    await insert("tx-gone", "cat-owner", "sub-veg");
+    await testDb.client.execute("DELETE FROM budget_sub_lines WHERE id = 'sub-veg'");
+    expect(await row("tx-gone")).toMatchObject({ subLineId: null, subLineName: null });
+  });
+});

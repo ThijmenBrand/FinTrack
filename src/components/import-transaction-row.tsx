@@ -11,7 +11,7 @@ import { useI18n } from "@/lib/i18n/client";
 import { CategoryPicker } from "@/components/category-picker";
 import { PotPicker } from "@/components/pot-picker";
 import { ImportAttachments } from "@/components/attachment-strip";
-import type { TransactionAttachment } from "@/types/api";
+import type { SubCategoryOption, TransactionAttachment } from "@/types/api";
 
 export interface ImportCategory {
   id: string;
@@ -30,6 +30,7 @@ export interface ImportPot {
 export const ImportTransactionRow = memo(function ImportTransactionRow({
   tx,
   categories,
+  subCategories,
   pots,
   accountId,
   onCategoryChange,
@@ -45,9 +46,11 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
 }: {
   tx: PreviewTransaction;
   categories: ImportCategory[];
+  /** Sub-lines of the account's budget plan — the rows nested under a category. */
+  subCategories: SubCategoryOption[];
   pots: ImportPot[];
   accountId: string;
-  onCategoryChange: (tempId: string, categoryId: string) => void;
+  onCategoryChange: (tempId: string, categoryId: string, subLineId: string | null) => void;
   onNotesChange: (tempId: string, notes: string | null) => void;
   onAttachmentsChange: (
     tempId: string,
@@ -95,8 +98,10 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
   ) : (
     <CategoryPicker
       categories={categories}
+      subCategories={subCategories}
       value={tx.categoryId || null}
-      onChange={(v) => onCategoryChange(tx.tempId, v)}
+      subLineId={tx.subLineId ?? null}
+      onChange={(v, subLineId) => onCategoryChange(tx.tempId, v, subLineId)}
       accountId={accountId}
       className={triggerClass}
       placeholder={tx.categoryId ? undefined : t("csvRow.selectPlaceholder")}
@@ -267,7 +272,7 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
         )}
 
         {/* Category selector — desktop only, inline */}
-        <div className="w-44 shrink-0 hidden sm:block">
+        <div className="w-52 shrink-0 hidden sm:block">
           {categorySelect}
         </div>
       </div>

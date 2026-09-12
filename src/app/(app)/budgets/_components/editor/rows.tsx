@@ -230,8 +230,12 @@ export function AddCategoryRow({
   const [amount, setAmount] = useState("");
 
   const category = categories.find((c) => c.id === categoryId);
-  const parsed = parseFloat(amount);
-  const valid = !!category && isFinite(parsed) && parsed > 0;
+  // Blank counts as zero, and zero is allowed: a category whose cost is its
+  // breakdown gets its cap from the sub-lines added under it once the row
+  // exists, so demanding a figure here would be asking for a number the
+  // roll-up is about to overwrite.
+  const parsed = amount.trim() === "" ? 0 : parseFloat(amount);
+  const valid = !!category && isFinite(parsed) && parsed >= 0;
 
   const submit = () => {
     if (!valid || !category) return;
@@ -261,7 +265,7 @@ export function AddCategoryRow({
           <Input
             type="number"
             step="0.01"
-            min="0.01"
+            min="0"
             inputMode="decimal"
             placeholder="0.00"
             aria-label={t("budgets.editor.newAmount")}

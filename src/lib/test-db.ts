@@ -135,6 +135,7 @@ export async function setupTestDb(name: string): Promise<TestDb> {
       category_id TEXT,
       category_label TEXT,
       category_source TEXT,
+      sub_line_id TEXT,
       type TEXT NOT NULL,
       linked_transaction_id TEXT,
       transfer_dismissed INTEGER NOT NULL DEFAULT 0,

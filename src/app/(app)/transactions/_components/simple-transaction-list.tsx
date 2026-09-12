@@ -198,6 +198,8 @@ export function SimpleTransactionList({
                   currentCategoryName={tx.categoryName}
                   currentCategoryColor={tx.categoryColor}
                   currentCategoryIcon={tx.categoryIcon}
+                  currentSubLineId={tx.subLineId}
+                  currentSubLineName={tx.subLineName}
                   categories={categoriesFor(tx.accountId)}
                   accountId={tx.accountId}
                   canCreateRule={ownsAccount(tx.accountId)}

@@ -12,6 +12,7 @@ import type {
   BudgetSuggestion,
   CategoryWithDetails,
   HistoryData,
+  SubCategoryOption,
   Transaction,
 } from "@/types/api";
 import {
@@ -332,6 +333,25 @@ export function useRejectBudgetSuggestions() {
     },
     onError: shared.onError,
     onSettled: shared.onSettled,
+  });
+}
+
+/**
+ * The sub-categories rows on this account may be filed under — the account's
+ * budget plan, flattened for a picker.
+ *
+ * Keyed under ["budgets"] so every sub-line write already invalidates it;
+ * `patchCaches` skips it because it carries no plan payload to patch.
+ */
+export function useSubCategories(accountId?: string) {
+  return useQuery({
+    queryKey: ["budgets", "sub-categories", accountId ?? null],
+    queryFn: () =>
+      apiFetch<SubCategoryOption[]>(
+        `/api/budgets/sub-lines?accountId=${encodeURIComponent(accountId!)}`,
+      ),
+    enabled: !!accountId,
+    staleTime: 60 * 1000,
   });
 }
 

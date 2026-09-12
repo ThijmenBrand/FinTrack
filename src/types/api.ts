@@ -142,6 +142,10 @@ export interface Transaction {
   categoryName: string | null;
   categoryColor: string | null;
   categoryIcon: string | null;
+  /** Budget sub-line the row is filed under, inside `categoryId`. */
+  subLineId: string | null;
+  /** Null once the sub-line is gone from the budget — the row keeps its category. */
+  subLineName: string | null;
   type: "income" | "expense" | "internal_transfer" | "reimbursement";
   linkedTransactionId: string | null;
   linkedAccountName: string | null;
@@ -430,6 +434,17 @@ export interface BudgetSubLine {
     startDate: string;
     isActive: boolean;
   };
+}
+
+/**
+ * One sub-line as a picker offers it: flat, pre-ordered, and tied to the
+ * category it refines. `depth` is 1 for a line directly under the category.
+ */
+export interface SubCategoryOption {
+  id: string;
+  categoryId: string;
+  name: string;
+  depth: number;
 }
 
 export interface Allocation {
