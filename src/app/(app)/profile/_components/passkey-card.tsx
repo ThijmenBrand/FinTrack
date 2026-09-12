@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Card,
@@ -15,10 +15,12 @@ import { usePasskeys, useDeletePasskey, useRegisterPasskey } from "@/hooks/use-p
 import { ApiError } from "@/lib/api";
 import { FormMessage, type FormMessageState } from "./form-message";
 import { useI18n } from "@/lib/i18n/client";
+import { useIsHydrated } from "@/hooks/use-browser";
 
 export function PasskeyCard() {
   const { t, formatDate } = useI18n();
-  const [webAuthnSupported, setWebAuthnSupported] = useState(false);
+  // Only knowable in the browser, so not until after hydration.
+  const webAuthnSupported = useIsHydrated() && !!window.PublicKeyCredential;
   const [passkeyMsg, setPasskeyMsg] = useState<FormMessageState>(null);
   const [registeringPasskey, setRegisteringPasskey] = useState(false);
   const [deletePasskeyId, setDeletePasskeyId] = useState<string | null>(null);
@@ -28,12 +30,6 @@ export function PasskeyCard() {
   const { register: registerPasskey } = useRegisterPasskey();
   const { data: passkeys = [] } = usePasskeys(webAuthnSupported);
   const deletePasskey = useDeletePasskey();
-
-  useEffect(() => {
-    if (typeof window !== "undefined" && window.PublicKeyCredential) {
-      setWebAuthnSupported(true);
-    }
-  }, []);
 
   async function handleRegisterPasskey() {
     setPasskeyMsg(null);

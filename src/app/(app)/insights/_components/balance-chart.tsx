@@ -13,6 +13,7 @@ import { Loader2 } from "lucide-react";
 import { toIsoDate } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/client";
 import type { I18n } from "@/lib/i18n/translate";
+import { useMediaQuery } from "@/hooks/use-browser";
 
 function formatCurrencyShort(amount: number) {
   const abs = Math.abs(amount);
@@ -83,7 +84,7 @@ export function BalanceChart({ data, isLoading, accountLabel, resets }: Props) {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   const [containerWidth, setContainerWidth] = useState(600);
-  const [isTouch, setIsTouch] = useState(false);
+  const isTouch = useMediaQuery("(hover: none) and (pointer: coarse)");
   const [view, setView] = useState({ start: 0, end: 1 });
   // null once a pinch/pan lands somewhere no preset describes.
   const [range, setRange] = useState<RangeKey | null>("All");
@@ -111,12 +112,6 @@ export function BalanceChart({ data, isLoading, accountLabel, resets }: Props) {
     const ro = new ResizeObserver(() => measure());
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
-
-  useEffect(() => {
-    setIsTouch(
-      window.matchMedia("(hover: none) and (pointer: coarse)").matches
-    );
   }, []);
 
   const points: Point[] = useMemo(() => data?.historical ?? [], [data]);

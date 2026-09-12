@@ -3,8 +3,6 @@ import { createClient, type Client, type InStatement } from "@libsql/client";
 import * as schema from "./schema";
 import path from "path";
 
-type Db = ReturnType<typeof drizzle<typeof schema>>;
-
 // Every table that carries a user_id column. reimbursement_links is absent —
 // it has no user_id and is scoped through the transactions it references;
 // split_rule_lines likewise, scoped through its rule.
@@ -109,27 +107,34 @@ function getClient(): Client {
   return _client;
 }
 
-// Defer client construction until the first property access so that simply
-// importing this module — e.g. for a pure helper that lives next to a query
-// function — doesn't try to open the database.
-function lazy(make: () => Db): Db {
-  let real: Db | null = null;
-  return new Proxy({} as Db, {
-    get(_target, prop, receiver) {
-      if (!real) real = make();
-      return Reflect.get(real, prop, receiver);
-    },
-  });
-}
+// Defer createClient — and the file handle or connection it opens — until the
+// first statement runs, so simply importing this module (e.g. for a pure
+// helper that lives next to a query function) doesn't try to open the
+// database. drizzle() only wraps the client and never talks to it, so the
+// laziness belongs here rather than around the drizzle instance: callers such
+// as better-auth's drizzle adapter read `db._` while constructing.
+const lazyClient = new Proxy({} as Client, {
+  get(_target, prop) {
+    const client = getClient();
+    const value = Reflect.get(client, prop);
+    return typeof value === "function" ? value.bind(client) : value;
+  },
+  // Only reached once someone reaches for a client method, by which point the
+  // connection is wanted anyway.
+  has: (_target, prop) => prop in getClient(),
+});
 
+// Passed as `{ client }` rather than positionally: the positional form runs
+// drizzle's client-vs-config sniffing, which reads `.constructor` off the
+// proxy and would open the database at import time.
 /** Tenant-guarded handle: refuses DML on user-owned tables without user_id. */
-export const db = lazy(() => drizzle(guarded(getClient()), { schema }));
+export const db = drizzle({ client: guarded(lazyClient), schema });
 
 /**
  * Unguarded handle for code that legitimately crosses users: backoffice
  * routes and bootstrap/migrations. ESLint refuses this import outside
  * src/app/api/admin and src/db.
  */
-export const adminDb = lazy(() => drizzle(getClient(), { schema }));
+export const adminDb = drizzle({ client: lazyClient, schema });
 
 export { schema };

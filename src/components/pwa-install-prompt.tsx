@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Download, Share, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/lib/i18n/client";
+import { useIsHydrated } from "@/hooks/use-browser";
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -47,7 +48,12 @@ function wasDismissedRecently() {
 export function PwaInstallPrompt() {
   const { t } = useI18n();
   const [installEvent, setInstallEvent] = useState<BeforeInstallPromptEvent | null>(null);
-  const [showIos, setShowIos] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+  const hydrated = useIsHydrated();
+
+  // The browser-only checks can't run in the server render, hence `hydrated`.
+  const suppressed =
+    dismissed || !hydrated || isStandalone() || wasDismissedRecently();
 
   useEffect(() => {
     if (isStandalone() || wasDismissedRecently()) return;
@@ -59,8 +65,6 @@ export function PwaInstallPrompt() {
 
     window.addEventListener("beforeinstallprompt", onBeforeInstall);
 
-    if (isIos()) setShowIos(true);
-
     return () => {
       window.removeEventListener("beforeinstallprompt", onBeforeInstall);
     };
@@ -69,7 +73,7 @@ export function PwaInstallPrompt() {
   const dismiss = () => {
     window.localStorage.setItem(DISMISS_KEY, String(Date.now()));
     setInstallEvent(null);
-    setShowIos(false);
+    setDismissed(true);
   };
 
   const handleInstall = async () => {
@@ -81,7 +85,7 @@ export function PwaInstallPrompt() {
     }
   };
 
-  if (installEvent) {
+  if (installEvent && !suppressed) {
     return (
       <div className="fixed inset-x-4 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-50 mx-auto max-w-md rounded-lg border bg-card p-4 shadow-lg md:bottom-6">
         <div className="flex items-start gap-3">
@@ -112,7 +116,7 @@ export function PwaInstallPrompt() {
     );
   }
 
-  if (showIos) {
+  if (!suppressed && isIos()) {
     const inSafari = isIosSafari();
     return (
       <div className="fixed inset-x-4 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-50 mx-auto max-w-md rounded-lg border bg-card p-4 shadow-lg md:bottom-6">

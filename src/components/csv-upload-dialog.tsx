@@ -33,7 +33,6 @@ import type { PreviewTransaction } from "@/lib/csv-utils";
 import { useCategories } from "@/hooks/use-categories";
 import { usePots } from "@/hooks/use-pots";
 import { usePreviewUpload, useCommitUpload } from "@/hooks/use-csv-upload";
-import type { Category } from "@/types/api";
 import { bankHasSeparateFeeColumn } from "@/lib/banks";
 import { BankLogo } from "@/components/bank-logo";
 import { useI18n } from "@/lib/i18n/client";

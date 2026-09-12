@@ -49,6 +49,7 @@ import { TransactionTotals } from "./_components/transaction-totals";
 import { TransactionBulkBar } from "./_components/transaction-bulk-bar";
 import { TransactionsTable } from "./_components/transactions-table";
 import { SimpleTransactionList } from "./_components/simple-transaction-list";
+import { useResetOnChange } from "@/hooks/use-reset-on-change";
 
 // --- Main Page ---
 export default function TransactionsPageWrapper() {
@@ -209,7 +210,8 @@ function TransactionsPage() {
     dateFrom: dateFrom || undefined,
     dateTo: dateTo || undefined,
   });
-  const transactions = txData?.data ?? [];
+  // Memoised: a fresh [] each render would re-run every memo below it.
+  const transactions = useMemo(() => txData?.data ?? [], [txData?.data]);
   const distinctTypes = txData?.distinctTypes ?? [];
   const totals = txData?.totals ?? null;
 
@@ -231,11 +233,9 @@ function TransactionsPage() {
     : null;
 
   // Sync pagination from query response
-  useEffect(() => {
-    if (txData?.pagination) {
-      setPagination(txData.pagination);
-    }
-  }, [txData?.pagination]);
+  useResetOnChange(txData?.pagination, () => {
+    if (txData?.pagination) setPagination(txData.pagination);
+  });
 
   // Toggle a value in a multi-select include filter; "all" clears it entirely.
   const toggleInclude = (setter: typeof setCategoryFilters, value: string) => {

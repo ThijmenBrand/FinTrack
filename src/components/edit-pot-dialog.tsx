@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -16,6 +16,7 @@ import { useUpdatePot } from "@/hooks/use-pots";
 import { PotForm, isPotTargetValid, NO_CATEGORY } from "@/components/pot-form";
 import type { Category, Pot } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
+import { useResetOnChange } from "@/hooks/use-reset-on-change";
 
 interface EditPotDialogProps {
   open: boolean;
@@ -40,16 +41,14 @@ export function EditPotDialog({
   const [targetDate, setTargetDate] = useState("");
   const updatePot = useUpdatePot();
 
-  useEffect(() => {
-    if (pot) {
-      setName(pot.name);
-      setCategoryId(pot.categoryId ?? NO_CATEGORY);
-      const had = pot.targetAmount != null && pot.targetDate != null;
-      setHasTarget(had);
-      setTargetAmount(pot.targetAmount != null ? String(pot.targetAmount) : "");
-      setTargetDate(pot.targetDate ?? "");
-    }
-  }, [pot]);
+  useResetOnChange(pot, () => {
+    if (!pot) return;
+    setName(pot.name);
+    setCategoryId(pot.categoryId ?? NO_CATEGORY);
+    setHasTarget(pot.targetAmount != null && pot.targetDate != null);
+    setTargetAmount(pot.targetAmount != null ? String(pot.targetAmount) : "");
+    setTargetDate(pot.targetDate ?? "");
+  });
 
   const targetValid = isPotTargetValid(hasTarget, targetAmount, targetDate);
 

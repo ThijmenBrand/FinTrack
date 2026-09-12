@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,6 +25,7 @@ import { CategoryPicker } from "@/components/category-picker";
 import { useCategorizeTransaction } from "@/hooks/use-transactions";
 import type { Category } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
+import { useResetOnChange } from "@/hooks/use-reset-on-change";
 
 interface CategorizePopoverProps {
   transactionId: string;
@@ -66,11 +67,11 @@ export function CategorizePopover({
   const categorize = useCategorizeTransaction();
 
   // Extract a sensible default pattern from the description
-  useEffect(() => {
+  useResetOnChange(open ? transactionDescription : null, () => {
     if (open && transactionDescription) {
       setRulePattern(extractPattern(transactionDescription));
     }
-  }, [open, transactionDescription]);
+  });
 
   const handleSave = () => {
     setOpen(false);

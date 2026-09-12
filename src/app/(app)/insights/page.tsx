@@ -240,7 +240,8 @@ export default function InsightsPage() {
   });
 
   const { data: plansData } = useBudgetPlans();
-  const plans = plansData?.plans ?? [];
+  // Memoised: a fresh [] each render would re-run every effect below it.
+  const plans = useMemo(() => plansData?.plans ?? [], [plansData]);
 
   // Default to the main budget on first load when nothing pinned a view, and
   // recover to it when a saved/linked plan id no longer exists (deleted plan).

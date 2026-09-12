@@ -24,7 +24,6 @@ afterAll(async () => {
 beforeEach(async () => {
   actor = USER;
   await testDb.reset();
-  const now = new Date().toISOString();
   for (const id of [USER, OTHER_USER, OWNER, EDITOR]) {
     await testDb.client.execute({
       sql: `INSERT INTO "user" (id, name, email, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,

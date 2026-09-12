@@ -43,7 +43,9 @@ export function TwoFactorCard({ enabled: initialEnabled, required = false, onEna
     setLoading(true);
     try {
       const result = await authClient.twoFactor.enable({ password });
-      if (result.error || !result.data) {
+      // Without an explicit `method` the server enrols TOTP; the "otp" arm of
+      // the response union carries no URI to build a QR code from.
+      if (result.error || result.data?.method !== "totp") {
         setMessage({ type: "error", text: result.error?.message || t("profile.twoFactor.startFailed") });
         return;
       }

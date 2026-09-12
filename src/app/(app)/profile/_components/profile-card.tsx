@@ -24,6 +24,7 @@ import { useI18n } from "@/lib/i18n/client";
 import { UserAvatar } from "@/components/user-avatar";
 import { useSessionUser } from "@/components/nav-shared";
 import { AVATAR_ACCEPT, MAX_AVATAR_BYTES } from "@/lib/avatar";
+import { useResetOnChange } from "@/hooks/use-reset-on-change";
 
 export function ProfileCard({ profile }: { profile: Profile }) {
   const { t } = useI18n();
@@ -41,9 +42,7 @@ export function ProfileCard({ profile }: { profile: Profile }) {
   // Local object URL so the new face shows before the round-trip finishes.
   const [preview, setPreview] = useState<string | null>(null);
 
-  useEffect(() => {
-    setDisplayName(profile.displayName);
-  }, [profile]);
+  useResetOnChange(profile, () => setDisplayName(profile.displayName));
 
   // Drop the preview once the server URL has landed, and free the blob handle.
   useEffect(() => {

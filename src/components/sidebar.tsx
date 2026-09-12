@@ -16,8 +16,9 @@ import {
   Settings,
   Check,
 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useTheme } from "next-themes";
+import { useIsHydrated } from "@/hooks/use-browser";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -39,13 +40,9 @@ export function Sidebar() {
   })).filter((g) => g.items.length > 0);
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
-  const [mounted, setMounted] = useState(false);
+  const mounted = useIsHydrated();
   const { theme, setTheme } = useTheme();
   const { user, logout } = useSessionUser();
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   return (
     <aside

@@ -3,3 +3,12 @@ allowBuilds:
   "@sentry/cli": true
   esbuild: true
   sharp: true
+
+# All three fix advisories in transitive build-time dependencies that have no
+# released fix upstream yet. The esbuild one is scoped to the deprecated
+# @esbuild-kit path drizzle-kit still pulls in; everything else already uses a
+# patched esbuild, and a blanket override would drag Vite's back to 0.25.
+overrides:
+  "@esbuild-kit/core-utils>esbuild": "^0.25.12"
+  browserslist: "^4.28.9"
+  fast-uri: "^3.1.6"
