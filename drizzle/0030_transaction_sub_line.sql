@@ -1,0 +1,1 @@
+ALTER TABLE `transactions` ADD `sub_line_id` text REFERENCES budget_sub_lines(id);

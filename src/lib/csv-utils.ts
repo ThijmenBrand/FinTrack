@@ -37,6 +37,8 @@ export interface PreviewTransaction {
   balance: number | null;
   type: "income" | "expense" | "internal_transfer" | "reimbursement";
   categoryId: string | null;
+  /** Budget sub-line under `categoryId`, when the row was narrowed to one. */
+  subLineId?: string | null;
   groupId?: string | null;
   /** Existing DB expense the row reimburses (chosen during import review); linked at commit. */
   reimbursesExpenseId?: string | null;

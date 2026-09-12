@@ -169,6 +169,18 @@ export const transactions = sqliteTable("transactions", {
   // Tracks how categoryId was set so "Recalculate All" can wipe rule-applied
   // categories without destroying manual user assignments. Null when no category.
   categorySource: text("category_source", { enum: ["manual", "rule"] }),
+  // Optional refinement of categoryId: the budget sub-line this row falls
+  // under (Transport → Fuel). Always a line inside the allocation for
+  // `categoryId`, so the category stays the thing every aggregate groups by —
+  // nothing sums on this column.
+  //
+  // No onDelete, for the same reason parentTransactionId has none: hosted
+  // libsql may not enforce it. A sub-line deleted from the budget leaves an id
+  // here that resolves to no name, and the row reads as its main category
+  // alone.
+  // ponytail: no subLineLabel twin of categoryLabel — a planning label is not
+  // history worth preserving past the plan. Add one if that ever bites.
+  subLineId: text("sub_line_id").references(() => budgetSubLines.id),
   type: text("type", {
     enum: ["income", "expense", "internal_transfer", "reimbursement"],
   }).notNull(),

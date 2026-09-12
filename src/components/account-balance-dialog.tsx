@@ -15,8 +15,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { BankLogo } from "@/components/bank-logo";
 import { PotSaldoGraph } from "@/components/pot-saldo-graph";
 import { useBalanceTimeline } from "@/hooks/use-insights";
+import { useBudgetPlans } from "@/hooks/use-budget-plans";
 import { toIsoDate } from "@/lib/utils";
-import { ArrowRight, TrendingDown, TrendingUp } from "lucide-react";
+import { ArrowRight, TrendingDown, TrendingUp, Wallet } from "lucide-react";
 import type { Account } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
 import type { MessageKey } from "@/lib/i18n/translate";
@@ -48,6 +49,10 @@ function monthsAgo(n: number): string {
 function Body({ account }: { account: Account }) {
   const { t, formatCurrency } = useI18n();
   const [months, setMonths] = useState("6");
+  // Cached by the accounts page and the budget pages alike, so this is a read
+  // off the query cache in practice rather than a fetch on open.
+  const { data: planData } = useBudgetPlans();
+  const plan = planData?.plans.find((p) => p.id === account.budgetId) ?? null;
   const { data, isLoading } = useBalanceTimeline({
     accountId: account.id,
     dateFrom: monthsAgo(Number(months)),
@@ -142,7 +147,26 @@ function Body({ account }: { account: Account }) {
 
       {/* The chart raises questions the transaction list answers; the dialog
           used to be a dead end. */}
-      <div className="flex justify-end border-t pt-3">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t pt-3">
+        {/* Which budget this account's spending lands in, and a way into it —
+            the account card never says. */}
+        {plan ? (
+          <DialogClose asChild>
+            <Link
+              href={`/budgets?plan=${encodeURIComponent(plan.id)}`}
+              className="inline-flex min-w-0 items-center gap-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              aria-label={t("accountBalance.viewBudget", { name: plan.name })}
+            >
+              <Wallet className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">{plan.name}</span>
+            </Link>
+          </DialogClose>
+        ) : (
+          <p className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+            <Wallet className="h-3.5 w-3.5 shrink-0" />
+            {t("accountBalance.noBudget")}
+          </p>
+        )}
         <DialogClose asChild>
           <Link
             href={`/transactions?account=${account.id}`}

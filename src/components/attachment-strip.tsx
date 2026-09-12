@@ -105,29 +105,27 @@ function AttachmentViewer({
             className="max-h-[62vh] w-full rounded-md border bg-muted/30 object-contain"
           />
         ) : (
-          // A PDF can't be framed here: the app sends X-Frame-Options DENY on
-          // every response, its own included. A new tab is the honest answer.
-          <div className="flex flex-col items-center gap-3 rounded-md border border-dashed py-10">
-            <FileText className="h-8 w-8 text-muted-foreground" />
-            <Button asChild size="sm">
-              <a href={src} target="_blank" rel="noreferrer">
-                <ExternalLink className="h-4 w-4" />
-                {t("attachments.openInNewTab")}
-              </a>
-            </Button>
-            <p className="text-xs text-muted-foreground">{t("attachments.pdfHint")}</p>
-          </div>
+          // ponytail: the browser's own PDF viewer in an iframe — no pdf.js.
+          // Only /api/attachments/* is framable (next.config.ts); the rest of
+          // the app still sends X-Frame-Options DENY. Mobile Safari renders
+          // just the first page in a frame, which is what the button is for.
+          <iframe
+            // Chrome/Firefox honour the fragment: fit the page to the frame's
+            // width and skip the thumbnail rail, which a one-page receipt
+            // doesn't need and which costs half the dialog.
+            src={`${src}#navpanes=0&view=FitH`}
+            title={attachment.fileName}
+            className="h-[62vh] w-full rounded-md border bg-muted/30"
+          />
         )}
 
         <div className="flex flex-wrap items-center gap-2">
-          {isImage && (
-            <Button asChild variant="outline" size="sm">
-              <a href={src} target="_blank" rel="noreferrer">
-                <ExternalLink className="h-4 w-4" />
-                {t("attachments.openInNewTab")}
-              </a>
-            </Button>
-          )}
+          <Button asChild variant="outline" size="sm">
+            <a href={src} target="_blank" rel="noreferrer">
+              <ExternalLink className="h-4 w-4" />
+              {t("attachments.openInNewTab")}
+            </a>
+          </Button>
           {!readOnly && (
             <div className="ml-auto">
               <ConfirmDeleteButton

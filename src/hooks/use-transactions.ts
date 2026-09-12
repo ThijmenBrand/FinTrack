@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
-import type { Transaction, Pagination, Category, PotRangeTotal } from "@/types/api";
+import type { Transaction, Pagination, Category, PotRangeTotal, SubCategoryOption } from "@/types/api";
 
 interface TransactionFilters {
   page?: number;
@@ -104,6 +104,8 @@ export function useUndoTransfer() {
 type CategorizePayload = {
   transactionId: string;
   categoryId: string | null;
+  /** Sub-line under `categoryId`; the server clears it whenever the category changes. */
+  subLineId?: string | null;
   createRule?: boolean;
   rulePattern?: string;
   ruleMatchType?: string;
@@ -125,6 +127,14 @@ export function useCategorizeTransaction() {
       const categories = qc.getQueryData<Category[]>(["categories"]) ?? [];
       const target = payload.categoryId
         ? categories.find((c) => c.id === payload.categoryId) ?? null
+        : null;
+      // The name behind the chosen sub-line, from whichever account's list the
+      // picker was filled from — so the row reads right before the refetch.
+      const subLineName = payload.subLineId
+        ? qc
+            .getQueriesData<SubCategoryOption[]>({ queryKey: ["budgets", "sub-categories"] })
+            .flatMap(([, list]) => list ?? [])
+            .find((line) => line.id === payload.subLineId)?.name ?? null
         : null;
 
       for (const [key, data] of previous) {
@@ -158,6 +168,8 @@ export function useCategorizeTransaction() {
               categoryName: target?.name ?? null,
               categoryColor: target?.color ?? null,
               categoryIcon: target?.icon ?? null,
+              subLineId: payload.subLineId ?? null,
+              subLineName,
             };
           });
           if (changed) qc.setQueryData<TransactionsResponse>(key, { ...data, data: next });

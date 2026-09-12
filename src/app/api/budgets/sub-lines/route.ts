@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { apiError } from "@/lib/api-errors";
 import { db } from "@/db";
 import { budgets, budgetSubLines, recurringTransactions } from "@/db/schema";
-import { eq, and, inArray, ne, sql } from "drizzle-orm";
+import { eq, and, asc, inArray, ne, sql } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
+import { requireAccountAccess } from "@/lib/account-access";
 import { logDataEvent } from "@/lib/audit";
 import { resolveBudgetPlan, resolveBudgetRowAccess } from "@/lib/budget-plan";
 import { isFiniteNumber, validateName } from "@/lib/validation";
@@ -14,9 +15,11 @@ import {
   SUB_LINE_ERROR,
   SUB_LINE_ERROR_MESSAGE,
   countSubLines,
+  flattenSubLines,
   resyncUpwards,
   subLineDepth,
 } from "@/lib/budget-sub-lines";
+import type { SubCategoryOption } from "@/types/api";
 
 /** A rule violation, as both a translatable code and an English fallback. */
 function ruleError(code: string) {
@@ -24,6 +27,48 @@ function ruleError(code: string) {
     { error: SUB_LINE_ERROR_MESSAGE[code], code },
     { status: 400 },
   );
+}
+
+// GET /api/budgets/sub-lines?accountId= — the sub-categories a transaction on
+// that account can be filed under: every sub-line of the account's budget plan,
+// flat and pre-ordered, tagged with the category it refines.
+//
+// The budgets page reads the same lines as a tree inside the plan payload; a
+// picker wants neither the tree nor the plan's spend math, so it asks here.
+export async function GET(request: NextRequest) {
+  return withUser(async (userId) => {
+    const accountId = new URL(request.url).searchParams.get("accountId");
+    if (!accountId) {
+      return NextResponse.json({ error: "accountId is required" }, { status: 400 });
+    }
+
+    const { account } = await requireAccountAccess(userId, accountId, "read");
+    // Null budgetId falls back to the caller's own main plan — the same plan
+    // the dashboard budgets against.
+    const plan = await resolveBudgetPlan(userId, account.budgetId);
+    // Rows on this account belong to its OWNER, and only that owner's sub-line
+    // ids survive the write path's check (see subLineCategories), so a plan
+    // belonging to anyone else has nothing to offer here.
+    if (!plan || plan.ownerId !== account.userId) {
+      return NextResponse.json([]);
+    }
+
+    const rows = await db
+      .select({
+        id: budgetSubLines.id,
+        parentId: budgetSubLines.parentId,
+        name: budgetSubLines.name,
+        categoryId: budgets.categoryId,
+      })
+      .from(budgetSubLines)
+      .innerJoin(budgets, eq(budgets.id, budgetSubLines.allocationId))
+      .where(and(eq(budgetSubLines.userId, plan.ownerId), eq(budgets.budgetId, plan.id)))
+      // Creation order, the order the budget editor shows them in.
+      .orderBy(asc(budgetSubLines.createdAt), asc(budgetSubLines.id));
+
+    const options: SubCategoryOption[] = flattenSubLines(rows);
+    return NextResponse.json(options);
+  }, "Failed to fetch sub-categories");
 }
 
 // POST /api/budgets/sub-lines — create a sub-line under an allocation or another sub-line

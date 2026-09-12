@@ -38,6 +38,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useCategories } from "@/hooks/use-categories";
 import { useAccounts } from "@/hooks/use-accounts";
+import { useSubCategories } from "@/hooks/use-budgets";
 import { useUndoTransfer, type UndoneCounterpart } from "@/hooks/use-transactions";
 import { NotesEditor } from "@/components/notes-editor";
 import { TransactionAttachments } from "@/components/attachment-strip";
@@ -74,6 +75,9 @@ export function TransactionDetailDialog({
   // Scoped to this transaction's account: on a shared account the row lives in
   // the OWNER's space, and only their category ids are accepted on it.
   const { data: resolvedCategories = [] } = useCategories(transaction?.accountId);
+  // The sub-lines of the budget plan this account spends against — what the
+  // category can be narrowed to here.
+  const { data: subCategories = [] } = useSubCategories(transaction?.accountId);
   const { data: accounts = [] } = useAccounts();
   const undoTransfer = useUndoTransfer();
   // The far legs the last undo rewrote. They live on another account and lost
@@ -218,7 +222,10 @@ export function TransactionDetailDialog({
                 currentCategoryName={tx.categoryName}
                 currentCategoryColor={tx.categoryColor}
                 currentCategoryIcon={tx.categoryIcon}
+                currentSubLineId={tx.subLineId}
+                currentSubLineName={tx.subLineName}
                 categories={resolvedCategories}
+                subCategories={subCategories}
                 accountId={tx.accountId}
                 canCreateRule={canCreateRule}
                 onCategorized={handleCategorized}

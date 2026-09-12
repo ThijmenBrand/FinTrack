@@ -205,6 +205,15 @@ export async function GET(request: NextRequest) {
 
     // Get paginated results with joined data (including linked account name)
     const offset = (page - 1) * limit;
+    // The row's sub-line, but only while it still refines the category the row
+    // actually has — see subLineId/subLineName below. Shared by both so the id
+    // and the name can never disagree about whether there is one.
+    const subLineOfOwnCategory = sql`sl.id = ${transactions.subLineId}
+      AND sl.user_id = "transactions"."user_id"
+      AND EXISTS (
+        SELECT 1 FROM budgets b
+        WHERE b.id = sl.allocation_id AND b.category_id = "transactions"."category_id"
+      )`;
     // Reused verbatim for the split-children query below, so a parent's
     // `splits` carry the exact same joined fields (category name/color,
     // pot name, reimbursement info, …) as top-level rows.
@@ -222,6 +231,19 @@ export async function GET(request: NextRequest) {
         categoryName: sql<string | null>`COALESCE(${categories.name}, ${transactions.categoryLabel})`,
         categoryColor: categories.color,
         categoryIcon: categories.icon,
+        // Correlated rather than joined: the id survives the sub-line being
+        // deleted from the budget (no cascade is guaranteed on hosted libsql),
+        // and a line that resolves to nothing simply reads as no sub-category.
+        //
+        // The category check is the load-bearing half. `sub_line_id` only ever
+        // refines the row's OWN category, but a dozen paths clear or reassign
+        // `category_id` without touching this column — a split parent, transfer
+        // detection, an import absorbing a far leg, "Recalculate All", a
+        // deleted category. Validating the pair here is the one place that
+        // can't be forgotten; a stale pair reads as the category alone instead
+        // of as "Groceries › Fuel".
+        subLineId: sql<string | null>`(SELECT sl.id FROM budget_sub_lines sl WHERE ${subLineOfOwnCategory})`,
+        subLineName: sql<string | null>`(SELECT sl.name FROM budget_sub_lines sl WHERE ${subLineOfOwnCategory})`,
         type: transactions.type,
         linkedTransactionId: transactions.linkedTransactionId,
         // Caller-visibility, not row-owner visibility: a transfer counterpart

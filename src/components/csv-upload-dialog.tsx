@@ -31,7 +31,7 @@ import { Upload, FileText, CheckCircle2, AlertCircle } from "lucide-react";
 import { ImportReviewStep } from "@/components/import-review-step";
 import type { PreviewTransaction } from "@/lib/csv-utils";
 import { useCategories } from "@/hooks/use-categories";
-import { useBudgets } from "@/hooks/use-budgets";
+import { useBudgets, useSubCategories } from "@/hooks/use-budgets";
 import { usePots } from "@/hooks/use-pots";
 import { usePreviewUpload, useCommitUpload } from "@/hooks/use-csv-upload";
 import { bankHasSeparateFeeColumn } from "@/lib/banks";
@@ -127,6 +127,9 @@ export function CsvUploadDialog({
       ...categories.filter((c) => c.kind !== "expense").map((c) => c.id),
     ]);
   }, [budgetId, budget, categories]);
+  // Sub-categories come from the same plan the categories were narrowed to,
+  // and stay empty for an account outside one.
+  const { data: subCategories = [] } = useSubCategories(selectedAccountId || undefined);
   const { data: pots = [] } = usePots();
   const preview = usePreviewUpload();
   const commit = useCommitUpload();
@@ -268,6 +271,7 @@ export function CsvUploadDialog({
           balance: tx.balance,
           type: tx.type,
           categoryId: tx.categoryId,
+          subLineId: tx.subLineId ?? null,
           groupId: tx.groupId ?? null,
           reimbursesExpenseId: tx.reimbursesExpenseId ?? null,
           reimbursesTempId: tx.reimbursesTempId ?? null,
@@ -679,6 +683,7 @@ export function CsvUploadDialog({
               transactions={previewData}
               categories={categories}
               budgetCategoryIds={budgetCategoryIds}
+              subCategories={subCategories}
               pots={pots}
               accountId={selectedAccountId}
               skipped={previewSkipped}

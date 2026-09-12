@@ -156,3 +156,56 @@ export async function subLineDepth(
   }
   return MAX_SUB_LINE_DEPTH + 1;
 }
+
+/**
+ * Every sub-line an owner may point a transaction at, as `id → categoryId`:
+ * the category of the allocation the line hangs under. Both write paths (the
+ * import commit and the categorize endpoint) check a submitted `subLineId`
+ * against this map, so a line can only ever refine the category it actually
+ * plans for.
+ *
+ * Scoped by owner rather than by plan: the id has to be in the ROW owner's
+ * space or it is someone else's budget, and beyond that a line under the right
+ * category in another of the owner's own plans is a harmless reference.
+ * ponytail: owner-scoped; narrow to the account's plan if plans ever have to
+ * keep their sub-lines to themselves.
+ */
+export async function subLineCategories(
+  reader: Reader,
+  userId: string,
+): Promise<Map<string, string>> {
+  const rows = await reader
+    .select({ id: budgetSubLines.id, categoryId: budgets.categoryId })
+    .from(budgetSubLines)
+    .innerJoin(budgets, eq(budgets.id, budgetSubLines.allocationId))
+    .where(eq(budgetSubLines.userId, userId));
+  return new Map(rows.map((r) => [r.id, r.categoryId]));
+}
+
+/**
+ * The sub-lines of one plan as a flat, pre-ordered list — each line directly
+ * after the one it hangs under, carrying the depth a picker indents by. The
+ * tree only ever exists to be walked in this order, so it is never built.
+ */
+export function flattenSubLines(
+  rows: { id: string; parentId: string | null; name: string; categoryId: string }[],
+): { id: string; categoryId: string; name: string; depth: number }[] {
+  const byParent = new Map<string | null, typeof rows>();
+  for (const row of rows) {
+    const siblings = byParent.get(row.parentId);
+    if (siblings) siblings.push(row);
+    else byParent.set(row.parentId, [row]);
+  }
+  const out: { id: string; categoryId: string; name: string; depth: number }[] = [];
+  // Bounded by the same cap the writes enforce, so a parent chain that
+  // shouldn't be possible costs a missing row rather than a hung request.
+  const walk = (parentId: string | null, depth: number) => {
+    if (depth > MAX_SUB_LINE_DEPTH) return;
+    for (const row of byParent.get(parentId) ?? []) {
+      out.push({ id: row.id, categoryId: row.categoryId, name: row.name, depth });
+      walk(row.id, depth + 1);
+    }
+  };
+  walk(null, 1);
+  return out;
+}
