@@ -49,6 +49,7 @@ import type { TreeActions } from "../_components/sub-line-list/constants";
 import type { DraftLine } from "../_components/sub-line-list/draft";
 import {
   AddCategoryRow,
+  AddIncomeRow,
   AllocationEditor,
   GroupLabel,
   LockedRow,
@@ -56,7 +57,11 @@ import {
 import {
   EMPTY_DRAFT,
   changeCount,
+  filePlan,
+  filedIds,
+  linkable,
   overlay,
+  unfilePlan,
   type Draft,
   type NewAllocation,
 } from "../_components/editor/draft";
@@ -176,20 +181,41 @@ function BudgetEditPageInner() {
     // the rows on screen name the owner's category ids — looked up in the
     // caller's own list they would resolve to nothing.
     categories: planCategoriesData ?? categories,
-    linkedRecurringIds: linkedRecurringIds(data?.allocations ?? []),
+    linkedRecurringIds: new Set([
+      ...linkedRecurringIds(data?.allocations ?? []),
+      // A drafted line absorbs its plan the moment it is filed rather than at
+      // Save — otherwise the payment would be on screen twice, once as its own
+      // row and once as the line that stands for it.
+      ...filedIds(draft),
+    ]),
     // A recurring payment added here is a change to the plan like any other:
     // drafted, counted in the figures above, written by Save.
     pending: draft.recurring,
     draftCreates: {
-      add: (tx) => setDraft((d) => ({ ...d, recurring: [...d.recurring, tx] })),
+      // Filed under its category's line as it is added, where that line is
+      // what the category adds up to — a payment added from this page is part
+      // of the plan, and `filePlan` is what makes it count in the figures
+      // above rather than sit beside them.
+      add: (tx) =>
+        setDraft((d) =>
+          filePlan({ ...d, recurring: [...d.recurring, tx] }, tx, data?.allocations ?? []),
+        ),
+      // Unfiled and filed again rather than patched in place: an edit can move
+      // the payment to another category, and the line has to move with it.
       update: (tx) =>
-        setDraft((d) => ({
-          ...d,
-          recurring: d.recurring.map((r) => (r.id === tx.id ? tx : r)),
-        })),
+        setDraft((d) =>
+          filePlan(
+            {
+              ...unfilePlan(d, tx.id),
+              recurring: d.recurring.map((r) => (r.id === tx.id ? tx : r)),
+            },
+            tx,
+            data?.allocations ?? [],
+          ),
+        ),
       remove: (id) =>
         setDraft((d) => ({
-          ...d,
+          ...unfilePlan(d, id),
           recurring: d.recurring.filter((r) => r.id !== id),
         })),
     },
@@ -581,9 +607,10 @@ function BudgetEditPageInner() {
             />
           ))}
 
-          {recurring.incomeGroups.length > 0 && (
-            <GroupLabel>{t("budgets.stat.income")}</GroupLabel>
-          )}
+          {/* Always, even with nothing in it: the section is where income is
+              added from, and one that only appears once income exists cannot
+              be found by anyone who has none yet. */}
+          <GroupLabel>{t("budgets.stat.income")}</GroupLabel>
           {recurring.incomeGroups.map((group) => {
             const name =
               group.line?.categoryName ??
@@ -619,6 +646,8 @@ function BudgetEditPageInner() {
             );
           })}
 
+          <AddIncomeRow onAdd={() => recurring.addUnderCategory(null, "income")} />
+
           <GroupLabel>{t("budgets.editor.spending")}</GroupLabel>
 
           {rows.map((row) => (
@@ -630,6 +659,13 @@ function BudgetEditPageInner() {
               plans={plansByCategory.get(row.categoryId) ?? []}
               planRowProps={recurring.rowProps}
               onAddPlan={() => recurring.addUnderCategory(row.categoryId, "expense")}
+              // Only where a line would be counted; a typed cap already covers
+              // the payments under it (see `linkable`).
+              onFilePlan={
+                linkable(row)
+                  ? (tx) => setDraft((d) => filePlan(d, tx, data.allocations))
+                  : undefined
+              }
               onAmount={(stored) =>
                 row.isNew ? setNewAmount(row.id, stored) : setAmount(row.id, stored)
               }

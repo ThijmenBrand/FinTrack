@@ -3,8 +3,12 @@ import {
   afterSave,
   applyOps,
   changeCount,
+  filePlan,
+  filedIds,
+  linkable,
   overlay,
   toSteps,
+  unfilePlan,
   type Draft,
   type SubLineOp,
 } from "./draft";
@@ -181,7 +185,7 @@ describe("toSteps", () => {
 describe("drafted recurring payments", () => {
   const tx = { id: "draft:1", type: "expense", amount: -10 } as RecurringTx;
 
-  it("counts as a change and saves last", () => {
+  it("counts as a change", () => {
     const draft: Draft = { ...EMPTY, amounts: { a: 1 }, recurring: [tx] };
     expect(changeCount(draft)).toBe(2);
     expect(toSteps(draft).map((s) => s.kind)).toEqual(["amount", "recurring"]);
@@ -267,5 +271,149 @@ describe("changeCount", () => {
         ],
       }),
     ).toBe(0);
+  });
+});
+
+describe("filing a plan under a category", () => {
+  const tx = {
+    id: "draft:1",
+    type: "expense",
+    categoryId: "cat-a",
+    description: "Electricity",
+    amount: -25,
+    frequency: "monthly",
+    dayOfWeek: null,
+    dayOfMonth: 1,
+    monthOfYear: null,
+    startDate: "2026-01-01",
+    isActive: true,
+  } as RecurringTx;
+  /** A category that adds up from its breakdown: a line there is counted. */
+  const derived = [alloc("a", 60, [line("rent", 60)])];
+
+  it("adds a line that stands for the plan", () => {
+    const draft = filePlan(EMPTY, tx, derived);
+    expect(draft.ops).toHaveLength(1);
+    expect(draft.ops[0]).toMatchObject({
+      kind: "add",
+      allocationId: "a",
+      parentId: null,
+      name: "Electricity",
+      amount: 25,
+      recurring: { id: "draft:1", frequency: "monthly" },
+    });
+    // And the cap now includes it: 60 + 25.
+    expect(overlay(derived, draft)[0].amount).toBe(85);
+  });
+
+  it("leaves a typed cap alone — the roll-up would replace it", () => {
+    const typed = [alloc("a", 300)];
+    expect(linkable(overlay(typed, EMPTY)[0])).toBe(false);
+    expect(filePlan(EMPTY, tx, typed)).toEqual(EMPTY);
+    // A cap of zero has nothing to lose, so that one does file.
+    expect(filePlan(EMPTY, tx, [alloc("a", 0)]).ops).toHaveLength(1);
+  });
+
+  it("files a plan only once, and never files income", () => {
+    const once = filePlan(EMPTY, tx, derived);
+    expect(filePlan(once, tx, derived)).toEqual(once);
+    const income = { ...tx, type: "income" } as RecurringTx;
+    expect(filePlan(EMPTY, income, derived)).toEqual(EMPTY);
+  });
+
+  it("puts the plan's own call before the line that names it", () => {
+    const draft = filePlan({ ...EMPTY, recurring: [tx] }, tx, derived);
+    expect(toSteps(draft).map((s) => s.kind)).toEqual(["recurring", "op"]);
+  });
+
+  it("rewrites the line's plan id once the plan has been written", () => {
+    const draft = filePlan({ ...EMPTY, recurring: [tx] }, tx, derived);
+    const steps = toSteps(draft);
+    // The plan landed, the line did not: the retry must name the real plan.
+    const left = afterSave(draft, steps, 1, { "draft:1": "rec-9" });
+    expect(left.recurring).toEqual([]);
+    expect(left.ops[0]).toMatchObject({ recurring: { id: "rec-9" } });
+  });
+
+  it("frees the plan again when its line is taken back", () => {
+    const filed = filePlan(EMPTY, tx, derived);
+    const dropped: Draft = {
+      ...filed,
+      ops: [...filed.ops, { kind: "remove", allocationId: "a", id: filed.ops[0].id }],
+    };
+    // Not filed any more: the payment goes back to being a row of its own,
+    // and `filePlan` may file it somewhere else.
+    expect(filedIds(dropped).size).toBe(0);
+  });
+
+  it("takes the line back when the plan is dropped, edits and all", () => {
+    const filed = filePlan(EMPTY, tx, derived);
+    const lineId = filed.ops[0].id;
+    const renamed: Draft = {
+      ...filed,
+      ops: [...filed.ops, { kind: "update", allocationId: "a", id: lineId, name: "x", amount: 25 }],
+    };
+    // Both go: a rename of a line that will not exist is a 404 waiting to run.
+    expect(unfilePlan(renamed, "draft:1").ops).toEqual([]);
+  });
+});
+
+describe("filing a plan under a category budgeted in this same session", () => {
+  const tx = {
+    id: "draft:1",
+    type: "expense",
+    categoryId: "cat-a",
+    description: "Electricity",
+    amount: -25,
+    frequency: "monthly",
+    dayOfWeek: null,
+    dayOfMonth: 1,
+    monthOfYear: null,
+    startDate: "2026-01-01",
+    isActive: true,
+  } as RecurringTx;
+  /** No id to hang an op off yet: the line goes in the tree the create carries. */
+  const fresh: Draft = {
+    ...EMPTY,
+    added: [
+      {
+        key: "new:1",
+        categoryId: "cat-a",
+        categoryName: "a",
+        categoryColor: null,
+        amount: 0,
+        lines: [],
+      },
+    ],
+    recurring: [tx],
+  };
+
+  it("puts the line in the row's own tree, not the op log", () => {
+    const draft = filePlan(fresh, tx, []);
+    expect(draft.ops).toEqual([]);
+    expect(draft.added[0].lines).toMatchObject([
+      { name: "Electricity", amount: 25, recurring: { id: "draft:1" } },
+    ]);
+    expect(filedIds(draft).has("draft:1")).toBe(true);
+    expect(unfilePlan(draft, "draft:1").added[0].lines).toEqual([]);
+  });
+
+  it("names the plan in the create, after the call that mints its id", () => {
+    const steps = toSteps(filePlan(fresh, tx, []));
+    expect(steps.map((s) => s.kind)).toEqual(["recurring", "create"]);
+    expect(steps[1]).toMatchObject({
+      children: [{ name: "Electricity", adoptRecurringId: "draft:1" }],
+    });
+  });
+
+  it("rewrites the tree's plan id once the plan has been written", () => {
+    const draft = filePlan(fresh, tx, []);
+    const steps = toSteps(draft);
+    // The plan landed, the create did not: the retry must adopt the real one.
+    const left = afterSave(draft, steps, 1, { "draft:1": "rec-9" });
+    expect(left.recurring).toEqual([]);
+    expect(toSteps(left)[0]).toMatchObject({
+      children: [{ adoptRecurringId: "rec-9" }],
+    });
   });
 });

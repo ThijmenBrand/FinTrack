@@ -21,6 +21,76 @@ import {
 } from "@/lib/budget-sub-lines";
 import type { SubCategoryOption } from "@/types/api";
 
+/**
+ * The plan a sub-line may stand for, as the monthly figure the line takes.
+ *
+ * Same rules as `adoptRecurringId` in POST /api/budgets: the owner's own plan,
+ * an expense, on an account this allocation's budget plan scopes. Null when
+ * the id names nothing that qualifies. Both callers resolve it BEFORE their
+ * write transaction — it reads rows the write never touches.
+ */
+async function linkedPlanAmount(
+  userId: string,
+  dataUserId: string,
+  budgetId: string | null,
+  recurringId: string,
+): Promise<number | null> {
+  const plan = await resolveBudgetPlan(userId, budgetId);
+  const [target] = await db
+    .select({
+      amount: recurringTransactions.amount,
+      frequency: recurringTransactions.frequency,
+    })
+    .from(recurringTransactions)
+    .where(
+      and(
+        eq(recurringTransactions.id, recurringId),
+        eq(recurringTransactions.userId, dataUserId),
+        eq(recurringTransactions.type, "expense"),
+        ...(plan
+          ? [
+              plan.accountIds.length > 0
+                ? inArray(recurringTransactions.accountId, plan.accountIds)
+                : sql`1=0`,
+            ]
+          : []),
+      ),
+    )
+    .limit(1);
+  return target ? toMonthly(target.amount, target.frequency) : null;
+}
+
+/** A plan backs at most one sub-line; `skipId` is the line doing the asking. */
+async function alreadyLinked(
+  tx: Pick<typeof db, "select">,
+  dataUserId: string,
+  recurringId: string,
+  skipId?: string,
+): Promise<boolean> {
+  const [linked] = await tx
+    .select({ id: budgetSubLines.id })
+    .from(budgetSubLines)
+    .where(
+      and(
+        eq(budgetSubLines.recurringTransactionId, recurringId),
+        eq(budgetSubLines.userId, dataUserId),
+        ...(skipId ? [ne(budgetSubLines.id, skipId)] : []),
+      ),
+    )
+    .limit(1);
+  return Boolean(linked);
+}
+
+/** The 409 both writers return when a plan already stands for another line. */
+function alreadyLinkedError() {
+  // No translatable key for this yet — same machine code POST /api/budgets
+  // uses for the equivalent conflict, so the client maps it once.
+  return NextResponse.json(
+    { error: "That recurring plan is already linked to a sub-line", code: "recurring_already_linked" },
+    { status: 409 },
+  );
+}
+
 /** A rule violation, as both a translatable code and an English fallback. */
 function ruleError(code: string) {
   return NextResponse.json(
@@ -75,10 +145,15 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   return withUser(async (userId) => {
     const body = await request.json();
-    const { allocationId, parentId, name, amount } = body;
+    const { allocationId, parentId, name, amount, recurringId } = body;
 
     if (!allocationId || typeof allocationId !== "string") {
       return NextResponse.json({ error: "allocationId is required" }, { status: 400 });
+    }
+    // Absent creates an ordinary planning line; a string files an existing
+    // recurring payment as the line, which is then that plan's money.
+    if (recurringId !== undefined && typeof recurringId !== "string") {
+      return NextResponse.json({ error: "Invalid recurringId" }, { status: 400 });
     }
 
     const validatedName = validateName(name);
@@ -111,6 +186,21 @@ export async function POST(request: NextRequest) {
     }
     const dataUserId = access.dataUserId;
 
+    // The line's amount comes from the plan when there is one — the figure the
+    // caller sent for it is a placeholder, exactly as it is for a container.
+    let linkAmount: number | null = null;
+    if (typeof recurringId === "string") {
+      linkAmount = await linkedPlanAmount(
+        userId,
+        dataUserId,
+        allocation.budgetId,
+        recurringId,
+      );
+      if (linkAmount === null) {
+        return apiError("api.recurringNotFound", 404);
+      }
+    }
+
     // Cap check, insert and roll-up share one transaction: read-then-write
     // across two connections lets two concurrent creates both see room that
     // only one of them can actually have, and lets one overwrite the other's
@@ -119,6 +209,10 @@ export async function POST(request: NextRequest) {
     const outcome = await db.transaction(async (tx) => {
       if ((await countSubLines(tx, allocationId, dataUserId)) >= MAX_SUB_LINES_PER_ALLOCATION) {
         return SUB_LINE_ERROR.tooMany;
+      }
+
+      if (typeof recurringId === "string" && (await alreadyLinked(tx, dataUserId, recurringId))) {
+        return "already_linked";
       }
 
       let resolvedParentId: string | null = null;
@@ -151,7 +245,8 @@ export async function POST(request: NextRequest) {
         allocationId,
         parentId: resolvedParentId,
         name: validatedName.value,
-        amount,
+        amount: linkAmount ?? amount,
+        recurringTransactionId: recurringId ?? null,
         createdAt: new Date().toISOString(),
       });
       await resyncUpwards(tx, allocationId, dataUserId, resolvedParentId);
@@ -160,6 +255,9 @@ export async function POST(request: NextRequest) {
 
     if (outcome === "parent_not_found") {
       return apiError("api.parentSubLineNotFound", 404);
+    }
+    if (outcome === "already_linked") {
+      return alreadyLinkedError();
     }
     if (outcome === "parent_recurring") {
       return NextResponse.json(
@@ -181,7 +279,8 @@ export async function POST(request: NextRequest) {
         allocationId,
         parentId: outcome.parentId,
         name: validatedName.value,
-        amount,
+        amount: linkAmount ?? amount,
+        ...(recurringId ? { recurringTransactionId: recurringId } : {}),
         ...(dataUserId !== userId ? { accountOwnerId: dataUserId } : {}),
       },
     });
@@ -252,38 +351,19 @@ export async function PUT(request: NextRequest) {
     }
     const dataUserId = access.dataUserId;
 
-    // Same rules as `adoptRecurringId` in POST /api/budgets: the owner's own
-    // plan, an expense, on an account this allocation's plan scopes. Resolved
-    // before the transaction, same as the plan lookup there.
     if (typeof recurringId === "string") {
-      const plan = await resolveBudgetPlan(userId, allocation.budgetId);
-      const [linkTarget] = await db
-        .select({
-          amount: recurringTransactions.amount,
-          frequency: recurringTransactions.frequency,
-        })
-        .from(recurringTransactions)
-        .where(
-          and(
-            eq(recurringTransactions.id, recurringId),
-            eq(recurringTransactions.userId, dataUserId),
-            eq(recurringTransactions.type, "expense"),
-            ...(plan
-              ? [
-                  plan.accountIds.length > 0
-                    ? inArray(recurringTransactions.accountId, plan.accountIds)
-                    : sql`1=0`,
-                ]
-              : []),
-          ),
-        )
-        .limit(1);
-      if (!linkTarget) {
+      const linkAmount = await linkedPlanAmount(
+        userId,
+        dataUserId,
+        allocation.budgetId,
+        recurringId,
+      );
+      if (linkAmount === null) {
         return apiError("api.recurringNotFound", 404);
       }
       // Linking takes the line's amount, same as an adopted line in POST.
       updates.recurringTransactionId = recurringId;
-      updates.amount = toMonthly(linkTarget.amount, linkTarget.frequency);
+      updates.amount = linkAmount;
     } else if (recurringId === null) {
       // Unlinking leaves the amount exactly where it is — the line just goes
       // back to being an ordinary planning line.
@@ -305,18 +385,7 @@ export async function PUT(request: NextRequest) {
       if (typeof recurringId === "string") {
         // A plan can back at most one sub-line — enforced here rather than a
         // partial unique index (see the sub-lines migration notes).
-        const [linked] = await tx
-          .select({ id: budgetSubLines.id })
-          .from(budgetSubLines)
-          .where(
-            and(
-              eq(budgetSubLines.recurringTransactionId, recurringId),
-              eq(budgetSubLines.userId, dataUserId),
-              ne(budgetSubLines.id, id),
-            ),
-          )
-          .limit(1);
-        if (linked) return "already_linked";
+        if (await alreadyLinked(tx, dataUserId, recurringId, id)) return "already_linked";
 
         // The other half of the same rule: a container already gets its amount
         // from its children, so it can't take a plan's on top.
@@ -400,12 +469,7 @@ export async function PUT(request: NextRequest) {
       );
     }
     if (outcome === "already_linked") {
-      // No translatable key for this yet — same machine code POST /api/budgets
-      // uses for the equivalent conflict, so the client maps it once.
-      return NextResponse.json(
-        { error: "That recurring plan is already linked to a sub-line", code: "recurring_already_linked" },
-        { status: 409 },
-      );
+      return alreadyLinkedError();
     }
 
     if (Object.keys(updates).length > 0) {
