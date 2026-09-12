@@ -10,6 +10,7 @@ import {
   recurringTransactions,
   transactionGroups,
   reimbursementLinks,
+  transactionAttachments,
 } from "@/db/schema";
 import { eq, and, lt, gte, lte, inArray, isNull, isNotNull } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
@@ -61,6 +62,12 @@ interface CommitTransaction {
   splits?: SplitPart[] | null;
   /** Set while the parts are an untouched rule proposal — makes the children's category source "rule". */
   splitRuleId?: string | null;
+  /**
+   * Receipts uploaded during review. The files are already in the blob store
+   * with no transaction_id; only their ids matter here. The rest of each object
+   * is what the review UI needed to draw a tile and is ignored.
+   */
+  attachments?: Array<{ id: string }> | null;
 }
 
 const MIN_SPLITS = 2;
@@ -596,6 +603,33 @@ export async function POST(request: NextRequest) {
     for (let i = 0; i < allRecords.length; i += chunkSize) {
       const chunk = allRecords.slice(i, i + chunkSize);
       await db.insert(transactions).values(chunk);
+    }
+
+    // Bind the receipts uploaded during review to the rows they were dropped
+    // on. Scoped to rows still unclaimed and owned by this account's owner, so
+    // a client replaying someone else's ids moves nothing. A row absorbed into
+    // an existing mirror maps to that mirror's id, which is the right place for
+    // the file; one dropped as a duplicate has no id here and its upload stays
+    // unclaimed until the collector takes it.
+    const claims = uniqueTxList.flatMap((tx) => {
+      const targetId = tempIdToSourceId.get(tx.tempId);
+      if (!targetId || !tx.attachments?.length) return [];
+      return tx.attachments
+        .map((a) => a?.id)
+        .filter((id): id is string => typeof id === "string")
+        .map((id) => ({ id, targetId }));
+    });
+    for (const claim of claims) {
+      await db
+        .update(transactionAttachments)
+        .set({ transactionId: claim.targetId })
+        .where(
+          and(
+            eq(transactionAttachments.id, claim.id),
+            eq(transactionAttachments.userId, ownerId),
+            isNull(transactionAttachments.transactionId),
+          ),
+        );
     }
 
     // Fill each absorbed mirror in with the bank's own version of that payment.

@@ -172,6 +172,16 @@ export interface Transaction {
   splits?: Transaction[];
 }
 
+export interface TransactionAttachment {
+  id: string;
+  /** The name from the user's disk — display and download only. */
+  fileName: string;
+  /** `image/webp` for anything we re-encoded, or `application/pdf`. */
+  contentType: string;
+  size: number;
+  createdAt: string;
+}
+
 export interface Pagination {
   page: number;
   limit: number;

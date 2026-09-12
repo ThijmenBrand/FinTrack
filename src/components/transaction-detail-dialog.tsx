@@ -27,6 +27,7 @@ import {
   Package,
   Repeat,
   Split,
+  Paperclip,
 } from "lucide-react";
 import { CategorizePopover } from "@/components/categorize-popover";
 import { RecurringLinkPopover } from "@/components/recurring-link-popover";
@@ -39,6 +40,7 @@ import { useCategories } from "@/hooks/use-categories";
 import { useAccounts } from "@/hooks/use-accounts";
 import { useUndoTransfer, type UndoneCounterpart } from "@/hooks/use-transactions";
 import { NotesEditor } from "@/components/notes-editor";
+import { TransactionAttachments } from "@/components/attachment-strip";
 
 import type { Transaction, ReimbursementDetail } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
@@ -87,6 +89,8 @@ export function TransactionDetailDialog({
   const account = accounts.find((a) => a.id === transaction?.accountId);
   // Rules are the owner's config; the server drops them from anyone else.
   const canCreateRule = !account || account.role === "owner";
+  // A viewer reads a shared account and writes nothing to it.
+  const readOnly = account?.role === "viewer";
 
   const { data: reimbursements = [] } = useQuery({
     queryKey: ["transaction-reimbursements", transaction?.id],
@@ -234,6 +238,16 @@ export function TransactionDetailDialog({
             <StickyNote className="h-4 w-4 text-muted-foreground shrink-0 mt-1.5" />
             <span className="text-muted-foreground w-20 shrink-0 mt-1">{t("common.notes")}</span>
             <NotesEditor key={tx.id} transactionId={tx.id} initialNotes={tx.notes} />
+          </div>
+
+          {/* Next to the note, because a receipt is the same kind of thing: the
+              evidence behind the row, not part of the bank's own data. */}
+          <div className="flex items-start gap-3">
+            <Paperclip className="h-4 w-4 text-muted-foreground shrink-0 mt-1.5" />
+            <span className="text-muted-foreground w-20 shrink-0 mt-1">
+              {t("attachments.label")}
+            </span>
+            <TransactionAttachments key={tx.id} transactionId={tx.id} readOnly={readOnly} />
           </div>
 
           {tx.parentTransactionId ? (

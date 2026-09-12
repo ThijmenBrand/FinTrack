@@ -539,6 +539,45 @@ export const reimbursementLinks = sqliteTable("reimbursement_links", {
   index("idx_reimbursement_expense").on(table.expenseId),
 ]);
 
+// ─── Transaction Attachments ────────────────────────────────────────────────
+// Receipts, invoices and the like. The bytes live in the private Vercel Blob
+// store under `attachments/`; this row holds the pathname plus what the UI
+// needs to render a tile without fetching the file.
+export const transactionAttachments = sqliteTable("transaction_attachments", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  // The ACCOUNT OWNER's user id, exactly like transactions.user_id — sharing
+  // widens who may read a row, never who owns it. Present so the tenant guard
+  // in src/db/index.ts has something to check every query against.
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  // Null while a CSV import is still in review: the transaction it belongs to
+  // does not exist yet, so the commit claims the row by id afterwards. A row
+  // that is never claimed is garbage the next upload collects (see
+  // POST /api/attachments).
+  //
+  // As with parentTransactionId, the `ON DELETE cascade` the migration
+  // declares is a backstop, not the mechanism: hosted libsql doesn't guarantee
+  // `foreign_keys=ON`, and the blob has to be deleted by code anyway, so
+  // DELETE /api/transactions removes these rows explicitly.
+  transactionId: text("transaction_id").references(() => transactions.id, {
+    onDelete: "cascade",
+  }),
+  /** Key inside the blob store, e.g. `attachments/<uuid>.webp`. */
+  pathname: text("pathname").notNull(),
+  /** The name from the user's disk, for display and download only. */
+  fileName: text("file_name").notNull(),
+  contentType: text("content_type").notNull(),
+  size: integer("size").notNull(),
+  uploadedBy: text("uploaded_by").references(() => user.id, { onDelete: "set null" }),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_attachments_transaction").on(table.transactionId),
+  index("idx_attachments_user_unclaimed").on(table.userId, table.transactionId),
+]);
+
 // ─── Split Rules ────────────────────────────────────────────────────────────
 // Auto-split rules (e.g. "Hypotheek" -> 30% aflossing / 70% rente), matched
 // like category rules. Lines live in split_rule_lines; `mode` decides whether

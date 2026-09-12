@@ -5,6 +5,7 @@ import { transactions, accounts, categories, reimbursementLinks } from "@/db/sch
 import { eq, desc, asc, and, gte, lte, like, or, sql, inArray, notInArray, isNull, isNotNull } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
+import { collectOrphanAttachments } from "@/lib/attachment-store";
 import { parseSearchTerm } from "@/lib/search-query";
 import { effectiveExpenseAmount } from "@/lib/reimbursement-sql";
 import { requireAccountAccess, visibleTransactions } from "@/lib/account-access";
@@ -701,6 +702,13 @@ export async function DELETE(request: NextRequest) {
     // from the lookup above, and every owner in the list owns an account the
     // caller may write to, so the pair can't widen past the checked rows.
     await db.delete(transactions).where(and(inArray(transactions.id, deleteIds), inArray(transactions.userId, ownerIds)));
+
+    // The rows are gone, so their receipts are now orphans — one sweep per
+    // owner clears the blobs too, including the split children and mirrors
+    // removed above (see collectOrphanAttachments).
+    for (const ownerId of ownerIds) {
+      await collectOrphanAttachments(ownerId);
+    }
 
     logDataEvent(rows.map((r) => {
       const ownerId = ownerByAccount.get(r.accountId)!;

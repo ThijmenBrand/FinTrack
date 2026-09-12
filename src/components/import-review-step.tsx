@@ -30,6 +30,7 @@ import {
 import { ReimbursementPicker } from "@/components/reimbursement-picker";
 import { CategoryPicker } from "@/components/category-picker";
 import type { PreviewTransaction } from "@/lib/csv-utils";
+import type { TransactionAttachment } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
 
 interface PendingRule {
@@ -201,6 +202,22 @@ export function ImportReviewStep({
       prev.map((tx) => (tx.tempId === tempId ? { ...tx, notes } : tx))
     );
   }, []);
+
+  // The files are already uploaded (unclaimed) by the time this runs — the row
+  // only carries the ids, which the commit hands to the transaction it creates.
+  const handleAttachmentsChange = useCallback(
+    (
+      tempId: string,
+      update: (prev: TransactionAttachment[]) => TransactionAttachment[],
+    ) => {
+      setTransactions((prev) =>
+        prev.map((tx) =>
+          tx.tempId === tempId ? { ...tx, attachments: update(tx.attachments ?? []) } : tx
+        )
+      );
+    },
+    []
+  );
 
   // A pot claims the whole row, so it drops any split the row had (the row
   // editor hides the pot picker while a split exists, this covers the rest).
@@ -395,7 +412,8 @@ export function ImportReviewStep({
             <span className="shrink-0 sm:w-16">{t("csvReview.colDate")}</span>
             <span className="flex-1">{t("csvReview.colDescription")}</span>
             <span className="text-right shrink-0 sm:w-24">{t("csvReview.colAmount")}</span>
-            {/* Spacers matching the per-row note / split / pot / reimbursement buttons */}
+            {/* Spacers matching the per-row note / receipt / split / pot / reimbursement buttons */}
+            <span className="w-7 shrink-0" />
             <span className="w-7 shrink-0" />
             <span className="w-7 shrink-0" />
             <span className="w-7 shrink-0" />
@@ -412,6 +430,7 @@ export function ImportReviewStep({
                 accountId={accountId}
                 onCategoryChange={handleCategoryChange}
                 onNotesChange={handleNotesChange}
+                onAttachmentsChange={handleAttachmentsChange}
                 onPotChange={handlePotChange}
                 onToggleReimbursement={handleToggleReimbursement}
                 onEditSplit={handleEditSplit}

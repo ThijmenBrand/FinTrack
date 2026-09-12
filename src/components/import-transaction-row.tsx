@@ -4,12 +4,14 @@ import { useState, memo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { CheckCircle2, StickyNote, Receipt, Split, Pencil, X } from "lucide-react";
+import { CheckCircle2, StickyNote, Receipt, Split, Pencil, X, Paperclip } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
 import { canSplitImportRow, type PreviewTransaction } from "@/lib/csv-utils";
 import { useI18n } from "@/lib/i18n/client";
 import { CategoryPicker } from "@/components/category-picker";
 import { PotPicker } from "@/components/pot-picker";
+import { ImportAttachments } from "@/components/attachment-strip";
+import type { TransactionAttachment } from "@/types/api";
 
 export interface ImportCategory {
   id: string;
@@ -32,6 +34,7 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
   accountId,
   onCategoryChange,
   onNotesChange,
+  onAttachmentsChange,
   onPotChange,
   onToggleReimbursement,
   onEditSplit,
@@ -46,6 +49,10 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
   accountId: string;
   onCategoryChange: (tempId: string, categoryId: string) => void;
   onNotesChange: (tempId: string, notes: string | null) => void;
+  onAttachmentsChange: (
+    tempId: string,
+    update: (prev: TransactionAttachment[]) => TransactionAttachment[],
+  ) => void;
   onPotChange: (tempId: string, groupId: string | null) => void;
   onToggleReimbursement: (tempId: string) => void;
   /** Open the local split editor for this row (proposed or brand new). */
@@ -55,9 +62,10 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
   selected: boolean;
   onToggleSelect: (tempId: string) => void;
 }) {
-  const { t, formatDayMonth: formatDate } = useI18n();
+  const { t, plural, formatDayMonth: formatDate } = useI18n();
   const [expanded, setExpanded] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
+  const [attachOpen, setAttachOpen] = useState(false);
   const isReimbursement = tx.type === "reimbursement";
   const splits = tx.splits?.length ? tx.splits : null;
   // Reimbursement only makes sense for money coming in; a split row owns its
@@ -66,6 +74,10 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
   const canSplit = canSplitImportRow(tx);
   // Keep the note input visible whenever a note exists so it's never hidden data
   const showNoteInput = noteOpen || !!tx.notes;
+  const attachments = tx.attachments ?? [];
+  // Same rule for receipts: once a row carries one, the strip stays open so
+  // nobody imports a file they can no longer see.
+  const showAttachments = attachOpen || attachments.length > 0;
 
   // The three prior Select variants differed only in trigger styling + label.
   const triggerClass = !tx.categoryId
@@ -163,6 +175,35 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
           />
         </Button>
 
+        {/* Receipt toggle */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 shrink-0"
+          aria-label={
+            attachments.length
+              ? t("csvRow.editAttachments")
+              : t("csvRow.addAttachment")
+          }
+          title={
+            attachments.length
+              ? plural(
+                  attachments.length,
+                  "attachments.attached.one",
+                  "attachments.attached.other",
+                )
+              : t("csvRow.addAttachment")
+          }
+          onClick={() => setAttachOpen((prev) => !prev)}
+        >
+          <Paperclip
+            className={cn(
+              "h-3.5 w-3.5",
+              attachments.length ? "text-primary" : "text-muted-foreground",
+            )}
+          />
+        </Button>
+
         {/* Split toggle — eligible rows only; spacer keeps columns aligned */}
         {canSplit || splits ? (
           <Button
@@ -252,6 +293,17 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
                 e.currentTarget.blur();
               }
             }}
+          />
+        </div>
+      )}
+
+      {/* Receipts — aligned with the note input above it */}
+      {showAttachments && (
+        <div className="sm:pl-[104px]">
+          <ImportAttachments
+            accountId={accountId}
+            attachments={attachments}
+            onChange={(update) => onAttachmentsChange(tx.tempId, update)}
           />
         </div>
       )}

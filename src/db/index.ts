@@ -12,6 +12,7 @@ const TENANT_TABLES = [
   "accounts",
   "account_members",
   "transactions",
+  "transaction_attachments",
   "categories",
   "category_rules",
   "split_rules",
