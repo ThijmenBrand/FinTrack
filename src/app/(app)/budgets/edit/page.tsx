@@ -20,7 +20,7 @@ import {
 } from "@/hooks/use-budgets";
 import { useBudgetPlans } from "@/hooks/use-budget-plans";
 import { useAccounts } from "@/hooks/use-accounts";
-import { useCategories } from "@/hooks/use-categories";
+import { useCategories, useUpdateCategory } from "@/hooks/use-categories";
 import { usePreferences } from "@/hooks/use-preferences";
 import { isBudgetable } from "@/lib/default-categories";
 import { getFinancialMonthRange } from "@/lib/financial-month";
@@ -44,7 +44,7 @@ import { ImportBudgetDialog } from "../_components/import-budget-dialog";
 import { RegenerateConfirmDialog } from "../_components/regenerate-confirm-dialog";
 import { SuggestionRow } from "../_components/suggestion-row";
 import { linkedRecurringIds } from "../_components/budget-row";
-import { useRecurringPlans } from "../_components/recurring-sections";
+import { UNCATEGORIZED, useRecurringPlans } from "../_components/recurring-sections";
 import type { TreeActions } from "../_components/sub-line-list/constants";
 import type { DraftLine } from "../_components/sub-line-list/draft";
 import {
@@ -129,6 +129,19 @@ function BudgetEditPageInner() {
     activePlan && activePlan.role !== "owner" ? activePlan.accounts[0]?.id : undefined;
   const { data: planCategoriesData } = useCategories(planAccountId);
 
+  // Recolouring a category is a write on the CATEGORY, and the route only
+  // lets an owner make it — so the dots are only a control on a plan whose
+  // categories are the caller's own.
+  const updateCategory = useUpdateCategory();
+  const recolor = (categoryId: string) =>
+    // "Uncategorized" is a bucket, not a row in the table — there is nothing
+    // to recolour.
+    (!activePlan || activePlan.role === "owner") && categoryId !== UNCATEGORIZED
+      ? // `mutateAsync`, so a refusal reaches the dot and puts it back. The
+        // rejection is handled there; nothing escapes into an onBlur.
+        (hex: string) => updateCategory.mutateAsync({ id: categoryId, color: hex })
+      : undefined;
+
   const { data = null, isLoading } = useBudgets({
     dateFrom,
     dateTo,
@@ -158,8 +171,28 @@ function BudgetEditPageInner() {
     incomeLines: data?.incomeLines,
     yearScope: false,
     accounts: accountsData ?? [],
-    categories,
+    // The PLAN OWNER's categories, for the same reason the picker uses them:
+    // a recurring row on a shared account is filed in the owner's space, and
+    // the rows on screen name the owner's category ids — looked up in the
+    // caller's own list they would resolve to nothing.
+    categories: planCategoriesData ?? categories,
     linkedRecurringIds: linkedRecurringIds(data?.allocations ?? []),
+    // A recurring payment added here is a change to the plan like any other:
+    // drafted, counted in the figures above, written by Save.
+    pending: draft.recurring,
+    draftCreates: {
+      add: (tx) => setDraft((d) => ({ ...d, recurring: [...d.recurring, tx] })),
+      update: (tx) =>
+        setDraft((d) => ({
+          ...d,
+          recurring: d.recurring.map((r) => (r.id === tx.id ? tx : r)),
+        })),
+      remove: (id) =>
+        setDraft((d) => ({
+          ...d,
+          recurring: d.recurring.filter((r) => r.id !== id),
+        })),
+    },
   });
 
   // ─── Draft edits ───────────────────────────────────────────────────────────
@@ -280,9 +313,13 @@ function BudgetEditPageInner() {
       // Its own failure is swallowed — the writes already landed, and letting
       // a refetch reject here would throw out of an onClick with nothing to
       // catch it, past the save-result handling below.
-      await queryClient
-        .invalidateQueries({ queryKey: ["budgets"] })
-        .catch(() => {});
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["budgets"] }),
+        // A drafted plan that just landed is a new recurring row, and the
+        // fixed-cost and income lines above are derived from those.
+        queryClient.invalidateQueries({ queryKey: ["recurring"] }),
+        queryClient.invalidateQueries({ queryKey: ["recurring-forecast"] }),
+      ]).catch(() => {});
     } finally {
       // In a finally so a refetch that rejects can't leave the bar spinning
       // over a draft that has already been written.
@@ -561,8 +598,14 @@ function BudgetEditPageInner() {
                 color={color}
                 amount={units.toDisplay(group.expected)}
                 unit={units.unit}
+                onColor={recolor(group.categoryId)}
                 plans={group.items}
                 planRowProps={recurring.rowProps}
+                onAddPlan={
+                  group.categoryId === UNCATEGORIZED
+                    ? undefined
+                    : () => recurring.addUnderCategory(group.categoryId, "income")
+                }
                 onHistory={() =>
                   setHistoryTarget({
                     categoryId: group.categoryId,
@@ -586,9 +629,11 @@ function BudgetEditPageInner() {
               actions={row.isNew ? newActions(row.id) : savedActions(row.id)}
               plans={plansByCategory.get(row.categoryId) ?? []}
               planRowProps={recurring.rowProps}
+              onAddPlan={() => recurring.addUnderCategory(row.categoryId, "expense")}
               onAmount={(stored) =>
                 row.isNew ? setNewAmount(row.id, stored) : setAmount(row.id, stored)
               }
+              onColor={recolor(row.categoryId)}
               onRemove={() => remove(row.id)}
               onRestore={() => restore(row.id)}
               onHistory={() => setHistoryTarget(row)}
@@ -611,8 +656,14 @@ function BudgetEditPageInner() {
                 color={color}
                 amount={units.toDisplay(group.fc?.monthlyAmount ?? 0)}
                 unit={units.unit}
+                onColor={recolor(group.categoryId)}
                 plans={group.items}
                 planRowProps={recurring.rowProps}
+                onAddPlan={
+                  group.categoryId === UNCATEGORIZED
+                    ? undefined
+                    : () => recurring.addUnderCategory(group.categoryId, "expense")
+                }
                 onHistory={() =>
                   setHistoryTarget({
                     categoryId: group.categoryId,

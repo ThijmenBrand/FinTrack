@@ -146,19 +146,12 @@ export function TransactionSearchBar({
   const activeTokens = useMemo(() => {
     const tokens: FilterToken[] = [];
     if (accountFilter !== "all") {
-      // The dashboard links here with its whole account scope, so the filter
-      // can be a comma-separated list.
-      const ids = accountFilter.split(",");
-      const names = ids.map((id) => accounts.find((a) => a.id === id)?.name).filter(Boolean);
-      tokens.push({
-        key: "account",
-        value: accountFilter,
-        prefix: "account:",
-        text:
-          names.length === ids.length
-            ? names.join(", ")
-            : t("tx.search.accountCount", { count: ids.length }),
-      });
+      // The filter is a comma-separated list (the dashboard links here with its
+      // whole account scope) — one chip per account so each removes on its own.
+      for (const id of accountFilter.split(",")) {
+        const account = accounts.find((a) => a.id === id);
+        tokens.push({ key: "account", value: id, prefix: "account:", text: account?.name || id });
+      }
     }
     for (const id of categoryFilters) {
       const cat = categories.find((c) => c.id === id);

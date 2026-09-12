@@ -32,6 +32,18 @@ export function isIsoDate(v: unknown): v is string {
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
 }
 
+/**
+ * True for a `#rgb` or `#rrggbb` colour.
+ *
+ * Every colour the app writes comes from a native colour input or the seeded
+ * palette, and every colour it reads goes into a `style` object — an allowlist
+ * of the one format both ends already speak, rather than trusting whatever a
+ * client sends to be something CSS can make sense of.
+ */
+export function isHexColor(v: unknown): v is string {
+  return typeof v === "string" && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(v);
+}
+
 export const MATCH_TYPES = ["contains", "exact", "starts_with"] as const;
 export type RuleMatchType = (typeof MATCH_TYPES)[number];
 

@@ -8,9 +8,9 @@ import {
   type Draft,
   type SubLineOp,
 } from "./draft";
-import type { Allocation, BudgetSubLine } from "@/types/api";
+import type { Allocation, BudgetSubLine, RecurringTx } from "@/types/api";
 
-const EMPTY: Draft = { amounts: {}, removed: [], added: [], ops: [] };
+const EMPTY: Draft = { amounts: {}, removed: [], added: [], ops: [], recurring: [] };
 
 function line(id: string, amount: number, children: BudgetSubLine[] = []): BudgetSubLine {
   return { id, parentId: null, name: id, amount, children };
@@ -118,6 +118,7 @@ describe("toSteps", () => {
       removed: ["a"],
       added: [],
       ops: [{ kind: "remove", allocationId: "a", id: "l1" }],
+      recurring: [],
     });
     expect(steps).toEqual([{ kind: "remove", id: "a" }]);
   });
@@ -155,12 +156,30 @@ describe("toSteps", () => {
   });
 });
 
+describe("drafted recurring payments", () => {
+  const tx = { id: "draft:1", type: "expense", amount: -10 } as RecurringTx;
+
+  it("counts as a change and saves last", () => {
+    const draft: Draft = { ...EMPTY, amounts: { a: 1 }, recurring: [tx] };
+    expect(changeCount(draft)).toBe(2);
+    expect(toSteps(draft).map((s) => s.kind)).toEqual(["amount", "recurring"]);
+  });
+
+  it("is dropped once written, and kept when the step never ran", () => {
+    const draft: Draft = { ...EMPTY, recurring: [tx] };
+    const steps = toSteps(draft);
+    expect(afterSave(draft, steps, 1, {}).recurring).toEqual([]);
+    expect(afterSave(draft, steps, 0, {}).recurring).toEqual([tx]);
+  });
+});
+
 describe("afterSave", () => {
   const draft: Draft = {
     amounts: { a: 10, b: 20 },
     removed: [],
     added: [],
     ops: [],
+    recurring: [],
   };
 
   it("clears the whole draft when every step landed", () => {

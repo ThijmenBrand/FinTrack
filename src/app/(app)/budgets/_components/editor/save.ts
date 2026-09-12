@@ -84,6 +84,24 @@ async function run(
     return;
   }
 
+  if (step.kind === "recurring") {
+    const tx = step.tx;
+    await post("/api/recurring", "POST", {
+      accountId: tx.accountId,
+      description: tx.description,
+      // Sent as stored — signed. The route re-signs it from `type` anyway.
+      amount: tx.amount,
+      type: tx.type,
+      categoryId: tx.categoryId,
+      frequency: tx.frequency,
+      dayOfWeek: tx.dayOfWeek,
+      dayOfMonth: tx.dayOfMonth,
+      monthOfYear: tx.monthOfYear,
+      startDate: tx.startDate,
+    });
+    return;
+  }
+
   const { op } = step;
   if (op.kind === "add") {
     // The id the server hands back is what every later op in this run means

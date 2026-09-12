@@ -21,9 +21,36 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Plus } from "lucide-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Info, Loader2, Plus } from "lucide-react";
 import type { Account, CategoryWithDetails, RecurringTx } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
+
+/**
+ * The (i) beside a field label, explaining why the field is narrowed or locked.
+ * A popover rather than a tooltip: this is read on a phone too, and a hover
+ * tooltip never opens there.
+ */
+function FieldInfo({ note }: { note: string }) {
+  return (
+    <Popover>
+      <PopoverTrigger
+        type="button"
+        aria-label={note}
+        className="text-muted-foreground hover:text-foreground"
+      >
+        <Info className="h-3.5 w-3.5" />
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-64 p-3 text-xs font-normal">
+        {note}
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 /** Locale's own short weekday names, Sunday-first to match dayOfWeek 0–6. */
 function weekdayNames(intlLocale: string): string[] {
@@ -48,7 +75,9 @@ export function RecurringFormDialog({
   prefill,
   defaultType,
   accounts,
+  accountNote,
   categories,
+  lockedCategoryId,
   onSubmit,
   trigger,
 }: {
@@ -59,8 +88,16 @@ export function RecurringFormDialog({
   prefill?: RecurringPrefill | null;
   /** Which type a fresh create starts on — the section the add came from. */
   defaultType?: "income" | "expense";
+  /** Already narrowed by the caller — a budget plan passes only its own. */
   accounts: Account[];
+  /** Explains a narrowed `accounts` list; renders as an (i) beside the label. */
+  accountNote?: string;
   categories: CategoryWithDetails[];
+  /**
+   * The add started from a category row, so the answer is already known: seed
+   * it and lock the field rather than letting it be filed somewhere else.
+   */
+  lockedCategoryId?: string;
   onSubmit: (payload: Record<string, unknown>) => Promise<void>;
   /** Page-level default is a primary button; list sections pass a quieter one. */
   trigger?: ReactNode;
@@ -81,12 +118,14 @@ export function RecurringFormDialog({
         {/* Remount on open/target change so fields re-derive from the seed without an effect. */}
         {open && (
           <RecurringFormBody
-            key={seed?.id ?? defaultType ?? "new"}
+            key={seed?.id ?? `${defaultType ?? "new"}:${lockedCategoryId ?? ""}`}
             editing={editing}
             defaultType={defaultType}
             seed={seed}
             accounts={accounts}
+            accountNote={accountNote}
             categories={categories}
+            lockedCategoryId={lockedCategoryId}
             onSubmit={onSubmit}
             onCancel={() => onOpenChange(false)}
           />
@@ -101,7 +140,9 @@ function RecurringFormBody({
   seed,
   defaultType,
   accounts,
+  accountNote,
   categories,
+  lockedCategoryId,
   onSubmit,
   onCancel,
 }: {
@@ -109,12 +150,19 @@ function RecurringFormBody({
   seed: RecurringTx | RecurringPrefill | null;
   defaultType?: "income" | "expense";
   accounts: Account[];
+  accountNote?: string;
   categories: CategoryWithDetails[];
+  lockedCategoryId?: string;
   onSubmit: (payload: Record<string, unknown>) => Promise<void>;
   onCancel: () => void;
 }) {
   const { t, intlLocale } = useI18n();
-  const [fAccountId, setFAccountId] = useState(seed?.accountId ?? "");
+  // Nothing to choose when the caller left one account in scope: pick it and
+  // lock the field, with `accountNote` explaining why it can't be changed.
+  const locked = accounts.length === 1;
+  const [fAccountId, setFAccountId] = useState(
+    seed?.accountId ?? (locked ? accounts[0].id : "")
+  );
   const [fDescription, setFDescription] = useState(seed?.description ?? "");
   const [fAmount, setFAmount] = useState(
     seed ? String(Math.abs(seed.amount)) : ""
@@ -122,7 +170,9 @@ function RecurringFormBody({
   const [fType, setFType] = useState<"income" | "expense">(
     (editing?.type as "income" | "expense") ?? defaultType ?? "expense"
   );
-  const [fCategoryId, setFCategoryId] = useState(seed?.categoryId ?? "");
+  const [fCategoryId, setFCategoryId] = useState(
+    lockedCategoryId ?? seed?.categoryId ?? ""
+  );
   const [fFrequency, setFFrequency] = useState(seed?.frequency ?? "monthly");
   const [fDayOfWeek, setFDayOfWeek] = useState(String(seed?.dayOfWeek ?? 1));
   const [fDayOfMonth, setFDayOfMonth] = useState(
@@ -188,8 +238,11 @@ function RecurringFormBody({
             </Select>
           </div>
           <div className="grid gap-2">
-            <Label>{t("common.account")}</Label>
-            <Select value={fAccountId} onValueChange={setFAccountId}>
+            <Label className="flex items-center gap-1">
+              {t("common.account")}
+              {accountNote && <FieldInfo note={accountNote} />}
+            </Label>
+            <Select value={fAccountId} onValueChange={setFAccountId} disabled={locked}>
               <SelectTrigger>
                 <SelectValue placeholder={t("recurring.form.accountPlaceholder")} />
               </SelectTrigger>
@@ -232,8 +285,17 @@ function RecurringFormBody({
             </div>
           </div>
           <div className="grid gap-2">
-            <Label>{t("common.category")}</Label>
-            <Select value={fCategoryId} onValueChange={setFCategoryId}>
+            <Label className="flex items-center gap-1">
+              {t("common.category")}
+              {lockedCategoryId && (
+                <FieldInfo note={t("recurring.form.categoryLockedNote")} />
+              )}
+            </Label>
+            <Select
+              value={fCategoryId}
+              onValueChange={setFCategoryId}
+              disabled={Boolean(lockedCategoryId)}
+            >
               <SelectTrigger>
                 <SelectValue placeholder={t("recurring.form.categoryPlaceholder")} />
               </SelectTrigger>

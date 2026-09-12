@@ -13,6 +13,7 @@ import { SubLineTree } from "../sub-line-list";
 import { cents, type TreeActions } from "../sub-line-list/constants";
 import { toLineNodes } from "../sub-line-list/draft";
 import type { RecurringTx } from "@/types/api";
+import { AddPlanRow } from "./add-plan-row";
 import { AmountField, DerivedAmount, EditorRow } from "./editor-row";
 import type { EditorRow as Row } from "./draft";
 
@@ -38,7 +39,9 @@ export function AllocationEditor({
   actions,
   plans,
   planRowProps,
+  onAddPlan,
   onAmount,
+  onColor,
   onRemove,
   onRestore,
   onHistory,
@@ -50,7 +53,11 @@ export function AllocationEditor({
   /** This category's recurring payments, if it has any not already a sub-line. */
   plans: RecurringTx[];
   planRowProps: PlanRowProps;
+  /** Absent on the budget view: reading a month creates no plan. */
+  onAddPlan?: () => void;
   onAmount: (stored: number) => void;
+  /** Recolours the category itself; absent when it isn't the caller's. */
+  onColor?: (hex: string) => Promise<unknown>;
   onRemove: () => void;
   onRestore: () => void;
   onHistory?: () => void;
@@ -66,6 +73,7 @@ export function AllocationEditor({
     <EditorRow
       name={row.categoryName}
       color={row.categoryColor}
+      onColor={onColor}
       unit={units.unit}
       reference={
         row.isNew
@@ -124,6 +132,8 @@ export function AllocationEditor({
           <PlanRows items={plans} rowProps={planRowProps} />
         </>
       )}
+      {/* Not under a row on its way out: it has no bills left to gain. */}
+      {onAddPlan && !row.removed && <AddPlanRow onAdd={onAddPlan} />}
     </EditorRow>
   );
 }
@@ -144,15 +154,21 @@ export function LockedRow({
   unit,
   plans,
   planRowProps,
+  onAddPlan,
+  onColor,
   onHistory,
 }: {
   name: string;
   color: string | null;
+  /** Recolours the category itself; absent when it isn't the caller's. */
+  onColor?: (hex: string) => Promise<unknown>;
   /** Display units. */
   amount: number;
   unit: string;
   plans: RecurringTx[];
   planRowProps: PlanRowProps;
+  /** Absent on the budget view: reading a month creates no plan. */
+  onAddPlan?: () => void;
   onHistory?: () => void;
 }) {
   const { t, plural, formatCurrency } = useI18n();
@@ -161,6 +177,7 @@ export function LockedRow({
     <EditorRow
       name={name}
       color={color}
+      onColor={onColor}
       unit={unit}
       reference={
         onHistory
@@ -181,6 +198,7 @@ export function LockedRow({
       }
     >
       <PlanRows items={plans} rowProps={planRowProps} />
+      {onAddPlan && <AddPlanRow onAdd={onAddPlan} />}
     </EditorRow>
   );
 }
