@@ -5,9 +5,9 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
 import { useI18n } from "@/lib/i18n/client";
 import { getNextOccurrence } from "@/lib/recurring";
-import { Loader2, Pencil, Repeat, Trash2 } from "lucide-react";
+import { Loader2, Pencil, Trash2 } from "lucide-react";
 import { PausedBadge, PlanMeta, SubRow } from "../sub-row";
-import { Dot, Row } from "./row";
+import { Row } from "./row";
 import { SubLineForm } from "./sub-line-form";
 import { UnlinkConfirm } from "./unlink-confirm";
 import { useSubLineError } from "./use-sub-line-error";
@@ -67,9 +67,6 @@ export function SubLineRow({
   }
 
   const remove = () => guard(() => actions?.remove(line));
-  // In the dialog the line is the content; in the page list it is a sub-row
-  // under the category that already carries the weight.
-  const dialog = ctx.variant === "dialog";
   // A paused plan owes nothing this month. The standalone plan rows say so and
   // this row stands for one of those, so it says it the same way.
   const paused = line.recurring?.isActive === false;
@@ -85,20 +82,6 @@ export function SubLineRow({
     />
   ) : actions ? (
     <>
-      {/* Only a plain leaf: a container's money comes from below it, and a
-          linked line already has the plan this would create. */}
-      {ctx.onMakeRecurring && !line.recurring && line.children.length === 0 && (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7"
-          onClick={() => ctx.onMakeRecurring?.(line)}
-          aria-label={t("budgets.subLines.makeRecurring")}
-          title={t("budgets.subLines.makeRecurring")}
-        >
-          <Repeat className="h-3.5 w-3.5" />
-        </Button>
-      )}
       <Button
         variant="ghost"
         size="icon"
@@ -150,41 +133,19 @@ export function SubLineRow({
 
   return (
     <>
-      {dialog ? (
-        <Row
-          ctx={ctx}
-          depth={depth}
-          className={`group rounded-md pr-1 transition-colors hover:bg-muted${
-            line.pending ? " opacity-60" : ""
-          }`}
-        >
-          <Dot ctx={ctx} />
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm">{line.name}</span>
-            {meta}
-          </span>
-          <span className="text-sm font-medium tabular-nums">{amount}</span>
-          {controls && (
-            <span className="flex shrink-0 items-center gap-0.5 text-muted-foreground sm:opacity-0 sm:transition-opacity sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 sm:has-[[data-confirming]]:opacity-100">
-              {controls}
-            </span>
-          )}
-        </Row>
-      ) : (
-        <SubRow
-          color={ctx.color}
-          depth={depth}
-          name={line.name}
-          nameSuffix={paused ? <PausedBadge /> : undefined}
-          meta={meta}
-          amount={amount}
-          actions={controls}
-          muted={paused}
-          pending={line.pending}
-        />
-      )}
+      <SubRow
+        color={ctx.color}
+        depth={depth}
+        name={line.name}
+        nameSuffix={paused ? <PausedBadge /> : undefined}
+        meta={meta}
+        amount={amount}
+        actions={controls}
+        muted={paused}
+        pending={line.pending}
+      />
       {error && (
-        <Row ctx={ctx} depth={depth} full>
+        <Row depth={depth} full>
           <span className="text-xs text-destructive">{error}</span>
         </Row>
       )}

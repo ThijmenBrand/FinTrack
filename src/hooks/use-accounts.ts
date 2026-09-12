@@ -12,7 +12,7 @@ export function useAccounts() {
 export function useCreateAccount() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { name: string; type: string; bank: string | null; bankName: string | null; iban: string | null; currency: string; initialBalance: number }) =>
+    mutationFn: (payload: { name: string; type: string; bank: string | null; bankName: string | null; iban: string | null; currency: string; initialBalance: number; internalTransfers: boolean }) =>
       apiFetch("/api/accounts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["accounts"] }); },
   });
@@ -21,9 +21,14 @@ export function useCreateAccount() {
 export function useUpdateAccount() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { id: string; name: string; type: string; bank: string | null; bankName: string | null; iban: string | null; currency: string; initialBalance: number }) =>
+    mutationFn: (payload: { id: string; name: string; type: string; bank: string | null; bankName: string | null; iban: string | null; currency: string; initialBalance: number; internalTransfers: boolean }) =>
       apiFetch("/api/accounts", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["accounts"] }); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["accounts"] });
+      // Turning internalTransfers off retypes transfer legs on OTHER accounts
+      // too, so the transaction lists and every total built on them are stale.
+      qc.invalidateQueries({ queryKey: ["transactions"] });
+    },
   });
 }
 

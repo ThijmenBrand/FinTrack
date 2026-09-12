@@ -2,13 +2,15 @@
 
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ROW_SHELL, ROW_CHEVRON, ROW_ASIDE } from "./budget-row";
+import { ROW_SHELL, ROW_TWIST, ROW_CHEVRON, ROW_ASIDE } from "./budget-row";
 import { useI18n } from "@/lib/i18n/client";
 
 function RowSkeleton() {
   return (
     <li className={ROW_SHELL}>
-      <Skeleton className={ROW_CHEVRON} />
+      <span className={ROW_TWIST}>
+        <Skeleton className={ROW_CHEVRON} />
+      </span>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <Skeleton className="h-2 w-2 shrink-0 rounded-full" />

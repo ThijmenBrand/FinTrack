@@ -1,23 +1,48 @@
 import type { BudgetSubLine } from "@/types/api";
 
-// One shape for every line of the plan: a disclosure chevron, then the category
+// One shape for every line of the plan: a disclosure twist, then the category
 // and its progress bar taking whatever width is going, then a fixed-width column
 // on the right carrying the budgeted amount over how the period is going.
 //
 // The right column is fixed rather than content-sized so the amounts form a
 // straight column down the list — a ragged one makes two rows look like
 // different orders of magnitude when they aren't.
-export const ROW_SHELL =
-  "flex w-full items-start gap-3 px-4 py-3 text-left sm:gap-4";
-/** The chevron. Its width plus margin is exactly what ROW_INDENT re-creates. */
-export const ROW_CHEVRON = "mr-1.5 mt-1 h-3.5 w-3.5 shrink-0";
-export const ROW_ASIDE = "shrink-0 text-right w-[7.5rem] sm:w-60 lg:w-72";
+//
+// ─── The one indent sum on this page ────────────────────────────────────────
+// Everything hanging under a category is placed off these numbers, so they are
+// spelled out once and never re-derived. Breakpoint-free on purpose: the shell
+// used to add a responsive `gap` on top of the chevron's margin, which meant
+// the sub-rows below it were indented to a column the category above them did
+// not actually use — a sub-line rendered further LEFT than its own parent.
+//
+//   row padding    16px  (px-4)
+//   twist box      32px  (w-8) → the category's dot starts at 48px
+//   dot             8px  (w-2) → its centre, the guide line, at 52px
+//   dot gap         8px  (gap-2) → the category's NAME starts at 64px
+//
+// 64px is therefore where every child of a category begins: its sub-lines, the
+// recurring plans it pays, and its own expanded detail. A child now starts
+// where its parent's name does, which is the only arrangement in which the
+// nesting can be read without counting pixels.
+export const ROW_SHELL = "flex w-full items-start gap-0 px-4 py-3 text-left";
+/** The twist box. 32px wide at every size; see the sum above. */
+export const ROW_TWIST =
+  "mt-0.5 flex h-5 w-8 shrink-0 items-center justify-center";
+export const ROW_CHEVRON = "h-3.5 w-3.5";
+/** `ml-3` rather than a shell gap — the shell's gap is load-bearing at 0. */
+export const ROW_ASIDE = "ml-3 shrink-0 text-right w-[7.5rem] sm:w-60 lg:w-72";
 /**
- * Detail under a row starts where its name does, past the chevron: 16px of row
- * padding + a 14px chevron + its 6px margin. `LIST_INDENT` in the sub-line list
- * is the same 36px, so sub-lines and expanded detail hang off one edge.
+ * The list a category's own rows live in: its detail, its sub-lines, the plans
+ * it pays. The hairline at 52px runs from the category's dot down past the last
+ * of them, so everything inside it visibly belongs to the row above — with the
+ * disclosure open or shut, and whether or not the reader knows the indent
+ * convention. A pseudo-element, not a child, because only `<li>` may sit in a
+ * `<ul>`.
  */
-export const ROW_INDENT = "pl-9";
+export const ROW_BRACKET =
+  "relative before:absolute before:inset-y-0 before:left-13 before:w-px before:bg-border before:content-['']";
+/** A category's expanded detail: level with the names of its children. */
+export const ROW_DETAIL = "pb-4 pl-16 pr-4 pt-1";
 
 /**
  * Every row that hangs *under* a category: the allocation's sub-lines and the
@@ -32,14 +57,19 @@ export const ROW_INDENT = "pl-9";
  * only way both can be true.
  *
  * Mobile stacks to two lines: dot · name · amount, then the controls under it.
+ *
+ * No left padding of its own: that is `SUB_ROW_INDENT`'s job, and a row that
+ * carried both would sit one indent step off from the guide line beside it.
  */
 export const SUB_ROW_GRID =
-  "grid grid-cols-[auto_minmax(0,1fr)_minmax(0,auto)] items-center gap-x-3 gap-y-1.5 px-4 py-2.5 sm:grid-cols-[auto_minmax(0,1fr)_6rem_8rem]";
+  "grid grid-cols-[auto_minmax(0,1fr)_minmax(0,auto)] items-center gap-x-3 gap-y-1.5 pr-4 py-2.5 sm:grid-cols-[auto_minmax(0,1fr)_6rem_8rem]";
 /**
- * Indent per nesting depth. Level 1 lands on `ROW_INDENT`, so a sub-row's name
- * starts exactly where its category's name does.
+ * Indent per nesting depth, in the units of the sum at the top of this file.
+ * Level 1 is 64px: a sub-line's dot starts where its category's NAME does, one
+ * clear step right of the category's own dot at 48px. Each level after it steps
+ * another 16px.
  */
-export const SUB_ROW_INDENT = ["pl-9", "pl-12", "pl-16"];
+export const SUB_ROW_INDENT = ["pl-16", "pl-20", "pl-24"];
 /**
  * Both cells name their track outright rather than auto-placing: a read-only
  * row has no controls, and an auto-placed amount would slide left into the
@@ -208,33 +238,4 @@ export function linkedRecurringIds(
   };
   for (const alloc of allocations) walk(alloc.subLines);
   return ids;
-}
-
-/**
- * The fields a new income plan starts with when the pencil on an income row
- * opens the recurring form. What a category expects IS its recurring income,
- * so this is what "edit this income category" writes.
- *
- * The amount is what actually landed but only while nothing is planned yet:
- * with plans already there this is an extra source of income, and the
- * category's total says nothing about what that one pays.
- */
-export function incomePlanSeed(
-  group: {
-    categoryId: string;
-    /** The API's line for this category; absent while every plan is paused. */
-    line?: { categoryName: string; received: number };
-    items: { categoryName?: string | null }[];
-  },
-  accountId: string,
-) {
-  return {
-    // Keys the form's remount, so moving to another row re-seeds it.
-    id: `income-${group.categoryId}`,
-    accountId,
-    description: group.line?.categoryName ?? group.items[0]?.categoryName ?? "",
-    amount: group.items.length > 0 ? 0 : group.line?.received ?? 0,
-    categoryId: group.categoryId,
-    frequency: "monthly" as const,
-  };
 }

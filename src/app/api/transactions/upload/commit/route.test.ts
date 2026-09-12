@@ -72,12 +72,12 @@ const row = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-const commit = async (transactions: unknown[]) => {
+const commit = async (transactions: unknown[], accountId = "acc-1") => {
   const { POST } = await import("./route");
   const request = new Request("http://x/api/transactions/upload/commit", {
     method: "POST",
     body: JSON.stringify({
-      accountId: "acc-1",
+      accountId,
       fileName: "import.csv",
       transactions,
       newRules: [],
@@ -237,5 +237,170 @@ describe("POST /api/transactions/upload/commit — split rows", () => {
     const parentIndex = rows.findIndex((r) => r.is_split_parent === 1);
     const firstChildIndex = rows.findIndex((r) => r.parent_transaction_id !== null);
     expect(parentIndex).toBeLessThan(firstChildIndex);
+  });
+});
+
+describe("POST /api/transactions/upload/commit — transfer mirrors", () => {
+  const IBAN_1 = "NL11ONE00000000001";
+  const IBAN_2 = "NL22TWO00000000002";
+
+  beforeEach(async () => {
+    const now = new Date().toISOString();
+    await testDb.client.execute({
+      sql: `UPDATE accounts SET iban = ? WHERE id = 'acc-1' AND user_id = ?`,
+      args: [IBAN_1, OWNER],
+    });
+    await testDb.client.execute({
+      sql: `INSERT INTO accounts (id, user_id, name, type, iban, currency, initial_balance, sort_order, created_at, updated_at)
+            VALUES ('acc-2', ?, 'Savings', 'savings', ?, 'EUR', 0, 1, ?, ?)`,
+      args: [OWNER, IBAN_2, now, now],
+    });
+    await testDb.client.execute({
+      sql: `INSERT INTO categories (id, user_id, name, kind, created_at) VALUES ('cat-transfer', ?, 'Internal Transfer', 'transfer', ?)`,
+      args: [OWNER, now],
+    });
+  });
+
+  const rowsOn = async (accountId: string) =>
+    (
+      await testDb.client.execute({
+        sql: `SELECT * FROM transactions WHERE user_id = ? AND account_id = ? ORDER BY rowid`,
+        args: [OWNER, accountId],
+      })
+    ).rows;
+
+  // The bug this guards: the mirror carries no running balance, so
+  // splitDuplicates (which trusts balances) cannot see it, and importing the
+  // far account's own export inserted the same payment a second time. Both
+  // account balances then drifted by the transfer amount, permanently.
+  it("absorbs its own mirror when the far account's export arrives", async () => {
+    await commit([
+      row({
+        tempId: "t1",
+        description: "Naar spaarrekening",
+        amount: -1000,
+        balance: 500,
+        type: "internal_transfer",
+        targetAccountId: "acc-2",
+        counterpartyIban: IBAN_2,
+      }),
+    ]);
+    expect(await rowsOn("acc-2")).toHaveLength(1);
+
+    await commit(
+      [
+        row({
+          tempId: "t2",
+          description: "Van betaalrekening",
+          amount: 1000,
+          balance: 3000,
+          type: "internal_transfer",
+          targetAccountId: "acc-1",
+          counterpartyIban: IBAN_1,
+        }),
+      ],
+      "acc-2",
+    );
+
+    const far = await rowsOn("acc-2");
+    expect(far).toHaveLength(1);
+    // Filled in with the bank's own row, so the balance chain reconciles again.
+    expect(far[0].balance).toBe(3000);
+    expect(far[0].description).toBe("Van betaalrekening");
+    expect(far[0].is_manual).toBe(0);
+    expect(far[0].counterparty_iban).toBe(IBAN_1);
+    // And no mirror bounced back into the importing account either.
+    expect(await rowsOn("acc-1")).toHaveLength(1);
+  });
+
+  // Revolut exports no counterparty IBAN, so its own row for the transfer
+  // arrives as plain income. That is the case that used to double-count: the
+  // mirror had no balance for splitDuplicates to match on, and nothing typed
+  // the incoming row as a transfer either.
+  it("absorbs its mirror even when the far export has no IBAN column", async () => {
+    await commit([
+      row({
+        tempId: "t1",
+        description: "Naar spaarrekening",
+        amount: -1000,
+        balance: 500,
+        type: "internal_transfer",
+        targetAccountId: "acc-2",
+        counterpartyIban: IBAN_2,
+      }),
+    ]);
+
+    await commit(
+      [row({ tempId: "t2", description: "Top-Up", amount: 1000, balance: 3000, type: "income" })],
+      "acc-2",
+    );
+
+    const far = await rowsOn("acc-2");
+    expect(far).toHaveLength(1);
+    expect(far[0].balance).toBe(3000);
+    // The mirror is still the correct row — it stays a transfer leg, linked.
+    expect(far[0].type).toBe("internal_transfer");
+    expect(far[0].linked_transaction_id).toBe((await rowsOn("acc-1"))[0].id);
+  });
+
+  // Same money, other order: the far account is imported first, so there is no
+  // mirror to absorb — the transfer must pair with the row already there.
+  it("pairs with an existing far row instead of mirroring beside it", async () => {
+    await commit(
+      [row({ tempId: "t0", description: "Bijschrijving", amount: 1000, balance: 3000, type: "income" })],
+      "acc-2",
+    );
+
+    await commit([
+      row({
+        tempId: "t1",
+        description: "Naar spaarrekening",
+        amount: -1000,
+        balance: 500,
+        type: "internal_transfer",
+        targetAccountId: "acc-2",
+        counterpartyIban: IBAN_2,
+      }),
+    ]);
+
+    const far = await rowsOn("acc-2");
+    expect(far).toHaveLength(1);
+    expect(far[0].type).toBe("internal_transfer");
+    expect(far[0].balance).toBe(3000);
+    const near = await rowsOn("acc-1");
+    expect(near).toHaveLength(1);
+    expect(near[0].linked_transaction_id).toBe(far[0].id);
+    expect(far[0].linked_transaction_id).toBe(near[0].id);
+  });
+
+  // The preview decides the type, but it may be minutes old — the account's
+  // policy can have been switched off in another tab since, and this route is
+  // where the rows actually land.
+  it("imports a transfer to a shared-money account as a plain expense", async () => {
+    await testDb.client.execute({
+      sql: `UPDATE accounts SET internal_transfers = 0 WHERE id = 'acc-2' AND user_id = ?`,
+      args: [OWNER],
+    });
+
+    const res = await commit([
+      row({
+        tempId: "t1",
+        description: "Bijdrage huishouden",
+        amount: -1000,
+        balance: 500,
+        type: "internal_transfer",
+        targetAccountId: "acc-2",
+        counterpartyIban: IBAN_2,
+      }),
+    ]);
+    expect(res.status).toBe(200);
+
+    // No mirror on the far side, and the row itself is an ordinary expense the
+    // budget can see.
+    expect(await rowsOn("acc-2")).toHaveLength(0);
+    const near = await rowsOn("acc-1");
+    expect(near).toHaveLength(1);
+    expect(near[0].type).toBe("expense");
+    expect(near[0].linked_transaction_id).toBeNull();
   });
 });

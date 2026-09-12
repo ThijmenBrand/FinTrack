@@ -1,14 +1,11 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { SUB_ROW_GRID, SUB_ROW_INDENT } from "../budget-row";
-import { DIALOG_INDENT, type Ctx, type RowProps } from "./constants";
+import type { Ctx } from "./constants";
 
-/**
- * The category's colour dot, so a sub-line reads as part of the row above it.
- * Page list only — inside the edit dialog every row is the same category.
- */
+/** The category's colour dot, so a sub-line reads as part of the row above it. */
 export function Dot({ ctx, faded }: { ctx: Ctx; faded?: boolean }) {
-  if (ctx.variant !== "list") return null;
   return (
     <span
       className={`h-2 w-2 shrink-0 rounded-full ${faded ? "opacity-40" : ""}`}
@@ -21,24 +18,28 @@ export function Dot({ ctx, faded }: { ctx: Ctx; faded?: boolean }) {
  * A row of the list that isn't a sub-line itself: the leftover, the
  * over-allocated warning, the inline editor, the add affordance.
  *
- * In the page list it borrows the sub-row grid so its dot and its figure land
- * in the same two columns every other row uses (see `SubRow`). `full` opts out
- * for the rows that are one wide thing rather than a name and an amount — a
- * form, an error — since a four-track grid has nothing to offer those.
- * In the dialog it stays a plain flex line: nothing above it to line up with.
+ * It borrows the sub-row grid so its dot and its figure land in the same two
+ * columns every other row uses (see `SubRow`). `full` opts out for the rows
+ * that are one wide thing rather than a name and an amount — a form, an error
+ * — since a four-track grid has nothing to offer those. Both keep the sub-row
+ * indent, so a form opens exactly where the row it replaces sat.
  */
-export function Row({ ctx, depth, full, className = "", children }: RowProps) {
-  if (ctx.variant === "list") {
-    const indent = SUB_ROW_INDENT[depth - 1] ?? SUB_ROW_INDENT[0];
-    const cls = full
-      ? `flex items-center gap-2 py-1.5 pr-4 ${indent} ${className}`
-      : `${SUB_ROW_GRID} ${indent} ${className}`;
-    return <li className={cls}>{children}</li>;
-  }
-  const indent = DIALOG_INDENT[depth - 1];
-  return (
-    <div className={`flex items-center gap-2 py-1.5 ${indent} ${className}`}>
-      {children}
-    </div>
-  );
+export function Row({
+  depth,
+  full,
+  className = "",
+  children,
+}: {
+  depth: number;
+  /** Row-level extras — the hover surface a line row paints, and nothing else. */
+  className?: string;
+  /** One wide thing (a form, an error) rather than a name and an amount. */
+  full?: boolean;
+  children: ReactNode;
+}) {
+  const indent = SUB_ROW_INDENT[depth - 1] ?? SUB_ROW_INDENT[0];
+  const cls = full
+    ? `flex items-center gap-2 py-1.5 pr-4 ${indent} ${className}`
+    : `${SUB_ROW_GRID} ${indent} ${className}`;
+  return <li className={cls}>{children}</li>;
 }

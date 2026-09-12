@@ -14,6 +14,18 @@ export interface ColumnMapping {
   counterpartyIban?: string;
 }
 
+/**
+ * IBANs into one comparable shape: no whitespace, upper case. Banks print them
+ * grouped in fours ("NL91 ABNA 0417 1643 00") and users type them either way,
+ * so every comparison — CSV counterparty against a registered account, or one
+ * stored counterparty against another — goes through here. Empty/absent in,
+ * null out, so a missing IBAN never accidentally equals another missing one.
+ */
+export function normalizeIban(raw: string | null | undefined): string | null {
+  const cleaned = raw?.replace(/\s/g, "").toUpperCase();
+  return cleaned || null;
+}
+
 export interface PreviewTransaction {
   tempId: string;
   date: string;

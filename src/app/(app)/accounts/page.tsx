@@ -25,6 +25,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -400,6 +401,7 @@ function AccountsPageInner() {
   const [iban, setIban] = useState("");
   const [currency, setCurrency] = useState("EUR");
   const [initialBalance, setInitialBalance] = useState("");
+  const [internalTransfers, setInternalTransfers] = useState(true);
 
   useEffect(() => {
     if (accountsData) setLocalAccounts(accountsData);
@@ -413,6 +415,7 @@ function AccountsPageInner() {
     setIban("");
     setCurrency("EUR");
     setInitialBalance("");
+    setInternalTransfers(true);
     setEditingAccount(null);
   };
 
@@ -425,6 +428,7 @@ function AccountsPageInner() {
     setIban(account.iban || "");
     setCurrency(account.currency);
     setInitialBalance(String(account.initialBalance));
+    setInternalTransfers(account.internalTransfers);
     setDialogOpen(true);
   };
 
@@ -437,6 +441,7 @@ function AccountsPageInner() {
       iban: iban || null,
       currency,
       initialBalance: parseFloat(initialBalance) || 0,
+      internalTransfers,
     };
 
     await (editingAccount
@@ -609,6 +614,28 @@ function AccountsPageInner() {
                     value={iban}
                     onChange={(e) => setIban(e.target.value)}
                   />
+                </div>
+                <div className="grid gap-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <Label htmlFor="internalTransfers" className="cursor-pointer">
+                      {t("accounts.internalTransfersLabel")}
+                    </Label>
+                    <Switch
+                      id="internalTransfers"
+                      checked={internalTransfers}
+                      onCheckedChange={setInternalTransfers}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {t("accounts.internalTransfersHint")}
+                  </p>
+                  {/* Switching it off is retroactive — say so before they save,
+                      rather than after: there is no toast layer in this app. */}
+                  {editingAccount?.internalTransfers && !internalTransfers && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400">
+                      {t("accounts.internalTransfersSplitWarning")}
+                    </p>
+                  )}
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="grid gap-2">

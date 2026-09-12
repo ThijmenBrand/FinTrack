@@ -246,6 +246,9 @@ export function CsvUploadDialog({
           reimbursesTempId: tx.reimbursesTempId ?? null,
           notes: tx.notes ?? null,
           targetAccountId: tx.targetAccountId,
+          // Stored on the row: transfer detection proves a pair with it later,
+          // long after the CSV is gone.
+          counterpartyIban: tx.counterpartyIban ?? null,
           recurringTransactionId: tx.recurringTransactionId ?? null,
           splits: tx.splits ?? null,
           // Kept only while the parts are still the rule's own proposal — the

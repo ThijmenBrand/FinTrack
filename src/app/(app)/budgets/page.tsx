@@ -1,21 +1,12 @@
 "use client";
 
-import { Fragment, Suspense, useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import {
-  useBudgets,
-  useCreateBudget,
-  useUpdateBudget,
-  useDeleteBudget,
-  useGenerateBudgets,
-  useAcceptBudgetSuggestions,
-  useRejectBudgetSuggestions,
-} from "@/hooks/use-budgets";
+import { useBudgets } from "@/hooks/use-budgets";
 import { useBudgetPlans } from "@/hooks/use-budget-plans";
 import { useAccounts } from "@/hooks/use-accounts";
 import { BUDGETABLE_ACCOUNT_TYPES } from "@/lib/account-scope";
-import { isBudgetable } from "@/lib/default-categories";
 import { useCategories } from "@/hooks/use-categories";
 import { usePreferences } from "@/hooks/use-preferences";
 import {
@@ -27,37 +18,24 @@ import {
   getFinancialYearMonths,
   MONTHS_PER_YEAR,
 } from "@/lib/financial-year";
-import type { Allocation, BudgetPlanData, BudgetSuggestion } from "@/types/api";
-import type { EmptyGenerateReason } from "@/lib/auto-budget";
+import type { BudgetPlanData } from "@/types/api";
 import { Card, CardContent, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import {
-  AlertTriangle,
-  Loader2,
-  Coins,
-  Sparkles,
-  Wallet,
-  X,
-} from "lucide-react";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AlertTriangle, Coins, Pencil, Sparkles, Wallet } from "lucide-react";
 import {
   BudgetHistoryDialog,
   type HistoryTarget,
 } from "@/components/budget-history-dialog";
-import { BudgetSuggestionsDialog } from "@/components/budget-suggestions-dialog";
 import { useI18n } from "@/lib/i18n/client";
 import { AllocationRow, YearlyAllocationRow } from "./_components/allocation-row";
 import { SubLineList } from "./_components/sub-line-list";
-import { SuggestionRow } from "./_components/suggestion-row";
-import { AllocationDialog } from "./_components/allocation-dialog";
-import { ImportBudgetDialog } from "./_components/import-budget-dialog";
 import { BudgetsSkeleton } from "./_components/budgets-skeleton";
-import { RegenerateConfirmDialog } from "./_components/regenerate-confirm-dialog";
 import {
   useRecurringPlans,
   IncomeRow,
   FixedCostRow,
   PlanRows,
-  type FixedCostGroup,
 } from "./_components/recurring-sections";
 import { SectionHeader } from "./_components/section-header";
 import {
@@ -74,8 +52,23 @@ import { SimpleHero } from "./_components/simple-hero";
 import { MonthStats, YearStats } from "./_components/budget-stats";
 import { NoticeLine } from "./_components/notice-line";
 import { SplitSummary } from "./_components/split-summary";
-import { EmptyGenerateNotice } from "./_components/empty-generate-notice";
 import { formatRelative, getFinancialMonthForOffset } from "./_components/dates";
+
+/**
+ * The plan's rows, in whichever shape the view switch asked for: a divided list
+ * inside one card, or a card each. Same children either way — a row knows how
+ * to draw itself as a tile — so the switch costs one wrapper rather than a
+ * second copy of the list.
+ */
+function PlanList({ cards, children }: { cards: boolean; children: React.ReactNode }) {
+  return cards ? (
+    <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{children}</ul>
+  ) : (
+    <Card className="overflow-hidden">
+      <ul className="divide-y">{children}</ul>
+    </Card>
+  );
+}
 
 /** How far back the month stepper walks — a year of history is plenty. */
 const OLDEST_MONTH_OFFSET = 11;
@@ -144,6 +137,11 @@ function BudgetsPageInner() {
   // in — the year is the thing being planned; the month is the zoom-in.
   const [scope, setScope] = useState<PeriodScope>(isYearly ? "year" : "month");
   const yearScope = isYearly && scope === "year";
+  // How the plan is drawn: one row per category, or a tile each. The rows carry
+  // the detail (sub-lines, the bills behind a category, who pays); the tiles
+  // carry only the four figures, which is the whole point of them — a dozen
+  // categories at a glance rather than a dozen rows to scroll.
+  const [cards, setCards] = useState(false);
 
   // Which financial month is live right now — for a yearly plan this decides
   // whether the view is editable, the same way monthOffset === 0 does for a
@@ -251,24 +249,6 @@ function BudgetsPageInner() {
   );
   const { data: categoriesData } = useCategories();
   const categories = categoriesData ?? [];
-  // What the allocation picker may offer. An allocation is plan-owned data, so
-  // it references the PLAN OWNER's categories — on someone else's shared plan
-  // the caller's own ids are rejected by POST /api/budgets, and the ones
-  // already allocated there wouldn't match either, so the picker would offer
-  // duplicates it can't create. Own plans resolve to the same request as
-  // `useCategories()` above (same query key), so this costs nothing there.
-  // Also what a category created from the dialog is scoped to, for the same
-  // reason: it has to end up in the owner's space to be allocatable here.
-  const planAccountId =
-    activePlan && activePlan.role !== "owner" ? activePlan.accounts[0]?.id : undefined;
-  const { data: planCategoriesData } = useCategories(planAccountId);
-  const planCategories = planCategoriesData ?? [];
-  const createBudget = useCreateBudget();
-  const updateBudget = useUpdateBudget();
-  const deleteBudget = useDeleteBudget();
-  const generateBudgets = useGenerateBudgets();
-  const acceptSuggestions = useAcceptBudgetSuggestions();
-  const rejectSuggestions = useRejectBudgetSuggestions();
 
   // The recurring plans behind the list, grouped by the category they land in:
   // income lines on one side, fixed costs on the other. Called before the early
@@ -286,76 +266,7 @@ function BudgetsPageInner() {
     linkedRecurringIds: linkedRecurringIds(data?.allocations ?? []),
   });
 
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingAlloc, setEditingAlloc] = useState<Allocation | null>(null);
-  // A fixed-cost category has no allocation to edit, so its pencil opens the
-  // add dialog seeded with that category and what its bills cost today.
-  const [addPrefill, setAddPrefill] = useState<{
-    categoryId: string;
-    amount: number;
-  } | null>(null);
   const [historyAlloc, setHistoryAlloc] = useState<HistoryTarget | null>(null);
-  const [suggestionsDialogOpen, setSuggestionsDialogOpen] = useState(false);
-  const [regenerateConfirmOpen, setRegenerateConfirmOpen] = useState(false);
-  // Why the last generate run came back empty. Without this the button just
-  // does nothing and the user is left guessing.
-  const [emptyReason, setEmptyReason] = useState<EmptyGenerateReason | null>(null);
-  // Every write below is optimistic, so a failure arrives after the row has
-  // already moved (and been put back). There is no toast layer in this app, so
-  // it says so here — once, above the list the rollback happened in.
-  const [writeError, setWriteError] = useState<string | null>(null);
-  const report = async (write: Promise<unknown>) => {
-    setWriteError(null);
-    try {
-      await write;
-    } catch {
-      setWriteError(t("budgets.writeFailed"));
-    }
-  };
-
-  const openEdit = (alloc: Allocation) => {
-    setAddPrefill(null);
-    setEditingAlloc(alloc);
-    setDialogOpen(true);
-  };
-
-  const openFixedCostEdit = (group: FixedCostGroup) => {
-    setEditingAlloc(null);
-    setAddPrefill({
-      categoryId: group.categoryId,
-      amount: group.fc?.monthlyAmount ?? 0,
-    });
-    setDialogOpen(true);
-  };
-
-  const runGenerate = async () => {
-    setEmptyReason(null);
-    const result = await generateBudgets.mutateAsync({ budgetId: activePlanId });
-    if (result.suggestions.length > 0) {
-      setSuggestionsDialogOpen(true);
-    } else {
-      setEmptyReason(result.emptyReason ?? "no-history");
-    }
-  };
-
-  const handleGenerate = async () => {
-    if (data && data.suggestions.length > 0) {
-      setRegenerateConfirmOpen(true);
-      return;
-    }
-    await runGenerate();
-  };
-
-  const handleConfirmRegenerate = async () => {
-    setRegenerateConfirmOpen(false);
-    await runGenerate();
-  };
-
-  const handleAcceptOne = (s: BudgetSuggestion) =>
-    report(acceptSuggestions.mutateAsync([{ id: s.id, amount: s.suggestedAmount }]));
-
-  const handleRejectOne = (s: BudgetSuggestion) =>
-    report(rejectSuggestions.mutateAsync([s.id]));
 
   // One step back or forward through whatever the stepper is currently
   // walking: rolling months, months inside a financial year, or years. Both
@@ -416,20 +327,7 @@ function BudgetsPageInner() {
 
   if (!data) return null;
 
-  // Categories available for allocation. The exclusions are per plan, not per
-  // category: `data` only ever describes the active plan, so a category
-  // budgeted in another plan is still on offer here — two plans may budget the
-  // same category, one plan may not budget it twice.
-  //
-  // A category whose bills already run as recurring plans stays on offer: the
-  // rent is not all of Housing, so the category still needs a line to cap the
-  // rest of it. Its plans then hang under that allocation — adopted into the
-  // sub-line tree, or listed beneath it — instead of keeping a fixed-cost row
-  // of their own.
   const allocatedCatIds = new Set(data.allocations.map((a) => a.categoryId));
-  const availableCategories = planCategories.filter(
-    (c) => !allocatedCatIds.has(c.id) && isBudgetable(c.kind),
-  );
 
   // Card totals are summed from the rows themselves so the header always
   // reconciles with the list under it.
@@ -487,19 +385,11 @@ function BudgetsPageInner() {
   // pre-plan users) stay fully editable.
   const canEdit = activePlan ? activePlan.role !== "viewer" : true;
 
-  // Import only ever creates rows, so it is only offered on a budget with no
-  // allocations of its own. Fixed costs and income lines deliberately don't
-  // count: those come from recurring plans, which hang off ACCOUNTS rather
-  // than off this plan, so anyone with a salary set up would have every new
-  // budget look occupied. Duplicate plans are the import endpoint's problem,
-  // and it skips a category that already has one.
-  const budgetIsEmpty =
-    (yearly ? yearly.categories.length : data.allocations.length) === 0;
-  // The account the import wizard defaults to: the active plan's own first
-  // account, or the first account overall when the page isn't scoped to a
-  // plan yet.
-  const defaultImportAccountId =
-    activePlan?.accounts[0]?.id ?? accountsData?.[0]?.id;
+  // Where every change to this plan happens. The plan travels; the period does
+  // not — an allocation belongs to the budget, not to the month on screen.
+  const editHref = activePlanId
+    ? `/budgets/edit?plan=${encodeURIComponent(activePlanId)}`
+    : "/budgets/edit";
 
   const hasSuggestions = data.suggestions.length > 0;
   const showRegenBanner =
@@ -643,7 +533,7 @@ function BudgetsPageInner() {
       {/* The plan in four numbers. Simple mode swaps them for one friendly
           readout: a yearly plan measures the month against its
           carry-over-adjusted allowance, which is what constrains today. */}
-      <div className="space-y-3 border-b pb-6">
+      <div className="space-y-3">
         {simple ? (
           headlineLimit > 0 && (
             <SimpleHero
@@ -688,8 +578,6 @@ function BudgetsPageInner() {
           than one hiding behind every category row. */}
       <SplitSummary shares={split} total={headlineLimit} spent={headlineSpent} />
 
-      {writeError && <NoticeLine icon={AlertTriangle}>{writeError}</NoticeLine>}
-
       {!yearly && data.unallocated < 0 && (
         <NoticeLine icon={AlertTriangle}>
           {t("budgets.overAllocatedBy", {
@@ -716,29 +604,10 @@ function BudgetsPageInner() {
               "budgets.suggestionsReady.other",
             )}
           </span>
-          <span className="ml-auto flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setSuggestionsDialogOpen(true)}
-            >
-              {t("budgets.reviewApply")}
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              aria-label={t("budgets.dismissAll")}
-              disabled={rejectSuggestions.isPending}
-              onClick={() =>
-                report(
-                  rejectSuggestions.mutateAsync(data.suggestions.map((s) => s.id)),
-                )
-              }
-            >
-              <X className="h-3.5 w-3.5" />
-            </Button>
-          </span>
+          {/* The review itself is an edit, and edits live in one place. */}
+          <Button variant="ghost" size="sm" className="ml-auto" asChild>
+            <Link href={editHref}>{t("budgets.reviewApply")}</Link>
+          </Button>
         </NoticeLine>
       )}
 
@@ -752,146 +621,54 @@ function BudgetsPageInner() {
               { when: formatRelative(i18n, data.automation.lastCheckAt) },
             )}
           </span>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="ml-auto"
-            onClick={handleGenerate}
-            disabled={generateBudgets.isPending}
-          >
-            {generateBudgets.isPending && (
-              <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-            )}
-            {t("budgets.generateSuggestions")}
+          <Button variant="ghost" size="sm" className="ml-auto" asChild>
+            <Link href={editHref}>{t("budgets.generateSuggestions")}</Link>
           </Button>
         </NoticeLine>
-      )}
-
-      {emptyReason && (
-        <EmptyGenerateNotice
-          reason={emptyReason}
-          i18n={i18n}
-          onLinkAccounts={
-            activePlan
-              ? () => {
-                  setEmptyReason(null);
-                  openPlanEditor(activePlan);
-                }
-              : undefined
-          }
-          onDismiss={() => setEmptyReason(null)}
-        />
       )}
 
       {/* The whole plan as one list, in the order money moves: what comes in on
           top, what it is committed to underneath. A fixed cost queues among the
           allocations rather than in a section of its own: it is a budgeted
           expense like any other. */}
-      <Card className="overflow-hidden">
-        <ul className="divide-y">
-          {/* One band over the whole plan: everything that adds to it, and what
-              it adds up to on both sides. The list under it runs straight
-              through from income into spending — one plan read top to bottom,
-              rather than two sections with a row of controls wedged between. */}
-          <SectionHeader
-            icon={Coins}
-            label={t("budgets.planHeading", {
-              count: recurring.incomeGroups.length + allocationsCount,
-            })}
-            note={listNote}
-            action={
-              <>
-                {isCurrentPeriod && !simple && canEdit && (
-                  // Icon-only on a phone: adding a category is the action this
-                  // section is opened for, and three labelled buttons crowded
-                  // it off the row entirely.
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-9 w-9 p-0 sm:h-8 sm:w-auto sm:px-3"
-                    aria-label={
-                      hasSuggestions
-                        ? t("budgets.regenerate")
-                        : t("budgets.generateFromHistory")
-                    }
-                    onClick={handleGenerate}
-                    disabled={generateBudgets.isPending || !data.automation.enabled}
-                    title={
-                      data.automation.enabled ? undefined : t("budgets.generateDisabled")
-                    }
-                  >
-                    {generateBudgets.isPending ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin sm:mr-1.5" />
-                    ) : (
-                      <Sparkles className="h-3.5 w-3.5 sm:mr-1.5" />
-                    )}
-                    <span className="hidden sm:inline">
-                      {hasSuggestions
-                        ? t("budgets.regenerate")
-                        : t("budgets.generateFromHistory")}
-                    </span>
-                  </Button>
-                )}
-                {isCurrentPeriod && canEdit && budgetIsEmpty && (
-                  // Import only ever creates rows, so it's only safe to offer
-                  // on a budget with nothing in it yet — running it again
-                  // against a populated one would double the allocations.
-                  <ImportBudgetDialog
-                    budgetId={activePlanId}
-                    accounts={accountsData ?? []}
-                    defaultAccountId={defaultImportAccountId}
-                    startDate={dateFrom}
-                  />
-                )}
-                {/* Always mounted: it is also what the pencil on a recurring
-                    row opens, and those rows show in every period. */}
-                {recurring.formDialog}
-                {isCurrentPeriod && canEdit && (
-                  <AllocationDialog
-                    key={editingAlloc?.id ?? addPrefill?.categoryId ?? "new"}
-                    open={dialogOpen}
-                    onOpenChange={(open) => {
-                      setDialogOpen(open);
-                      if (!open) {
-                        setEditingAlloc(null);
-                        setAddPrefill(null);
-                      }
-                    }}
-                    prefill={addPrefill}
-                    editingAlloc={
-                      // The state snapshot goes stale after a sub-line mutation;
-                      // the cache copy carries the fresh tree.
-                      editingAlloc &&
-                      (data.allocations.find((a) => a.id === editingAlloc.id) ??
-                        editingAlloc)
-                    }
-                    availableCategories={availableCategories}
-                    accountId={planAccountId}
-                    categoryAverages={data.categoryAverages}
-                    unallocated={data.unallocated}
-                    yearly={isYearly}
-                    // The dialog writes children through its own POST, so it
-                    // needs the plan by name: without it those rows would land
-                    // in the main plan no matter which budget is on screen.
-                    budgetId={activePlanId}
-                    onCreate={(categoryId, amount) =>
-                      report(
-                        createBudget.mutateAsync({
-                          categoryId,
-                          amount,
-                          budgetId: activePlanId,
-                        }),
-                      )
-                    }
-                    onUpdate={(id, amount) =>
-                      report(updateBudget.mutateAsync({ id, amount }))
-                    }
-                  />
-                )}
-              </>
-            }
-          />
+      <div className="space-y-3">
+        {/* One band over the whole plan: everything that adds to it, and what
+            it adds up to on both sides. It sits outside the list rather than
+            inside it because the list has two shapes and the header belongs to
+            neither — the switch between them is one of its own controls. */}
+        <SectionHeader
+          as="div"
+          className=""
+          icon={Coins}
+          label={t("budgets.planHeading", {
+            count: recurring.incomeGroups.length + allocationsCount,
+          })}
+          note={listNote}
+          action={
+            <>
+              <Tabs value={cards ? "cards" : "list"} onValueChange={(v) => setCards(v === "cards")}>
+                <TabsList className="h-9 sm:h-8">
+                  <TabsTrigger value="list">{t("budgets.view.list")}</TabsTrigger>
+                  <TabsTrigger value="cards">{t("budgets.view.cards")}</TabsTrigger>
+                </TabsList>
+              </Tabs>
+              {/* Reading a month and rewriting the plan are different jobs, and
+                  every row here was carrying a set of buttons for the second
+                  while doing the first. Labelled at every width — a lone pencil
+                  on a phone is a guess about what it edits. */}
+              {canEdit && (
+                <Button variant="outline" size="sm" className="h-9 sm:h-8" asChild>
+                  <Link href={editHref} data-tour="budget-add">
+                    <Pencil className="mr-1.5 h-3.5 w-3.5" />
+                    {t("budgets.editPlan")}
+                  </Link>
+                </Button>
+              )}
+            </>
+          }
+        />
 
+        <PlanList cards={cards}>
           {/* What comes in, then what it is committed to. Same row either way:
               a category is the line, the recurring plans behind it are the
               sub-lines — so a salary and a fixed cost look alike even though
@@ -900,17 +677,14 @@ function BudgetsPageInner() {
             <IncomeRow
               key={group.categoryId}
               group={group}
-              rowProps={recurring.rowProps}
               yearScope={yearScope}
+              card={cards}
               onHistory={setHistoryAlloc}
-              // Not gated on the period: a recurring plan describes every month,
-              // not the one on screen.
-              onEdit={canEdit ? recurring.editIncome : undefined}
             />
           ))}
 
           {allocationsCount === 0 ? (
-            <li className="flex flex-col items-center justify-center px-6 py-10 text-center">
+            <li className="col-span-full flex flex-col items-center justify-center px-6 py-10 text-center">
               {simple ? (
                 <span className="mb-3 text-4xl" aria-hidden="true">
                   🪴
@@ -921,40 +695,27 @@ function BudgetsPageInner() {
               <p className="max-w-sm text-sm text-muted-foreground">
                 {simple ? t("budgets.emptySimple") : t("budgets.emptyFull")}
               </p>
+              {canEdit && (
+                <Button variant="outline" size="sm" className="mt-4" asChild>
+                  <Link href={editHref}>{t("budgets.editPlan")}</Link>
+                </Button>
+              )}
             </li>
           ) : (
             <>
-              {/* Suggestion rows on top with inline accept/reject */}
-              {isCurrentPeriod &&
-                !simple &&
-                canEdit &&
-                data.suggestions.map((s) => (
-                  <SuggestionRow
-                    key={s.id}
-                    suggestion={s}
-                    busy={acceptSuggestions.isPending || rejectSuggestions.isPending}
-                    onAccept={() => handleAcceptOne(s)}
-                    onReject={() => handleRejectOne(s)}
-                  />
-                ))}
               {yearly
                 ? yearlyRows.map((category) => {
                     const alloc = allocByCategory.get(category.categoryId);
                     return (
-                      <Fragment key={category.categoryId}>
-                        <YearlyAllocationRow
-                          category={category}
-                          alloc={alloc}
-                          scope={yearScope ? "year" : "month"}
-                          split={split}
-                          readOnly={!isCurrentPeriod || !canEdit}
-                          deletePending={deleteBudget.isPending}
-                          onHistory={() => alloc && setHistoryAlloc(alloc)}
-                          onEdit={() => alloc && openEdit(alloc)}
-                          onDelete={() =>
-                            alloc ? report(deleteBudget.mutateAsync(alloc.id)) : undefined
-                          }
-                        />
+                      <YearlyAllocationRow
+                        key={category.categoryId}
+                        category={category}
+                        alloc={alloc}
+                        scope={yearScope ? "year" : "month"}
+                        split={split}
+                        card={cards}
+                        onHistory={() => alloc && setHistoryAlloc(alloc)}
+                      >
                         {alloc &&
                           alloc.subLines.length > 0 &&
                           (yearScope ? (
@@ -965,13 +726,13 @@ function BudgetsPageInner() {
                                 Math.round(stored * MONTHS_PER_YEAR * 100) / 100
                               }
                               toStored={(shown) => shown / MONTHS_PER_YEAR}
-                              readOnly={!isCurrentPeriod || !canEdit}
+                              readOnly
                             />
                           ) : (
                             // ponytail: yearly month figures are the current split
                             // scaled proportionally; per-sub frozen month targets if
-                            // history accuracy ever matters. Editing lives in year
-                            // scope and the dialog, where the units round-trip.
+                            // history accuracy ever matters. The editor works in
+                            // annual figures, where the units round-trip.
                             <SubLineList
                               alloc={alloc}
                               cap={alloc.amount}
@@ -991,10 +752,9 @@ function BudgetsPageInner() {
                         {!yearScope && (
                           <PlanRows
                             items={plansByCategory.get(category.categoryId) ?? []}
-                            rowProps={recurring.rowProps}
                           />
                         )}
-                      </Fragment>
+                      </YearlyAllocationRow>
                     );
                   })
                 : monthlyRows.map((row) =>
@@ -1002,31 +762,25 @@ function BudgetsPageInner() {
                       <FixedCostRow
                         key={row.group.categoryId}
                         group={row.group}
-                        rowProps={recurring.rowProps}
                         split={split}
+                        card={cards}
                         onHistory={setHistoryAlloc}
-                        onEdit={
-                          isCurrentPeriod && canEdit ? openFixedCostEdit : undefined
-                        }
                       />
                     ) : (
-                      <Fragment key={row.alloc.id}>
-                        <AllocationRow
-                          alloc={row.alloc}
-                          split={split}
-                          readOnly={!isCurrentPeriod || !canEdit}
-                          deletePending={deleteBudget.isPending}
-                          onHistory={() => setHistoryAlloc(row.alloc)}
-                          onEdit={() => openEdit(row.alloc)}
-                          onDelete={() => report(deleteBudget.mutateAsync(row.alloc.id))}
-                        />
+                      <AllocationRow
+                        key={row.alloc.id}
+                        alloc={row.alloc}
+                        split={split}
+                        card={cards}
+                        onHistory={() => setHistoryAlloc(row.alloc)}
+                      >
                         {row.alloc.subLines.length > 0 && (
                           <SubLineList
                             alloc={row.alloc}
                             cap={row.alloc.amount}
                             toDisplay={(stored) => stored}
                             toStored={(shown) => shown}
-                            readOnly={!isCurrentPeriod || !canEdit}
+                            readOnly
                           />
                         )}
                         {/* A category with both an allocation and recurring
@@ -1034,9 +788,8 @@ function BudgetsPageInner() {
                             allocation that already caps them. */}
                         <PlanRows
                           items={plansByCategory.get(row.alloc.categoryId) ?? []}
-                          rowProps={recurring.rowProps}
                         />
-                      </Fragment>
+                      </AllocationRow>
                     ),
                   )}
 
@@ -1049,16 +802,15 @@ function BudgetsPageInner() {
                   <FixedCostRow
                     key={group.categoryId}
                     group={group}
-                    rowProps={recurring.rowProps}
                     split={split}
+                    card={cards}
                     onHistory={setHistoryAlloc}
-                    onEdit={isCurrentPeriod && canEdit ? openFixedCostEdit : undefined}
                   />
                 ))}
             </>
           )}
-        </ul>
-      </Card>
+        </PlanList>
+      </div>
 
       <BudgetHistoryDialog
         allocation={historyAlloc}
@@ -1088,22 +840,6 @@ function BudgetsPageInner() {
         categories={categories}
         categoryAverages={data.categoryAverages}
         onCreated={(planId) => setSelectedPlanId(planId)}
-      />
-
-      <BudgetSuggestionsDialog
-        open={suggestionsDialogOpen}
-        onOpenChange={setSuggestionsDialogOpen}
-        suggestions={data.suggestions}
-        lookbackMonths={data.automation.lookbackMonths}
-      />
-
-      <RegenerateConfirmDialog
-        open={regenerateConfirmOpen}
-        onOpenChange={setRegenerateConfirmOpen}
-        suggestionCount={data.suggestions.length}
-        lookbackMonths={data.automation.lookbackMonths}
-        pending={generateBudgets.isPending}
-        onConfirm={handleConfirmRegenerate}
       />
     </div>
   );

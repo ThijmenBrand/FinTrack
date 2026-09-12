@@ -15,9 +15,6 @@ interface TreeProps {
   /** Null renders the tree read-only. */
   actions: TreeActions | null;
   color?: string | null;
-  /** "dialog" drops the <li> chrome so the list works inside a modal. */
-  variant?: "list" | "dialog";
-  onMakeRecurring?: (line: LineNode) => void;
 }
 
 /**
@@ -36,10 +33,8 @@ export function SubLineTree({
   toStored,
   actions,
   color = null,
-  variant = "list",
-  onMakeRecurring,
 }: TreeProps) {
-  const ctx: Ctx = { color, toDisplay, toStored, actions, variant, onMakeRecurring };
+  const ctx: Ctx = { color, toDisplay, toStored, actions };
   return <Container ctx={ctx} lines={lines} cap={cap} parentId={null} depth={1} />;
 }
 
@@ -50,10 +45,6 @@ interface SubLineListProps {
   toDisplay: (stored: number) => number;
   toStored: (shown: number) => number;
   readOnly?: boolean;
-  /** "dialog" drops the <li> chrome so the list works inside the edit dialog. */
-  variant?: "list" | "dialog";
-  /** Offers "make recurring" on leaves; the page list doesn't pass it. */
-  onMakeRecurring?: (line: LineNode) => void;
 }
 
 /** A saved allocation's split, writing every change straight through its own endpoint. */
@@ -63,8 +54,6 @@ export function SubLineList({
   toDisplay,
   toStored,
   readOnly = false,
-  variant = "list",
-  onMakeRecurring,
 }: SubLineListProps) {
   const create = useCreateSubLine();
   const update = useUpdateSubLine();
@@ -87,8 +76,6 @@ export function SubLineList({
       toStored={toStored}
       actions={readOnly ? null : actions}
       color={alloc.categoryColor}
-      variant={variant}
-      onMakeRecurring={onMakeRecurring}
     />
   );
 }

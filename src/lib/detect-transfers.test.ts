@@ -6,9 +6,10 @@ import { setupTestDb } from "./test-db";
 const testDb = await setupTestDb("detect-transfers");
 
 const { db } = await import("@/db");
-const { detectTransfers, undoTransfer } = await import("./detect-transfers");
+const { detectTransfers, undoTransfer, splitTransfersForAccount, isTransferPair } =
+  await import("./detect-transfers");
 const { transactions, categories, accounts, accountMembers } = await import("@/db/schema");
-const { eq } = await import("drizzle-orm");
+const { and, eq } = await import("drizzle-orm");
 
 const USER = "user-1";
 const OTHER_USER = "user-2";
@@ -49,6 +50,28 @@ async function insertCategory(
 const insertTransferCategory = (userId = USER) =>
   insertCategory("Internal Transfer", userId, "transfer");
 
+/**
+ * Pairing reads policy (and the IBAN) off the account, so every row needs one.
+ * Created on demand with the defaults a plain checking account has, unless a
+ * test asked for something else.
+ */
+async function ensureAccount(
+  id: string,
+  userId: string,
+  opts: { iban?: string; internalTransfers?: boolean } = {},
+) {
+  const [existing] = await db.select().from(accounts).where(eq(accounts.id, id));
+  if (existing) return;
+  await db.insert(accounts).values({
+    id,
+    userId,
+    name: id,
+    type: "checking",
+    iban: opts.iban ?? null,
+    internalTransfers: opts.internalTransfers ?? true,
+  });
+}
+
 async function insertTx(opts: {
   accountId: string;
   date: string;
@@ -57,8 +80,14 @@ async function insertTx(opts: {
   userId?: string;
   isSplitParent?: boolean;
   parentTransactionId?: string;
+  counterpartyIban?: string;
+  isManual?: boolean;
+  isMirror?: boolean;
+  importBatchId?: string | null;
+  linkedTransactionId?: string;
 }): Promise<string> {
   const id = `tx-${++seq}`;
+  await ensureAccount(opts.accountId, opts.userId ?? USER);
   await db.insert(transactions).values({
     id,
     userId: opts.userId ?? USER,
@@ -69,6 +98,11 @@ async function insertTx(opts: {
     type: opts.type ?? (opts.amount < 0 ? "expense" : "income"),
     isSplitParent: opts.isSplitParent,
     parentTransactionId: opts.parentTransactionId,
+    counterpartyIban: opts.counterpartyIban ?? null,
+    isManual: opts.isManual ?? false,
+    isMirror: opts.isMirror ?? false,
+    importBatchId: opts.importBatchId ?? null,
+    linkedTransactionId: opts.linkedTransactionId ?? null,
   });
   return id;
 }
@@ -272,6 +306,191 @@ describe("detectTransfers", () => {
     await insertTx({ accountId: "B", date: "2026-05-01", amount: 100 });
     expect((await detectTransfers(db, USER)).matchedPairs).toBe(1);
     expect((await detectTransfers(db, USER)).matchedPairs).toBe(0);
+  });
+
+  describe("account policy and IBANs", () => {
+    const MINE = "NL11MINE0000000001";
+    const JOINT = "NL22JOINT000000002";
+
+    /** A private account and a joint one, with a contribution booked on each. */
+    async function contribution(opts: { jointIsInternal: boolean }) {
+      await insertTransferCategory();
+      await ensureAccount("private", USER, { iban: MINE });
+      await ensureAccount("joint", USER, {
+        iban: JOINT,
+        internalTransfers: opts.jointIsInternal,
+      });
+      const out = await insertTx({
+        accountId: "private",
+        date: "2026-05-01",
+        amount: -500,
+        counterpartyIban: JOINT,
+      });
+      const into = await insertTx({
+        accountId: "joint",
+        date: "2026-05-01",
+        amount: 500,
+        counterpartyIban: MINE,
+      });
+      return { out, into };
+    }
+
+    it("pairs the two legs when both accounts hold your own money", async () => {
+      await contribution({ jointIsInternal: true });
+      expect((await detectTransfers(db, USER)).matchedPairs).toBe(1);
+    });
+
+    // The whole point: money into the household account is a real expense on
+    // your side and a real income on its side, not a move between your pockets.
+    it("leaves the legs alone when the far account is shared money", async () => {
+      const { out, into } = await contribution({ jointIsInternal: false });
+      expect((await detectTransfers(db, USER)).matchedPairs).toBe(0);
+      expect((await getTx(out)).type).toBe("expense");
+      expect((await getTx(into)).type).toBe("income");
+    });
+
+    it("refuses a pair whose IBANs point somewhere else", async () => {
+      await insertTransferCategory();
+      await ensureAccount("private", USER, { iban: MINE });
+      await ensureAccount("savings", USER, { iban: "NL33SAVE0000000003" });
+      // You front a bill; a friend repays you the next day from their own bank.
+      await insertTx({
+        accountId: "private",
+        date: "2026-05-01",
+        amount: -101.85,
+        counterpartyIban: "NL99FRIEND00000009",
+      });
+      await insertTx({ accountId: "savings", date: "2026-05-02", amount: 101.85 });
+      expect((await detectTransfers(db, USER)).matchedPairs).toBe(0);
+    });
+
+    it("still pairs on amount and date when no IBAN is recorded", async () => {
+      await insertTransferCategory();
+      await insertTx({ accountId: "A", date: "2026-05-01", amount: -75 });
+      await insertTx({ accountId: "B", date: "2026-05-02", amount: 75 });
+      expect((await detectTransfers(db, USER)).matchedPairs).toBe(1);
+    });
+
+    it("ignores spacing and case when comparing IBANs", () => {
+      const byId = new Map([
+        ["a", { iban: "nl11 mine 0000 000001", internalTransfers: true }],
+        ["b", { iban: "NL22JOINT000000002", internalTransfers: true }],
+      ]);
+      const paired = isTransferPair(
+        { accountId: "a", date: "2026-05-01", counterpartyIban: "NL22 JOINT 0000 00002" },
+        { accountId: "b", date: "2026-05-01", counterpartyIban: "NL11MINE0000000001" },
+        byId,
+      );
+      expect(paired).toBe(true);
+    });
+  });
+
+  describe("splitTransfersForAccount", () => {
+    it("splits every pair on the account and leaves both legs categorizable", async () => {
+      await insertTransferCategory();
+      const out = await insertTx({ accountId: "private", date: "2026-05-01", amount: -500 });
+      const into = await insertTx({ accountId: "joint", date: "2026-05-01", amount: 500 });
+      expect((await detectTransfers(db, USER)).matchedPairs).toBe(1);
+
+      expect(await splitTransfersForAccount(db, "joint", USER)).toEqual({
+        split: 1,
+        removedMirrors: 0,
+      });
+
+      expect((await getTx(out)).type).toBe("expense");
+      expect((await getTx(into)).type).toBe("income");
+      for (const id of [out, into]) {
+        const row = await getTx(id);
+        expect(row.linkedTransactionId).toBeNull();
+        expect(row.categoryId).toBeNull();
+        // NOT dismissed: the account's policy is what keeps them apart, so
+        // switching the flag back on has to be able to re-pair them.
+        expect(row.transferDismissed).toBe(false);
+      }
+    });
+
+    it("deletes the mirror the import wrote into the account", async () => {
+      await insertTransferCategory();
+      const source = await insertTx({
+        accountId: "private",
+        date: "2026-05-01",
+        amount: -500,
+        type: "internal_transfer",
+      });
+      // What the CSV import writes into the far account, flagged as such. Its
+      // own export is the honest source once the account stops being yours, so
+      // it must not survive to double-count.
+      const mirror = await insertTx({
+        accountId: "joint",
+        date: "2026-05-01",
+        amount: 500,
+        type: "internal_transfer",
+        isManual: true,
+        isMirror: true,
+        linkedTransactionId: source,
+      });
+      await db
+        .update(transactions)
+        .set({ linkedTransactionId: mirror })
+        // user_id named so the tenant tripwire lets the statement through.
+        .where(and(eq(transactions.id, source), eq(transactions.userId, USER)));
+
+      expect(await splitTransfersForAccount(db, "joint", USER)).toEqual({
+        split: 1,
+        removedMirrors: 1,
+      });
+      expect(await getTx(mirror)).toBeUndefined();
+      const far = await getTx(source);
+      expect(far.type).toBe("expense");
+      expect(far.linkedTransactionId).toBeNull();
+    });
+
+    it("keeps a hand-entered leg the detector paired", async () => {
+      await insertTransferCategory();
+      // Two rows the user typed themselves, in two accounts, which
+      // detectTransfers then paired. The row on the joint side now wears the
+      // exact shape a mirror used to be recognised by — manual, no import
+      // batch, linked — but it is real money somebody entered, and deleting it
+      // would move the account's balance for good.
+      const typed = await insertTx({
+        accountId: "joint",
+        date: "2026-06-01",
+        amount: 250,
+        type: "internal_transfer",
+        isManual: true,
+        linkedTransactionId: "placeholder",
+      });
+      const far = await insertTx({
+        accountId: "private",
+        date: "2026-06-01",
+        amount: -250,
+        type: "internal_transfer",
+        isManual: true,
+        linkedTransactionId: typed,
+      });
+      await db
+        .update(transactions)
+        .set({ linkedTransactionId: far })
+        .where(and(eq(transactions.id, typed), eq(transactions.userId, USER)));
+
+      expect(await splitTransfersForAccount(db, "joint", USER)).toEqual({
+        split: 1,
+        removedMirrors: 0,
+      });
+      const kept = await getTx(typed);
+      expect(kept).toBeDefined();
+      expect(kept.type).toBe("income");
+      expect(kept.linkedTransactionId).toBeNull();
+      expect((await getTx(far)).type).toBe("expense");
+    });
+
+    it("is a no-op on an account with no transfers", async () => {
+      await insertTx({ accountId: "A", date: "2026-05-01", amount: -10 });
+      expect(await splitTransfersForAccount(db, "A", USER)).toEqual({
+        split: 0,
+        removedMirrors: 0,
+      });
+    });
   });
 
   describe("undoTransfer", () => {

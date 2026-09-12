@@ -1,6 +1,5 @@
 import type { BudgetChildInput } from "@/hooks/use-budgets";
 import { sumLines } from "@/lib/budget-cache";
-import { toMonthly } from "@/lib/recurring";
 
 // The tree edits are the same at every level of this feature — a draft, a
 // saved sub-line and an optimistic cache patch all key on `id` and hold
@@ -52,88 +51,6 @@ export interface DraftLine {
   /** Ignored once the line has children — they are what it adds up to. */
   amount: number;
   children: DraftLine[];
-  /** An existing plan this line adopts. */
-  adoptRecurringId?: string;
-  /** Or one to create alongside it, in the shape the POST validates. */
-  recurring?: NonNullable<BudgetChildInput["recurring"]>;
-}
-
-/**
- * The two shapes a link travels in: the id of a plan being adopted, or the
- * plan block itself once it is saved. `frequency` is named only so this stays
- * a strong type — both halves carry one, and a lone optional `id` would make
- * every unrelated object assignable.
- */
-interface Linkable {
-  adoptRecurringId?: string;
-  recurring?: { id?: string; frequency: string };
-  children: Linkable[];
-}
-
-/**
- * Every recurring plan the tree already stands for. The adoption list subtracts
- * these, so a plan can't be offered twice — the server rejects a second link
- * anyway, but being offered something that then fails is not an answer.
- */
-export function linkedPlanIds(lines: readonly Linkable[]): Set<string> {
-  const ids = new Set<string>();
-  const walk = (nodes: readonly Linkable[]) => {
-    for (const node of nodes) {
-      const id = node.adoptRecurringId ?? node.recurring?.id;
-      if (id) ids.add(id);
-      walk(node.children);
-    }
-  };
-  walk(lines);
-  return ids;
-}
-
-/**
- * What this category's own recurring plans commit it to that no line in the
- * tree stands for yet, expressed monthly.
- *
- * Those payments land in the category whether or not the budget mentions them,
- * so an allocation below this figure is over budget the day it is created.
- * Paused plans are left out — they take nothing this month, so demanding room
- * for them would be the opposite mistake.
- */
-export function uncoveredMonthly(
-  plans: readonly {
-    id: string;
-    amount: number;
-    frequency: string;
-    isActive: boolean;
-  }[],
-  adopted: ReadonlySet<string>,
-): number {
-  return plans
-    .filter((p) => p.isActive && !adopted.has(p.id))
-    .reduce((sum, p) => sum + toMonthly(p.amount, p.frequency), 0);
-}
-
-/**
- * Those same plans as draft lines, ready to seed the add dialog's tree: each
- * one adopts the plan it came from, expressed monthly. Paused plans are left
- * out for the same reason `uncoveredMonthly` skips them — nothing is due.
- */
-export function adoptDrafts(
-  plans: readonly {
-    id: string;
-    description: string;
-    amount: number;
-    frequency: string;
-    isActive: boolean;
-  }[],
-): DraftLine[] {
-  return plans
-    .filter((p) => p.isActive)
-    .map((p) => ({
-      id: crypto.randomUUID(),
-      name: p.description,
-      amount: toMonthly(p.amount, p.frequency),
-      children: [],
-      adoptRecurringId: p.id,
-    }));
 }
 
 /**
@@ -141,45 +58,32 @@ export function adoptDrafts(
  * here rather than stored, so editing a leaf re-totals everything above it
  * without a second copy of the number to keep in step.
  */
-export function toLineNodes(
-  lines: readonly DraftLine[],
-  planOf: (id: string) => LinkedPlan | undefined,
-): LineNode[] {
+export function toLineNodes(lines: readonly DraftLine[]): LineNode[] {
   return lines.map((line) => {
-    const children = toLineNodes(line.children, planOf);
-    const recurring = line.recurring
-      ? {
-          frequency: line.recurring.frequency,
-          dayOfWeek: line.recurring.dayOfWeek ?? null,
-          dayOfMonth: line.recurring.dayOfMonth ?? null,
-          monthOfYear: line.recurring.monthOfYear ?? null,
-          startDate: line.recurring.startDate,
-        }
-      : line.adoptRecurringId
-        ? planOf(line.adoptRecurringId)
-        : undefined;
+    const children = toLineNodes(line.children);
     return {
       id: line.id,
       name: line.name,
       amount: children.length > 0 ? sumLines(children) : line.amount,
       children,
-      ...(recurring ? { recurring } : {}),
     };
   });
 }
 
 /**
  * The draft tree as `POST /api/budgets` wants it. The server re-derives every
- * container and every linked line, so the amount travelling for those is a
- * placeholder it overwrites — it is sent only because the endpoint validates
- * that every node carries a positive one.
+ * container, so the amount travelling for one is a placeholder it overwrites —
+ * it is sent only because the endpoint validates that every node carries a
+ * positive one.
+ *
+ * The endpoint also takes `adoptRecurringId` and `recurring` per node, to hang
+ * a line off a recurring plan. Nothing drafts one today: the editor writes
+ * plain lines and the plan link is made from the recurring form instead.
  */
 export function toChildInput(lines: readonly DraftLine[]): BudgetChildInput[] {
   return lines.map((line) => ({
     name: line.name,
     amount: line.children.length > 0 ? sumLines(line.children) : line.amount,
     ...(line.children.length > 0 ? { children: toChildInput(line.children) } : {}),
-    ...(line.adoptRecurringId ? { adoptRecurringId: line.adoptRecurringId } : {}),
-    ...(line.recurring ? { recurring: line.recurring } : {}),
   }));
 }

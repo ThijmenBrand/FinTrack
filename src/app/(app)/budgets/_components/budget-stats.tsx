@@ -7,13 +7,51 @@ import { TONE_TEXT } from "./budget-row";
 
 /**
  * Four numbers, in the order money actually moves: what came in, what it is
- * committed to, what has gone, what is still free.
+ * committed to, what has gone, what is still free — with the one bar that
+ * reconciles the middle two underneath them.
+ *
+ * A panel of its own rather than four numbers loose on the page: the strip is
+ * the plan's arithmetic and the list below is the plan, and a hairline between
+ * them says which is which without a heading.
  *
  * Tablet and up only — see `Meter` for the phone.
  */
-function Grid({ children }: { children: React.ReactNode }) {
+function Grid({
+  spent,
+  limit,
+  spentLabel,
+  limitLabel,
+  barLabel,
+  children,
+}: {
+  spent: number;
+  limit: number;
+  spentLabel: string;
+  limitLabel: string;
+  barLabel: string;
+  children: React.ReactNode;
+}) {
   return (
-    <dl className="hidden gap-x-6 gap-y-5 sm:grid sm:grid-cols-4">{children}</dl>
+    <div className="hidden overflow-hidden rounded-xl border bg-card sm:block">
+      {/* One row, so `divide-x` is exactly the rule between each pair. */}
+      <dl className="grid grid-cols-4 divide-x">{children}</dl>
+      <div className="px-5 pb-4">
+        <div
+          className="h-1.5 overflow-hidden rounded-full bg-muted"
+          role="img"
+          aria-label={barLabel}
+        >
+          <div
+            className="h-full rounded-full bg-primary transition-[width] duration-500"
+            style={{ width: `${share(spent, limit)}%` }}
+          />
+        </div>
+        <div className="mt-1.5 flex justify-between text-xs tabular-nums text-muted-foreground">
+          <span>{spentLabel}</span>
+          <span>{limitLabel}</span>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -29,7 +67,7 @@ function Stat({
   tone?: string;
 }) {
   return (
-    <div className="min-w-0">
+    <div className="min-w-0 px-5 py-4">
       <dt className="text-[11px] uppercase tracking-wider text-muted-foreground">
         {label}
       </dt>
@@ -192,7 +230,15 @@ export function MonthStats({
             `${t("budgets.stat.fixedDue")} ${formatCurrency(fixedDue)}`,
         ]}
       />
-      <Grid>
+      <Grid
+        spent={spent}
+        limit={toSpend}
+        spentLabel={t("budgets.row.spentAmount", { amount: formatCurrency(spent) })}
+        limitLabel={t("budgets.stat.budgetedAmount", {
+          amount: formatCurrency(toSpend),
+        })}
+        barLabel={spentLine}
+      >
         {/* Income opens the strip: the plan below divides up this number, so
             reading it first is reading the page in the order it works. */}
         <Stat
@@ -297,7 +343,17 @@ export function YearStats({
           `${t("budgets.yearly.stat.income")} ${formatCurrency(income.total)}`,
         ]}
       />
-      <Grid>
+      <Grid
+        spent={totals.spentYear}
+        limit={totals.annualPot}
+        spentLabel={t("budgets.row.spentAmount", {
+          amount: formatCurrency(totals.spentYear),
+        })}
+        limitLabel={t("budgets.stat.budgetedAmount", {
+          amount: formatCurrency(totals.annualPot),
+        })}
+        barLabel={spentLine}
+      >
       <Stat
         label={t("budgets.yearly.stat.income")}
         value={formatCurrency(income.total)}

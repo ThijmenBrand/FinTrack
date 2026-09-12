@@ -41,14 +41,15 @@ export function Container({
   const { t, formatCurrency } = useI18n();
   const total = lines.reduce((sum, l) => sum + l.amount, 0);
   const remainder = cap - total;
-  // Adding lives in the dialogs only; the page list stays read-quiet. Every
-  // container offers it, including empty ones — gating nested adds on "already
-  // has lines" made levels 2 and 3 unreachable, since the only way to get a
-  // first child was a button that first needed a child to appear.
+  // Wherever the tree can be written, it can be added to — the budget view
+  // passes no actions at all, so its list stays read-quiet without a variant
+  // check. Every container offers it, including empty ones: gating nested adds
+  // on "already has lines" made levels 2 and 3 unreachable, since the only way
+  // to get a first child was a button that first needed a child to appear.
   // A recurring line's amount comes from its plan, so it cannot also be the
   // sum of children — the tree endpoint refuses that shape. Don't offer what
   // can't be saved.
-  const showAdd = ctx.variant === "dialog" && !parentRecurring ? ctx.actions : null;
+  const showAdd = parentRecurring ? null : ctx.actions;
 
   return (
     <>
@@ -70,7 +71,7 @@ export function Container({
       ))}
 
       {lines.length > 0 && remainder > MONEY_EPSILON && (
-        <Row ctx={ctx} depth={depth}>
+        <Row depth={depth}>
           {/* Faded: the remainder is what is left of the category, not a line
               someone named. */}
           <Dot ctx={ctx} faded />
@@ -78,9 +79,7 @@ export function Container({
             {t("budgets.subLines.everythingElse")}
           </span>
           <span
-            className={`whitespace-nowrap text-right text-xs tabular-nums text-muted-foreground/70 ${
-              ctx.variant === "list" ? CELL_AMOUNT : ""
-            }`}
+            className={`whitespace-nowrap text-right text-xs tabular-nums text-muted-foreground/70 ${CELL_AMOUNT}`}
           >
             {formatCurrency(cents(ctx.toDisplay(remainder)))}
           </span>
@@ -88,7 +87,7 @@ export function Container({
       )}
 
       {total > cap + MONEY_EPSILON && (
-        <Row ctx={ctx} depth={depth} full>
+        <Row depth={depth} full>
           <span className="text-xs text-amber-600 dark:text-amber-400">
             {t("budgets.subLines.overBy", {
               amount: formatCurrency(cents(ctx.toDisplay(total - cap))),

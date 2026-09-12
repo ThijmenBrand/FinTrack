@@ -115,6 +115,15 @@ export const accounts = sqliteTable("accounts", {
   iban: text("iban"),
   currency: text("currency").notNull().default("EUR"),
   initialBalance: real("initial_balance").notNull().default(0),
+  // Whether money moved between this account and another registered account is
+  // still your own money. On (the default) for the accounts you alone own: a
+  // move is an internal transfer, budgeted on no side. Off for an account whose
+  // money is shared with someone else — a joint household account — where a
+  // contribution really is an expense on your side and an income on its side.
+  // Either account having it off is enough to keep the two legs apart.
+  internalTransfers: integer("internal_transfers", { mode: "boolean" })
+    .notNull()
+    .default(true),
   sortOrder: integer("sort_order").notNull().default(0),
   // The budget plan this account's spending counts toward. Exclusive: an
   // account belongs to at most one plan. Null = not in any budget.
@@ -146,6 +155,12 @@ export const transactions = sqliteTable("transactions", {
   description: text("description").notNull(),
   amount: real("amount").notNull(), // Positive = income, Negative = expense
   balance: real("balance"), // Running balance if provided by bank
+  // The other side's IBAN, as the bank exported it (normalized: no spaces,
+  // upper case). Null when the export has no such column (Revolut) or the row
+  // was entered by hand. Transfer detection uses it to prove a pair really is
+  // the same money — amount and date alone cannot tell a transfer apart from a
+  // friend paying you back.
+  counterpartyIban: text("counterparty_iban"),
   categoryId: text("category_id").references(() => categories.id),
   // Name of the category this transaction had when that category was deleted.
   // Keeps the history readable as plain text once the FK is gone; ignored while
@@ -176,6 +191,15 @@ export const transactions = sqliteTable("transactions", {
   createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
   modifiedBy: text("modified_by").references(() => user.id, { onDelete: "set null" }),
   isManual: integer("is_manual", { mode: "boolean" }).notNull().default(false),
+  // Written into the TARGET account by a transfer import: money the other
+  // bank reported, with no CSV row and no running balance of its own.
+  //
+  // Explicit rather than inferred. The shape it used to be recognised by
+  // (manual + no import batch + linked) is exactly the shape a hand-entered
+  // row takes once `detectTransfers` pairs it, and the two are treated very
+  // differently — a mirror is overwritten by the real bank row on import and
+  // deleted when the account stops holding your own money.
+  isMirror: integer("is_mirror", { mode: "boolean" }).notNull().default(false),
   importBatchId: text("import_batch_id"), // Track which CSV upload this came from
   groupId: text("group_id"),
   // Split transactions: a child slice references its parent wrapper row. The
