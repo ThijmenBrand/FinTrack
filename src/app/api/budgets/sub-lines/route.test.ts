@@ -340,6 +340,25 @@ describe("PUT /api/budgets/sub-lines", () => {
     expect(await allocationAmount()).toBeCloseTo(5);
   });
 
+  it("writes a linked line's new amount back to its plan, per occurrence", async () => {
+    const line = await (
+      await post({ allocationId: "sl-budget", name: "Gym", amount: 20 })
+    ).json();
+    await insertRecurring("rec-writeback", { amount: -60, frequency: "yearly" });
+    expect((await put({ id: line.id, recurringId: "rec-writeback" })).status).toBe(200);
+
+    // 10/month typed here is 120/yr on the plan, still signed as an expense.
+    expect((await put({ id: line.id, amount: 10 })).status).toBe(200);
+    const [row] = (
+      await testDb.client.execute({
+        sql: `SELECT amount AS a FROM recurring_transactions WHERE id = ?`,
+        args: ["rec-writeback"],
+      })
+    ).rows;
+    expect(Number(row.a)).toBeCloseTo(-120);
+    expect(await subLineAmount(line.id)).toBeCloseTo(10);
+  });
+
   it("rejects linking a plan that's already linked to another sub-line", async () => {
     const a = await (
       await post({ allocationId: "sl-budget", name: "A", amount: 10 })

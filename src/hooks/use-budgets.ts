@@ -419,7 +419,13 @@ export function useUpdateSubLine() {
       );
     },
     onError: shared.onError,
-    onSettled: shared.onSettled,
+    onSettled: () => {
+      shared.onSettled();
+      // A linked line's amount is written straight through to its plan, so the
+      // recurring lists are stale too.
+      qc.invalidateQueries({ queryKey: ["recurring"] });
+      qc.invalidateQueries({ queryKey: ["recurring-forecast"] });
+    },
   });
 }
 

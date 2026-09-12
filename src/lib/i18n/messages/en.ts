@@ -819,7 +819,7 @@ export const en = {
   "budgets.subLines.errTooMany": "This budget already has the maximum number of sub-lines",
   "budgets.subLines.errGeneric": "Could not save that — try again",
   "budgets.subLines.derivedTotal": "Adds up from its sub-lines.",
-  "budgets.subLines.recurringLocked": "Amount comes from the recurring payment.",
+  "budgets.subLines.recurringSyncs": "Changing this also changes the recurring payment.",
   "budgets.subLines.unlinkTitle": "Remove this sub-line?",
   "budgets.subLines.unlinkBody": "{name} stays as a recurring payment — only the budget breakdown line goes.",
   "budgets.suggestion.new": "New",

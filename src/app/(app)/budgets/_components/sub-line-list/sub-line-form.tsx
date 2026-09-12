@@ -19,6 +19,7 @@ export function SubLineForm({
   initialName = "",
   initialAmount,
   lockedHint,
+  hint,
   pending,
   error,
   onSubmit,
@@ -34,6 +35,8 @@ export function SubLineForm({
    * it belongs to a recurring plan. The field shows the figure and refuses it.
    */
   lockedHint?: string;
+  /** A note under an editable field — e.g. that saving also moves the plan. */
+  hint?: string;
   pending: boolean;
   error: string | null;
   onSubmit: (name: string, displayAmount: number) => void;
@@ -93,7 +96,9 @@ export function SubLineForm({
             <X className="h-3.5 w-3.5" />
           </Button>
         </div>
-        {lockedHint && <p className="text-xs text-muted-foreground">{lockedHint}</p>}
+        {(lockedHint ?? hint) && (
+          <p className="text-xs text-muted-foreground">{lockedHint ?? hint}</p>
+        )}
         {error && <p className="text-xs text-destructive">{error}</p>}
       </div>
     </Row>

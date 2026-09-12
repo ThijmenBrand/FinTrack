@@ -29,14 +29,11 @@ export function SubLineRow({
   const { error, setError, pending, guard } = useSubLineError();
   const { actions } = ctx;
 
-  // Two things can own a line's money instead of the field: the children it
-  // adds up from, and the recurring plan it stands for. Either way the number
-  // is derived somewhere else and typing over it here would only disagree.
-  const lockedHint = line.recurring
-    ? t("budgets.subLines.recurringLocked")
-    : line.children.length > 0
-      ? t("budgets.subLines.derivedTotal")
-      : undefined;
+  // Children own their container's money — it is their sum, so typing over it
+  // would only disagree. A recurring plan's line is different: the field is
+  // the plan's amount, and saving writes it back through.
+  const lockedHint = line.children.length > 0 ? t("budgets.subLines.derivedTotal") : undefined;
+  const hint = line.recurring ? t("budgets.subLines.recurringSyncs") : undefined;
 
   if (editing && actions) {
     return (
@@ -46,6 +43,7 @@ export function SubLineRow({
         initialName={line.name}
         initialAmount={line.amount}
         lockedHint={lockedHint}
+        hint={hint}
         pending={pending}
         error={error}
         onCancel={() => {
