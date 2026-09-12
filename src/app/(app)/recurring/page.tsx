@@ -38,6 +38,9 @@ export default function RecurringPage() {
   const deleteRecurring = useDeleteRecurring();
 
   const [dialogOpen, setDialogOpen] = useState(false);
+  // Which row is mid pause/resume. The update mutation is shared with the form
+  // dialog, so its own isPending can't say which row (if any) is waiting.
+  const [togglingId, setTogglingId] = useState<string | null>(null);
   const [editing, setEditing] = useState<RecurringTx | null>(null);
   const [addType, setAddType] = useState<"income" | "expense" | undefined>();
 
@@ -73,8 +76,17 @@ export default function RecurringPage() {
     await deleteRecurring.mutateAsync(id);
   };
 
+  // `mutateAsync` only to know when this row stops spinning — nothing awaits
+  // the click, so the rejection is caught here rather than left unhandled.
   const toggleActive = async (item: RecurringTx) => {
-    await updateRecurring.mutateAsync({ id: item.id, isActive: !item.isActive });
+    setTogglingId(item.id);
+    try {
+      await updateRecurring.mutateAsync({ id: item.id, isActive: !item.isActive });
+    } catch (err) {
+      console.error("Failed to toggle recurring plan:", err);
+    } finally {
+      setTogglingId(null);
+    }
   };
 
   // Only warnings get banner treatment — a projected overdraft is the one piece
@@ -204,6 +216,8 @@ export default function RecurringPage() {
         onEdit={openEdit}
         onDelete={handleDelete}
         onToggle={toggleActive}
+        deletingId={deleteRecurring.isPending ? deleteRecurring.variables : null}
+        togglingId={togglingId}
       />
     </div>
   );

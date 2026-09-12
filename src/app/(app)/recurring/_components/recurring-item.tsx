@@ -2,7 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
-import { ChevronDown, Pause, Pencil, Play } from "lucide-react";
+import { ChevronDown, Loader2, Pause, Pencil, Play } from "lucide-react";
 import { toMonthly } from "@/lib/recurring";
 import type { RecurringTx } from "@/types/api";
 import { relativeDay } from "./dates";
@@ -39,6 +39,8 @@ export function RecurringItem({
   onEdit,
   onDelete,
   onToggle,
+  deleting,
+  toggling,
 }: {
   item: RecurringTx;
   /** Which section the row sits in — a transfer is neither in nor out. */
@@ -50,6 +52,9 @@ export function RecurringItem({
   onEdit: (item: RecurringTx) => void;
   onDelete: (id: string) => void;
   onToggle: (item: RecurringTx) => void;
+  /** This row's delete / pause is in flight — the whole action strip waits. */
+  deleting?: boolean;
+  toggling?: boolean;
 }) {
   const { t, formatCurrency, formatDate, formatDayMonth } = useI18n();
   const incoming = item.type === "income";
@@ -163,21 +168,35 @@ export function RecurringItem({
           {/* Full contrast even on a paused row — pausing must not dim the
               control that undoes it. */}
           <div className="mt-4 flex flex-wrap items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => onToggle(item)}>
-              {item.isActive ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onToggle(item)}
+              disabled={toggling || deleting}
+            >
+              {toggling ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : item.isActive ? (
                 <Pause className="h-3.5 w-3.5" />
               ) : (
                 <Play className="h-3.5 w-3.5" />
               )}
               {item.isActive ? t("recurring.pause") : t("recurring.resume")}
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => onEdit(item)}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onEdit(item)}
+              disabled={toggling || deleting}
+            >
               <Pencil className="h-3.5 w-3.5" />
               {t("common.edit")}
             </Button>
             <ConfirmDeleteButton
               variant="text"
               className="ml-auto"
+              pending={deleting}
+              disabled={toggling}
               onConfirm={() => onDelete(item.id)}
               label={t("common.delete")}
               message={t("recurring.deleteLabel", { name: item.description })}

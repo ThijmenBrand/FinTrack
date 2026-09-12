@@ -43,8 +43,15 @@ export function ConfirmDeleteButton({
   const [confirming, setConfirming] = useState(false);
 
   const confirm = async () => {
-    await onConfirm();
-    setConfirming(false);
+    // Every caller fires this from an onClick, so a rejecting onConfirm would
+    // be an unhandled rejection. There is no toast layer to show it in; the
+    // strip staying armed is the feedback — the row is still there.
+    try {
+      await onConfirm();
+      setConfirming(false);
+    } catch (err) {
+      console.error("Delete failed:", err);
+    }
   };
 
   if (variant === "text") {

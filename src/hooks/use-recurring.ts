@@ -37,8 +37,10 @@ export function useUpdateRecurring() {
   return useMutation({
     mutationFn: (payload: Record<string, unknown>) =>
       apiFetch("/api/recurring", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["recurring"] });
+    // Awaited for the same reason as the delete below: a pause that stops
+    // spinning before the row re-reads still shows the old state.
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["recurring"] });
       qc.invalidateQueries({ queryKey: ["recurring-forecast"] });
       // Fixed costs and monthly income on the budgets page are derived
       // entirely from these rows, so they go stale with every edit.
@@ -51,8 +53,10 @@ export function useDeleteRecurring() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => apiFetch(`/api/recurring?id=${id}`, { method: "DELETE" }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["recurring"] });
+    // Awaited, so isPending stays true until the list has actually refetched —
+    // otherwise the spinner stops while the deleted row is still on screen.
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["recurring"] });
       qc.invalidateQueries({ queryKey: ["recurring-forecast"] });
       // Fixed costs and monthly income on the budgets page are derived
       // entirely from these rows, so they go stale with every edit.

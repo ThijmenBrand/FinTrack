@@ -14,6 +14,7 @@ interface ExpenseTransaction {
   description: string;
   amount: number;
   accountName: string | null;
+  categoryId: string | null;
   categoryName: string | null;
   categoryColor: string | null;
   /** True when this is another to-be-imported row (id is a tempId, not a DB id). */

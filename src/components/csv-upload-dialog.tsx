@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo } from "react";
 import Papa from "papaparse";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -31,9 +31,9 @@ import { Upload, FileText, CheckCircle2, AlertCircle } from "lucide-react";
 import { ImportReviewStep } from "@/components/import-review-step";
 import type { PreviewTransaction } from "@/lib/csv-utils";
 import { useCategories } from "@/hooks/use-categories";
+import { useBudgets } from "@/hooks/use-budgets";
 import { usePots } from "@/hooks/use-pots";
 import { usePreviewUpload, useCommitUpload } from "@/hooks/use-csv-upload";
-import type { Category } from "@/types/api";
 import { bankHasSeparateFeeColumn } from "@/lib/banks";
 import { BankLogo } from "@/components/bank-logo";
 import { useI18n } from "@/lib/i18n/client";
@@ -43,6 +43,8 @@ interface Account {
   name: string;
   bank: string | null;
   iban: string | null;
+  /** The budget plan this account belongs to; null = not in any budget. */
+  budgetId?: string | null;
 }
 
 interface CsvUploadDialogProps {
@@ -100,6 +102,31 @@ export function CsvUploadDialog({
   // Scoped to the target account: on a shared account the rows land in the
   // owner's space, so only the owner's categories are valid ids.
   const { data: categories = [] } = useCategories(selectedAccountId || undefined);
+
+  // An account inside a budget plan only spends on that plan's lines, so the
+  // pickers below are narrowed to them. Income and transfer categories stay:
+  // a plan allocates the expense side only, so it never enumerates those.
+  const budgetId =
+    accounts.find((a) => a.id === selectedAccountId)?.budgetId ?? null;
+  const { data: budget } = useBudgets({
+    budgetId: budgetId ?? undefined,
+    noScale: true,
+    enabled: !!budgetId,
+  });
+  const budgetCategoryIds = useMemo(() => {
+    if (!budgetId || !budget) return null;
+    const planned = [
+      ...budget.allocations.map((a) => a.categoryId),
+      ...budget.fixedCosts.map((f) => f.categoryId),
+    ];
+    // A plan with no expense lines yet narrows to nothing useful, which reads
+    // as a broken picker rather than a scoped one — leave it unfiltered.
+    if (planned.length === 0) return null;
+    return new Set([
+      ...planned,
+      ...categories.filter((c) => c.kind !== "expense").map((c) => c.id),
+    ]);
+  }, [budgetId, budget, categories]);
   const { data: pots = [] } = usePots();
   const preview = usePreviewUpload();
   const commit = useCommitUpload();
@@ -651,6 +678,7 @@ export function CsvUploadDialog({
             <ImportReviewStep
               transactions={previewData}
               categories={categories}
+              budgetCategoryIds={budgetCategoryIds}
               pots={pots}
               accountId={selectedAccountId}
               skipped={previewSkipped}

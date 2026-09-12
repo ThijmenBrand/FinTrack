@@ -42,6 +42,8 @@ interface PendingRule {
 interface ImportReviewStepProps {
   transactions: PreviewTransaction[];
   categories: Category[];
+  /** When the target account sits in a budget plan: the ids that plan covers. */
+  budgetCategoryIds?: Set<string> | null;
   pots: ImportPot[];
   accountId: string;
   skipped: number;
@@ -95,6 +97,7 @@ interface BatchApplyBanner {
 export function ImportReviewStep({
   transactions: initialTransactions,
   categories,
+  budgetCategoryIds,
   pots,
   accountId,
   skipped,
@@ -116,6 +119,28 @@ export function ImportReviewStep({
   const [autoMatchedIds] = useState(
     () => new Set(initialTransactions.filter((tx) => tx.categoryId).map((tx) => tx.tempId))
   );
+
+  /**
+   * What the pickers offer: the budget's own categories, plus any a row points
+   * at now or pointed at on arrival — a rule may have matched outside the
+   * plan, and a category created here isn't part of the plan yet either. The
+   * arrival set keeps those pickable after the row has moved off them, so
+   * changing an out-of-plan match is not a one-way door. This is also what the
+   * rows render their category name from, so nothing can show up blank.
+   */
+  const pickable = useMemo(() => {
+    if (!budgetCategoryIds) return categories;
+    const assignedIn = (list: PreviewTransaction[]) =>
+      list.flatMap((tx) => [
+        tx.categoryId,
+        ...(tx.splits ?? []).map((s) => s.categoryId),
+      ]);
+    const assigned = new Set([
+      ...assignedIn(initialTransactions),
+      ...assignedIn(transactions),
+    ]);
+    return categories.filter((c) => budgetCategoryIds.has(c.id) || assigned.has(c.id));
+  }, [categories, budgetCategoryIds, transactions, initialTransactions]);
 
   const categorizedCount = useMemo(
     () => transactions.filter(isHandled).length,
@@ -303,9 +328,11 @@ export function ImportReviewStep({
   );
 
   const handleReimburseSelect = useCallback(
-    (expense: { id: string; description: string; local?: boolean }) => {
+    (expense: { id: string; description: string; categoryId: string | null; local?: boolean }) => {
       const tempId = reimburseTargetId;
       if (!tempId) return;
+      const known =
+        !!expense.categoryId && categories.some((c) => c.id === expense.categoryId);
       setTransactions((prev) =>
         prev.map((t) =>
           t.tempId === tempId
@@ -317,6 +344,12 @@ export function ImportReviewStep({
                 reimbursesExpenseId: expense.local ? null : expense.id,
                 reimbursesTempId: expense.local ? expense.id : null,
                 reimbursesDescription: expense.description,
+                // Default to the reimbursed expense's category; still
+                // overridable. Only if this account's owner has that category:
+                // the picker offers expenses from every account, including
+                // shared ones whose categories live in another user's space,
+                // and the commit rejects the whole batch on an unknown id.
+                categoryId: known ? expense.categoryId : t.categoryId,
                 // Reimbursements can't be split (nor split rows reimbursed).
                 splits: null,
                 splitRuleId: null,
@@ -326,7 +359,7 @@ export function ImportReviewStep({
       );
       setReimburseTargetId(null);
     },
-    [reimburseTargetId]
+    [reimburseTargetId, categories]
   );
 
   // Other to-be-imported expense rows offered as reimbursement targets.
@@ -347,6 +380,7 @@ export function ImportReviewStep({
             description: t.name || t.description,
             amount: t.amount,
             accountName: null,
+            categoryId: t.categoryId || null,
             categoryName: cat?.name ?? null,
             categoryColor: cat?.color ?? null,
             local: true,
@@ -425,7 +459,7 @@ export function ImportReviewStep({
             <div key={tx.tempId}>
               <ImportTransactionRow
                 tx={tx}
-                categories={categories}
+                categories={pickable}
                 pots={pots}
                 accountId={accountId}
                 onCategoryChange={handleCategoryChange}
@@ -444,7 +478,7 @@ export function ImportReviewStep({
                 <div className="border-b bg-muted/30 px-3 py-2">
                   <SplitPartsEditor
                     totalCents={Math.round(Math.abs(tx.amount) * 100)}
-                    categories={categories}
+                    categories={pickable}
                     accountId={accountId}
                     showDescriptions={false}
                     initialRows={
@@ -616,7 +650,7 @@ export function ImportReviewStep({
           </span>
           <div className="w-52">
             <CategoryPicker
-              categories={categories}
+              categories={pickable}
               value={null}
               onChange={handleBulkCategory}
               className="h-8 text-xs"
