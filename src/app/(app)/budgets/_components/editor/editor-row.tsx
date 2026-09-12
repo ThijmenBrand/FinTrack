@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { useI18n } from "@/lib/i18n/client";
 import { ROW_BRACKET, ROW_SHELL, ROW_TWIST } from "../budget-row";
 import { cents } from "../sub-line-list/constants";
+import { ColorDot } from "./color-dot";
 
 /**
  * A line of the plan, as it is written rather than as it is tracked.
@@ -24,6 +25,7 @@ import { cents } from "../sub-line-list/constants";
 export function EditorRow({
   name,
   color,
+  onColor,
   unit,
   /** The averages line: what this category has really been costing. */
   reference,
@@ -37,6 +39,8 @@ export function EditorRow({
 }: {
   name: string | null;
   color: string | null;
+  /** Absent when the category isn't the caller's to recolour; see ColorDot. */
+  onColor?: (hex: string) => Promise<unknown>;
   unit?: string;
   reference?: string;
   onHistory?: () => void;
@@ -58,10 +62,18 @@ export function EditorRow({
 
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 items-center gap-2">
-            <span
-              className={`h-2 w-2 shrink-0 rounded-full ${removed ? "opacity-40" : ""}`}
-              style={{ backgroundColor: color || "#94a3b8" }}
-            />
+            {onColor && !removed ? (
+              <ColorDot
+                color={color}
+                onColor={onColor}
+                label={t("budgets.editor.colorFor", { name: name ?? "" })}
+              />
+            ) : (
+              <span
+                className={`h-2 w-2 shrink-0 rounded-full ${removed ? "opacity-40" : ""}`}
+                style={{ backgroundColor: color || "#94a3b8" }}
+              />
+            )}
             <span
               className={`truncate text-sm font-medium sm:text-[0.9375rem] ${
                 // A full-strength rule, not the muted one a paused sub-line

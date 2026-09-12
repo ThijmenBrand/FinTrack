@@ -245,7 +245,13 @@ function TransactionsPage() {
   };
 
   const applyFilter = (key: string, value: string) => {
-    if (key === "account") setAccountFilter(value);
+    // Accounts live in one comma-separated param; applying a second account
+    // widens the filter instead of replacing the first.
+    if (key === "account")
+      setAccountFilter((prev) => {
+        const ids = prev === "all" ? [] : prev.split(",");
+        return ids.includes(value) ? prev : [...ids, value].join(",");
+      });
     else if (key === "pot") setPotFilter(value);
     else if (key === "category") setCategoryFilters((prev) => (prev.includes(value) ? prev : [...prev, value]));
     else if (key === "type") setTypeFilters((prev) => (prev.includes(value) ? prev : [...prev, value]));
@@ -259,7 +265,11 @@ function TransactionsPage() {
   };
 
   const removeFilter = (key: string, value?: string) => {
-    if (key === "account") setAccountFilter("all");
+    if (key === "account")
+      setAccountFilter((prev) => {
+        const ids = prev.split(",").filter((id) => id !== value);
+        return ids.length ? ids.join(",") : "all";
+      });
     else if (key === "pot") setPotFilter("all");
     else if (key === "category") setCategoryFilters((prev) => prev.filter((v) => v !== value));
     else if (key === "type") setTypeFilters((prev) => prev.filter((v) => v !== value));

@@ -410,6 +410,8 @@ export const nl: Record<MessageKey, string> = {
   "recurring.form.accountPlaceholder": "Kies...",
   "recurring.form.descriptionPlaceholder": "bijv. Huur, Salaris, Netflix",
   "recurring.form.categoryPlaceholder": "Optioneel...",
+  "recurring.form.accountScopeNote": "Alleen de rekeningen in dit budgetplan zijn te kiezen — een betaling op een andere rekening komt nooit in dit budget terecht.",
+  "recurring.form.categoryLockedNote": "Je begon dit vanuit een budgetcategorie, dus de betaling valt daaronder.",
   "recurring.form.frequency": "Frequentie",
   "recurring.form.dayOfWeek": "Dag van de week",
   "recurring.form.dayOfMonth": "Dag van de maand",
@@ -549,7 +551,6 @@ export const nl: Record<MessageKey, string> = {
   "tx.search.key.pot": "potje",
   "tx.search.placeholder": "Filter transacties... (bijv. account:ING, 12,50, ~12,50, 2026-07-28)",
   "tx.search.addFilter": "Filter toevoegen...",
-  "tx.search.accountCount": "{count} rekeningen",
 
   // ─── Transactions — table & bulk ───────────────────────────────────────────
   "tx.table.rows": "{count} rijen",
@@ -832,6 +833,7 @@ export const nl: Record<MessageKey, string> = {
   "budgets.editor.introYearly":
     "Stel in wat elke categorie per jaar mag kosten. Er wordt niets opgeslagen tot je op Opslaan drukt.",
   "budgets.editor.spending": "Uitgaven",
+  "budgets.editor.addPlan": "Terugkerende betaling",
   "budgets.editor.newLine": "Nieuwe regel",
   "budgets.editor.noHistory": "Nog geen uitgavengeschiedenis",
   "budgets.editor.fromPlans.one": "{count} vaste betaling \u00b7 bekijk geschiedenis",
@@ -839,6 +841,7 @@ export const nl: Record<MessageKey, string> = {
   "budgets.editor.fromPlansHint":
     "Dit totaal komt uit de vaste betalingen hieronder \u2014 pas er daar \u00e9\u00e9n aan om het te wijzigen.",
   "budgets.editor.avgSpend": "gem. {amount}{unit} \u00b7 {months} mnd historie",
+  "budgets.editor.colorFor": "Kleur voor {name}",
   "budgets.editor.amountFor": "Budget voor {name}",
   "budgets.editor.newAmount": "Bedrag voor de nieuwe categorie",
   "budgets.editor.removeCategory": "{name} uit dit budget verwijderen",
@@ -1949,6 +1952,7 @@ export const nl: Record<MessageKey, string> = {
   "api.invalidBank": "Ongeldige bank",
   "api.invalidAccountType": "Ongeldig rekeningtype",
   "api.invalidType": "Ongeldig type",
+  "api.invalidColor": "Kleur moet een hexcode zijn, zoals #3b82f6",
   "api.invalidMatchType": "Ongeldig matchtype",
   "api.invalidMatchField": "Ongeldig matchveld",
   "api.nameAndTypeRequired": "Naam en een geldig type zijn verplicht",

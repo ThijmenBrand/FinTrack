@@ -8,6 +8,7 @@ import {
   isFiniteNumber,
   isIsoDate,
   isMatchType,
+  isHexColor,
   validatePassword,
   validateName,
   validateEmail,
@@ -102,6 +103,22 @@ describe("isMatchType", () => {
     expect(isMatchType("regex")).toBe(false);
     expect(isMatchType("")).toBe(false);
     expect(isMatchType(null)).toBe(false);
+  });
+});
+
+describe("isHexColor", () => {
+  it("accepts the two formats a colour input can produce", () => {
+    expect(isHexColor("#3b82f6")).toBe(true);
+    expect(isHexColor("#FFF")).toBe(true);
+  });
+
+  it("rejects anything else CSS would take", () => {
+    expect(isHexColor("red")).toBe(false);
+    expect(isHexColor("rgb(1,2,3)")).toBe(false);
+    expect(isHexColor("#3b82f")).toBe(false);
+    expect(isHexColor("3b82f6")).toBe(false);
+    expect(isHexColor("")).toBe(false);
+    expect(isHexColor(null)).toBe(false);
   });
 });
 

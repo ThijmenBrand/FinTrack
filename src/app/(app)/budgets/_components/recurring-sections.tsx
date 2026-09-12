@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { Pause, Pencil, Play, Plus, Repeat, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
-import { toMonthly } from "@/lib/recurring";
+import { getNextOccurrence, toMonthly } from "@/lib/recurring";
 import {
   useRecurring,
   useCreateRecurring,
@@ -31,11 +31,99 @@ import { PausedBadge, PlanMeta, SubRow } from "./sub-row";
 import type { HistoryTarget } from "@/components/budget-history-dialog";
 
 /** Server-side bucket key for a recurring row with no category. */
-const UNCATEGORIZED = "uncategorized";
+export const UNCATEGORIZED = "uncategorized";
+
+/**
+ * The accounts a budget plan's recurring form may offer: the plan's own, or
+ * everything when nothing scopes the page. Falls back to everything if the
+ * plan owns no account, so the form never opens with an empty picker.
+ */
+export function scopeAccounts<T extends { id: string }>(
+  accounts: T[],
+  planAccountIds: string[] | null,
+): T[] {
+  if (planAccountIds === null) return accounts;
+  const scoped = accounts.filter((a) => planAccountIds.includes(a.id));
+  return scoped.length > 0 ? scoped : accounts;
+}
+
+/**
+ * A drafted plan as the rest of this file expects to find it: the dialog's
+ * payload with the names and dates the server would have filled in. Its id is
+ * local — `draft:…` — and that is what marks it unsaved everywhere below.
+ */
+function draftTx(
+  payload: Record<string, unknown>,
+  id: string,
+  accounts: Account[],
+  categories: CategoryWithDetails[],
+): RecurringTx {
+  const type = String(payload.type);
+  const amount = Math.abs(Number(payload.amount));
+  const categoryId = (payload.categoryId as string | null) ?? null;
+  const category = categories.find((c) => c.id === categoryId);
+  const frequency = String(payload.frequency);
+  const startDate = String(payload.startDate);
+  const dayOfWeek = (payload.dayOfWeek as number | null) ?? null;
+  const dayOfMonth = (payload.dayOfMonth as number | null) ?? null;
+  return {
+    id,
+    accountId: String(payload.accountId),
+    accountName: accounts.find((a) => a.id === payload.accountId)?.name ?? null,
+    description: String(payload.description),
+    // Signed the way the server stores it, so every total that reads this row
+    // adds up to the same figure before and after the save.
+    amount: type === "income" ? amount : -amount,
+    type,
+    categoryId,
+    categoryKind: category?.kind ?? null,
+    categoryName: category?.name ?? null,
+    categoryColor: category?.color ?? null,
+    frequency,
+    dayOfWeek,
+    dayOfMonth,
+    monthOfYear: null,
+    startDate,
+    endDate: null,
+    isActive: true,
+    nextOccurrence: getNextOccurrence(frequency, startDate, dayOfWeek, dayOfMonth, null),
+  };
+}
+
+/**
+ * A category with only drafted plans has no line from the server to patch.
+ *
+ * Name and colour fall back the way the server's own grouping does, so a
+ * synthesised row is indistinguishable from a real one and nothing downstream
+ * has to know which kind it got. (`FixedCost` promises a string for both — an
+ * empty one would satisfy the type and defeat every `??` that reads it.)
+ */
+function blankFixedCost(
+  categoryId: string,
+  items: RecurringTx[],
+  uncategorized: string,
+): FixedCost {
+  return {
+    categoryId,
+    categoryName: items[0]?.categoryName || uncategorized,
+    categoryColor: items[0]?.categoryColor || "#94a3b8",
+    monthlyAmount: 0,
+    spent: 0,
+    avgMonthly: 0,
+    avgMonths: 0,
+    items: [],
+  };
+}
 
 /** What every recurring row needs; identical for income and fixed costs. */
 export interface PlanRowProps {
   showAccount: boolean;
+  /**
+   * Plans that exist only in the caller's draft. They get no pause button —
+   * there is nothing running to pause — and their edit and delete go back to
+   * the draft instead of the server.
+   */
+  pendingIds?: Set<string>;
   onEdit: (item: RecurringTx) => void;
   onDelete: (id: string) => void;
   onToggle: (item: RecurringTx) => void;
@@ -78,6 +166,8 @@ export function useRecurringPlans({
   accounts,
   categories,
   linkedRecurringIds,
+  pending,
+  draftCreates,
 }: {
   /** Accounts this plan owns; null when no plan scopes the page (= all). */
   planAccountIds: string[] | null;
@@ -94,12 +184,39 @@ export function useRecurringPlans({
    * standalone row of its own — the category's other plans are unaffected.
    */
   linkedRecurringIds: Set<string>;
+  /**
+   * Plans the caller has drafted but not written. Grouped and totalled exactly
+   * like a saved one, so the figures on screen answer "what would this plan be
+   * if I saved now". Monthly figures: a caller in year scope would need them
+   * converted, and the only caller that drafts (the budget editor) is not.
+   */
+  pending?: RecurringTx[];
+  /**
+   * Present when the caller drafts creates rather than writing them — the
+   * budget editor, where nothing is saved until Save. Edits to plans that are
+   * ALREADY saved still write straight through: they are the same edit
+   * wherever it is made, and the budget page offers it too.
+   */
+  draftCreates?: {
+    add: (tx: RecurringTx) => void;
+    update: (tx: RecurringTx) => void;
+    remove: (id: string) => void;
+  };
 }) {
   const { t } = useI18n();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<RecurringTx | null>(null);
   // Seeds a NEW plan for an income category that has none to edit yet.
   const [prefill, setPrefill] = useState<RecurringPrefill | null>(null);
+  // Set when the add came from a category row: that category is the answer.
+  const [addUnder, setAddUnder] = useState<{
+    categoryId: string;
+    type: "income" | "expense";
+  } | null>(null);
+
+  // A plan's recurring payments belong on the plan's own accounts — offering
+  // the rest is offering a payment this budget will never see.
+  const planAccounts = scopeAccounts(accounts, planAccountIds);
 
   const { data: allItems = [] } = useRecurring();
   const createRecurring = useCreateRecurring();
@@ -108,11 +225,33 @@ export function useRecurringPlans({
 
   // Mirror the server's scope: a plan only counts plans on the accounts it
   // owns, so a Joint budget shows joint salary and joint bills and nothing else.
+  const pendingIds = useMemo(
+    () => new Set((pending ?? []).map((p) => p.id)),
+    [pending],
+  );
+
   const { incomeGroups, expenseGroups, showAccount } = useMemo(() => {
+    const all = pending ? [...allItems, ...pending] : allItems;
+    // A drafted plan is always in scope, whatever account it names: the form
+    // offers every account when the plan owns none (see `scopeAccounts`), and
+    // a payment counted in the totals below with no row to show for it is
+    // worse than one filed under a plan it only half belongs to.
     const scoped =
       planAccountIds === null
-        ? allItems
-        : allItems.filter((i) => planAccountIds.includes(i.accountId));
+        ? all
+        : all.filter((i) => planAccountIds.includes(i.accountId) || pendingIds.has(i.id));
+    // What the drafted plans would add to each bucket's monthly figure. The
+    // lines below come from the server, which has never heard of them, so the
+    // group rows get them added back here — otherwise a drafted payment would
+    // show up as a sub-row under a category total that ignores it.
+    const drafted = new Map<string, number>();
+    for (const item of pending ?? []) {
+      const key = `${item.type}:${item.categoryId ?? UNCATEGORIZED}`;
+      drafted.set(
+        key,
+        (drafted.get(key) ?? 0) + toMonthly(item.amount, item.frequency),
+      );
+    }
     // Paused last within each group — they don't count toward any total, so
     // they shouldn't sit between the plans that do.
     const byActive = (a: RecurringTx, b: RecurringTx) =>
@@ -140,11 +279,22 @@ export function useRecurringPlans({
     // Biggest monthly commitment first; a category whose plans are all paused
     // carries no fixed cost and sinks to the bottom rather than vanishing.
     const ordered: FixedCostGroup[] = [...groups.entries()]
-      .map(([categoryId, group]) => ({
-        categoryId,
-        ...group,
-        items: [...group.items].sort(byActive),
-      }))
+      .map(([categoryId, group]) => {
+        const items = [...group.items].sort(byActive);
+        const extra = drafted.get(`expense:${categoryId}`) ?? 0;
+        return {
+          categoryId,
+          items,
+          fc:
+            extra === 0
+              ? group.fc
+              : {
+                  ...(group.fc ??
+                    blankFixedCost(categoryId, items, t("common.uncategorized"))),
+                  monthlyAmount: (group.fc?.monthlyAmount ?? 0) + extra,
+                },
+        };
+      })
       .sort((a, b) => (b.fc?.monthlyAmount ?? 0) - (a.fc?.monthlyAmount ?? 0));
 
     // The same shape for income. A yearly plan's line carries the year's own
@@ -158,7 +308,8 @@ export function useRecurringPlans({
       ...lines.map((line) => ({
         categoryId: line.categoryId,
         line,
-        expected: scopeOf(line).expected,
+        expected:
+          scopeOf(line).expected + (drafted.get(`income:${line.categoryId}`) ?? 0),
         received: scopeOf(line).received,
         items: [...(incomePlans.get(line.categoryId) ?? [])].sort(byActive),
       })),
@@ -169,7 +320,7 @@ export function useRecurringPlans({
         .filter(([categoryId]) => !lineIds.has(categoryId))
         .map(([categoryId, items]) => ({
           categoryId,
-          expected: 0,
+          expected: drafted.get(`income:${categoryId}`) ?? 0,
           received: 0,
           items: [...items].sort(byActive),
         })),
@@ -181,15 +332,39 @@ export function useRecurringPlans({
       expenseGroups: ordered,
       showAccount: new Set(scoped.map((i) => i.accountId)).size > 1,
     };
-  }, [allItems, planAccountIds, fixedCosts, incomeLines, yearScope, linkedRecurringIds]);
+  }, [
+    allItems,
+    pending,
+    pendingIds,
+    planAccountIds,
+    fixedCosts,
+    incomeLines,
+    yearScope,
+    linkedRecurringIds,
+    t,
+  ]);
 
   const handleSubmit = async (payload: Record<string, unknown>) => {
-    await (editing
-      ? updateRecurring.mutateAsync({ id: editing.id, ...payload })
-      : createRecurring.mutateAsync(payload));
+    // A create goes to the draft when the caller keeps one; so does an edit of
+    // a plan that only lives there. Anything else is a real row, and writes.
+    if (draftCreates && (!editing || pendingIds.has(editing.id))) {
+      const tx = draftTx(
+        payload,
+        editing?.id ?? `draft:${crypto.randomUUID()}`,
+        accounts,
+        categories,
+      );
+      if (editing) draftCreates.update(tx);
+      else draftCreates.add(tx);
+    } else {
+      await (editing
+        ? updateRecurring.mutateAsync({ id: editing.id, ...payload })
+        : createRecurring.mutateAsync(payload));
+    }
     setDialogOpen(false);
     setEditing(null);
     setPrefill(null);
+    setAddUnder(null);
   };
 
   // `mutate`, not `mutateAsync` — these fire from a row with nothing awaiting
@@ -197,11 +372,14 @@ export function useRecurringPlans({
   // than an unhandled rejection.
   const rowProps: PlanRowProps = {
     showAccount,
+    pendingIds,
     onEdit: (item) => {
       setEditing(item);
+      setAddUnder(null);
       setDialogOpen(true);
     },
-    onDelete: (id) => deleteRecurring.mutate(id),
+    onDelete: (id) =>
+      pendingIds.has(id) ? draftCreates?.remove(id) : deleteRecurring.mutate(id),
     onToggle: (item) =>
       updateRecurring.mutate({ id: item.id, isActive: !item.isActive }),
   };
@@ -210,6 +388,13 @@ export function useRecurringPlans({
     incomeGroups,
     expenseGroups,
     rowProps,
+    /** Open the form for a new plan filed under this category. */
+    addUnderCategory: (categoryId: string, type: "income" | "expense") => {
+      setEditing(null);
+      setPrefill(null);
+      setAddUnder({ categoryId, type });
+      setDialogOpen(true);
+    },
     /**
      * Add/edit form for both kinds of plan — the form itself picks income or
      * expense. Rendered in the list header: it is also what the pencil on a
@@ -223,15 +408,20 @@ export function useRecurringPlans({
           if (!next) {
             setEditing(null);
             setPrefill(null);
+            setAddUnder(null);
           }
         }}
         editing={editing}
         prefill={prefill}
         // Only a seeded create knows which side it is: the plain "add" button
         // opens on expense, as it always has.
-        defaultType={prefill ? "income" : undefined}
-        accounts={accounts}
+        defaultType={addUnder?.type ?? (prefill ? "income" : undefined)}
+        accounts={planAccounts}
+        accountNote={
+          planAccountIds === null ? undefined : t("recurring.form.accountScopeNote")
+        }
         categories={categories}
+        lockedCategoryId={addUnder?.categoryId}
         onSubmit={handleSubmit}
         trigger={
           // Icon-only on a phone, like the other controls in that header — and
@@ -292,11 +482,13 @@ export function PlanRows({
 function PlanRow({
   item,
   showAccount = false,
+  pendingIds,
   onEdit,
   onDelete,
   onToggle,
 }: { item: RecurringTx } & Partial<PlanRowProps>) {
   const { t, formatCurrency } = useI18n();
+  const pending = pendingIds?.has(item.id) ?? false;
 
   return (
     <SubRow
@@ -334,6 +526,8 @@ function PlanRow({
       actions={
         onEdit && onDelete && onToggle ? (
         <>
+          {/* Nothing to pause on a plan that has not been written yet. */}
+          {!pending && (
           <Button
             variant="ghost"
             size="icon"
@@ -352,6 +546,7 @@ function PlanRow({
               <Play className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
             )}
           </Button>
+          )}
           <Button
             variant="ghost"
             size="icon"

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Fingerprint } from "lucide-react";
+import { ArrowLeft, Fingerprint, Loader2 } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { useRouter } from "next/navigation";
 import { useI18n } from "@/lib/i18n/client";
@@ -169,6 +169,7 @@ export default function LoginPage() {
             disabled={checkingMethods}
             className={authButtonClass}
           >
+            {checkingMethods && <Loader2 className="h-4 w-4 animate-spin" />}
             {checkingMethods ? t("auth.checking") : t("auth.continue")}
           </button>
 
@@ -223,6 +224,7 @@ export default function LoginPage() {
           {error && <p className="text-sm text-destructive">{error}</p>}
 
           <button type="submit" disabled={loading} className={authButtonClass}>
+            {loading && <Loader2 className="h-4 w-4 animate-spin" />}
             {loading ? t("auth.signingIn") : t("auth.signIn")}
           </button>
 
@@ -243,7 +245,11 @@ export default function LoginPage() {
                 disabled={loading}
                 className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-input bg-background px-4 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
               >
-                <Fingerprint className="h-4 w-4" />
+                {loading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Fingerprint className="h-4 w-4" />
+                )}
                 {t("auth.signInBiometrics")}
               </button>
             </>

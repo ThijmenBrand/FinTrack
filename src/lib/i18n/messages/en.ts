@@ -422,6 +422,8 @@ export const en = {
   "recurring.form.accountPlaceholder": "Select...",
   "recurring.form.descriptionPlaceholder": "e.g. Rent, Salary, Netflix",
   "recurring.form.categoryPlaceholder": "Optional...",
+  "recurring.form.accountScopeNote": "Only the accounts in this budget plan can be picked — a payment on another account would never show up in this budget.",
+  "recurring.form.categoryLockedNote": "You started this from a budget category, so the payment is filed under it.",
   "recurring.form.frequency": "Frequency",
   "recurring.form.dayOfWeek": "Day of week",
   "recurring.form.dayOfMonth": "Day of month",
@@ -561,7 +563,6 @@ export const en = {
   "tx.search.key.pot": "pot",
   "tx.search.placeholder": "Filter transactions... (e.g. account:ING, 12.50, ~12.50, 2026-07-28)",
   "tx.search.addFilter": "Add filter...",
-  "tx.search.accountCount": "{count} accounts",
 
   // ─── Transactions — table & bulk ───────────────────────────────────────────
   "tx.table.rows": "{count} rows",
@@ -847,6 +848,7 @@ export const en = {
   "budgets.editor.introYearly":
     "Set what each category may cost a year. Nothing is saved until you press Save.",
   "budgets.editor.spending": "Spending",
+  "budgets.editor.addPlan": "Recurring payment",
   "budgets.editor.newLine": "New line",
   "budgets.editor.noHistory": "No spending history yet",
   "budgets.editor.fromPlans.one": "{count} recurring payment \u00b7 see history",
@@ -854,6 +856,7 @@ export const en = {
   "budgets.editor.fromPlansHint":
     "This total comes from the recurring payments below \u2014 edit one of those to change it.",
   "budgets.editor.avgSpend": "avg {amount}{unit} \u00b7 {months} mo of history",
+  "budgets.editor.colorFor": "Colour for {name}",
   "budgets.editor.amountFor": "Budget for {name}",
   "budgets.editor.newAmount": "Amount for the new category",
   "budgets.editor.removeCategory": "Remove {name} from this budget",
@@ -1970,6 +1973,7 @@ export const en = {
   "api.invalidBank": "Invalid bank",
   "api.invalidAccountType": "Invalid account type",
   "api.invalidType": "Invalid type",
+  "api.invalidColor": "Colour must be a hex code like #3b82f6",
   "api.invalidMatchType": "Invalid match type",
   "api.invalidMatchField": "Invalid match field",
   "api.nameAndTypeRequired": "Name and a valid type are required",

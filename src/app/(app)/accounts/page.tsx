@@ -58,6 +58,7 @@ import {
   Trash2,
   MoreVertical,
   GripVertical,
+  Loader2,
   LogOut,
   Star,
   StarOff,
@@ -487,6 +488,7 @@ function AccountsPageInner() {
     }
   };
 
+  const saving = createAccount.isPending || updateAccount.isPending;
   const accounts = localAccounts;
   const totalBalance = accounts.reduce((sum, a) => sum + a.currentBalance, 0);
 
@@ -674,8 +676,13 @@ function AccountsPageInner() {
                 >
                   {t("common.cancel")}
                 </Button>
-                <Button onClick={handleSubmit} disabled={!name}>
-                  {editingAccount ? t("accounts.saveChanges") : t("accounts.createAccount")}
+                <Button onClick={handleSubmit} disabled={!name || saving}>
+                  {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {saving
+                    ? t("common.saving")
+                    : editingAccount
+                      ? t("accounts.saveChanges")
+                      : t("accounts.createAccount")}
                 </Button>
               </DialogFooter>
             </DialogContent>

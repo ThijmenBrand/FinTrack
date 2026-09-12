@@ -1,4 +1,4 @@
-import type { Allocation, BudgetSubLine } from "@/types/api";
+import type { Allocation, BudgetSubLine, RecurringTx } from "@/types/api";
 import { addLine, removeLine, rollUp, updateLine } from "@/lib/budget-cache";
 import { toChildInput, type DraftLine } from "../sub-line-list/draft";
 import type { BudgetChildInput } from "@/hooks/use-budgets";
@@ -30,6 +30,16 @@ export interface Draft {
    * before-and-after comparison that could disagree with what was clicked.
    */
   ops: SubLineOp[];
+  /**
+   * Recurring payments added in this session, carried as the rows they will
+   * become so the list and the totals can count them before they exist. Their
+   * ids are local (`draft:…`); the server issues the real ones on Save.
+   *
+   * Drafted for the same reason an allocation is: a recurring payment IS part
+   * of what the plan costs, and one that wrote itself the moment the dialog
+   * closed would move the figures under a Save button that stayed greyed out.
+   */
+  recurring: RecurringTx[];
 }
 
 /**
@@ -62,7 +72,13 @@ export type SubLineOp =
   | { kind: "update"; allocationId: string; id: string; name: string; amount: number }
   | { kind: "remove"; allocationId: string; id: string };
 
-export const EMPTY_DRAFT: Draft = { amounts: {}, removed: [], added: [], ops: [] };
+export const EMPTY_DRAFT: Draft = {
+  amounts: {},
+  removed: [],
+  added: [],
+  ops: [],
+  recurring: [],
+};
 
 /**
  * How many changes are waiting — the number on the save bar.
@@ -189,7 +205,8 @@ export type Step =
       amount: number;
       children: BudgetChildInput[];
     }
-  | { kind: "op"; op: SubLineOp };
+  | { kind: "op"; op: SubLineOp }
+  | { kind: "recurring"; tx: RecurringTx };
 
 /**
  * The draft as requests, in the only order that is safe:
@@ -200,6 +217,8 @@ export type Step =
  * 3. Creates, which carry their own breakdown in the same call.
  * 4. Sub-line ops, in the order they were made: a line added at step 4 can be
  *    the parent of the line added at step 5.
+ * 5. Recurring payments, which depend on nothing here — the server derives the
+ *    fixed-cost and income lines from them on the next read.
  *
  * A removed allocation's own ops are dropped: it is about to not exist, and
  * editing a sub-line of it would only 404 on the way out. So are the ops on a
@@ -242,6 +261,7 @@ export function toSteps(draft: Draft): Step[] {
     ...draft.ops
       .filter((op) => !removed.has(op.allocationId) && !cancelled.has(op.id))
       .map<Step>((op) => ({ kind: "op", op })),
+    ...draft.recurring.map<Step>((tx) => ({ kind: "recurring", tx })),
   ];
 }
 
@@ -276,6 +296,9 @@ export function afterSave(
   // By reference, not by count: `toSteps` drops the ops of an allocation being
   // deleted, so the two lists are not index-for-index.
   const doneOps = new Set(landed.flatMap((s) => (s.kind === "op" ? [s.op] : [])));
+  const doneRecurring = new Set(
+    landed.flatMap((s) => (s.kind === "recurring" ? [s.tx.id] : [])),
+  );
   const removed = new Set(draft.removed);
   const gone = new Set(
     [...doneRemovals].concat(draft.added.map((row) => row.key).filter((k) => removed.has(k))),
@@ -305,5 +328,6 @@ export function afterSave(
           ? { ...op, id: map(op.id), parentId: op.parentId && map(op.parentId) }
           : { ...op, id: map(op.id) },
       ),
+    recurring: draft.recurring.filter((tx) => !doneRecurring.has(tx.id)),
   };
 }
