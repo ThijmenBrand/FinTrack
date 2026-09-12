@@ -32,7 +32,7 @@ const names = (rows: RecurringTx[]) => rows.map((r) => r.description);
 
 describe("visibleRows", () => {
   it("sorts by next date with paused plans last", () => {
-    expect(names(visibleRows(all, "", "all", "next"))).toEqual([
+    expect(names(visibleRows(all, "", "next"))).toEqual([
       "HBO Max",
       "Rent",
       "Insurance",
@@ -42,7 +42,7 @@ describe("visibleRows", () => {
 
   it("sorts by monthly-equivalent amount, not raw amount", () => {
     // €120/yr is €10/mo, so it ranks above HBO Max's €4.50 but below Rent.
-    expect(names(visibleRows(all, "", "all", "amount"))).toEqual([
+    expect(names(visibleRows(all, "", "amount"))).toEqual([
       "Rent",
       "Insurance",
       "HBO Max",
@@ -51,7 +51,7 @@ describe("visibleRows", () => {
   });
 
   it("sorts by name", () => {
-    expect(names(visibleRows(all, "", "all", "name"))).toEqual([
+    expect(names(visibleRows(all, "", "name"))).toEqual([
       "HBO Max",
       "Insurance",
       "Rent",
@@ -59,20 +59,15 @@ describe("visibleRows", () => {
     ]);
   });
 
-  it("filters on status", () => {
-    expect(names(visibleRows(all, "", "paused", "name"))).toEqual(["Gym"]);
-    expect(visibleRows(all, "", "active", "name")).toHaveLength(3);
-  });
-
   it("searches description and category, case-insensitively", () => {
-    expect(names(visibleRows(all, "hbo", "all", "name"))).toEqual(["HBO Max"]);
-    expect(names(visibleRows(all, "gezond", "all", "name"))).toEqual(["Insurance"]);
-    expect(visibleRows(all, "nope", "all", "name")).toEqual([]);
+    expect(names(visibleRows(all, "hbo", "name"))).toEqual(["HBO Max"]);
+    expect(names(visibleRows(all, "gezond", "name"))).toEqual(["Insurance"]);
+    expect(visibleRows(all, "nope", "name")).toEqual([]);
   });
 
   it("does not mutate the input", () => {
     const input = [...all];
-    visibleRows(input, "", "all", "name");
+    visibleRows(input, "", "name");
     expect(input).toEqual(all);
   });
 });
