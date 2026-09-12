@@ -202,41 +202,6 @@ export function useCreateBudget() {
   });
 }
 
-export function useUpdateBudget() {
-  const qc = useQueryClient();
-  const shared = optimistic(qc);
-  return useMutation({
-    mutationFn: (payload: { id: string; amount: number }) =>
-      apiFetch("/api/budgets", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
-    onMutate: async ({ id, amount }) => {
-      await shared.begin();
-      return patchCaches(qc, (data) =>
-        patchBudget(data, (allocations) =>
-          allocations.map((a) => (a.id === id ? { ...a, amount, pending: true } : a)),
-        ),
-      );
-    },
-    onError: shared.onError,
-    onSettled: shared.onSettled,
-  });
-}
-
-export function useDeleteBudget() {
-  const qc = useQueryClient();
-  const shared = optimistic(qc);
-  return useMutation({
-    mutationFn: (id: string) => apiFetch(`/api/budgets?id=${id}`, { method: "DELETE" }),
-    onMutate: async (id) => {
-      await shared.begin();
-      return patchCaches(qc, (data) =>
-        patchBudget(data, (allocations) => allocations.filter((a) => a.id !== id)),
-      );
-    },
-    onError: shared.onError,
-    onSettled: shared.onSettled,
-  });
-}
-
 export interface BudgetImportResult {
   createdCategories: number;
   /** budgets allocations created */

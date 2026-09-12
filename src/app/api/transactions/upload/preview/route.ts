@@ -19,6 +19,7 @@ import {
   splitDuplicates,
   isUnsettledRow,
   applyFee,
+  normalizeIban,
   type ColumnMapping,
   type PreviewTransaction,
 } from "@/lib/csv-utils";
@@ -97,12 +98,19 @@ export async function POST(request: NextRequest) {
     // Active split rules — propose splits on the rows they match (below).
     const splitRules = await loadSplitRules(ownerId);
 
-    // Build IBAN → account lookup for internal transfer detection
+    // Build IBAN → account lookup for internal transfer detection. Accounts
+    // whose money is no longer purely the owner's (a joint household account)
+    // stay out: a contribution to one is a real expense here and a real income
+    // there, not a transfer. Same for the whole map when the account being
+    // imported is itself one of those.
     const allAccounts = await db.select().from(accounts).where(eq(accounts.userId, ownerId));
     const ibanToAccount = new Map<string, { id: string; name: string }>();
-    for (const acc of allAccounts) {
-      if (acc.iban) {
-        ibanToAccount.set(acc.iban.replace(/\s/g, "").toUpperCase(), { id: acc.id, name: acc.name });
+    if (ownedAccount.internalTransfers) {
+      for (const acc of allAccounts) {
+        const iban = normalizeIban(acc.iban);
+        if (iban && acc.internalTransfers) {
+          ibanToAccount.set(iban, { id: acc.id, name: acc.name });
+        }
       }
     }
 
@@ -212,9 +220,11 @@ export async function POST(request: NextRequest) {
       let counterpartyIban: string | undefined;
       if (mapping.counterpartyIban) {
         const rawIban = row[mapping.counterpartyIban]?.trim();
-        if (rawIban) {
-          counterpartyIban = rawIban;
-          const normalizedIban = rawIban.replace(/\s/g, "").toUpperCase();
+        const normalizedIban = normalizeIban(rawIban);
+        if (normalizedIban) {
+          // Stored normalized so post-import detection can compare it to an
+          // account's IBAN without re-guessing the bank's spacing.
+          counterpartyIban = normalizedIban;
           const matchedAccount = ibanToAccount.get(normalizedIban);
           if (matchedAccount && matchedAccount.id !== accountId) {
             type = "internal_transfer";

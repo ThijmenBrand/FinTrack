@@ -26,7 +26,7 @@ import {
 import { BudgetRow } from "./allocation-row";
 import type { SplitShare } from "@/lib/budget-split";
 import type { MessageKey } from "@/lib/i18n/translate";
-import { fixedCostStatus, incomePlanSeed, incomeStatus } from "./budget-row";
+import { fixedCostStatus, incomeStatus } from "./budget-row";
 import { PausedBadge, PlanMeta, SubRow } from "./sub-row";
 import type { HistoryTarget } from "@/components/budget-history-dialog";
 
@@ -192,27 +192,6 @@ export function useRecurringPlans({
     setPrefill(null);
   };
 
-  /**
-   * The pencil on an income row. What a category expects is the sum of the
-   * recurring income behind it — there is no separate number to edit — so
-   * editing the category means editing that plan, or writing the first one.
-   * With several plans there is no single one to mean, so it adds another,
-   * seeded with what the category takes in today.
-   */
-  const editIncome = (group: IncomeGroup) => {
-    if (group.items.length === 1) {
-      setPrefill(null);
-      setEditing(group.items[0]);
-      setDialogOpen(true);
-      return;
-    }
-    setEditing(null);
-    setPrefill(
-      incomePlanSeed(group, planAccountIds?.[0] ?? accounts[0]?.id ?? ""),
-    );
-    setDialogOpen(true);
-  };
-
   // `mutate`, not `mutateAsync` — these fire from a row with nothing awaiting
   // them, so a failed request belongs in the mutation's error state rather
   // than an unhandled rejection.
@@ -231,7 +210,6 @@ export function useRecurringPlans({
     incomeGroups,
     expenseGroups,
     rowProps,
-    editIncome,
     /**
      * Add/edit form for both kinds of plan — the form itself picks income or
      * expense. Rendered in the list header: it is also what the pencil on a
@@ -305,20 +283,19 @@ export function PlanRows({
   rowProps,
 }: {
   items: RecurringTx[];
-  rowProps: PlanRowProps;
+  /** Absent on the budget view: reading a month changes no plan. */
+  rowProps?: PlanRowProps;
 }) {
-  return items.map((item) => (
-    <PlanRow key={item.id} item={item} {...rowProps} />
-  ));
+  return items.map((item) => <PlanRow key={item.id} item={item} {...rowProps} />);
 }
 
 function PlanRow({
   item,
-  showAccount,
+  showAccount = false,
   onEdit,
   onDelete,
   onToggle,
-}: { item: RecurringTx } & PlanRowProps) {
+}: { item: RecurringTx } & Partial<PlanRowProps>) {
   const { t, formatCurrency } = useI18n();
 
   return (
@@ -355,6 +332,7 @@ function PlanRow({
         )
       }
       actions={
+        onEdit && onDelete && onToggle ? (
         <>
           <Button
             variant="ghost"
@@ -388,6 +366,7 @@ function PlanRow({
             label={t("recurring.deleteLabel", { name: item.description })}
           />
         </>
+        ) : undefined
       }
     />
   );
@@ -398,25 +377,25 @@ function PlanRow({
  * with the recurring plans that produce it as its sub-lines.
  *
  * The same expandable row as an allocation — a fixed-cost category is spent
- * against like any other, so it owes the same facts and the same history.
- * There is nothing to delete (the category has no budget line yet), but the
- * pencil opens one seeded with this category, so a category can grow a cap and
- * sub-lines without being retyped somewhere else.
+ * against like any other, so it owes the same facts and the same history. Its
+ * plans hang under it inside its own bracket, the way an allocation's
+ * sub-lines do.
  */
 export function FixedCostRow({
   group,
   rowProps,
   split,
+  card,
   onHistory,
-  onEdit,
 }: {
   group: FixedCostGroup;
-  rowProps: PlanRowProps;
+  /** Absent on the budget view: reading a month changes no plan. */
+  rowProps?: PlanRowProps;
   /** Who carries this bill on a shared budget; see BudgetRow. */
   split?: SplitShare[];
+  /** Draw a tile rather than a row; see BudgetRow. */
+  card?: boolean;
   onHistory: (target: HistoryTarget) => void;
-  /** Opens the allocation dialog on this category. Absent = read-only period. */
-  onEdit?: (group: FixedCostGroup) => void;
 }) {
   const { t, plural, formatCurrency } = useI18n();
   const first = group.items[0];
@@ -427,64 +406,62 @@ export function FixedCostRow({
     group.fc?.categoryName || first.categoryName || t("common.uncategorized");
 
   return (
-    <>
-      <BudgetRow
-        name={name}
-        color={color}
-        tone={status}
-        percentage={percentage}
-        spent={spent}
-        limit={limit}
-        split={split}
-        unit={t("budgets.perMonthShort")}
-        subNote={plural(
-          group.items.length,
-          "budgets.stat.recurringPayments.one",
-          "budgets.stat.recurringPayments.other",
-        )}
-        delta={
-          // A category whose plans are all paused owes nothing this month —
-          // "paid" would be a lie, so it gets no note at all.
-          limit === 0 && spent === 0
-            ? ""
-            : status === "exceeded"
-              ? t("budgets.overAmount", { amount: formatCurrency(-outstanding) })
-              : settled
-                ? t("budgets.paid")
-                : t("budgets.dueAmount", { amount: formatCurrency(outstanding) })
-        }
-        facts={
-          <>
-            {group.fc && group.fc.avgMonthly > 0 && (
-              <span>
-                {t("budgets.row.avgPerMonth", {
-                  amount: formatCurrency(group.fc.avgMonthly),
-                  months: group.fc.avgMonths,
-                })}
-              </span>
-            )}
+    <BudgetRow
+      name={name}
+      color={color}
+      tone={status}
+      card={card}
+      percentage={percentage}
+      spent={spent}
+      limit={limit}
+      split={split}
+      unit={t("budgets.perMonthShort")}
+      subNote={plural(
+        group.items.length,
+        "budgets.stat.recurringPayments.one",
+        "budgets.stat.recurringPayments.other",
+      )}
+      delta={
+        // A category whose plans are all paused owes nothing this month —
+        // "paid" would be a lie, so it gets no note at all.
+        limit === 0 && spent === 0
+          ? ""
+          : status === "exceeded"
+            ? t("budgets.overAmount", { amount: formatCurrency(-outstanding) })
+            : settled
+              ? t("budgets.paid")
+              : t("budgets.dueAmount", { amount: formatCurrency(outstanding) })
+      }
+      facts={
+        <>
+          {group.fc && group.fc.avgMonthly > 0 && (
             <span>
-              {t("budgets.row.pctUsed", { pct: Math.round(percentage) })}
+              {t("budgets.row.avgPerMonth", {
+                amount: formatCurrency(group.fc.avgMonthly),
+                months: group.fc.avgMonths,
+              })}
             </span>
-          </>
-        }
-        // Uncategorized plans have no category to budget or look history up by.
-        readOnly={!onEdit || group.categoryId === UNCATEGORIZED}
-        onEdit={() => onEdit?.(group)}
-        onHistory={
-          group.categoryId === UNCATEGORIZED
-            ? undefined
-            : () =>
-                onHistory({
-                  categoryId: group.categoryId,
-                  categoryName: name,
-                  categoryColor: color,
-                  amount: limit,
-                })
-        }
-      />
+          )}
+          <span>
+            {t("budgets.row.pctUsed", { pct: Math.round(percentage) })}
+          </span>
+        </>
+      }
+      // Uncategorized plans have no category to look history up by.
+      onHistory={
+        group.categoryId === UNCATEGORIZED
+          ? undefined
+          : () =>
+              onHistory({
+                categoryId: group.categoryId,
+                categoryName: name,
+                categoryColor: color,
+                amount: limit,
+              })
+      }
+    >
       <PlanRows items={group.items} rowProps={rowProps} />
-    </>
+    </BudgetRow>
   );
 }
 
@@ -496,24 +473,25 @@ export function FixedCostRow({
  * reconciled exactly the way a bill is, so it should read the same way. Only
  * the direction of "good" flips: beating the plan is a windfall rather than an
  * overspend, which `incomeStatus` handles by topping out at emerald and never
- * reaching red. The pencil edits the same thing a spending row's does — what
- * this category is planned to be — which on the income side is the recurring
- * plan behind it (see `editIncome`).
+ * reaching red. What a category expects IS the recurring income behind it, so
+ * there is no amount of its own to edit: the plans hang under the row and each
+ * one is edited where it is written.
  */
 export function IncomeRow({
   group,
   rowProps,
   yearScope,
+  card,
   onHistory,
-  onEdit,
 }: {
   group: IncomeGroup;
-  rowProps: PlanRowProps;
+  /** Absent on the budget view: reading a month changes no plan. */
+  rowProps?: PlanRowProps;
   /** The figures are a whole year's when set — the row's unit says so. */
   yearScope?: boolean;
+  /** Draw a tile rather than a row; see BudgetRow. */
+  card?: boolean;
   onHistory: (target: HistoryTarget) => void;
-  /** Opens the plan behind this category. Absent = read-only budget. */
-  onEdit?: (group: IncomeGroup) => void;
 }) {
   const { t, plural, formatCurrency } = useI18n();
   const first = group.items[0];
@@ -529,71 +507,68 @@ export function IncomeRow({
       : group.line?.categoryName || first?.categoryName || t("common.uncategorized");
 
   return (
-    <>
-      <BudgetRow
-        name={name}
-        color={color}
-        tone={status}
-        percentage={percentage}
-        spent={received}
-        limit={expected}
-        flow="income"
-        unit={t(yearScope ? "budgets.perYearShort" : "budgets.perMonthShort")}
-        subNote={plural(
-          group.items.length,
-          "budgets.stat.recurringPayments.one",
-          "budgets.stat.recurringPayments.other",
-        )}
-        delta={
-          // A category whose plans are all paused expects nothing this period —
-          // "received" would claim a payday that was never planned.
-          expected === 0 && received === 0
-            ? ""
-            : outstanding <= -0.01
-              ? t("budgets.extraAmount", {
-                  amount: formatCurrency(-outstanding),
+    <BudgetRow
+      name={name}
+      color={color}
+      tone={status}
+      card={card}
+      percentage={percentage}
+      spent={received}
+      limit={expected}
+      flow="income"
+      unit={t(yearScope ? "budgets.perYearShort" : "budgets.perMonthShort")}
+      subNote={plural(
+        group.items.length,
+        "budgets.stat.recurringPayments.one",
+        "budgets.stat.recurringPayments.other",
+      )}
+      delta={
+        // A category whose plans are all paused expects nothing this period —
+        // "received" would claim a payday that was never planned.
+        expected === 0 && received === 0
+          ? ""
+          : outstanding <= -0.01
+            ? t("budgets.extraAmount", {
+                amount: formatCurrency(-outstanding),
+              })
+            : settled
+              ? t("budgets.received")
+              : t("budgets.expectedAmount", {
+                  amount: formatCurrency(outstanding),
                 })
-              : settled
-                ? t("budgets.received")
-                : t("budgets.expectedAmount", {
-                    amount: formatCurrency(outstanding),
-                  })
-        }
-        facts={
-          <>
-            {group.line && group.line.avgMonthly > 0 && (
-              <span>
-                {t("budgets.row.avgReceivedPerMonth", {
-                  amount: formatCurrency(group.line.avgMonthly),
-                  months: group.line.avgMonths,
-                })}
-              </span>
-            )}
+      }
+      facts={
+        <>
+          {group.line && group.line.avgMonthly > 0 && (
             <span>
-              {t("budgets.row.pctReceived", { pct: Math.round(percentage) })}
+              {t("budgets.row.avgReceivedPerMonth", {
+                amount: formatCurrency(group.line.avgMonthly),
+                months: group.line.avgMonths,
+              })}
             </span>
-          </>
-        }
-        // Uncategorized income has no category to plan against.
-        readOnly={!onEdit || group.categoryId === UNCATEGORIZED}
-        onEdit={() => onEdit?.(group)}
-        // Uncategorized plans have no category to look history up by.
-        onHistory={
-          group.categoryId === UNCATEGORIZED
-            ? undefined
-            : () =>
-                onHistory({
-                  categoryId: group.categoryId,
-                  categoryName: name,
-                  categoryColor: color,
-                  // The history plots months, so it wants the monthly figure —
-                  // `expected` above may be a whole year's worth in year scope.
-                  amount: group.line?.expected ?? 0,
-                  kind: "income",
-                })
-        }
-      />
+          )}
+          <span>
+            {t("budgets.row.pctReceived", { pct: Math.round(percentage) })}
+          </span>
+        </>
+      }
+      // Uncategorized plans have no category to look history up by.
+      onHistory={
+        group.categoryId === UNCATEGORIZED
+          ? undefined
+          : () =>
+              onHistory({
+                categoryId: group.categoryId,
+                categoryName: name,
+                categoryColor: color,
+                // The history plots months, so it wants the monthly figure —
+                // `expected` above may be a whole year's worth in year scope.
+                amount: group.line?.expected ?? 0,
+                kind: "income",
+              })
+      }
+    >
       <PlanRows items={group.items} rowProps={rowProps} />
-    </>
+    </BudgetRow>
   );
 }

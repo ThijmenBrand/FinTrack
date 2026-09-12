@@ -4,7 +4,7 @@ import type { BudgetSuggestion } from "@/types/api";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/lib/i18n/client";
 import { Sparkles, X, Check } from "lucide-react";
-import { ROW_SHELL, ROW_CHEVRON, ROW_ASIDE, TONE_TEXT } from "./budget-row";
+import { ROW_SHELL, ROW_TWIST, ROW_CHEVRON, ROW_ASIDE, TONE_TEXT } from "./budget-row";
 
 interface SuggestionRowProps {
   suggestion: BudgetSuggestion;
@@ -25,10 +25,12 @@ export function SuggestionRow({ suggestion, busy, onAccept, onReject }: Suggesti
     // it says at a glance that this row was proposed, not planned, and the
     // names below it still line up with every other row in the list.
     <li className={`${ROW_SHELL} bg-blue-50/60 dark:bg-blue-950/25`}>
-      <Sparkles
-        className={`${ROW_CHEVRON} text-blue-600 dark:text-blue-300`}
-        aria-hidden="true"
-      />
+      <span className={ROW_TWIST}>
+        <Sparkles
+          className={`${ROW_CHEVRON} text-blue-600 dark:text-blue-300`}
+          aria-hidden="true"
+        />
+      </span>
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-2">
           <span

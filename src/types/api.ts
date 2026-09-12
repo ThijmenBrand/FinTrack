@@ -14,6 +14,13 @@ export interface Account {
   iban: string | null;
   currency: string;
   initialBalance: number;
+  /**
+   * False when money moved to or from this account is no longer purely yours —
+   * a joint household account. Contributions then stay two ordinary
+   * transactions (expense on your side, income on its side) instead of being
+   * paired into an internal transfer.
+   */
+  internalTransfers: boolean;
   currentBalance: number;
   transactionTotal: number;
   /** The budget plan this account belongs to; null = not in any budget. */

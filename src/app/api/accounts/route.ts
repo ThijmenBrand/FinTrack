@@ -9,6 +9,7 @@ import { isFiniteNumber } from "@/lib/validation";
 import { isBank, bankLabel } from "@/lib/banks";
 import { getAccessibleAccounts, requireAccountAccess, visibleTransactions } from "@/lib/account-access";
 import { excludeSplitChildren } from "@/lib/split-sql";
+import { detectTransfers, splitTransfersForAccount } from "@/lib/detect-transfers";
 
 const ACCOUNT_TYPES = ["checking", "savings", "joint", "credit", "other"] as const;
 type AccountType = (typeof ACCOUNT_TYPES)[number];
@@ -53,7 +54,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   return withUser(async (userId) => {
     const body = await request.json();
-    const { name, type, bank, bankName, iban, currency, initialBalance } = body;
+    const { name, type, bank, bankName, iban, currency, initialBalance, internalTransfers } = body;
 
     if (!name || typeof name !== "string" || !isAccountType(type)) {
       return apiError("api.nameAndTypeRequired", 400);
@@ -86,6 +87,7 @@ export async function POST(request: NextRequest) {
       iban: iban || null,
       currency: currency || "EUR",
       initialBalance: initialBalance ?? 0,
+      internalTransfers: internalTransfers !== false,
       sortOrder: total,
       createdAt: now,
       updatedAt: now,
@@ -106,7 +108,7 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   return withUser(async (userId) => {
     const body = await request.json();
-    const { id, name, type, bank, bankName, iban, currency, initialBalance } = body;
+    const { id, name, type, bank, bankName, iban, currency, initialBalance, internalTransfers } = body;
 
     if (!id) {
       return NextResponse.json(
@@ -132,6 +134,26 @@ export async function PUT(request: NextRequest) {
     const access = await requireAccountAccess(userId, id, "write");
     const ownerId = access.account.userId;
 
+    // Coerced once, so the column and the retroactive split below can never
+    // disagree about what the client asked for: anything non-boolean used to
+    // flip the flag off while leaving every existing pair typed as a transfer.
+    const wantsInternal =
+      internalTransfers === undefined ? undefined : internalTransfers === true;
+    // Editors get field-edit parity with the owner on everything EXCEPT this
+    // one, because it is the only field whose write reaches outside the
+    // account: flipping it rewrites the far legs of every transfer, on the
+    // owner's other accounts, which an editor may not even be able to see.
+    if (
+      wantsInternal !== undefined &&
+      wantsInternal !== access.account.internalTransfers &&
+      ownerId !== userId
+    ) {
+      return NextResponse.json(
+        { error: "Only the owner can do this" },
+        { status: 403 },
+      );
+    }
+
     // Only set fields the client actually sent — a partial update must not
     // clobber iban/initialBalance/etc. with defaults.
     const updates: Partial<typeof accounts.$inferInsert> = {
@@ -148,11 +170,29 @@ export async function PUT(request: NextRequest) {
     if (iban !== undefined) updates.iban = iban || null;
     if (currency !== undefined) updates.currency = currency;
     if (initialBalance !== undefined) updates.initialBalance = initialBalance;
+    if (wantsInternal !== undefined) updates.internalTransfers = wantsInternal;
 
     await db
       .update(accounts)
       .set(updates)
       .where(and(eq(accounts.id, id), eq(accounts.userId, ownerId)));
+
+    // Both directions are retroactive: the rows already in the table describe
+    // money that, by this account's new policy, either did or didn't change
+    // hands, and only the flag decides which. Runs after the update so both
+    // passes read the policy that is now true.
+    const flipped =
+      wantsInternal !== undefined && wantsInternal !== access.account.internalTransfers;
+    // Off: everything the detector paired has to come apart, or it stays out of
+    // every budget on both sides.
+    const splitTransfers =
+      flipped && !wantsInternal
+        ? (await splitTransfersForAccount(db, id, userId)).split
+        : 0;
+    // On: the legs a previous switch-off left as plain income/expense are
+    // eligible again. Without this they sit uncategorized until the next CSV
+    // import happens to run detection.
+    if (flipped && wantsInternal) await detectTransfers(db, ownerId);
 
     const [updated] = await db
       .select()
@@ -167,7 +207,7 @@ export async function PUT(request: NextRequest) {
       details: { name, type, ...(ownerId !== userId ? { accountOwnerId: ownerId } : {}) },
     });
 
-    return NextResponse.json(updated);
+    return NextResponse.json({ ...updated, splitTransfers });
   }, "Failed to update account");
 }
 

@@ -1,7 +1,8 @@
 import { db as defaultDb } from "@/db";
 import { transactions, categories, accounts } from "@/db/schema";
-import { eq, and, notInArray, inArray, asc, or, isNull } from "drizzle-orm";
-import { writableTransactions } from "@/lib/account-access";
+import { eq, and, notInArray, inArray, asc, or, isNull, sql } from "drizzle-orm";
+import { visibleAccounts, writableTransactions } from "@/lib/account-access";
+import { normalizeIban } from "@/lib/csv-utils";
 import { excludeSplitParents } from "@/lib/split-sql";
 
 /**
@@ -115,9 +116,169 @@ export async function undoTransfer(
 }
 
 /**
- * Detects internal transfers between accounts.
- * Logic: If money leaves Account A and enters Account B within ±2 days
- * with the same absolute amount, flag both as "Internal Transfer".
+ * Split every transfer pair that touches `accountId` back into two ordinary
+ * transactions. Run when an account stops holding money that is purely yours
+ * (`internalTransfers` switched off): everything the detector already paired
+ * has to follow the new policy, not just what arrives next.
+ *
+ * Unlike `undoTransfer` this does NOT set `transferDismissed`. That flag records
+ * a judgement about one specific row ("this particular pair was wrong"); here
+ * the account's policy is what keeps the legs apart, and it holds for rows that
+ * do not exist yet. Switching the flag back on should re-pair them.
+ *
+ * Both legs come out uncategorized, so the normal category rules can claim them
+ * on the next recalculation — a contribution to a joint account genuinely wants
+ * a category on each side, and the transfer bucket is not it.
+ *
+ * Import-created mirror legs sitting ON this account are deleted rather than
+ * reverted. A mirror is money the *other* bank reported, written into this
+ * account because the import assumed both sides were yours. Once they are not,
+ * this account's own export is the only honest source for it, and a surviving
+ * mirror would double-count the moment that export is imported.
+ *
+ * ponytail: an account whose CSV is never imported loses those rows from its
+ * balance. Acceptable — it holds money that isn't yours to track. Revisit if
+ * anyone wants a joint account they only ever see through the other side.
+ */
+export async function splitTransfersForAccount(
+  db: typeof defaultDb,
+  accountId: string,
+  actorId: string,
+) {
+  const legs = await db
+    .select({
+      id: transactions.id,
+      userId: transactions.userId,
+      linkedTransactionId: transactions.linkedTransactionId,
+      isMirror: transactions.isMirror,
+    })
+    .from(transactions)
+    .where(
+      and(eq(transactions.accountId, accountId), eq(transactions.type, "internal_transfer")),
+    );
+  if (legs.length === 0) return { split: 0, removedMirrors: 0 };
+
+  // The far legs live on other accounts (and, on a shared account, can belong
+  // to another user), so they are collected by id rather than by account.
+  const counterpartIds = legs
+    .map((leg) => leg.linkedTransactionId)
+    .filter((id): id is string => !!id);
+  const counterparts = counterpartIds.length
+    ? await db
+        .select({ id: transactions.id, userId: transactions.userId })
+        .from(transactions)
+        .where(inArray(transactions.id, counterpartIds))
+    : [];
+
+  // What the import writes into the far account and nothing else, by its own
+  // flag. Never inferred from shape: a hand-entered row looks identical to a
+  // mirror once the detector pairs it, and deleting one loses real money.
+  const mirrors = legs.filter((leg) => leg.isMirror && leg.linkedTransactionId);
+  if (mirrors.length) {
+    await db.delete(transactions).where(
+      and(
+        inArray(transactions.id, mirrors.map((leg) => leg.id)),
+        inArray(transactions.userId, [...new Set(mirrors.map((leg) => leg.userId))]),
+      ),
+    );
+  }
+
+  const mirrorIds = new Set(mirrors.map((leg) => leg.id));
+  const all = [...legs.filter((leg) => !mirrorIds.has(leg.id)), ...counterparts];
+  if (all.length === 0) return { split: legs.length, removedMirrors: mirrors.length };
+
+  await db
+    .update(transactions)
+    .set({
+      // In SQL so every leg reverts in one statement, whichever way it points.
+      type: sql`CASE WHEN ${transactions.amount} >= 0 THEN 'income' ELSE 'expense' END`,
+      linkedTransactionId: null,
+      categoryId: null,
+      categorySource: null,
+      modifiedBy: actorId,
+    })
+    .where(
+      and(
+        inArray(transactions.id, all.map((leg) => leg.id)),
+        inArray(transactions.userId, [...new Set(all.map((leg) => leg.userId))]),
+      ),
+    );
+
+  return { split: legs.length, removedMirrors: mirrors.length };
+}
+
+/** What pairing needs to know about an account. */
+export type TransferAccount = {
+  iban: string | null;
+  internalTransfers: boolean;
+};
+
+/** One leg, reduced to the fields that decide whether it pairs. */
+export type TransferLeg = {
+  accountId: string;
+  date: string;
+  counterpartyIban: string | null;
+};
+
+/** Days either leg may lag the other and still be the same money. */
+export const TRANSFER_WINDOW_DAYS = 2;
+
+/**
+ * Whether two dates are close enough for the legs to be one payment. Banks book
+ * the two sides of a move on different days, and a weekend can push them apart.
+ */
+export function withinTransferWindow(a: string, b: string): boolean {
+  return Math.abs(new Date(a).getTime() - new Date(b).getTime()) <= TRANSFER_WINDOW_DAYS * 86_400_000;
+}
+
+/**
+ * Whether two opposite, equal-amount legs are the same money moving between
+ * two of your own accounts.
+ *
+ * Three gates, in order of how much they actually prove:
+ *
+ * 1. **Account policy.** Either account with `internalTransfers` off means the
+ *    money changed hands — a contribution to a joint household account is a
+ *    real expense on one side and a real income on the other, and the pair must
+ *    stay two ordinary transactions.
+ * 2. **IBAN.** When a leg recorded a counterparty IBAN *and* the other account
+ *    has one registered, they must agree. A mismatch is proof the legs are
+ *    unrelated, so it rejects outright — this is what stops a friend repaying
+ *    you €101,85 from being swallowed as a transfer. Unverifiable (no
+ *    counterparty IBAN on the export, or no IBAN on the account) falls through.
+ * 3. **Date proximity.** The original heuristic, and all that is left when
+ *    neither side carries an IBAN.
+ */
+export function isTransferPair(
+  debit: TransferLeg,
+  credit: TransferLeg,
+  accountById: Map<string, TransferAccount>,
+): boolean {
+  if (debit.accountId === credit.accountId) return false;
+
+  const debitAccount = accountById.get(debit.accountId);
+  const creditAccount = accountById.get(credit.accountId);
+  if (!debitAccount || !creditAccount) return false;
+  if (!debitAccount.internalTransfers || !creditAccount.internalTransfers) return false;
+
+  // Each direction is checked independently: one bank exporting the IBAN is
+  // enough to settle the pair, and the other exporting nothing must not veto it.
+  for (const [leg, otherAccount] of [
+    [debit, creditAccount],
+    [credit, debitAccount],
+  ] as const) {
+    const claimed = normalizeIban(leg.counterpartyIban);
+    const registered = normalizeIban(otherAccount.iban);
+    if (claimed && registered && claimed !== registered) return false;
+  }
+
+  return withinTransferWindow(debit.date, credit.date);
+}
+
+/**
+ * Detects internal transfers between accounts: money leaving account A and
+ * entering account B for the same amount, close in time, where both accounts
+ * hold money that is still yours. See `isTransferPair` for the rules.
  *
  * Scope is every transaction `userId` may WRITE — own rows plus rows on
  * accounts shared with them as editor — so a move between a private account
@@ -125,6 +286,21 @@ export async function undoTransfer(
  * stay out: flagging only one leg of a pair is worse than flagging neither.
  */
 export async function detectTransfers(db: typeof defaultDb, userId: string) {
+  // Pairing policy lives on the account, so every candidate needs its two
+  // accounts to hand. One query — the set is tiny next to the transactions.
+  const accountRows = await db
+    .select({
+      id: accounts.id,
+      iban: accounts.iban,
+      internalTransfers: accounts.internalTransfers,
+      userId: accounts.userId,
+    })
+    .from(accounts)
+    .where(visibleAccounts(userId));
+  const accountById = new Map<string, TransferAccount>(
+    accountRows.map((a) => [a.id, { iban: a.iban, internalTransfers: a.internalTransfers }]),
+  );
+
   // Rows on a shared account keep the OWNER's user_id and live in the OWNER's
   // category space, so the transfer bucket is resolved per row owner, not per
   // caller — a cross-user pair gets each side its own user's category.
@@ -187,17 +363,7 @@ export async function detectTransfers(db: typeof defaultDb, userId: string) {
       for (const credit of credits) {
         if (alreadyMatched.has(credit.id)) continue;
 
-        // Must be different accounts
-        if (debit.accountId === credit.accountId) continue;
-
-        // Check date proximity: within ±2 days
-        const debitDate = new Date(debit.date);
-        const creditDate = new Date(credit.date);
-        const daysDiff = Math.abs(
-          (debitDate.getTime() - creditDate.getTime()) / (1000 * 60 * 60 * 24)
-        );
-
-        if (daysDiff <= 2) {
+        if (isTransferPair(debit, credit, accountById)) {
           const debitCategoryId = await transferCategoryId(debit.userId);
           const creditCategoryId = await transferCategoryId(credit.userId);
           // No transfer bucket on either side: leave the pair alone rather

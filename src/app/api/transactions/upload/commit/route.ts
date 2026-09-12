@@ -11,10 +11,16 @@ import {
   transactionGroups,
   reimbursementLinks,
 } from "@/db/schema";
-import { eq, and, lt, inArray, isNull } from "drizzle-orm";
+import { eq, and, lt, gte, lte, inArray, isNull, isNotNull } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { requireAccountAccess } from "@/lib/account-access";
-import { detectTransfers, findTransferCategory } from "@/lib/detect-transfers";
+import {
+  detectTransfers,
+  findTransferCategory,
+  TRANSFER_WINDOW_DAYS,
+  withinTransferWindow,
+} from "@/lib/detect-transfers";
+import { normalizeIban } from "@/lib/csv-utils";
 import { logDataEvent } from "@/lib/audit";
 import {
   validatePattern,
@@ -48,6 +54,8 @@ interface CommitTransaction {
   reimbursesTempId?: string | null;
   notes?: string | null;
   targetAccountId?: string;
+  /** The other side's IBAN as the export gave it; stored so detection can verify a pair. */
+  counterpartyIban?: string | null;
   recurringTransactionId?: string | null;
   /** Split this row into child rows on insert; the row itself becomes a wrapper. */
   splits?: SplitPart[] | null;
@@ -128,12 +136,16 @@ export async function POST(request: NextRequest) {
     // imported rows land there regardless of who's importing.
     const access = await requireAccountAccess(userId, accountId, "write");
     const ownerId = access.account.userId;
+    const importedAccountIban = access.account.iban;
 
     const ownerAccounts = await db
-      .select({ id: accounts.id })
+      .select({ id: accounts.id, internalTransfers: accounts.internalTransfers })
       .from(accounts)
       .where(eq(accounts.userId, ownerId));
     const ownerAccountIds = new Set(ownerAccounts.map((a) => a.id));
+    const sharedMoney = new Set(
+      ownerAccounts.filter((a) => !a.internalTransfers).map((a) => a.id),
+    );
 
     const ownerPlans = await db
       .select({ id: recurringTransactions.id })
@@ -185,6 +197,22 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // The account policy decides what a transfer IS, and the preview that
+    // proposed these rows may be minutes old — the flag can have been switched
+    // off in another tab since. Re-checked here because this is where the rows
+    // are written: either side holding money that isn't purely the owner's
+    // makes the move a real expense on one side and a real income on the other,
+    // so the row goes in as the plain transaction the CSV already describes.
+    if (sharedMoney.size > 0) {
+      for (const tx of txList) {
+        if (tx.type !== "internal_transfer" || !tx.targetAccountId) continue;
+        if (sharedMoney.has(accountId) || sharedMoney.has(tx.targetAccountId)) {
+          tx.type = tx.amount >= 0 ? "income" : "expense";
+          tx.targetAccountId = undefined;
+        }
+      }
+    }
+
     // Validate all rule patterns upfront so we don't write a partial import.
     const cleanRules: NewRule[] = [];
     for (const rule of newRules || []) {
@@ -220,6 +248,80 @@ export async function POST(request: NextRequest) {
       // dedup keys that swallow genuine new rows from balance-less exports.
       .where(and(eq(transactions.accountId, accountId), eq(transactions.userId, ownerId), isNull(transactions.parentTransactionId)));
     const { unique: uniqueTxList, duplicates } = splitDuplicates(existingRows, txList);
+
+    // ── Mirror bookkeeping ──────────────────────────────────────────────────
+    // A transfer row makes the import write a MIRROR into the target account.
+    // That mirror carries no running balance, so `splitDuplicates` — which
+    // trusts balances — can never recognise it, and importing the target
+    // account's own export inserts the same payment a second time. The account
+    // balance then drifts by the transfer amount, permanently.
+    //
+    // Both directions are handled here: absorb a mirror another account's
+    // import already left in THIS account, and skip writing a mirror where the
+    // target account already holds the row.
+    const sameAmount = (a: number, b: number) => Math.abs(a - b) <= MONEY_EPSILON;
+    const shiftDays = (iso: string, days: number) =>
+      new Date(new Date(iso).getTime() + days * 86_400_000).toISOString().slice(0, 10);
+
+    // Flagged by the mirror writer below, never inferred: a row the user typed
+    // by hand wears the same manual/no-batch/linked shape the moment
+    // detectTransfers pairs it, and absorbing one would overwrite a real
+    // transaction with an unrelated CSV row.
+    const openMirrors = await db
+      .select({ id: transactions.id, date: transactions.date, amount: transactions.amount })
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.accountId, accountId),
+          eq(transactions.userId, ownerId),
+          eq(transactions.type, "internal_transfer"),
+          eq(transactions.isMirror, true),
+          isNotNull(transactions.linkedTransactionId),
+        ),
+      );
+
+    const targetAccountIds = [
+      ...new Set(
+        uniqueTxList
+          .filter((tx) => tx.type === "internal_transfer" && tx.targetAccountId)
+          .map((tx) => tx.targetAccountId!),
+      ),
+    ];
+    // Only the window the import covers (plus the pairing slack) — a target
+    // account can hold years of rows that could never match these.
+    const importDates = uniqueTxList.map((tx) => tx.date).sort();
+    const targetRows = targetAccountIds.length
+      ? await db
+          .select({
+            id: transactions.id,
+            accountId: transactions.accountId,
+            date: transactions.date,
+            amount: transactions.amount,
+            userId: transactions.userId,
+          })
+          .from(transactions)
+          .where(
+            and(
+              inArray(transactions.accountId, targetAccountIds),
+              eq(transactions.userId, ownerId),
+              isNull(transactions.parentTransactionId),
+              // Plain rows only: one already typed a transfer has its own pair,
+              // and a dismissed one is a decision the user made by hand.
+              inArray(transactions.type, ["income", "expense"]),
+              eq(transactions.transferDismissed, false),
+              gte(transactions.date, shiftDays(importDates[0], -TRANSFER_WINDOW_DAYS)),
+              lte(transactions.date, shiftDays(importDates[importDates.length - 1], TRANSFER_WINDOW_DAYS)),
+            ),
+          )
+      : [];
+    // Consumed as they are claimed, so two identical transfers in one import
+    // can't both absorb the same mirror or pair with the same far row.
+    const freeMirrors = [...openMirrors];
+    const freeTargetRows = [...targetRows];
+    /** Mirrors this import fills in with the real bank row instead of duplicating. */
+    const absorbed: Array<{ id: string; tx: CommitTransaction }> = [];
+    /** Far rows that already existed and now become this transfer's other leg. */
+    const pairedExisting: Array<{ id: string; userId: string; sourceId: string }> = [];
 
     // Create import batch — kept in the OWNER's import history regardless of
     // who's importing; the audit log records the actor.
@@ -287,7 +389,9 @@ export async function POST(request: NextRequest) {
       notes: string | null;
       createdBy: string;
       isManual: boolean;
+      isMirror?: boolean;
       importBatchId: string | null;
+      counterpartyIban: string | null;
       createdAt: string;
       isSplitParent?: boolean;
       parentTransactionId?: string | null;
@@ -314,9 +418,45 @@ export async function POST(request: NextRequest) {
       const note = sanitizeNote(tx.notes);
       const isTransfer = tx.type === "internal_transfer" && tx.targetAccountId;
 
+      // This account's own export finally delivering a payment another account's
+      // import already mirrored here. Fill the mirror in with the real bank row
+      // — balance included, so the running-balance chain reconciles — rather
+      // than insert a second row for the same money.
+      //
+      // Deliberately NOT limited to rows the preview typed as transfers: an
+      // export without a counterparty-IBAN column (Revolut has none) delivers
+      // this leg as plain income, and that is exactly the case that used to
+      // double-count. The mirror keeps its type, link and category — it is the
+      // correct row; the CSV only supplies better provenance.
+      const mirrorIndex = tx.splits?.length
+        ? -1
+        : freeMirrors.findIndex(
+            (m) => sameAmount(m.amount, tx.amount) && withinTransferWindow(m.date, tx.date),
+          );
+      if (mirrorIndex >= 0) {
+        const [mirror] = freeMirrors.splice(mirrorIndex, 1);
+        tempIdToSourceId.set(tx.tempId, mirror.id);
+        absorbed.push({ id: mirror.id, tx });
+        continue;
+      }
+
       if (isTransfer) {
         const mirrorId = crypto.randomUUID();
         const transferCatId = transferCategory?.id || tx.categoryId;
+
+        // The target account may already hold this leg from its own import. If
+        // it does, pair with that row instead of minting a mirror beside it.
+        const existingIndex = freeTargetRows.findIndex(
+          (r) =>
+            r.accountId === tx.targetAccountId &&
+            sameAmount(r.amount, -tx.amount) &&
+            withinTransferWindow(r.date, tx.date),
+        );
+        const existingLeg = existingIndex >= 0 ? freeTargetRows.splice(existingIndex, 1)[0] : null;
+        if (existingLeg) {
+          pairedExisting.push({ id: existingLeg.id, userId: existingLeg.userId, sourceId });
+        }
+
         // Source transaction (in the importing account)
         records.push({
           id: sourceId,
@@ -331,36 +471,44 @@ export async function POST(request: NextRequest) {
           categorySource: transferCatId ? "rule" : null,
           type: "internal_transfer",
           groupId: null,
-          linkedTransactionId: mirrorId,
+          linkedTransactionId: existingLeg ? existingLeg.id : mirrorId,
           recurringTransactionId: null,
           notes: note,
           createdBy: userId,
           isManual: false,
           importBatchId: batchId,
+          counterpartyIban: tx.counterpartyIban ?? null,
           createdAt: new Date().toISOString(),
         });
-        // Mirror transaction (in the target account)
-        mirrorRecords.push({
-          id: mirrorId,
-          userId: ownerId,
-          accountId: tx.targetAccountId!,
-          date: tx.date,
-          name: tx.name,
-          description: tx.description,
-          amount: -tx.amount,
-          balance: null,
-          categoryId: transferCatId,
-          categorySource: transferCatId ? "rule" : null,
-          type: "internal_transfer",
-          groupId: null,
-          linkedTransactionId: sourceId,
-          recurringTransactionId: null,
-          notes: note,
-          createdBy: userId,
-          isManual: true,
-          importBatchId: null,
-          createdAt: new Date().toISOString(),
-        });
+        // Mirror transaction (in the target account) — skipped entirely when
+        // `existingLeg` already is that row.
+        if (!existingLeg) {
+          mirrorRecords.push({
+            id: mirrorId,
+            userId: ownerId,
+            accountId: tx.targetAccountId!,
+            date: tx.date,
+            name: tx.name,
+            description: tx.description,
+            amount: -tx.amount,
+            balance: null,
+            categoryId: transferCatId,
+            categorySource: transferCatId ? "rule" : null,
+            type: "internal_transfer",
+            groupId: null,
+            linkedTransactionId: sourceId,
+            recurringTransactionId: null,
+            notes: note,
+            createdBy: userId,
+            isManual: true,
+            isMirror: true,
+            importBatchId: null,
+            // The mirror's counterparty is the account being imported, so the
+            // detector can verify the pair from either side later.
+            counterpartyIban: normalizeIban(importedAccountIban),
+            createdAt: new Date().toISOString(),
+          });
+        }
       } else {
         const txType = (
           ["income", "expense", "internal_transfer", "reimbursement"] as const
@@ -399,6 +547,7 @@ export async function POST(request: NextRequest) {
               createdBy: userId,
               isManual: false,
               importBatchId: batchId,
+              counterpartyIban: null,
               createdAt: stampedAt[partIndex],
               parentTransactionId: sourceId,
             });
@@ -428,6 +577,7 @@ export async function POST(request: NextRequest) {
           createdBy: userId,
           isManual: false,
           importBatchId: batchId,
+          counterpartyIban: tx.counterpartyIban ?? null,
           createdAt: new Date().toISOString(),
         });
         if (txType === "reimbursement" && tx.amount > 0 && (tx.reimbursesExpenseId || tx.reimbursesTempId)) {
@@ -446,6 +596,43 @@ export async function POST(request: NextRequest) {
     for (let i = 0; i < allRecords.length; i += chunkSize) {
       const chunk = allRecords.slice(i, i + chunkSize);
       await db.insert(transactions).values(chunk);
+    }
+
+    // Fill each absorbed mirror in with the bank's own version of that payment.
+    // The balance is the point: a mirror has none, and the running-balance
+    // chain is what reconciliation and dedup both lean on.
+    for (const { id, tx } of absorbed) {
+      await db
+        .update(transactions)
+        .set({
+          date: tx.date,
+          name: tx.name,
+          description: tx.description,
+          balance: tx.balance,
+          notes: sanitizeNote(tx.notes),
+          counterpartyIban: tx.counterpartyIban ?? null,
+          importBatchId: batchId,
+          isManual: false,
+          // No longer a stand-in for a row that hadn't arrived: this IS the
+          // bank's row now, balance and all.
+          isMirror: false,
+          modifiedBy: userId,
+        })
+        .where(and(eq(transactions.id, id), eq(transactions.userId, ownerId)));
+    }
+
+    // Far legs that already existed become this transfer's other half, in place
+    // of the mirror that would otherwise have duplicated them.
+    for (const leg of pairedExisting) {
+      await db
+        .update(transactions)
+        .set({
+          type: "internal_transfer",
+          ...(transferCategory ? { categoryId: transferCategory.id, categorySource: "rule" as const } : {}),
+          linkedTransactionId: leg.sourceId,
+          modifiedBy: userId,
+        })
+        .where(and(eq(transactions.id, leg.id), eq(transactions.userId, leg.userId)));
     }
 
     // Link reimbursements to their expenses; only user-owned negative-amount
@@ -536,6 +723,7 @@ export async function POST(request: NextRequest) {
       success: true,
       imported: records.length,
       duplicatesSkipped: duplicates.length,
+      mirrorsAbsorbed: absorbed.length,
       mirrorTransactions: mirrorRecords.length,
       batchId,
       rulesCreated,

@@ -3,15 +3,15 @@
 import { useState, type ReactNode } from "react";
 import type { Allocation, YearlyCategoryView } from "@/types/api";
 import type { SplitShare } from "@/lib/budget-split";
-import { Button } from "@/components/ui/button";
-import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
 import { useI18n } from "@/lib/i18n/client";
-import { ChevronRight, Loader2, Pencil } from "lucide-react";
+import { ChevronRight, Loader2 } from "lucide-react";
 import {
   ROW_SHELL,
+  ROW_TWIST,
   ROW_CHEVRON,
   ROW_ASIDE,
-  ROW_INDENT,
+  ROW_BRACKET,
+  ROW_DETAIL,
   TONE,
   type Tone,
 } from "./budget-row";
@@ -42,19 +42,28 @@ interface BudgetRowProps {
    * nobody shares — and on income, which is received rather than paid.
    */
   split?: SplitShare[];
-  readOnly?: boolean;
   /**
    * The row is an optimistic write still in flight: it shows what was asked
    * for, says so, and refuses a second change until the server has answered.
    */
   pending?: boolean;
-  /** False when there is no allocation behind the row to edit or delete. */
-  editable?: boolean;
-  deletePending?: boolean;
+  /**
+   * Draw the same line as a tile in the card grid instead of a row in the
+   * list. Same figures, same tones — a card just has no room for the detail
+   * behind the twist, so it drops the disclosure entirely rather than hiding
+   * a chevron that opens nothing.
+   */
+  card?: boolean;
   /** Omitted when the row has no category to look up — the link is hidden. */
   onHistory?: () => void;
-  onEdit?: () => void;
-  onDelete?: () => void | Promise<void>;
+  /**
+   * The rows that hang under this category — its sub-lines and the recurring
+   * plans it pays. They render inside this row's own `<ul>`, under the guide
+   * line, rather than as siblings in the list: a child that is a sibling in
+   * the DOM has nothing but an indent holding it to its parent, and an indent
+   * is exactly what an expanded detail block used to come between.
+   */
+  children?: ReactNode;
 }
 
 /**
@@ -63,7 +72,12 @@ interface BudgetRowProps {
  * The budgeted amount is the row's headline and the spend sits under it in the
  * same column, because a plan is read as "what may this cost" first and "how is
  * it going" second. Everything that is only true sometimes — who pays, the
- * averages, the edit controls — waits behind the chevron.
+ * averages — waits behind the twist.
+ *
+ * Read-only by design. Changing the plan is a mode of its own (`/budgets/edit`)
+ * and this row has no idea it exists: tracking a month and rewriting the plan
+ * are different jobs, and the controls for the second were the only thing on
+ * this row that could be clicked by accident while doing the first.
  */
 export function BudgetRow({
   name,
@@ -80,13 +94,10 @@ export function BudgetRow({
   note,
   facts,
   split,
-  readOnly = false,
   pending = false,
-  editable = true,
-  deletePending,
+  card = false,
   onHistory,
-  onEdit,
-  onDelete,
+  children,
 }: BudgetRowProps) {
   const { t, formatCurrency } = useI18n();
   const [open, setOpen] = useState(false);
@@ -98,6 +109,66 @@ export function BudgetRow({
   );
   const showSplit = !!split && split.length > 0 && limit > 0;
 
+  const bar = (
+    <span className="block h-1.5 overflow-hidden rounded-full bg-muted">
+      <span
+        className="block h-full rounded-full transition-all duration-500"
+        style={{
+          width: `${Math.min(percentage, 100)}%`,
+          backgroundColor: barColor,
+        }}
+      />
+    </span>
+  );
+
+  if (card) {
+    return (
+      <li
+        className={`rounded-xl border bg-card px-4 py-3.5 ${pending ? "opacity-60 transition-opacity" : ""}`}
+      >
+        <div className="flex min-w-0 items-center gap-2">
+          <span
+            className={`h-2 w-2 shrink-0 rounded-full ${spent === 0 ? "opacity-40" : ""}`}
+            style={{ backgroundColor: color || "#94a3b8" }}
+          />
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold">{name}</span>
+          {pending ? (
+            <Loader2
+              className="h-3 w-3 shrink-0 animate-spin text-muted-foreground"
+              aria-label={t("common.saving")}
+            />
+          ) : (
+            badge && (
+              <span
+                className={`shrink-0 whitespace-nowrap rounded-full border px-1.5 py-px text-[10px] font-semibold ${tone.badge}`}
+              >
+                {badge}
+              </span>
+            )
+          )}
+        </div>
+        <p className="mt-2.5 text-xl font-semibold leading-none tabular-nums">
+          {formatCurrency(limit)}
+          {unit && (
+            <span className="ml-0.5 text-xs font-normal text-muted-foreground">
+              {unit}
+            </span>
+          )}
+        </p>
+        <div className="mt-2.5">{bar}</div>
+        <p className="mt-2 text-xs tabular-nums text-muted-foreground">
+          {spentLabel}
+          {delta && (
+            <>
+              {" · "}
+              <span className={tone.text}>{delta}</span>
+            </>
+          )}
+        </p>
+      </li>
+    );
+  }
+
   return (
     // Faded while the write is in flight: the figures are what was asked for,
     // not yet what the server has confirmed.
@@ -108,10 +179,12 @@ export function BudgetRow({
         aria-expanded={open}
         className={`${ROW_SHELL} cursor-pointer transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none`}
       >
-        <ChevronRight
-          className={`${ROW_CHEVRON} text-muted-foreground transition-transform duration-200 ${open ? "rotate-90" : ""}`}
-          aria-hidden="true"
-        />
+        <span className={ROW_TWIST}>
+          <ChevronRight
+            className={`${ROW_CHEVRON} text-muted-foreground transition-transform duration-200 ${open ? "rotate-90" : ""}`}
+            aria-hidden="true"
+          />
+        </span>
 
         <span className="min-w-0 flex-1">
           {/* Name, then whatever qualifies it. The badge is desktop-only: on a
@@ -148,15 +221,7 @@ export function BudgetRow({
 
           {/* Aligned under the name rather than under the dot — the bar belongs
               to the category it is named after. */}
-          <span className="ml-4 mt-2.5 block h-1 overflow-hidden rounded-full bg-muted">
-            <span
-              className="block h-full rounded-full transition-all duration-500"
-              style={{
-                width: `${Math.min(percentage, 100)}%`,
-                backgroundColor: barColor,
-              }}
-            />
-          </span>
+          <span className="ml-4 mt-2.5 block">{bar}</span>
         </span>
 
         <span className={ROW_ASIDE}>
@@ -195,99 +260,84 @@ export function BudgetRow({
         </span>
       </button>
 
-      {open && (
-        <div
-          className={`space-y-3 px-4 pb-4 text-xs text-muted-foreground ${ROW_INDENT}`}
-        >
-          {note}
+      {/* Everything belonging to this category, under one hairline: the
+          detail it was asked for, then the lines that make it up. */}
+      {(open || children) && (
+        <ul className={ROW_BRACKET}>
+          {open && (
+            <li className={`space-y-3 text-xs text-muted-foreground ${ROW_DETAIL}`}>
+              {note}
 
-          {/* Who pays what of this line, read down fixed right-aligned columns
-              so the same person lands in the same place on every row and the
-              budget can be read down a person as easily as across a category.
-              A line with nothing budgeted is skipped: a column of zeroes says
-              nothing the row above it doesn't already say. */}
-          {showSplit && (
-            <div className="space-y-1">
-              <div className="grid grid-cols-[minmax(0,1fr)_2.75rem_6rem] items-baseline gap-x-3 text-[10px] uppercase tracking-wider sm:grid-cols-[minmax(0,1fr)_2.75rem_6rem_6rem]">
-                <span>{t("budgets.split.rowLabel")}</span>
-                <span />
-                <span className="text-right">{t("budgets.split.colBudgeted")}</span>
-                <span className="hidden text-right sm:block">
-                  {t("budgets.split.colSpent")}
-                </span>
-              </div>
-              {split.map((person, i) => (
-                <div
-                  key={`${person.name}-${i}`}
-                  className="grid grid-cols-[minmax(0,1fr)_2.75rem_6rem] items-baseline gap-x-3 sm:grid-cols-[minmax(0,1fr)_2.75rem_6rem_6rem]"
-                >
-                  {/* The NAME gives way, never the figure: an ellipsised amount
-                      would read as a different number than the one budgeted. */}
-                  <span className="truncate" title={person.name}>
-                    {person.name}
-                  </span>
-                  {/* Rounded for the eye only: the euros beside it are worked
-                      out from the exact share, so a key set in amounts (where
-                      the percentage is derived) still adds back to the line. */}
-                  <span className="tabular-nums">{Math.round(person.percent)}%</span>
-                  <span className="text-right font-medium tabular-nums text-foreground">
-                    {formatCurrency((limit * person.percent) / 100)}
-                  </span>
-                  <span className="hidden text-right tabular-nums sm:block">
-                    {formatCurrency((spent * person.percent) / 100)}
-                  </span>
+              {/* Who pays what of this line, read down fixed right-aligned columns
+                  so the same person lands in the same place on every row and the
+                  budget can be read down a person as easily as across a category.
+                  A line with nothing budgeted is skipped: a column of zeroes says
+                  nothing the row above it doesn't already say. */}
+              {showSplit && (
+                <div className="space-y-1">
+                  <div className="grid grid-cols-[minmax(0,1fr)_2.75rem_6rem] items-baseline gap-x-3 text-[10px] uppercase tracking-wider sm:grid-cols-[minmax(0,1fr)_2.75rem_6rem_6rem]">
+                    <span>{t("budgets.split.rowLabel")}</span>
+                    <span />
+                    <span className="text-right">{t("budgets.split.colBudgeted")}</span>
+                    <span className="hidden text-right sm:block">
+                      {t("budgets.split.colSpent")}
+                    </span>
+                  </div>
+                  {split.map((person, i) => (
+                    <div
+                      key={`${person.name}-${i}`}
+                      className="grid grid-cols-[minmax(0,1fr)_2.75rem_6rem] items-baseline gap-x-3 sm:grid-cols-[minmax(0,1fr)_2.75rem_6rem_6rem]"
+                    >
+                      {/* The NAME gives way, never the figure: an ellipsised amount
+                          would read as a different number than the one budgeted. */}
+                      <span className="truncate" title={person.name}>
+                        {person.name}
+                      </span>
+                      {/* Rounded for the eye only: the euros beside it are worked
+                          out from the exact share, so a key set in amounts (where
+                          the percentage is derived) still adds back to the line. */}
+                      <span className="tabular-nums">{Math.round(person.percent)}%</span>
+                      <span className="text-right font-medium tabular-nums text-foreground">
+                        {formatCurrency((limit * person.percent) / 100)}
+                      </span>
+                      <span className="hidden text-right tabular-nums sm:block">
+                        {formatCurrency((spent * person.percent) / 100)}
+                      </span>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          )}
+            )}
 
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-            {facts}
-            {onHistory && (
-              <button
-                type="button"
-                onClick={onHistory}
-                className="text-primary hover:underline"
-              >
-                {t("budgets.row.fullHistory")}
-              </button>
-            )}
-            {/* Edit and delete travel separately: a fixed-cost category has
-                something to budget for but no budget line to remove yet. */}
-            {!readOnly && !pending && editable && (onEdit || onDelete) && (
-              <span className="ml-auto flex items-center gap-0.5">
-                {onEdit && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
-                    onClick={onEdit}
-                    aria-label={t("common.edit")}
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </Button>
-                )}
-                {onDelete && (
-                  <ConfirmDeleteButton onConfirm={onDelete} pending={deletePending} />
-                )}
-              </span>
-            )}
-          </div>
-        </div>
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+              {facts}
+              {onHistory && (
+                <button
+                  type="button"
+                  onClick={onHistory}
+                  className="text-primary hover:underline"
+                >
+                  {t("budgets.row.fullHistory")}
+                </button>
+              )}
+            </div>
+            </li>
+          )}
+          {children}
+        </ul>
       )}
     </li>
   );
 }
 
 interface RowActions {
-  readOnly?: boolean;
-  deletePending?: boolean;
   /** Who carries the budget; see BudgetRow. */
   split?: SplitShare[];
+  /** Draw a tile rather than a row; see BudgetRow. */
+  card?: boolean;
   /** Opens the full history dialog. */
   onHistory: () => void;
-  onEdit: () => void;
-  onDelete: () => void | Promise<void>;
+  /** The rows that hang under this category; see BudgetRow. */
+  children?: ReactNode;
 }
 
 /** One category of a monthly plan: spend against a flat cap. */
@@ -461,7 +511,6 @@ export function YearlyAllocationRow({
           )}
         </>
       }
-      editable={!!alloc}
       pending={alloc?.pending}
       {...actions}
     />
