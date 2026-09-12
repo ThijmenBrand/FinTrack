@@ -1,91 +1,53 @@
 "use client";
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { CalendarClock } from "lucide-react";
 import type { ForecastData } from "@/types/api";
-import { relativeDay } from "./dates";
 import { useI18n } from "@/lib/i18n/client";
-import type { I18n } from "@/lib/i18n/translate";
+import { TONE_TEXT } from "@/app/(app)/budgets/_components/budget-row";
 
-/** "August", or "August 2027" once the year stops being the obvious one. */
-function monthLabel(i18n: I18n, iso: string): string {
-  const [y, m] = iso.slice(0, 10).split("-").map(Number);
-  const date = new Date(y, m - 1, 1);
-  return y === new Date().getFullYear()
-    ? new Intl.DateTimeFormat(i18n.intlLocale, { month: "long" }).format(date)
-    : i18n.formatMonthYear(date);
-}
+/**
+ * The schedule as one scrollable strip above the list rather than a column
+ * beside it: it is read once, in date order, and a full-height card of it
+ * competed with the plans people came here to edit.
+ */
+export function UpcomingPayments({ payments }: { payments: ForecastData["upcomingPayments"] }) {
+  const { plural, formatCurrency, formatDayMonth } = useI18n();
+  // Nothing scheduled is not worth a card of its own — the list below already
+  // says whether there are plans at all.
+  if (payments.length === 0) return null;
 
-export function UpcomingPayments({
-  payments,
-}: {
-  payments: ForecastData["upcomingPayments"];
-}) {
-  const i18n = useI18n();
-  const { t, plural, formatCurrency, formatDayMonth } = i18n;
   return (
-    <Card>
-      <CardHeader className="pb-4">
-        <CardTitle className="text-base">{t("recurring.upcomingTitle")}</CardTitle>
-        <CardDescription>
-          {payments.length === 0
-            ? t("recurring.nothingScheduled")
-            : plural(payments.length, "recurring.nextPayments.one", "recurring.nextPayments.other")}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="px-0 sm:px-6">
-        {payments.length === 0 ? (
-          <div className="flex flex-col items-center px-6 py-10 text-center">
-            <CalendarClock className="mb-3 h-9 w-9 text-muted-foreground/30" />
-            <p className="max-w-xs text-sm text-muted-foreground">
-              {t("recurring.upcomingEmpty")}
-            </p>
-          </div>
-        ) : (
-          <ul className="divide-y overflow-hidden border-y sm:rounded-md sm:border-x">
-            {payments.map((p, i) => {
-              // A month heading appears the first time a month shows up —
-              // read off the previous row rather than a running variable.
-              const newMonth = p.date.slice(0, 7) !== payments[i - 1]?.date.slice(0, 7);
-              const soon = relativeDay(t, p.date);
-              const isIncome = p.type === "income";
-
-              return (
-                <li key={i}>
-                  {newMonth && (
-                    <div className="bg-muted/40 px-4 py-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      {monthLabel(i18n, p.date)}
-                    </div>
-                  )}
-                  <div className="flex items-center gap-3 px-4 py-2.5">
-                    <div className="w-14 shrink-0 text-xs tabular-nums text-muted-foreground">
-                      {formatDayMonth(p.date)}
-                    </div>
-                    <span
-                      className="h-2 w-2 shrink-0 rounded-full"
-                      style={{ backgroundColor: p.categoryColor || "#94a3b8" }}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm">{p.description}</div>
-                      {soon && <div className="text-xs text-muted-foreground">{soon}</div>}
-                    </div>
-                    <span
-                      className={`shrink-0 text-sm font-medium tabular-nums ${
-                        isIncome
-                          ? "text-emerald-600 dark:text-emerald-400"
-                          : "text-red-600 dark:text-red-400"
-                      }`}
-                    >
-                      {isIncome ? "+" : "−"}
-                      {formatCurrency(Math.abs(p.amount))}
-                    </span>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </CardContent>
-    </Card>
+    <section className="mb-7">
+      <h2 className="mb-2.5 text-[11px] text-muted-foreground">
+        {plural(payments.length, "recurring.upcomingNext.one", "recurring.upcomingNext.other")}
+      </h2>
+      {/* Negative margin + padding so a card's focus ring and shadow aren't
+          clipped by the scroll container's own edge. */}
+      <ul className="-mx-1 flex snap-x gap-2 overflow-x-auto px-1 pb-2">
+        {payments.map((p, i) => {
+          const incoming = p.type === "income";
+          const tone =
+            p.type === "transfer"
+              ? "text-muted-foreground"
+              : incoming
+                ? TONE_TEXT.positive
+                : TONE_TEXT.negative;
+          return (
+            <li
+              key={i}
+              className="w-32 shrink-0 snap-start rounded-md border bg-card px-3 py-2"
+            >
+              <div className="text-[11px] text-muted-foreground">{formatDayMonth(p.date)}</div>
+              <div className="truncate text-[13px]" title={p.description}>
+                {p.description}
+              </div>
+              <div className={`text-[13px] tabular-nums ${tone}`}>
+                {incoming ? "+" : "−"}
+                {formatCurrency(Math.abs(p.amount))}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }

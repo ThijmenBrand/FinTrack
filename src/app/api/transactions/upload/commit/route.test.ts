@@ -404,3 +404,57 @@ describe("POST /api/transactions/upload/commit — transfer mirrors", () => {
     expect(near[0].linked_transaction_id).toBeNull();
   });
 });
+
+describe("POST /api/transactions/upload/commit — attachments", () => {
+  const putAttachment = async (
+    id: string,
+    { userId = OWNER, transactionId = null as string | null } = {},
+  ) =>
+    testDb.client.execute({
+      sql: `INSERT INTO transaction_attachments
+              (id, user_id, transaction_id, pathname, file_name, content_type, size, uploaded_by, created_at)
+            VALUES (?, ?, ?, ?, 'receipt.webp', 'image/webp', 10, ?, ?)`,
+      args: [
+        id,
+        userId,
+        transactionId,
+        `attachments/${id}.webp`,
+        userId,
+        new Date().toISOString(),
+      ],
+    });
+
+  const claimedTo = async (id: string) =>
+    (
+      await testDb.client.execute({
+        sql: `SELECT transaction_id FROM transaction_attachments WHERE id = ? AND user_id IS NOT NULL`,
+        args: [id],
+      })
+    ).rows[0]?.transaction_id ?? null;
+
+  it("binds a receipt uploaded during review to the row it was dropped on", async () => {
+    await putAttachment("att-1");
+
+    const res = await commit([row({ attachments: [{ id: "att-1" }] })]);
+    expect(res.status).toBe(200);
+
+    const rows = await storedRows();
+    expect(rows).toHaveLength(1);
+    expect(await claimedTo("att-1")).toBe(rows[0].id);
+  });
+
+  it("ignores ids that are not the account owner's, or already claimed", async () => {
+    await putAttachment("att-theirs", { userId: "someone-else" });
+    await putAttachment("att-taken", { transactionId: "tx-elsewhere" });
+
+    const res = await commit([
+      row({ attachments: [{ id: "att-theirs" }, { id: "att-taken" }] }),
+    ]);
+    expect(res.status).toBe(200);
+
+    // Neither moved: one belongs to another user's space, the other already
+    // hangs off a transaction.
+    expect(await claimedTo("att-theirs")).toBeNull();
+    expect(await claimedTo("att-taken")).toBe("tx-elsewhere");
+  });
+});

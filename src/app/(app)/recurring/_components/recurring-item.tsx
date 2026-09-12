@@ -2,25 +2,26 @@
 
 import { Button } from "@/components/ui/button";
 import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
-import { Pause, Pencil, Play, Wallet } from "lucide-react";
+import { ChevronDown, Pause, Pencil, Play } from "lucide-react";
 import { toMonthly } from "@/lib/recurring";
 import type { RecurringTx } from "@/types/api";
 import { relativeDay } from "./dates";
+import type { SectionKey } from "./recurring-list";
 import { useI18n } from "@/lib/i18n/client";
 import type { MessageKey } from "@/lib/i18n/translate";
 // The state palette, shared with the budgets page so "money in" and "money out"
 // are one pair of colours across the app.
-import {
-  CELL_AMOUNT,
-  CELL_ACTIONS,
-  TONE_TEXT,
-} from "@/app/(app)/budgets/_components/budget-row";
+import { TONE_TEXT } from "@/app/(app)/budgets/_components/budget-row";
 
-// This page only. Inside a budget these plans are sub-rows of the category they
-// belong to and are built by `PlanRow` there, off the shared `SubRow` template,
-// so their amounts land in the same column as the categories above them.
-const OWN_GRID =
-  "grid grid-cols-[auto_minmax(0,1fr)_minmax(0,auto)] items-center gap-x-3 gap-y-1.5 px-4 py-2.5 sm:grid-cols-[auto_minmax(0,1fr)_5.5rem_9.5rem]";
+/**
+ * The whole row is the disclosure trigger, so the grid sits on the button. The
+ * account tag's track only exists from `sm` up: a `hidden` cell would still
+ * cost the row its gap, and auto-placement would then shift the chevron.
+ */
+const ROW_GRID =
+  "grid w-full grid-cols-[0.5rem_minmax(0,1fr)_auto_1rem] items-center gap-3 rounded-md px-2 py-2.5 text-left transition-colors hover:bg-muted/50 sm:grid-cols-[0.5rem_minmax(0,1fr)_auto_auto_1rem]";
+
+const DT = "text-[10px] uppercase tracking-[0.08em] text-muted-foreground";
 
 export const FREQ_LABEL_KEYS: Record<string, MessageKey> = {
   weekly: "recurring.freq.weekly",
@@ -31,136 +32,159 @@ export const FREQ_LABEL_KEYS: Record<string, MessageKey> = {
 
 export function RecurringItem({
   item,
+  kind,
   showAccount,
+  expanded,
+  onExpand,
   onEdit,
   onDelete,
   onToggle,
-  className = "",
 }: {
   item: RecurringTx;
+  /** Which section the row sits in — a transfer is neither in nor out. */
+  kind: SectionKey;
   /** Off when every plan is on the same account — the column says nothing then. */
   showAccount: boolean;
+  expanded: boolean;
+  onExpand: () => void;
   onEdit: (item: RecurringTx) => void;
   onDelete: (id: string) => void;
   onToggle: (item: RecurringTx) => void;
-  /** Extra row classes from the list that renders it. */
-  className?: string;
 }) {
-  const { t, formatCurrency, formatDayMonth } = useI18n();
-  const isIncome = item.type === "income";
+  const { t, formatCurrency, formatDate, formatDayMonth } = useI18n();
+  const incoming = item.type === "income";
   const monthly = toMonthly(item.amount, item.frequency);
   const soon = item.nextOccurrence ? relativeDay(t, item.nextOccurrence) : null;
+  const freq = FREQ_LABEL_KEYS[item.frequency]
+    ? t(FREQ_LABEL_KEYS[item.frequency])
+    : item.frequency;
+  // A transfer's amount is real money moving, but it is neither earned nor
+  // spent — so it keeps the sign that says which way and drops the colour that
+  // would claim it counted.
+  const tone =
+    kind === "transfer"
+      ? "text-muted-foreground"
+      : incoming
+        ? TONE_TEXT.positive
+        : TONE_TEXT.negative;
 
   return (
-    <li
-      className={`group transition-colors hover:bg-muted/50 ${OWN_GRID} ${className}`}
-    >
-      <span
-        className={`h-2 w-2 shrink-0 rounded-full ${item.isActive ? "" : "opacity-40"}`}
-        style={{ backgroundColor: item.categoryColor || (isIncome ? "#10b981" : "#94a3b8") }}
-      />
-
-      <div className="min-w-0">
-        <div className="flex items-center gap-2">
-          <span
-            className={`truncate text-sm font-medium ${item.isActive ? "" : "text-muted-foreground line-through decoration-muted-foreground/40"}`}
-          >
-            {item.description}
-          </span>
-          {!item.isActive && (
-            <span className="shrink-0 rounded border px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-              {t("recurring.paused")}
-            </span>
-          )}
-          {/* Which account gets debited sits on the title line, not the meta
-              line: it's the detail that decides whether a plan is affordable,
-              and at the end of the meta line it was the first thing to truncate. */}
-          {showAccount && item.accountName && (
-            <span
-              className="flex min-w-0 max-w-[9rem] shrink items-center gap-1 rounded border px-1.5 py-px text-[10px] text-muted-foreground"
-              title={`${t("common.account")}: ${item.accountName}`}
-            >
-              <Wallet className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
-              <span className="truncate">{item.accountName}</span>
-            </span>
-          )}
-        </div>
-        {/* Frequency and next date first: on a phone the line has room for
-            little else, and the trailing detail is what can safely truncate. */}
-        <div className="truncate text-xs text-muted-foreground">
-          {FREQ_LABEL_KEYS[item.frequency] ? t(FREQ_LABEL_KEYS[item.frequency]) : item.frequency}
-          {item.nextOccurrence && (
-            <>
-              {` · ${t("recurring.next")} `}
-              <span className="text-foreground/70">{formatDayMonth(item.nextOccurrence)}</span>
-              {soon && <span className="hidden sm:inline"> ({soon})</span>}
-            </>
-          )}
-          {item.categoryName && <span className="hidden sm:inline"> · {item.categoryName}</span>}
-        </div>
-      </div>
-
-      {/* Actions stay full-contrast on paused rows — pausing must not dim the
-          control that undoes it. They sit inboard of the amount rather than
-          past it so the amount keeps the outer column. */}
-      <div
-        className={`flex items-center justify-end gap-0.5 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 ${CELL_ACTIONS}`}
+    <li>
+      <button
+        type="button"
+        onClick={onExpand}
+        aria-expanded={expanded}
+        className={`${ROW_GRID} ${item.isActive ? "" : "opacity-60"}`}
       >
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7"
-          onClick={() => onToggle(item)}
-          aria-label={
-            item.isActive
-              ? t("recurring.pauseLabel", { name: item.description })
-              : t("recurring.resumeLabel", { name: item.description })
-          }
-          title={item.isActive ? t("recurring.pause") : t("recurring.resume")}
-        >
-          {item.isActive ? (
-            <Pause className="h-3.5 w-3.5" />
-          ) : (
-            <Play className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-          )}
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7"
-          onClick={() => onEdit(item)}
-          aria-label={t("recurring.editLabel", { name: item.description })}
-        >
-          <Pencil className="h-3.5 w-3.5" />
-        </Button>
-        <ConfirmDeleteButton
-          onConfirm={() => onDelete(item.id)}
-          label={t("recurring.deleteLabel", { name: item.description })}
+        <span
+          className="h-2 w-2 shrink-0 rounded-full"
+          style={{ backgroundColor: item.categoryColor || (incoming ? "#10b981" : "#94a3b8") }}
         />
-      </div>
 
-      <div className={`text-right text-xs tabular-nums sm:text-sm ${CELL_AMOUNT}`}>
-        <div
-          className={`whitespace-nowrap font-medium ${
-            !item.isActive
-              ? "text-muted-foreground"
-              : isIncome
-                ? TONE_TEXT.positive
-                : TONE_TEXT.negative
-          }`}
-        >
-          {isIncome ? "+" : "−"}
-          {formatCurrency(Math.abs(item.amount))}
-        </div>
-        {/* Non-monthly plans get their monthly equivalent, so the row reconciles
-            with the monthly total in the section header above it. */}
-        {item.frequency !== "monthly" && (
-          <div className="whitespace-nowrap text-xs text-muted-foreground">
-            ≈ {formatCurrency(monthly)}
-            {t("recurring.perMonthShort")}
-          </div>
+        <span className="min-w-0">
+          <span className="flex items-center gap-2">
+            <span className="truncate text-sm font-medium">{item.description}</span>
+            {!item.isActive && (
+              <span className="shrink-0 rounded border px-2 py-px text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                {t("recurring.paused")}
+              </span>
+            )}
+          </span>
+          {/* Frequency and next date first: on a phone the line has room for
+              little else, and the trailing detail is what can safely truncate. */}
+          <span className="block truncate text-xs text-muted-foreground">
+            {freq}
+            {item.nextOccurrence && (
+              <>
+                {` · ${t("recurring.next")} ${formatDayMonth(item.nextOccurrence)}`}
+                {soon && ` (${soon})`}
+              </>
+            )}
+            {item.categoryName && ` · ${item.categoryName}`}
+          </span>
+        </span>
+
+        {/* Which account gets debited: the detail that decides whether a plan is
+            affordable, so it keeps its own column rather than trailing the meta
+            line where it was the first thing to truncate. */}
+        {showAccount && item.accountName && (
+          <span className="hidden max-w-[9rem] truncate rounded bg-muted px-2 py-0.5 text-[11px] text-muted-foreground sm:block">
+            {item.accountName}
+          </span>
         )}
-      </div>
+
+        <span className="text-right text-sm tabular-nums">
+          <span className={`block whitespace-nowrap font-medium ${tone}`}>
+            {incoming ? "+" : "−"}
+            {formatCurrency(Math.abs(item.amount))}
+          </span>
+          {/* Non-monthly plans get their monthly equivalent, so the row
+              reconciles with the monthly total in the section header above it. */}
+          {item.frequency !== "monthly" && (
+            <span className="block whitespace-nowrap text-xs text-muted-foreground">
+              ≈ {formatCurrency(monthly)}
+              {t("recurring.perMonthShort")}
+            </span>
+          )}
+        </span>
+
+        <ChevronDown
+          aria-hidden="true"
+          className={`h-4 w-4 text-muted-foreground transition-transform ${expanded ? "rotate-180" : ""}`}
+        />
+      </button>
+
+      {expanded && (
+        <div className="mb-3 ml-2 mr-2 rounded-lg border bg-card p-4 sm:ml-7">
+          <dl className="grid gap-3.5 [grid-template-columns:repeat(auto-fit,minmax(9rem,1fr))]">
+            <div>
+              <dt className={DT}>{t("recurring.form.frequency")}</dt>
+              <dd className="text-[13px]">{freq}</dd>
+            </div>
+            <div>
+              <dt className={DT}>{t("recurring.nextPayment")}</dt>
+              <dd className="text-[13px]">
+                {item.nextOccurrence
+                  ? `${formatDate(item.nextOccurrence)}${soon ? ` (${soon})` : ""}`
+                  : "—"}
+              </dd>
+            </div>
+            <div>
+              <dt className={DT}>{t("common.account")}</dt>
+              <dd className="truncate text-[13px]">{item.accountName || "—"}</dd>
+            </div>
+            <div>
+              <dt className={DT}>{t("common.category")}</dt>
+              <dd className="truncate text-[13px]">
+                {item.categoryName || t("categorySelect.none")}
+              </dd>
+            </div>
+          </dl>
+          {/* Full contrast even on a paused row — pausing must not dim the
+              control that undoes it. */}
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => onToggle(item)}>
+              {item.isActive ? (
+                <Pause className="h-3.5 w-3.5" />
+              ) : (
+                <Play className="h-3.5 w-3.5" />
+              )}
+              {item.isActive ? t("recurring.pause") : t("recurring.resume")}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => onEdit(item)}>
+              <Pencil className="h-3.5 w-3.5" />
+              {t("common.edit")}
+            </Button>
+            <ConfirmDeleteButton
+              variant="text"
+              className="ml-auto"
+              onConfirm={() => onDelete(item.id)}
+              label={t("common.delete")}
+              message={t("recurring.deleteLabel", { name: item.description })}
+            />
+          </div>
+        </div>
+      )}
     </li>
   );
 }

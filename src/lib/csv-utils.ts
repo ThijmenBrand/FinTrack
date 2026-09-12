@@ -3,6 +3,8 @@
  * Used by both the upload API and the client-side review step.
  */
 
+import type { TransactionAttachment } from "@/types/api";
+
 export interface ColumnMapping {
   date: string;
   description: string;
@@ -56,6 +58,12 @@ export interface PreviewTransaction {
   splits?: SplitPart[] | null;
   /** The rule that proposed `splits`; cleared as soon as the user edits them. */
   splitRuleId?: string | null;
+  /**
+   * Receipts attached during review. The files are already in the blob store,
+   * unclaimed, and the commit binds them to the row it creates — so all that
+   * travels with the row is the ids.
+   */
+  attachments?: TransactionAttachment[] | null;
 }
 
 export interface SplitPart {

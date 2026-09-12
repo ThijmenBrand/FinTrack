@@ -23,6 +23,7 @@ export interface TestDb {
 }
 
 const TABLES = [
+  "transaction_attachments",
   "reimbursement_links",
   "account_members",
   "split_rule_lines",
@@ -205,6 +206,17 @@ export async function setupTestDb(name: string): Promise<TestDb> {
       name TEXT NOT NULL,
       amount REAL NOT NULL,
       recurring_transaction_id TEXT,
+      created_at TEXT NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS transaction_attachments (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      transaction_id TEXT,
+      pathname TEXT NOT NULL,
+      file_name TEXT NOT NULL,
+      content_type TEXT NOT NULL,
+      size INTEGER NOT NULL,
+      uploaded_by TEXT,
       created_at TEXT NOT NULL
     )`,
     `CREATE TABLE IF NOT EXISTS reimbursement_links (
