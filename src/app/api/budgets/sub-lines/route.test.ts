@@ -115,6 +115,25 @@ const subLineAmount = async (id: string) =>
     ).rows[0].a,
   );
 
+const insertRecurring = async (
+  id: string,
+  opts: { userId?: string; amount?: number; frequency?: string; accountId?: string } = {},
+) => {
+  await testDb.client.execute({
+    sql: `INSERT INTO recurring_transactions
+          (id, user_id, account_id, description, amount, type, frequency, start_date, created_at)
+          VALUES (?, ?, ?, 'Gym', ?, 'expense', ?, '2026-01-01', ?)`,
+    args: [
+      id,
+      opts.userId ?? USER,
+      opts.accountId ?? "acc-1",
+      opts.amount ?? 30,
+      opts.frequency ?? "monthly",
+      new Date().toISOString(),
+    ],
+  });
+};
+
 describe("POST /api/budgets/sub-lines", () => {
   it("creates a root sub-line and a nested child under it", async () => {
     const rootRes = await post({ allocationId: "sl-budget", name: "Gas", amount: 100 });
@@ -302,25 +321,6 @@ describe("PUT /api/budgets/sub-lines", () => {
   });
 
   /** A recurring plan the target sub-line's own user owns, ready to link. */
-  const insertRecurring = async (
-    id: string,
-    opts: { userId?: string; amount?: number; frequency?: string; accountId?: string } = {},
-  ) => {
-    await testDb.client.execute({
-      sql: `INSERT INTO recurring_transactions
-            (id, user_id, account_id, description, amount, type, frequency, start_date, created_at)
-            VALUES (?, ?, ?, 'Gym', ?, 'expense', ?, '2026-01-01', ?)`,
-      args: [
-        id,
-        opts.userId ?? USER,
-        opts.accountId ?? "acc-1",
-        opts.amount ?? 30,
-        opts.frequency ?? "monthly",
-        new Date().toISOString(),
-      ],
-    });
-  };
-
   it("links a plan: the amount becomes its monthly figure and ancestors re-sum", async () => {
     const root = await (
       await post({ allocationId: "sl-budget", name: "Root", amount: 10 })
@@ -427,6 +427,61 @@ describe("PUT /api/budgets/sub-lines", () => {
     const body = await res.json();
     expect(body.recurringTransactionId).toBe("rec-name-only");
     expect(body.name).toBe("Gym membership");
+  });
+});
+
+// Creating the line already linked, which is how the budget editor files a
+// payment that was only sitting under the category before.
+describe("POST /api/budgets/sub-lines with a plan", () => {
+  it("files the plan as the line, on the plan's own monthly figure", async () => {
+    await insertRecurring("rec-filed", { amount: 120, frequency: "yearly" });
+
+    const res = await post({
+      allocationId: "sl-budget",
+      name: "Gym",
+      // A placeholder: the plan decides, exactly as it does on PUT.
+      amount: 999,
+      recurringId: "rec-filed",
+    });
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.recurringTransactionId).toBe("rec-filed");
+    expect(body.amount).toBeCloseTo(10);
+    // And the category now adds up from it.
+    expect(await allocationAmount()).toBeCloseTo(10);
+  });
+
+  it("refuses a plan that already stands for another line", async () => {
+    await insertRecurring("rec-twice");
+    expect(
+      (await post({ allocationId: "sl-budget", name: "Gym", amount: 30, recurringId: "rec-twice" }))
+        .status,
+    ).toBe(201);
+
+    const res = await post({
+      allocationId: "sl-budget",
+      name: "Gym again",
+      amount: 30,
+      recurringId: "rec-twice",
+    });
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe("recurring_already_linked");
+  });
+
+  it("refuses another user's plan", async () => {
+    await testDb.client.execute({
+      sql: `INSERT INTO "user" (id, name, email, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+      args: [OTHER_USER, OTHER_USER, "other-file@test.dev", Date.now(), Date.now()],
+    });
+    await insertRecurring("rec-not-mine", { userId: OTHER_USER });
+
+    const res = await post({
+      allocationId: "sl-budget",
+      name: "Gym",
+      amount: 30,
+      recurringId: "rec-not-mine",
+    });
+    expect(res.status).toBe(404);
   });
 });
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Pause, Pencil, Play, Plus, Repeat, Wallet } from "lucide-react";
+import { ListPlus, Pause, Pencil, Play, Plus, Repeat, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
 import { getNextOccurrence, toMonthly } from "@/lib/recurring";
@@ -127,6 +127,12 @@ export interface PlanRowProps {
   onEdit: (item: RecurringTx) => void;
   onDelete: (id: string) => void;
   onToggle: (item: RecurringTx) => void;
+  /**
+   * File this payment as a sub-line of the category above it, so its amount
+   * counts toward the cap instead of only sitting under it. Only the budget
+   * editor offers it, and only where the line would be counted.
+   */
+  onFile?: (item: RecurringTx) => void;
 }
 
 /** One category's fixed cost, with the plans that produce it. */
@@ -208,9 +214,11 @@ export function useRecurringPlans({
   const [editing, setEditing] = useState<RecurringTx | null>(null);
   // Seeds a NEW plan for an income category that has none to edit yet.
   const [prefill, setPrefill] = useState<RecurringPrefill | null>(null);
-  // Set when the add came from a category row: that category is the answer.
+  // Set when the add came from a row in the list. A category means that
+  // category is the answer and the picker is locked; null only fixes the side
+  // — "add income", where picking the category is the point.
   const [addUnder, setAddUnder] = useState<{
-    categoryId: string;
+    categoryId: string | null;
     type: "income" | "expense";
   } | null>(null);
 
@@ -388,8 +396,8 @@ export function useRecurringPlans({
     incomeGroups,
     expenseGroups,
     rowProps,
-    /** Open the form for a new plan filed under this category. */
-    addUnderCategory: (categoryId: string, type: "income" | "expense") => {
+    /** Open the form for a new plan; a category locks the picker to it. */
+    addUnderCategory: (categoryId: string | null, type: "income" | "expense") => {
       setEditing(null);
       setPrefill(null);
       setAddUnder({ categoryId, type });
@@ -421,7 +429,7 @@ export function useRecurringPlans({
           planAccountIds === null ? undefined : t("recurring.form.accountScopeNote")
         }
         categories={categories}
-        lockedCategoryId={addUnder?.categoryId}
+        lockedCategoryId={addUnder?.categoryId ?? undefined}
         onSubmit={handleSubmit}
         trigger={
           // Icon-only on a phone, like the other controls in that header — and
@@ -486,6 +494,7 @@ function PlanRow({
   onEdit,
   onDelete,
   onToggle,
+  onFile,
 }: { item: RecurringTx } & Partial<PlanRowProps>) {
   const { t, formatCurrency } = useI18n();
   const pending = pendingIds?.has(item.id) ?? false;
@@ -526,6 +535,21 @@ function PlanRow({
       actions={
         onEdit && onDelete && onToggle ? (
         <>
+          {/* The money argument, one click wide: this payment is under a
+              category whose budget is the sum of its lines, so until it IS one
+              its amount is in nothing the page adds up. */}
+          {onFile && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => onFile(item)}
+              aria-label={t("budgets.subLines.fileLabel", { name: item.description })}
+              title={t("budgets.subLines.file")}
+            >
+              <ListPlus className="h-3.5 w-3.5" />
+            </Button>
+          )}
           {/* Nothing to pause on a plan that has not been written yet. */}
           {!pending && (
           <Button

@@ -28,6 +28,7 @@ export function Container({
   parentName,
   depth,
   parentRecurring = false,
+  hideAdd = false,
 }: {
   ctx: Ctx;
   lines: LineNode[];
@@ -37,6 +38,8 @@ export function Container({
   depth: number;
   /** The container's line stands for a recurring plan — it can't be split. */
   parentRecurring?: boolean;
+  /** Root only: the caller renders the add row itself, further down its list. */
+  hideAdd?: boolean;
 }) {
   const { t, formatCurrency } = useI18n();
   const total = lines.reduce((sum, l) => sum + l.amount, 0);
@@ -49,7 +52,7 @@ export function Container({
   // A recurring line's amount comes from its plan, so it cannot also be the
   // sum of children — the tree endpoint refuses that shape. Don't offer what
   // can't be saved.
-  const showAdd = parentRecurring ? null : ctx.actions;
+  const showAdd = parentRecurring || hideAdd ? null : ctx.actions;
 
   return (
     <>

@@ -2,6 +2,7 @@
 
 import type { Allocation } from "@/types/api";
 import { useCreateSubLine, useDeleteSubLine, useUpdateSubLine } from "@/hooks/use-budgets";
+import { AddSubLine } from "./add-sub-line";
 import { Container } from "./container";
 import type { Ctx, TreeActions } from "./constants";
 import type { LineNode } from "./draft";
@@ -15,6 +16,8 @@ interface TreeProps {
   /** Null renders the tree read-only. */
   actions: TreeActions | null;
   color?: string | null;
+  /** Skip the top-level add row; the caller renders `AddRootSubLine` itself. */
+  deferAdd?: boolean;
 }
 
 /**
@@ -33,9 +36,45 @@ export function SubLineTree({
   toStored,
   actions,
   color = null,
+  deferAdd = false,
 }: TreeProps) {
   const ctx: Ctx = { color, toDisplay, toStored, actions };
-  return <Container ctx={ctx} lines={lines} cap={cap} parentId={null} depth={1} />;
+  return (
+    <Container
+      ctx={ctx}
+      lines={lines}
+      cap={cap}
+      parentId={null}
+      depth={1}
+      hideAdd={deferAdd}
+    />
+  );
+}
+
+/**
+ * The tree's top-level "add a sub-line", on its own.
+ *
+ * Split out so a caller that puts other rows under the tree — the editor,
+ * which lists the category's recurring payments there — can keep the add
+ * affordance at the foot of the whole list instead of stranding it in the
+ * middle of it.
+ */
+export function AddRootSubLine({
+  toDisplay,
+  toStored,
+  actions,
+  color = null,
+}: Omit<TreeProps, "lines" | "cap" | "actions" | "deferAdd"> & {
+  actions: TreeActions;
+}) {
+  return (
+    <AddSubLine
+      ctx={{ color, toDisplay, toStored, actions }}
+      actions={actions}
+      parentId={null}
+      depth={1}
+    />
+  );
 }
 
 interface SubLineListProps {

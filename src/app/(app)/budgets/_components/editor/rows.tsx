@@ -9,7 +9,7 @@ import { useI18n } from "@/lib/i18n/client";
 import type { CategoryWithDetails } from "@/types/api";
 import { ROW_SHELL, ROW_TWIST } from "../budget-row";
 import { PlanRows, type PlanRowProps } from "../recurring-sections";
-import { SubLineTree } from "../sub-line-list";
+import { AddRootSubLine, SubLineTree } from "../sub-line-list";
 import { cents, type TreeActions } from "../sub-line-list/constants";
 import { toLineNodes } from "../sub-line-list/draft";
 import type { RecurringTx } from "@/types/api";
@@ -40,6 +40,7 @@ export function AllocationEditor({
   plans,
   planRowProps,
   onAddPlan,
+  onFilePlan,
   onAmount,
   onColor,
   onRemove,
@@ -55,6 +56,11 @@ export function AllocationEditor({
   planRowProps: PlanRowProps;
   /** Absent on the budget view: reading a month creates no plan. */
   onAddPlan?: () => void;
+  /**
+   * File one of the plans below as a sub-line of this row. Absent when that
+   * would cost the row a typed cap — see `linkable` in the draft.
+   */
+  onFilePlan?: (tx: RecurringTx) => void;
   onAmount: (stored: number) => void;
   /** Recolours the category itself; absent when it isn't the caller's. */
   onColor?: (hex: string) => Promise<unknown>;
@@ -116,8 +122,20 @@ export function AllocationEditor({
         toStored={units.toStored}
         actions={actions}
         color={row.categoryColor}
+        // The plans below are part of this list too, so the add row waits for
+        // the end of it — in the middle it reads as closing the list early.
+        deferAdd
       />
-      <PlanRows items={plans} rowProps={planRowProps} />
+      <PlanRows
+        items={plans}
+        rowProps={onFilePlan ? { ...planRowProps, onFile: onFilePlan } : planRowProps}
+      />
+      <AddRootSubLine
+        toDisplay={units.toDisplay}
+        toStored={units.toStored}
+        actions={actions}
+        color={row.categoryColor}
+      />
       {/* Not under a row on its way out: it has no bills left to gain. */}
       {onAddPlan && !row.removed && <AddPlanRow onAdd={onAddPlan} />}
     </EditorRow>
@@ -274,6 +292,31 @@ export function AddCategoryRow({
         aria-label={t("budgets.addManually")}
       >
         <Plus className="h-4 w-4" />
+      </Button>
+    </li>
+  );
+}
+
+/**
+ * "Add income", at the foot of the income section — the same offer the
+ * spending list makes below it, for the side of the plan that has no cap to
+ * type: income is whatever its recurring payments promise, so adding some is
+ * adding one of those.
+ */
+export function AddIncomeRow({ onAdd }: { onAdd: () => void }) {
+  const { t } = useI18n();
+  return (
+    <li className={`${ROW_SHELL} items-center`}>
+      <span className={ROW_TWIST} aria-hidden="true">
+        <Plus className="h-3.5 w-3.5 text-muted-foreground" />
+      </span>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="-ml-2 h-8 text-sm font-normal text-muted-foreground"
+        onClick={onAdd}
+      >
+        {t("budgets.editor.addIncome")}
       </Button>
     </li>
   );
