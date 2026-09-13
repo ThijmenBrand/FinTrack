@@ -103,9 +103,10 @@ export function CsvUploadDialog({
   // owner's space, so only the owner's categories are valid ids.
   const { data: categories = [] } = useCategories(selectedAccountId || undefined);
 
-  // An account inside a budget plan only spends on that plan's lines, so the
-  // pickers below are narrowed to them. Income and transfer categories stay:
-  // a plan allocates the expense side only, so it never enumerates those.
+  // An account inside a budget plan mostly spends on that plan's lines, so the
+  // pickers below band those to the top. Everything else — income, transfers,
+  // the unplanned purchase every real statement carries — sits below the rule,
+  // one scroll away rather than missing.
   const budgetId =
     accounts.find((a) => a.id === selectedAccountId)?.budgetId ?? null;
   const { data: budget } = useBudgets({
@@ -119,14 +120,11 @@ export function CsvUploadDialog({
       ...budget.allocations.map((a) => a.categoryId),
       ...budget.fixedCosts.map((f) => f.categoryId),
     ];
-    // A plan with no expense lines yet narrows to nothing useful, which reads
-    // as a broken picker rather than a scoped one — leave it unfiltered.
+    // A plan with no expense lines yet has no top band to offer — a heading
+    // over an empty list is worse than no heading.
     if (planned.length === 0) return null;
-    return new Set([
-      ...planned,
-      ...categories.filter((c) => c.kind !== "expense").map((c) => c.id),
-    ]);
-  }, [budgetId, budget, categories]);
+    return new Set(planned);
+  }, [budgetId, budget]);
   // Sub-categories come from the same plan the categories were narrowed to,
   // and stay empty for an account outside one.
   const { data: subCategories = [] } = useSubCategories(selectedAccountId || undefined);

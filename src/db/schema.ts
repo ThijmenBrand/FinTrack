@@ -16,27 +16,6 @@ export {
 } from "./auth-schema";
 import { user, session, account, passkey } from "./auth-schema";
 
-// ─── User PIN ───────────────────────────────────────────────────────────────
-export const userPin = sqliteTable("user_pin", {
-  id: text("id")
-    .primaryKey()
-    .$defaultFn(() => crypto.randomUUID()),
-  userId: text("user_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" })
-    .unique(),
-  pinHash: text("pin_hash").notNull(),
-  failedAttempts: integer("failed_attempts").notNull().default(0),
-  lockedUntil: integer("locked_until", { mode: "timestamp_ms" }),
-  lockoutCount: integer("lockout_count").notNull().default(0),
-  createdAt: text("created_at")
-    .notNull()
-    .$defaultFn(() => new Date().toISOString()),
-  updatedAt: text("updated_at")
-    .notNull()
-    .$defaultFn(() => new Date().toISOString()),
-});
-
 // ─── Budget Plans ────────────────────────────────────────────────────────────
 // A named budget: owns a set of accounts (accounts.budgetId, exclusive) and a
 // set of per-category allocations (budgets.budgetId). Exactly one plan per
@@ -890,7 +869,6 @@ export type NewTransactionGroup = typeof transactionGroups.$inferInsert;
 export type AuditLog = typeof auditLog.$inferSelect;
 export type NewAuditLog = typeof auditLog.$inferInsert;
 export type Passkey = typeof passkey.$inferSelect;
-export type UserPin = typeof userPin.$inferSelect;
 export type UserPreferences = typeof userPreferences.$inferSelect;
 export type NewUserPreferences = typeof userPreferences.$inferInsert;
 export type StatReset = typeof statResets.$inferSelect;

@@ -91,8 +91,6 @@ export default function InviteFlow() {
         return;
       }
 
-      localStorage.setItem("lockscreen_username", invite!.email);
-      localStorage.setItem("lockscreen_last_active", String(Date.now()));
       setStep("mode");
     } catch {
       setError(t("auth.genericError"));

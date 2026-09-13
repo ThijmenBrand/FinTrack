@@ -116,12 +116,14 @@ export async function proxy(request: NextRequest) {
     return clearAuthCookies(NextResponse.next());
   }
 
-  // Validate the Origin on every mutating API request. /api/auth/ is excluded:
-  // better-auth enforces its own trustedOrigins and the PIN routes call
-  // validateCsrfOrigin themselves.
+  // Validate the Origin on every mutating API request. better-auth's own
+  // handler is excluded — it enforces trustedOrigins itself, and rejecting a
+  // missing Origin here would break flows it accepts. /api/auth/profile* are
+  // ours, not better-auth's, so they stay in.
   if (
     pathname.startsWith("/api/") &&
-    !pathname.startsWith("/api/auth/") &&
+    (!pathname.startsWith("/api/auth/") ||
+      pathname.startsWith("/api/auth/profile")) &&
     !SAFE_METHODS.has(request.method)
   ) {
     const csrfError = validateCsrfOrigin(request);

@@ -39,7 +39,7 @@ export async function logAudit(params: AuditParams | AuditParams[]): Promise<voi
 }
 
 /**
- * Log an auth-related event (login, logout, PIN unlock, etc.)
+ * Log an auth-related event (login, logout, etc.)
  */
 export async function logAuthEvent(params: {
   userId: string | null;
@@ -66,9 +66,8 @@ export async function logDataEvent(
 
 /**
  * Extract IP address and User-Agent from request headers. Uses the LAST
- * X-Forwarded-For entry — appended by the trusted edge proxy — matching
- * `getClientIp` in pin-utils, so audit logs can't be spoofed by a
- * client-supplied XFF prefix.
+ * X-Forwarded-For entry — appended by the trusted edge proxy — so audit logs
+ * can't be spoofed by a client-supplied XFF prefix.
  */
 export function getRequestMeta(headers: Headers): {
   ipAddress: string | null;

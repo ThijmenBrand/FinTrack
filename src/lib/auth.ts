@@ -5,7 +5,6 @@ import { admin, twoFactor } from "better-auth/plugins";
 import { passkey } from "@better-auth/passkey";
 import { db } from "@/db/index";
 import * as schema from "@/db/schema";
-import { userPin } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -140,11 +139,6 @@ export const auth = betterAuth({
     session: {
       create: {
         after: async (session) => {
-          await db
-            .update(userPin)
-            .set({ failedAttempts: 0, lockoutCount: 0, lockedUntil: null, updatedAt: new Date().toISOString() })
-            .where(eq(userPin.userId, session.userId));
-
           // Log successful login
           logAuthEvent({
             userId: session.userId,

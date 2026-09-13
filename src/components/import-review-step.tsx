@@ -42,7 +42,11 @@ interface PendingRule {
 interface ImportReviewStepProps {
   transactions: PreviewTransaction[];
   categories: Category[];
-  /** When the target account sits in a budget plan: the ids that plan covers. */
+  /**
+   * When the target account sits in a budget plan: the ids that plan covers.
+   * Every picker here bands those to the top — the plan is what you meant to
+   * spend on, and real statements always carry something you did not plan.
+   */
   budgetCategoryIds?: Set<string> | null;
   /** That plan's sub-lines, offered under their category in every picker here. */
   subCategories: SubCategoryOption[];
@@ -125,28 +129,6 @@ export function ImportReviewStep({
   const [autoMatchedIds] = useState(
     () => new Set(initialTransactions.filter((tx) => tx.categoryId).map((tx) => tx.tempId))
   );
-
-  /**
-   * What the pickers offer: the budget's own categories, plus any a row points
-   * at now or pointed at on arrival — a rule may have matched outside the
-   * plan, and a category created here isn't part of the plan yet either. The
-   * arrival set keeps those pickable after the row has moved off them, so
-   * changing an out-of-plan match is not a one-way door. This is also what the
-   * rows render their category name from, so nothing can show up blank.
-   */
-  const pickable = useMemo(() => {
-    if (!budgetCategoryIds) return categories;
-    const assignedIn = (list: PreviewTransaction[]) =>
-      list.flatMap((tx) => [
-        tx.categoryId,
-        ...(tx.splits ?? []).map((s) => s.categoryId),
-      ]);
-    const assigned = new Set([
-      ...assignedIn(initialTransactions),
-      ...assignedIn(transactions),
-    ]);
-    return categories.filter((c) => budgetCategoryIds.has(c.id) || assigned.has(c.id));
-  }, [categories, budgetCategoryIds, transactions, initialTransactions]);
 
   const categorizedCount = useMemo(
     () => transactions.filter(isHandled).length,
@@ -474,7 +456,8 @@ export function ImportReviewStep({
             <div key={tx.tempId}>
               <ImportTransactionRow
                 tx={tx}
-                categories={pickable}
+                categories={categories}
+                budgetCategoryIds={budgetCategoryIds}
                 subCategories={subCategories}
                 pots={pots}
                 accountId={accountId}
@@ -494,7 +477,8 @@ export function ImportReviewStep({
                 <div className="border-b bg-muted/30 px-3 py-2">
                   <SplitPartsEditor
                     totalCents={Math.round(Math.abs(tx.amount) * 100)}
-                    categories={pickable}
+                    categories={categories}
+                    budgetCategoryIds={budgetCategoryIds}
                     accountId={accountId}
                     showDescriptions={false}
                     initialRows={
@@ -666,7 +650,8 @@ export function ImportReviewStep({
           </span>
           <div className="w-52">
             <CategoryPicker
-              categories={pickable}
+              categories={categories}
+              budgetCategoryIds={budgetCategoryIds}
               subCategories={subCategories}
               value={null}
               onChange={handleBulkCategory}

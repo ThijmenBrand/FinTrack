@@ -15,6 +15,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { AddToPotDialog } from "@/components/add-to-pot-dialog";
 import { CsvUploadDialog } from "@/components/csv-upload-dialog";
+import { PullToRefresh } from "@/components/pull-to-refresh";
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog";
 import { ReimbursementPicker } from "@/components/reimbursement-picker";
 import { CreatePotDialog } from "@/components/create-pot-dialog";
@@ -518,6 +519,7 @@ function TransactionsPage() {
   if (simple) {
     return (
       <div className="space-y-6">
+        <PullToRefresh />
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">{t("tx.title")}</h1>
@@ -574,6 +576,7 @@ function TransactionsPage() {
 
   return (
     <div className="space-y-6">
+      <PullToRefresh />
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>

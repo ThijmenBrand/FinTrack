@@ -20,6 +20,9 @@ export interface PickerItem {
   /** The top-level row this one sits under. Widens the search to the parent's
    *  name, and labels the row when that parent is filtered out from above it. */
   group?: { id: string; name: string };
+  /** Heading for the band this row belongs to. Consecutive rows sharing one
+   *  become a labelled group; leave it off and the list stays a flat run. */
+  section?: string;
 }
 
 /** One activatable line in the popover: a match, the create row, or clear. */
@@ -32,6 +35,8 @@ interface Option {
   disabled?: boolean;
   /** Pixels of left padding, for a row nested under another. */
   indent?: number;
+  /** Carried from the item, so the render can band the flat list. */
+  section?: string;
 }
 
 interface SearchCreatePickerProps<T extends PickerItem> {
@@ -65,8 +70,9 @@ interface SearchCreatePickerProps<T extends PickerItem> {
  * three keystrokes.
  *
  * The whole popover is one flat `Option[]` — matches, then create, then clear —
- * so arrow keys, Enter and `aria-activedescendant` need no special cases per
- * section, and the combobox keeps the keyboard behaviour a `Select` has.
+ * so arrow keys, Enter and `aria-activedescendant` need no special cases, and
+ * the combobox keeps the keyboard behaviour a `Select` has. Sections are a
+ * render-time banding of that same flat list, never a second index.
  */
 export function SearchCreatePicker<T extends PickerItem>({
   items,
@@ -149,6 +155,7 @@ export function SearchCreatePicker<T extends PickerItem>({
         </>
       ),
       indent: item.depth ? 8 + item.depth * 14 : undefined,
+      section: item.section,
       selected: item.id === value,
       onSelect: () => {
         onSelect(item.id);
@@ -185,6 +192,21 @@ export function SearchCreatePicker<T extends PickerItem>({
       : []),
   ];
 
+  // Consecutive options sharing a section become one labelled band. The flat
+  // index rides along, so arrow keys, Enter and aria-activedescendant never
+  // learn that the list has bands at all.
+  const bands: { key: string; section?: string; from: number; options: Option[] }[] = [];
+  for (const [i, option] of options.entries()) {
+    const last = bands.at(-1);
+    if (last && last.section === option.section) last.options.push(option);
+    else bands.push({ key: option.key, section: option.section, from: i, options: [option] });
+  }
+  // A search can filter one band away entirely, leaving a heading over what is
+  // now the whole list — the same nothing-to-separate case the caller already
+  // avoids for the unfiltered list. Drop the lone heading.
+  const sectioned = bands.filter((band) => band.section);
+  if (sectioned.length === 1) sectioned[0].section = undefined;
+
   const move = (delta: number) => {
     if (options.length === 0) return;
     setActive((i) => (i + delta + options.length) % options.length);
@@ -200,7 +222,9 @@ export function SearchCreatePicker<T extends PickerItem>({
       onOpenChange={(next) => {
         if (next) {
           setQuery("");
-          setActive(0);
+          // Start on the current answer: with every category listed, the
+          // selected one is often below the fold when the list opens.
+          setActive(Math.max(0, items.findIndex((item) => item.id === value)));
           setOpen(true);
         } else {
           close();
@@ -245,26 +269,64 @@ export function SearchCreatePicker<T extends PickerItem>({
           }}
         />
         <div id={listId} role="listbox" className="mt-1 max-h-64 overflow-y-auto">
-          {options.map((option, i) => (
-            <button
-              key={option.key}
-              id={`${listId}-${option.key}`}
-              type="button"
-              role="option"
-              aria-selected={!!option.selected}
-              disabled={option.disabled}
-              onClick={option.onSelect}
-              onMouseEnter={() => setActive(i)}
-              style={option.indent ? { paddingLeft: option.indent } : undefined}
-              className={cn(
-                "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm disabled:opacity-50",
-                i === active && "bg-accent",
-                option.selected && "font-medium",
-                option.muted && "text-muted-foreground",
-              )}
+          {bands.map((band, b) => (
+            <div
+              key={band.key}
+              // `presentation` when unlabelled: a listbox owns its options
+              // directly, and a plain div between the two hides them from it.
+              role={band.section ? "group" : "presentation"}
+              aria-label={band.section}
             >
-              {option.label}
-            </button>
+              {band.section && (
+                // A rule, not a ribbon: the hairline only appears where two
+                // bands meet, so the first heading sits flush with the search
+                // box instead of under a line that separates nothing.
+                <p
+                  className={cn(
+                    "px-2 pb-1 text-[11px] font-medium text-muted-foreground",
+                    b === 0 ? "pt-1.5" : "mt-1 border-t pt-2",
+                  )}
+                >
+                  {band.section}
+                </p>
+              )}
+              {band.options.map((option, j) => {
+                const i = band.from + j;
+                return (
+                  <button
+                    key={option.key}
+                    id={`${listId}-${option.key}`}
+                    type="button"
+                    role="option"
+                    aria-selected={!!option.selected}
+                    disabled={option.disabled}
+                    onClick={option.onSelect}
+                    onMouseEnter={() => setActive(i)}
+                    // Keyboard travel now crosses a list longer than the box.
+                    // Landing on the first row of a band scrolls its heading in
+                    // too, so you can always see which half you are looking at;
+                    // "nearest" is a no-op while the target is already on screen.
+                    ref={
+                      i === active
+                        ? (el) => {
+                            const head = j === 0 && band.section ? el?.previousElementSibling : el;
+                            head?.scrollIntoView({ block: "nearest" });
+                          }
+                        : null
+                    }
+                    style={option.indent ? { paddingLeft: option.indent } : undefined}
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm disabled:opacity-50",
+                      i === active && "bg-accent",
+                      option.selected && "font-medium",
+                      option.muted && "text-muted-foreground",
+                    )}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
           ))}
 
           {options.length === 0 && (
