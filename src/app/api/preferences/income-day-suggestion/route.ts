@@ -5,6 +5,7 @@ import { and, eq, gte, sql } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { clampFrom, getStatsCutoff } from "@/lib/stat-reset";
 import { excludeSplitParents } from "@/lib/split-sql";
+import { toIsoDate } from "@/lib/utils";
 
 export interface IncomeDaySuggestion {
   day: number;
@@ -19,7 +20,7 @@ export async function GET() {
     // A reset usually means a new job or pay rhythm, so the old payday is
     // exactly the wrong thing to suggest — never look past the cutoff.
     const lookbackIso = clampFrom(
-      lookback.toISOString().slice(0, 10),
+      toIsoDate(lookback),
       await getStatsCutoff(userId),
     )!;
 

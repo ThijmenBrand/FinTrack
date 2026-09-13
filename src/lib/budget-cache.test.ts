@@ -39,8 +39,24 @@ function line(
 function payload(over: Partial<BudgetData>): BudgetData {
   return {
     allocations: [],
+    monthlyIncome: 1200,
     availableToAllocate: 1000,
     totalFixedCosts: 200,
+    // One bill, in a category nothing allocates — so it still counts as its own
+    // budget line. `patchBudget` re-derives the fixed side from these rows
+    // because a patch can be the very change that gives one an allocation.
+    fixedCosts: [
+      {
+        categoryId: "cat-fixed",
+        categoryName: "Rent",
+        categoryColor: null,
+        monthlyAmount: 200,
+        spent: 0,
+        avgMonthly: 0,
+        avgMonths: 0,
+        items: [],
+      },
+    ],
     unbudgetedSpending: [],
     yearly: null,
     ...over,

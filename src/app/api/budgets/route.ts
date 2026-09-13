@@ -557,7 +557,9 @@ export async function GET(request: NextRequest) {
       const txSpent = monthSpendByCategory.get(alloc.categoryId) || 0;
       const potSpent = potSpendingByCategory.get(alloc.categoryId) || 0;
       const spent = txSpent + potSpent;
-      const percentage = scaledAmount > 0 ? (spent / scaledAmount) * 100 : 0;
+      // Spending against a cap of nothing is over budget, not "ok".
+      const percentage =
+        scaledAmount > 0 ? (spent / scaledAmount) * 100 : spent > 0 ? 100 : 0;
       return {
         ...alloc,
         amount: scaledAmount,
@@ -771,7 +773,23 @@ export async function GET(request: NextRequest) {
     const scaledMonthlyIncome = monthlyIncome * monthsScale;
     const scaledTotalFixedCosts = totalFixedCosts * monthsScale;
     const totalAllocated = totalAllocatedMonthly * monthsScale;
-    const availableToAllocate = monthlyIncome - totalFixedCosts;
+
+    // Bills whose category has no allocation of its own. A category that has
+    // both gets ONE row — the allocation's, with its plans nested under it (see
+    // the Budgets page's `ownFixed` and the editor's `lockedExpenses`, which
+    // both already count it this way) — and `budgets.amount` already contains
+    // those plans, because POST /api/budgets rolls a sub-line tree up into it.
+    // Adding every plan on top again double-counted the bill in every total
+    // below: a €1.000 rent with a €1.000 allocation read as €2.000 budgeted.
+    const allocatedCategoryIds = new Set(allAllocations.map((a) => a.categoryId));
+    const ownFixedCosts = fixedCosts.reduce(
+      (s, fc) => (allocatedCategoryIds.has(fc.categoryId) ? s : s + fc.monthlyAmount),
+      0,
+    );
+    // One unit for all three: with a multi-month range the income and the
+    // allocations were scaled but the headroom between them was not, so
+    // `unallocated` mixed a month of income with a quarter of allocations.
+    const availableToAllocate = scaledMonthlyIncome - ownFixedCosts * monthsScale;
     const unallocated = availableToAllocate - totalAllocated;
 
     // Build set of "tracked" category IDs (those with an allocation or fixed cost)
@@ -834,6 +852,22 @@ export async function GET(request: NextRequest) {
             Math.round((unbudgetedSpentByCategory.get(catId) || 0) * 100) / 100,
         };
       })
+      // Money with no category at all is the most unbudgeted money there is.
+      // It counts in `totalSpentThisMonth`, so leaving it out of every row left
+      // it in the headline and in no list — and the insights bar, which stacks
+      // these rows up to that headline, drew an unexplained gap for it.
+      .concat(
+        uncategorizedSpend > 0
+          ? [
+              {
+                categoryId: "uncategorized",
+                categoryName: "Uncategorized",
+                categoryColor: "#94a3b8",
+                spent: Math.round(uncategorizedSpend * 100) / 100,
+              },
+            ]
+          : [],
+      )
       .sort((a, b) => b.spent - a.spent);
 
     // Total spending this month. Mirrors the Insights "Expenses" card so the
@@ -844,7 +878,9 @@ export async function GET(request: NextRequest) {
       totalSpentThisMonth += amount;
     for (const amount of potSpendingByCategory.values())
       totalSpentThisMonth += amount;
-    const totalBudget = scaledTotalFixedCosts + totalAllocated;
+    // Same rule as `availableToAllocate`: the bills a category's own allocation
+    // already covers are not a second budget line.
+    const totalBudget = ownFixedCosts * monthsScale + totalAllocated;
 
     // Build suggestion DTOs with per-category context (current amount, avg).
     const activeAmountByCategory = new Map<string, number>();

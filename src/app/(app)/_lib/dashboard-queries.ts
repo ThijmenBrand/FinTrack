@@ -575,7 +575,11 @@ export const getBudgetOverview = cache(async (
     categoryIcon: b.categoryIcon,
     period: b.period,
     spent: spendingByCategory.get(b.categoryId) || 0,
-    limit: allowanceByCategory?.get(b.categoryId) ?? b.amount,
+    // A yearly envelope whose earlier months overspent hands this month a
+    // NEGATIVE allowance. There is no such thing as a negative cap: the month
+    // has nothing to spend, which is 0. Left signed it made the bar read "€0
+    // of €-4.100" and pushed `totalBudgeted` below zero, hiding the card.
+    limit: Math.max(0, allowanceByCategory?.get(b.categoryId) ?? b.amount),
   }));
 
   const allocatedCategoryIds = new Set(allBudgets.map((b) => b.categoryId));
@@ -598,7 +602,14 @@ export const getBudgetOverview = cache(async (
 
   const budgetItems = [...allocationLines, ...fixedCostLines]
     .map((line) => {
-      const pct = line.limit > 0 ? (line.spent / line.limit) * 100 : 0;
+      // Spending against a cap of nothing is over budget, not "ok" — the old
+      // `: 0` fallback reported a blown zero-allowance envelope as healthy.
+      const pct =
+        line.limit > 0
+          ? (line.spent / line.limit) * 100
+          : line.spent > 0
+            ? 100
+            : 0;
       return {
         ...line,
         percentage: Math.round(pct),
@@ -614,15 +625,18 @@ export const getBudgetOverview = cache(async (
   // Headline totals treat recurring fixed costs as part of the budget too —
   // money is still flowing out, so a "budget spent vs. budget total" bar
   // should reflect both committed envelopes and recurring bills.
-  const totalAllocated = allBudgets.reduce(
-    (s, b) => s + (allowanceByCategory?.get(b.categoryId) ?? b.amount),
+  //
+  // Summed off the ROWS, not off the source queries, so the headline can never
+  // disagree with the list beneath it. That is the whole point: a plan whose
+  // sub-line stands for a recurring bill has that bill inside the allocation
+  // already (POST /api/budgets rolls the tree up into `budgets.amount`), and
+  // adding every active plan on top counted it twice — a €1.000 rent read as
+  // €2.000 budgeted against one €1.000 row. `fixedCostBudgetLines` is the rule
+  // for which plans still deserve a budget of their own; this follows it.
+  const totalBudgeted = [...allocationLines, ...fixedCostLines].reduce(
+    (s, line) => s + line.limit,
     0,
   );
-  const totalFixedCosts = recurringExpenses.reduce(
-    (s, r) => s + toMonthly(r.amount, r.frequency),
-    0,
-  );
-  const totalBudgeted = totalAllocated + totalFixedCosts;
 
   // Spending in categories with no budget (incl. uncategorized), plus pots that
   // have no category of their own. A category with an active recurring expense
