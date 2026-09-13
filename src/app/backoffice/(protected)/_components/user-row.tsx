@@ -401,9 +401,9 @@ export function UserRow({
                 <div className="col-span-2">
                   <dt className="text-muted-foreground">{t("backoffice.security")}</dt>
                   <dd className="mt-0.5 font-medium text-foreground">
-                    {user.hasPin ? t("backoffice.pinSet") : t("backoffice.noPin")}
-                    {user.passkeyCount > 0 &&
-                      ` ${plural(user.passkeyCount, "backoffice.passkeys.one", "backoffice.passkeys.other")}`}
+                    {user.passkeyCount > 0
+                      ? plural(user.passkeyCount, "backoffice.passkeys.one", "backoffice.passkeys.other")
+                      : t("backoffice.noPasskeys")}
                   </dd>
                 </div>
               </dl>

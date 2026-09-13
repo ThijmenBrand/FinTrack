@@ -43,3 +43,35 @@ describe("proxy session refresh", () => {
     expect(response.headers.getSetCookie()).toEqual([]);
   });
 });
+
+describe("proxy CSRF origin check", () => {
+  beforeEach(() => getSession.mockReset());
+
+  function post(path: string): NextRequest {
+    return new NextRequest(`http://localhost:3000${path}`, {
+      method: "POST",
+      headers: {
+        cookie: "better-auth.session_token=abc",
+        origin: "https://evil.com",
+      },
+    });
+  }
+
+  // /api/auth/profile* are ours, not better-auth's, so nothing downstream
+  // checks the Origin for them — the exemption must not swallow them.
+  it("rejects a cross-origin write to our own route under /api/auth", async () => {
+    getSession.mockResolvedValue(sessionResponse(null));
+    expect((await proxy(post("/api/auth/profile"))).status).toBe(403);
+    expect((await proxy(post("/api/auth/profile/avatar"))).status).toBe(403);
+  });
+
+  it("leaves better-auth's own handler to its trustedOrigins", async () => {
+    getSession.mockResolvedValue(sessionResponse(null));
+    expect((await proxy(post("/api/auth/sign-in/email"))).status).not.toBe(403);
+  });
+
+  it("still guards every other API route", async () => {
+    getSession.mockResolvedValue(sessionResponse(null));
+    expect((await proxy(post("/api/transactions"))).status).toBe(403);
+  });
+});

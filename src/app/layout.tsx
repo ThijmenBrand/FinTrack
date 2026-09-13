@@ -3,9 +3,7 @@ import Script from "next/script";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { QueryProvider } from "@/components/query-provider";
-import { LockScreenProvider } from "@/components/lock-screen-provider";
-import { LockScreen } from "@/components/lock-screen";
-import { PinSetupScreen } from "@/components/pin-setup-screen";
+import { PasskeySetupScreen } from "@/components/passkey-setup-screen";
 import { I18nProvider } from "@/lib/i18n/client";
 import { getI18n, getLocale } from "@/lib/i18n/server";
 
@@ -54,11 +52,8 @@ export default async function RootLayout({
         <I18nProvider locale={locale}>
           <ThemeProvider>
             <QueryProvider>
-              <LockScreenProvider>
-                <LockScreen />
-                <PinSetupScreen />
-                {children}
-              </LockScreenProvider>
+              <PasskeySetupScreen />
+              {children}
             </QueryProvider>
           </ThemeProvider>
         </I18nProvider>

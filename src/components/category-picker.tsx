@@ -31,6 +31,25 @@ interface Row {
   color: string | null;
   /** A sub-category: same colour as its category, a smaller dot. */
   sub: boolean;
+  /** Band heading — set only when the list is split by the budget plan. */
+  section?: string;
+}
+
+/**
+ * Split the categories into the ones the budget plan covers and the rest.
+ * A separator needs two sides: with the plan covering everything, or nothing,
+ * both headings would label a band that is already the whole list, so the
+ * list stays flat. Exported for its test.
+ */
+export function bandByPlan<T extends { id: string }>(
+  categories: T[],
+  planIds: Set<string> | null | undefined,
+): { inPlan: T[]; rest: T[]; banded: boolean } {
+  const flat = { inPlan: [] as T[], rest: categories, banded: false };
+  if (!planIds) return flat;
+  const inPlan = categories.filter((c) => planIds.has(c.id));
+  const rest = categories.filter((c) => !planIds.has(c.id));
+  return inPlan.length && rest.length ? { inPlan, rest, banded: true } : flat;
 }
 
 function Swatch({ color, sub }: { color: string | null; sub?: boolean }) {
@@ -46,6 +65,7 @@ function Swatch({ color, sub }: { color: string | null; sub?: boolean }) {
 export function CategoryPicker({
   categories,
   subCategories,
+  budgetCategoryIds,
   value,
   subLineId,
   onChange,
@@ -60,6 +80,12 @@ export function CategoryPicker({
    * useSubCategories). Omit and the picker offers categories alone.
    */
   subCategories?: SubCategoryOption[];
+  /**
+   * The categories the account's budget plan covers. Given, the list is banded:
+   * the plan's lines first, then everything else under a heading. Nothing is
+   * hidden — a plan says what you meant to spend on, not what you can.
+   */
+  budgetCategoryIds?: Set<string> | null;
   value: string | null;
   subLineId?: string | null;
   /** A sub-category also sets the category it belongs to; the two never disagree. */
@@ -84,8 +110,8 @@ export function CategoryPicker({
       if (list) list.push(sub);
       else byCategory.set(sub.categoryId, [sub]);
     }
-    return categories.flatMap((cat) => [
-      { id: CATEGORY + cat.id, name: cat.name, color: cat.color, sub: false },
+    const rowsFor = (cat: PickerCategory, section?: string): Row[] => [
+      { id: CATEGORY + cat.id, name: cat.name, color: cat.color, sub: false, section },
       ...(byCategory.get(cat.id) ?? []).map((line) => ({
         id: SUB + line.id,
         name: line.name,
@@ -93,9 +119,16 @@ export function CategoryPicker({
         group: { id: CATEGORY + cat.id, name: cat.name },
         color: cat.color,
         sub: true,
+        section,
       })),
-    ]);
-  }, [categories, subCategories]);
+    ];
+    const { inPlan, rest, banded } = bandByPlan(categories, budgetCategoryIds);
+    if (!banded) return rest.flatMap((cat) => rowsFor(cat));
+    return [
+      ...inPlan.flatMap((cat) => rowsFor(cat, t("categoryPicker.inBudget"))),
+      ...rest.flatMap((cat) => rowsFor(cat, t("categoryPicker.outsideBudget"))),
+    ];
+  }, [categories, subCategories, budgetCategoryIds, t]);
 
   const selected = categories.find((c) => c.id === value);
   // Only when it really is a line of the selected category: a sub-line left

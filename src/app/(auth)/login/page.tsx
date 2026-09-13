@@ -24,7 +24,6 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [hasWebAuthn, setHasWebAuthn] = useState(false);
-  const [checkingMethods, setCheckingMethods] = useState(false);
   const [signupsEnabled, setSignupsEnabled] = useState(false);
   const [justVerified, setJustVerified] = useState(false);
   const router = useRouter();
@@ -33,6 +32,15 @@ export default function LoginPage() {
   const redirectTo = useRef("/");
 
   useEffect(() => {
+    // A passkey sign-in needs no email — the credential identifies the user —
+    // so the button is offered on the first step. One tap is the whole point:
+    // the session only lives an hour, and on the PWA that expiry is hit daily.
+    if (window.PublicKeyCredential) {
+      PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
+        .then(setHasWebAuthn)
+        .catch(() => {});
+    }
+
     // window.location instead of useSearchParams to avoid a Suspense boundary
     const params = new URLSearchParams(window.location.search);
     const verified = params.get("verified") === "1";
@@ -44,24 +52,10 @@ export default function LoginPage() {
       .finally(() => setJustVerified(verified));
   }, []);
 
-  async function handleEmailContinue(e: React.FormEvent) {
+  function handleEmailContinue(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    setCheckingMethods(true);
-
-    try {
-      const webAuthnAvailable =
-        typeof window !== "undefined" && window.PublicKeyCredential
-          ? await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
-          : false;
-
-      setHasWebAuthn(webAuthnAvailable);
-      setStep("password");
-    } catch {
-      setStep("password");
-    } finally {
-      setCheckingMethods(false);
-    }
+    setStep("password");
   }
 
   async function handlePasswordSubmit(e: React.FormEvent) {
@@ -87,9 +81,6 @@ export default function LoginPage() {
         return;
       }
 
-      // ponytail: the lockscreen key predates email login — it holds an email now.
-      localStorage.setItem("lockscreen_username", email.trim());
-      localStorage.setItem("lockscreen_last_active", String(Date.now()));
       router.push(redirectTo.current);
     } catch {
       setError(t("auth.genericError"));
@@ -108,10 +99,6 @@ export default function LoginPage() {
         setError(String(result.error.message || t("auth.biometricFailed")));
         return;
       }
-      if (email) {
-        localStorage.setItem("lockscreen_username", email.trim());
-      }
-      localStorage.setItem("lockscreen_last_active", String(Date.now()));
       router.push(redirectTo.current);
     } catch {
       setError(t("auth.biometricFailedRetry"));
@@ -125,6 +112,33 @@ export default function LoginPage() {
     setPassword("");
     setStep("email");
   }
+
+  const biometricSignIn = hasWebAuthn && (
+    <>
+      <div className="relative flex items-center justify-center">
+        <div className="absolute inset-0 flex items-center">
+          <div className="w-full border-t border-border" />
+        </div>
+        <span className="relative bg-background px-2 text-xs text-muted-foreground">
+          {t("auth.or")}
+        </span>
+      </div>
+
+      <button
+        type="button"
+        onClick={handleBiometricLogin}
+        disabled={loading}
+        className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-input bg-background px-4 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
+      >
+        {loading ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <Fingerprint className="h-4 w-4" />
+        )}
+        {t("auth.signInBiometrics")}
+      </button>
+    </>
+  );
 
   return (
     <AuthShell>
@@ -164,14 +178,11 @@ export default function LoginPage() {
 
           {error && <p className="text-sm text-destructive">{error}</p>}
 
-          <button
-            type="submit"
-            disabled={checkingMethods}
-            className={authButtonClass}
-          >
-            {checkingMethods && <Loader2 className="h-4 w-4 animate-spin" />}
-            {checkingMethods ? t("auth.checking") : t("auth.continue")}
+          <button type="submit" className={authButtonClass}>
+            {t("auth.continue")}
           </button>
+
+          {biometricSignIn}
 
           {signupsEnabled && (
             <p className="text-sm text-muted-foreground">
@@ -228,32 +239,7 @@ export default function LoginPage() {
             {loading ? t("auth.signingIn") : t("auth.signIn")}
           </button>
 
-          {hasWebAuthn && (
-            <>
-              <div className="relative flex items-center justify-center">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-border" />
-                </div>
-                <span className="relative bg-background px-2 text-xs text-muted-foreground">
-                  {t("auth.or")}
-                </span>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleBiometricLogin}
-                disabled={loading}
-                className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-input bg-background px-4 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
-              >
-                {loading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Fingerprint className="h-4 w-4" />
-                )}
-                {t("auth.signInBiometrics")}
-              </button>
-            </>
-          )}
+          {biometricSignIn}
 
           <p className="text-sm">
             <Link

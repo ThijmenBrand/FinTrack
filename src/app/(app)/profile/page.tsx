@@ -13,7 +13,6 @@ import { useProfile } from "@/hooks/use-profile";
 import { ApiError } from "@/lib/api";
 import { ProfileCard } from "./_components/profile-card";
 import { PasswordCard } from "./_components/password-card";
-import { PinCard } from "./_components/pin-card";
 import { PasskeyCard } from "./_components/passkey-card";
 import { TwoFactorCard } from "./_components/two-factor-card";
 import { useI18n } from "@/lib/i18n/client";
@@ -48,7 +47,6 @@ export default function ProfilePage() {
       <ProfileCard profile={profile} />
       <TwoFactorCard enabled={profile.twoFactorEnabled} />
       <PasswordCard />
-      <PinCard />
       <PasskeyCard />
 
       {/* Account Info */}

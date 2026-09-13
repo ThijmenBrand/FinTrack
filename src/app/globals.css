@@ -262,18 +262,6 @@
     animation-duration: 160ms;
   }
 }
-/* Wrong-PIN feedback on the lock / setup screens. */
-@keyframes pin-shake {
-  0%, 100% { transform: translateX(0); }
-  20% { transform: translateX(-6px); }
-  40% { transform: translateX(6px); }
-  60% { transform: translateX(-4px); }
-  80% { transform: translateX(4px); }
-}
-.animate-pin-shake {
-  animation: pin-shake 0.4s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
-}
-
 /* Simple-mode insights: the bars fill in left-to-right on arrival. */
 @keyframes bar-wipe {
   from { clip-path: inset(0 100% 0 0); }
@@ -283,7 +271,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .animate-pin-shake,
   .animate-bar-wipe {
     animation: none;
   }

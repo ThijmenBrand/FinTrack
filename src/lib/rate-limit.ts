@@ -3,8 +3,7 @@
  *
  * Resets on a cold start, and each serverless instance counts separately — so
  * this stops one session from hammering an expensive route, not a distributed
- * attacker. Routes that need to key off the caller rather than the session use
- * `isRateLimited` in ./pin-utils, which uses the platform-verified IP.
+ * attacker.
  *
  * ponytail: fixed window, not a sliding one — a caller can burst 2x the limit
  * across a window boundary. Swap for a token bucket if that ever matters.

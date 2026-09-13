@@ -23,7 +23,6 @@ const TENANT_TABLES = [
   "import_batches",
   "transaction_groups",
   "stat_resets",
-  "user_pin",
   "audit_log",
 ];
 

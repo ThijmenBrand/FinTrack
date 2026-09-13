@@ -54,7 +54,7 @@ export interface SessionUser {
   isAdmin: boolean;
 }
 
-/** Derives the typed user off the session and provides a logout that clears lock state. */
+/** Derives the typed user off the session and provides a logout. */
 export function useSessionUser() {
   const router = useRouter();
   // `refetch` re-reads the session — the profile page calls it after an
@@ -70,9 +70,6 @@ export function useSessionUser() {
     : null;
 
   const logout = async () => {
-    localStorage.removeItem("lockscreen_username");
-    localStorage.removeItem("lockscreen_has_pin");
-    localStorage.removeItem("lockscreen_last_active");
     await signOut();
     router.push("/login");
     router.refresh();

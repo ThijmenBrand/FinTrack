@@ -37,7 +37,6 @@ export async function GET() {
         (SELECT MAX(s.updated_at) FROM session s WHERE s.user_id = u.id) AS last_active,
         (SELECT COUNT(*) FROM accounts a WHERE a.user_id = u.id) AS account_count,
         (SELECT COUNT(*) FROM transactions t WHERE t.user_id = u.id) AS transaction_count,
-        (SELECT COUNT(*) FROM user_pin p WHERE p.user_id = u.id) AS has_pin,
         (SELECT COUNT(*) FROM passkey pk WHERE pk.user_id = u.id) AS passkey_count
       FROM "user" u
       ORDER BY u.created_at ASC
@@ -57,7 +56,6 @@ export async function GET() {
         lastActive: row.last_active ?? null,
         accountCount: Number(row.account_count) || 0,
         transactionCount: Number(row.transaction_count) || 0,
-        hasPin: Number(row.has_pin) > 0,
         passkeyCount: Number(row.passkey_count) || 0,
         banned: Number(row.banned) === 1,
         banReason: (row.ban_reason as string) ?? null,

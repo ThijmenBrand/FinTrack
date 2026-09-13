@@ -314,7 +314,6 @@ export interface AdminUser {
   lastActive: string | null;
   accountCount: number;
   transactionCount: number;
-  hasPin: boolean;
   passkeyCount: number;
   banned: boolean;
   banReason: string | null;

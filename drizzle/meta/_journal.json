@@ -218,6 +218,13 @@
       "when": 1789235358289,
       "tag": "0030_transaction_sub_line",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1789292404905,
+      "tag": "0031_bitter_the_enforcers",
+      "breakpoints": true
     }
   ]
 }
