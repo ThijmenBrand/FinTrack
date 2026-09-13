@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { apiError } from "@/lib/api-errors";
 import { auth } from "@/lib/auth";
 import { db } from "@/db/index";
@@ -7,7 +7,7 @@ import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 
 // GET: Check if the authenticated user has a PIN set
-export async function GET(req: NextRequest) {
+export async function GET() {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session?.user?.id) {
     return apiError("api.unauthorized", 401);

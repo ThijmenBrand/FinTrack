@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -16,6 +16,7 @@ import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/client";
 import { useAllocateToPot } from "@/hooks/use-pots";
+import { useResetOnChange } from "@/hooks/use-reset-on-change";
 
 type Mode = "add" | "remove";
 
@@ -46,13 +47,12 @@ export function AllocateToPotDialog({
   const allocate = useAllocateToPot();
 
   // Reset to suggested-add whenever the dialog opens.
-  useEffect(() => {
-    if (open) {
-      setMode("add");
-      const rounded = Math.max(0, Math.round(suggestedAmount * 100) / 100);
-      setAmount(rounded > 0 ? rounded.toFixed(2) : "");
-    }
-  }, [open, suggestedAmount]);
+  useResetOnChange(open ? suggestedAmount : null, () => {
+    if (!open) return;
+    setMode("add");
+    const rounded = Math.max(0, Math.round(suggestedAmount * 100) / 100);
+    setAmount(rounded > 0 ? rounded.toFixed(2) : "");
+  });
 
   const remaining = Math.max(0, targetAmount - fundedAmount);
   const numericAmount = Number(amount);

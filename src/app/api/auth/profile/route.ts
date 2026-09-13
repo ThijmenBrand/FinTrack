@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { apiError } from "@/lib/api-errors";
-import { auth, withUser, hashPassword, verifyPassword } from "@/lib/auth";
+import { withUser, hashPassword, verifyPassword } from "@/lib/auth";
 import { db } from "@/db";
 import { sql } from "drizzle-orm";
-import { headers } from "next/headers";
 import { logAuthEvent, logDataEvent, getRequestMeta } from "@/lib/audit";
 import { validatePassword, validateName } from "@/lib/validation";
 import { createRateLimiter } from "@/lib/rate-limit";

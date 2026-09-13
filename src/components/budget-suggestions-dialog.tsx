@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -20,6 +20,7 @@ import {
 
 import type { BudgetSuggestion } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
+import { useResetOnChange } from "@/hooks/use-reset-on-change";
 
 interface Props {
   open: boolean;
@@ -44,7 +45,7 @@ export function BudgetSuggestionsDialog({ open, onOpenChange, suggestions, lookb
     [suggestions],
   );
 
-  useEffect(() => {
+  useResetOnChange(open ? suggestionsKey : null, () => {
     if (!open) return;
     const sel: Record<string, boolean> = {};
     const ov: Record<string, string> = {};
@@ -54,8 +55,7 @@ export function BudgetSuggestionsDialog({ open, onOpenChange, suggestions, lookb
     }
     setSelected(sel);
     setOverrides(ov);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, suggestionsKey]);
+  });
 
   const selectedIds = useMemo(() => Object.keys(selected).filter((id) => selected[id]), [selected]);
   const allSelected = suggestions.length > 0 && selectedIds.length === suggestions.length;

@@ -8,6 +8,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "@/lib/api";
 import { PinInput } from "@/components/pin-input";
 import { useI18n } from "@/lib/i18n/client";
+import { useIsHydrated, useMediaQuery } from "@/hooks/use-browser";
 
 export function PinSetupScreen() {
   const { t } = useI18n();
@@ -21,18 +22,13 @@ export function PinSetupScreen() {
   const [step, setStep] = useState<"enter" | "confirm">("enter");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [isStandalone, setIsStandalone] = useState(false);
+  // Detect if running as an installed PWA (standalone mode).
+  const hydrated = useIsHydrated();
+  const isStandalone =
+    useMediaQuery("(display-mode: standalone)") ||
+    (hydrated && (navigator as { standalone?: boolean }).standalone === true);
   const pinInputRef = useRef<HTMLInputElement>(null);
   const confirmInputRef = useRef<HTMLInputElement>(null);
-
-  // Detect if running as installed PWA (standalone mode)
-  useEffect(() => {
-    const mq = window.matchMedia("(display-mode: standalone)");
-    setIsStandalone(mq.matches || (navigator as { standalone?: boolean }).standalone === true);
-    const handler = (e: MediaQueryListEvent) => setIsStandalone(e.matches);
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
-  }, []);
 
   // Auto-focus inputs
   useEffect(() => {

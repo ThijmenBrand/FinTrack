@@ -13,8 +13,9 @@ import {
   Settings,
   User,
 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useTheme } from "next-themes";
+import { useIsHydrated } from "@/hooks/use-browser";
 import {
   Sheet,
   SheetContent,
@@ -34,14 +35,10 @@ export function BottomNav() {
   const { t } = useI18n();
   const pathname = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
-  const [mounted, setMounted] = useState(false);
   const { theme, setTheme } = useTheme();
   const { user, logout } = useSessionUser();
   const moreItems = useSecondaryNav();
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const mounted = useIsHydrated();
 
   const isMoreActive =
     moreItems.some((item) =>

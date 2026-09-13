@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAccounts, useCreateAccount, useUpdateAccount, useDeleteAccount, useReorderAccounts } from "@/hooks/use-accounts";
@@ -75,6 +75,7 @@ import {
   LeaveAccountDialog,
   ShareAccountDialog,
 } from "./_components/account-share-dialogs";
+import { useResetOnChange } from "@/hooks/use-reset-on-change";
 
 const ACCOUNT_TYPES: { value: string; labelKey: MessageKey }[] = [
   { value: "checking", labelKey: "accounts.type.checking" },
@@ -404,9 +405,8 @@ function AccountsPageInner() {
   const [initialBalance, setInitialBalance] = useState("");
   const [internalTransfers, setInternalTransfers] = useState(true);
 
-  useEffect(() => {
-    if (accountsData) setLocalAccounts(accountsData);
-  }, [accountsData]);
+  // Server order wins; drag-and-drop overrides it until the next fetch.
+  useResetOnChange(accountsData, () => setLocalAccounts(accountsData));
 
   const resetForm = () => {
     setName("");

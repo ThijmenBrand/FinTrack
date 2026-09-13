@@ -121,17 +121,6 @@ describe("splitShares", () => {
     sharePercents: stored ?? {},
     sharePercent: ownerPct,
   });
-  /** An amount-mode plan of the caller's own: null anywhere means "the rest". */
-  const ownedAmounts = (
-    ownerAmount: number | null,
-    members: Record<string, number | null> = {},
-  ) => ({
-    ...base,
-    role: "owner" as const,
-    splitMode: "amount" as const,
-    ownerShareAmount: ownerAmount,
-    shareAmounts: members,
-  });
   const jointWith = (...people: { name: string | null; email: string | null }[]) => [
     {
       id: "joint",
