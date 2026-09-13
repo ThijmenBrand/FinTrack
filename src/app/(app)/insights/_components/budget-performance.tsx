@@ -55,8 +55,19 @@ export function BudgetPerformance({ data, accountLabel }: BudgetPerformanceProps
         cap: Math.max(0, c.allowance),
       }))
     : data.allocations.map((a) => ({ spent: a.spent, cap: a.amount }));
+  // A category that has both an allocation and recurring plans is ONE line —
+  // the allocation's, with the plans inside it — exactly as the Budgets page
+  // and `totalBudget` count it. Stacking its bills on top here counted the same
+  // spend and the same cap twice, pushing the bar past its own marker.
+  const allocatedCategoryIds = new Set(
+    (yearly ? yearly.categories : data.allocations).map((c) => c.categoryId),
+  );
+  const ownFixedCosts = data.fixedCosts.filter(
+    (fc) => !allocatedCategoryIds.has(fc.categoryId),
+  );
   const totalBudget = yearly
-    ? Math.max(0, yearly.totals.allowanceThisMonth) + data.totalFixedCosts
+    ? Math.max(0, yearly.totals.allowanceThisMonth) +
+      ownFixedCosts.reduce((s, fc) => s + fc.monthlyAmount, 0)
     : data.totalBudget;
 
   // Budgeted spending split into within-cap and over-cap parts
@@ -66,7 +77,7 @@ export function BudgetPerformance({ data, accountLabel }: BudgetPerformanceProps
     withinBudget += Math.min(c.spent, c.cap);
     overBudgetOnTracked += Math.max(0, c.spent - c.cap);
   }
-  for (const fc of data.fixedCosts) {
+  for (const fc of ownFixedCosts) {
     withinBudget += Math.min(fc.spent, fc.monthlyAmount);
     overBudgetOnTracked += Math.max(0, fc.spent - fc.monthlyAmount);
   }

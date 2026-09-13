@@ -117,7 +117,14 @@ export function withSubLines(
 
 /** Spend against a cap, derived the way `GET /api/budgets` derives it. */
 export function reprice(alloc: Allocation): Allocation {
-  const percentage = alloc.amount > 0 ? (alloc.spent / alloc.amount) * 100 : 0;
+  // Spending against a cap of nothing is over budget, not "ok" — mirrors the
+  // endpoint.
+  const percentage =
+    alloc.amount > 0
+      ? (alloc.spent / alloc.amount) * 100
+      : alloc.spent > 0
+        ? 100
+        : 0;
   return {
     ...alloc,
     remaining: Math.max(0, alloc.amount - alloc.spent),
@@ -252,12 +259,24 @@ export function patchBudget(
     return [recascade(c, amount, yearly.monthIndex)];
   });
 
+  // Bills whose category has no allocation — the endpoint's `ownFixedCosts`.
+  // Recomputed here rather than read off `data.totalFixedCosts` because the
+  // patch may be the very change that gives a fixed-cost category an
+  // allocation, and from that moment its plans belong to that row alone.
+  const allocatedCategoryIds = new Set(allocations.map((a) => a.categoryId));
+  const ownFixedCosts = data.fixedCosts.reduce(
+    (sum, fc) =>
+      allocatedCategoryIds.has(fc.categoryId) ? sum : sum + fc.monthlyAmount,
+    0,
+  );
+
   return {
     ...data,
     allocations,
     totalAllocated: cents(totalAllocated),
-    unallocated: cents(data.availableToAllocate - totalAllocated),
-    totalBudget: cents(data.totalFixedCosts + totalAllocated),
+    availableToAllocate: cents(data.monthlyIncome - ownFixedCosts),
+    unallocated: cents(data.monthlyIncome - ownFixedCosts - totalAllocated),
+    totalBudget: cents(ownFixedCosts + totalAllocated),
     yearly:
       yearly && categories
         ? { ...yearly, categories, totals: yearlyTotals(categories) }

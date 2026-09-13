@@ -14,6 +14,7 @@ import { lastPaidByPlan } from "@/lib/recurring-paid";
 import { toMonthly } from "@/lib/month-money";
 import { getI18n } from "@/lib/i18n/server";
 import { excludeSplitChildren } from "@/lib/split-sql";
+import { toIsoDate } from "@/lib/utils";
 
 /**
  * GET /api/recurring/forecast
@@ -131,8 +132,8 @@ export async function GET(request: NextRequest) {
     // as full-targetAmount expected expenses. Money still leaves the account
     // on the target date regardless of how much has been pre-funded — funding
     // is a planning aid, not a forecast modifier.
-    const forecastFromIso = forecastFrom.toISOString().slice(0, 10);
-    const forecastToIso = forecastTo.toISOString().slice(0, 10);
+    const forecastFromIso = toIsoDate(forecastFrom);
+    const forecastToIso = toIsoDate(forecastTo);
     const spikes = await db
       .select({
         name: transactionGroups.name,

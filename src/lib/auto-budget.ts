@@ -10,6 +10,7 @@ import type { BudgetSuggestion } from "@/types/api";
 import { effectiveExpenseAmount } from "@/lib/reimbursement-sql";
 import { excludeSplitParents } from "@/lib/split-sql";
 import { clampFrom, getStatsCutoff } from "@/lib/stat-reset";
+import { toIsoDate } from "@/lib/utils";
 import type { ResolvedBudgetPlan } from "@/lib/budget-plan";
 
 /**
@@ -35,9 +36,12 @@ function getLookbackWindow(lookbackMonths: number): DateWindow {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth() - lookbackMonths, 1);
   const end = new Date(now.getFullYear(), now.getMonth(), 0);
+  // `toIsoDate`, not `toISOString()`: these Dates are built in local time, and
+  // rendering them as UTC slides the window a day west of Greenwich — which
+  // drops the last day of the newest complete month out of the average.
   return {
-    from: start.toISOString().slice(0, 10),
-    to: end.toISOString().slice(0, 10),
+    from: toIsoDate(start),
+    to: toIsoDate(end),
     monthCount: lookbackMonths,
   };
 }

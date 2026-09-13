@@ -6,8 +6,9 @@ import {
   categories,
   transactionGroups,
 } from "@/db/schema";
-import { eq, and, gte, lte, sql, inArray } from "drizzle-orm";
+import { eq, and, gte, lte, or, sql, inArray } from "drizzle-orm";
 import { getFinancialMonthRange } from "@/lib/financial-month";
+import { memberAccountIds, visibleTransactions } from "@/lib/account-access";
 import { toMonthly } from "@/lib/recurring";
 import { effectiveExpenseAmount, potSpentAmount } from "@/lib/reimbursement-sql";
 import { excludeSplitParents } from "@/lib/split-sql";
@@ -35,6 +36,26 @@ export interface MonthMoneyOptions {
 }
 
 export { toMonthly };
+
+/**
+ * Recurring plans the user may see: their own, plus plans on accounts actively
+ * shared with them (those rows carry the OWNER's user_id, so a plain match
+ * misses them — the same reason `visibleTransactions` exists).
+ */
+function visibleRecurring(userId: string) {
+  return or(
+    eq(recurringTransactions.userId, userId),
+    inArray(recurringTransactions.accountId, memberAccountIds(userId)),
+  )!;
+}
+
+/** Pots the user may see: their own, plus pots holding shared-account rows. */
+function visiblePots(userId: string) {
+  return or(
+    eq(transactionGroups.userId, userId),
+    inArray(transactions.accountId, memberAccountIds(userId)),
+  )!;
+}
 
 /**
  * Merge per-category spending from ungrouped transactions and from pots into a
@@ -90,6 +111,13 @@ export function getCurrentMonthRange(startDay: number = 1): { from: string; to: 
  * spent) are scoped to those accounts. Recurring fixed costs
  * stay account-agnostic since they aren't tied to a specific account.
  *
+ * Scope is every account the user may READ — own plus actively shared — which
+ * is the scope the dashboard hands in (`defaultScopeAccountIds` runs over
+ * `visibleAccounts`) and the scope `getMonthSummary`'s Earned/Spent tiles
+ * already use. A plain `user_id` match missed rows on shared accounts, which
+ * keep the OWNER's user_id, so the same card reported joint spending in one
+ * tile and left it out of Free to Spend.
+ *
  * The returned `allocations` map lets callers surface per-category warnings
  * (e.g. "this would push Entertainment over budget").
  */
@@ -120,7 +148,7 @@ export async function getMonthMoneyMath(
       .from(transactions)
       .where(
         and(
-          eq(transactions.userId, userId),
+          visibleTransactions(userId),
           eq(transactions.type, "income"),
           // Grouped rows are netted into the pot spend below; counting them as
           // income too would credit a pot's refund twice.
@@ -143,7 +171,7 @@ export async function getMonthMoneyMath(
         and(
           eq(recurringTransactions.type, "expense"),
           eq(recurringTransactions.isActive, true),
-          eq(recurringTransactions.userId, userId)
+          visibleRecurring(userId),
         )
       ),
 
@@ -158,7 +186,7 @@ export async function getMonthMoneyMath(
       .from(transactions)
       .where(
         and(
-          eq(transactions.userId, userId),
+          visibleTransactions(userId),
           eq(transactions.type, "expense"),
           sql`${transactions.recurringTransactionId} IS NOT NULL`,
           // Children inherit the parent's recurring link, so a split bill would
@@ -177,7 +205,7 @@ export async function getMonthMoneyMath(
       .from(transactions)
       .where(
         and(
-          eq(transactions.userId, userId),
+          visibleTransactions(userId),
           eq(transactions.type, "expense"),
           sql`${transactions.groupId} IS NULL`,
           // Exclude transactions tied to a recurring plan — those are already
@@ -199,7 +227,7 @@ export async function getMonthMoneyMath(
       .innerJoin(transactions, eq(transactions.groupId, transactionGroups.id))
       .where(
         and(
-          eq(transactionGroups.userId, userId),
+          visiblePots(userId),
           sql`${transactions.type} != 'internal_transfer'`,
           excludeSplitParents(),
           gte(transactions.date, from),
@@ -258,7 +286,7 @@ export async function getMonthMoneyMath(
         .from(transactions)
         .where(
           and(
-            eq(transactions.userId, userId),
+            visibleTransactions(userId),
             eq(transactions.type, "expense"),
             sql`${transactions.groupId} IS NULL`,
             inArray(transactions.categoryId, categoryIds),
@@ -279,7 +307,7 @@ export async function getMonthMoneyMath(
         .innerJoin(transactions, eq(transactions.groupId, transactionGroups.id))
         .where(
           and(
-            eq(transactionGroups.userId, userId),
+            visiblePots(userId),
             inArray(transactionGroups.categoryId, categoryIds),
             sql`${transactions.type} != 'internal_transfer'`,
             excludeSplitParents(),

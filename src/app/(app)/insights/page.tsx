@@ -377,7 +377,15 @@ export default function InsightsPage() {
   // plus the plan's recurring fixed costs, which sit outside the envelope.
   const allowanceByMonth = useMemo(() => {
     if (!chartIsYearly) return undefined;
-    const fixed = planMonthlyData?.totalFixedCosts ?? 0;
+    // Only the bills no envelope already covers: a category with both an
+    // allocation and recurring plans has those plans inside its allowance, so
+    // adding them again raised the ceiling by a bill the plan pays once.
+    const envelopeCategories = new Set(
+      (planMonthlyData?.yearly?.categories ?? []).map((c) => c.categoryId),
+    );
+    const fixed = (planMonthlyData?.fixedCosts ?? [])
+      .filter((fc) => !envelopeCategories.has(fc.categoryId))
+      .reduce((sum, fc) => sum + fc.monthlyAmount, 0);
     const out: Record<string, number> = {};
     for (const view of [previousYearData?.yearly, planMonthlyData?.yearly]) {
       if (!view) continue;
