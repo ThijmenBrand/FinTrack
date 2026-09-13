@@ -39,8 +39,11 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
   const { t } = useI18n();
 
   return (
-    // min-h-dvh, not min-h-screen: 100vh sits under the mobile URL bar.
-    <div className="grid min-h-dvh lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+    // Full height only from lg, where the hero has to stand beside the form.
+    // Below that the hero is gone and a forced viewport height buys nothing but
+    // empty space — and in the installed PWA 100dvh overshoots what is actually
+    // visible, so the short sign-in form ends up scrolling past its own bottom.
+    <div className="grid lg:min-h-dvh lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
       <div className="flex flex-col px-5 py-8 sm:px-12 sm:py-10 lg:px-16">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">

@@ -44,16 +44,3 @@ export function useRegisterPasskey() {
     },
   };
 }
-
-export function useSignInWithPasskey() {
-  const { t } = useI18n();
-  return {
-    signIn: async () => {
-      const result = await authClient.signIn.passkey();
-      if (result.error) {
-        throw new Error(String(result.error.message || t("auth.biometricFailed")));
-      }
-      return result.data;
-    },
-  };
-}

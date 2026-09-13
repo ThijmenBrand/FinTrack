@@ -7,6 +7,7 @@ import { authClient } from "@/lib/auth-client";
 import { useRouter } from "next/navigation";
 import { useI18n } from "@/lib/i18n/client";
 import { safeRedirectPath } from "@/lib/validation";
+import { useIsHydrated } from "@/hooks/use-browser";
 import {
   AuthHeading,
   AuthShell,
@@ -23,24 +24,30 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [hasWebAuthn, setHasWebAuthn] = useState(false);
   const [signupsEnabled, setSignupsEnabled] = useState(false);
   const [justVerified, setJustVerified] = useState(false);
   const router = useRouter();
   // Where a successful sign-in lands — e.g. back to a share invite the user
   // had to log in first to accept. Only same-origin paths are honored.
   const redirectTo = useRef("/");
+  // A ref, not state: a second tap during the options fetch would start a
+  // second ceremony and the browser aborts the first one. Guarding in a ref
+  // keeps the "no render before the ceremony" rule below intact.
+  const ceremonyRunning = useRef(false);
+
+  // A passkey sign-in needs no email — the credential identifies the user — so
+  // the button is offered on the first step. One tap is the whole point: the
+  // session only lives an hour, and on the PWA that expiry is hit daily.
+  //
+  // Gated on the API existing, not on
+  // isUserVerifyingPlatformAuthenticatorAvailable(): that answers "is there a
+  // built-in authenticator", which signing in never asks — the passkey may live
+  // on another device or in a password manager. It also answers `false` often
+  // enough on iOS (no passkey provider configured, managed device, WKWebView)
+  // to hide the button from the very users it exists for.
+  const hasWebAuthn = useIsHydrated() && !!window.PublicKeyCredential;
 
   useEffect(() => {
-    // A passkey sign-in needs no email — the credential identifies the user —
-    // so the button is offered on the first step. One tap is the whole point:
-    // the session only lives an hour, and on the PWA that expiry is hit daily.
-    if (window.PublicKeyCredential) {
-      PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
-        .then(setHasWebAuthn)
-        .catch(() => {});
-    }
-
     // window.location instead of useSearchParams to avoid a Suspense boundary
     const params = new URLSearchParams(window.location.search);
     const verified = params.get("verified") === "1";
@@ -90,20 +97,35 @@ export default function LoginPage() {
   }
 
   async function handleBiometricLogin() {
-    setError("");
-    setLoading(true);
-
+    // Nothing async — and no React render — before the ceremony. WebKit allows
+    // a single fetch between the tap and navigator.credentials.get(); anything
+    // else spends the user activation and the prompt never opens. The OS sheet
+    // is the progress indicator, so there is no spinner to miss.
+    if (ceremonyRunning.current) return;
+    ceremonyRunning.current = true;
     try {
       const result = await authClient.signIn.passkey();
       if (result.error) {
-        setError(String(result.error.message || t("auth.biometricFailed")));
+        // Better Auth flattens every WebAuthn failure into one "cancelled"
+        // message; the code is the only thing that says which, and on a phone
+        // it is the only diagnostic anyone will ever see.
+        const { code } = result.error as { code?: string };
+        setError(
+          code && code !== "ERROR_CEREMONY_ABORTED"
+            ? `${t("auth.biometricFailed")} (${code})`
+            : t("auth.biometricFailed"),
+        );
         return;
       }
-      router.push(redirectTo.current);
+      // A full load, not router.push: the WebAuthn sheet backgrounds the page,
+      // and a client transition started as it comes back can be dropped — the
+      // installed PWA then just sits on the login screen. This also re-runs the
+      // proxy with the fresh session cookie instead of trusting the router cache.
+      window.location.assign(redirectTo.current);
     } catch {
       setError(t("auth.biometricFailedRetry"));
     } finally {
-      setLoading(false);
+      ceremonyRunning.current = false;
     }
   }
 
@@ -130,11 +152,7 @@ export default function LoginPage() {
         disabled={loading}
         className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-input bg-background px-4 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
       >
-        {loading ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : (
-          <Fingerprint className="h-4 w-4" />
-        )}
+        <Fingerprint className="h-4 w-4" />
         {t("auth.signInBiometrics")}
       </button>
     </>
