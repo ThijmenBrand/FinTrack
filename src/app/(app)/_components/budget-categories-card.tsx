@@ -80,7 +80,12 @@ export function BudgetCategoriesCard({
 
   const fmRange =
     startDay === 1 ? null : getFinancialMonthRange(new Date(), startDay);
+  // Rows link into /transactions scoped to the same accounts the card counted:
+  // pick another budget from the switcher and the list behind a category
+  // follows it. No plan (or a plan with no accounts) links unscoped, as before.
+  const planAccountIds = data?.plan?.accountIds ?? [];
   const filterProps = {
+    account: planAccountIds.length ? planAccountIds.join(",") : undefined,
     period: fmRange ? undefined : ("this-month" as const),
     dateFrom: fmRange?.from,
     dateTo: fmRange?.to,

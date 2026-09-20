@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -522,9 +523,18 @@ export default function InsightsPage() {
             {plans.length > 0 && (
               <>
                 {" · "}
-                {selectedPlan
-                  ? t("insights.planBudget", { name: selectedPlan.name })
-                  : t("insights.allAccountsLower")}
+                {selectedPlan ? (
+                  // The budget behind these numbers — follow it through to the
+                  // plan itself rather than hunting for it on the budgets page.
+                  <Link
+                    href={`/budgets?plan=${encodeURIComponent(selectedPlan.id)}`}
+                    className="text-primary hover:underline"
+                  >
+                    {t("insights.planBudget", { name: selectedPlan.name })}
+                  </Link>
+                ) : (
+                  t("insights.allAccountsLower")
+                )}
               </>
             )}
           </p>

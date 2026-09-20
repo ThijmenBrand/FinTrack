@@ -30,6 +30,7 @@ import {
 import { SplitBadge } from "@/components/split-badge";
 import type { Transaction, Category, Pot, PotRangeTotal } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
+import { useIsCategorizing } from "@/hooks/use-transactions";
 import { UserAvatar } from "@/components/user-avatar";
 import type { MessageKey } from "@/lib/i18n/translate";
 import { Amount } from "./transaction-amount";
@@ -46,6 +47,14 @@ const TYPE_BADGES: Record<
 };
 
 type Layout = "table" | "card";
+
+/**
+ * While a category change is in flight the row already shows the new category
+ * optimistically, so it pulses instead of blanking — enough to read as "still
+ * saving", and clicks are held back until the server answers.
+ */
+export const SAVING_ROW =
+  "motion-safe:animate-pulse bg-muted/50 pointer-events-none";
 
 /** Pot badge — links to the pot's detail on the pots page. */
 function PotBadge({ groupId, groupName, className }: { groupId: string; groupName: string; className: string }) {
@@ -108,6 +117,7 @@ export function TransactionRow({
   onContextMenu,
 }: TransactionRowProps) {
   const { t, formatDate } = useI18n();
+  const saving = useIsCategorizing(tx.id);
   const isTransfer = tx.type === "internal_transfer";
   const isReimbursement = tx.type === "reimbursement";
   const isInPot = !!tx.groupId;
@@ -137,9 +147,10 @@ export function TransactionRow({
     return (
       <>
         <div
+          aria-busy={saving}
           className={`flex items-center gap-3 px-4 py-3 active:bg-muted/50 cursor-pointer transition-colors ${
             isReimbursement || isInPot ? "opacity-60" : ""
-          }`}
+          } ${saving ? SAVING_ROW : ""}`}
           onClick={onOpen}
           onContextMenu={onContextMenu}
         >
@@ -205,7 +216,10 @@ export function TransactionRow({
   return (
     <>
       <TableRow
-        className={`cursor-pointer ${isReimbursement || isInPot ? "opacity-60" : ""}`}
+        aria-busy={saving}
+        className={`cursor-pointer ${isReimbursement || isInPot ? "opacity-60" : ""} ${
+          saving ? SAVING_ROW : ""
+        }`}
         onClick={onOpen}
         onContextMenu={onContextMenu}
       >
@@ -283,6 +297,7 @@ export function TransactionRow({
             <CategorizePopover
               transactionId={tx.id}
               transactionDescription={tx.name || tx.description}
+              transactionText={{ name: tx.name, description: tx.description }}
               currentCategoryId={tx.categoryId}
               currentCategoryName={tx.categoryName}
               currentCategoryColor={tx.categoryColor}

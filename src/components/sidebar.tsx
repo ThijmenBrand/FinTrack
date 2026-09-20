@@ -113,7 +113,7 @@ export function Sidebar() {
       {/* User dropdown */}
       <div className="border-t p-3">
         {mounted && user && (
-          <DropdownMenu>
+          <DropdownMenu modal={false}>
             <DropdownMenuTrigger
               className={cn(
                 "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-sidebar-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",

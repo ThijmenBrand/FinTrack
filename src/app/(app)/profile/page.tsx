@@ -1,24 +1,34 @@
 "use client";
 
+/**
+ * THESIS: Your profile is a spec sheet, not a stack of forms. It was the last
+ *   page still built the way settings used to be — five same-size cards, each
+ *   led by a `bg-primary/10` icon medallion, each ending in its own Save button
+ *   — so nothing could be scanned and nothing agreed with /settings.
+ * OWN-WORLD: Borrows the settings system wholesale: one bordered panel per
+ *   topic, a muted header band naming it, hairline-divided rows inside, every
+ *   control on a shared right rail. Identity autosaves like any other setting;
+ *   the three security flows open in dialogs, because a multi-step enrolment is
+ *   a task, not a preference.
+ * STORY: You land, see who you are and what protects the account in one screen,
+ *   change the one thing you came for, and leave.
+ * FIRST VIEWPORT: "Profile" h1 and its one-line purpose, then Account — face,
+ *   name, email, role, member since — then Sign-in & security with the state of
+ *   each protection stated before the button that changes it.
+ */
+
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
 import { useProfile } from "@/hooks/use-profile";
 import { ApiError } from "@/lib/api";
-import { ProfileCard } from "./_components/profile-card";
-import { PasswordCard } from "./_components/password-card";
-import { PasskeyCard } from "./_components/passkey-card";
-import { TwoFactorCard } from "./_components/two-factor-card";
 import { useI18n } from "@/lib/i18n/client";
+import { AccountPanel } from "./_components/account-panel";
+import { SecurityPanel } from "./_components/security-panel";
+import { PasskeysPanel } from "./_components/passkeys-panel";
 
 export default function ProfilePage() {
-  const { t, formatDate } = useI18n();
+  const { t } = useI18n();
   const router = useRouter();
   const { data: profile, isLoading, error } = useProfile();
 
@@ -38,37 +48,21 @@ export default function ProfilePage() {
   if (!profile) return null;
 
   return (
-    <div className="space-y-6 max-w-2xl">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">{t("profile.title")}</h1>
-        <p className="text-muted-foreground">{t("profile.subtitle")}</p>
+    // Bounded like the settings tabs: a row is label-left/control-right, and on
+    // a wide monitor an unbounded row puts metres of nothing between the two.
+    <div className="max-w-3xl space-y-6">
+      <div className="space-y-1">
+        {/* Matches the settings layout's heading, down to the weight — the two
+            pages are the same surface reached from two places. */}
+        <h1 className="text-2xl font-semibold tracking-tight">
+          {t("profile.title")}
+        </h1>
+        <p className="text-sm text-muted-foreground">{t("profile.subtitle")}</p>
       </div>
 
-      <ProfileCard profile={profile} />
-      <TwoFactorCard enabled={profile.twoFactorEnabled} />
-      <PasswordCard />
-      <PasskeyCard />
-
-      {/* Account Info */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm font-medium text-muted-foreground">
-            {t("profile.accountInfo")}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2 text-sm">
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">{t("profile.role")}</span>
-            <span className="font-medium">
-              {profile.isAdmin ? t("profile.roleAdmin") : t("profile.roleUser")}
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">{t("profile.memberSince")}</span>
-            <span className="font-medium">{formatDate(profile.createdAt)}</span>
-          </div>
-        </CardContent>
-      </Card>
+      <AccountPanel profile={profile} />
+      <SecurityPanel twoFactorEnabled={profile.twoFactorEnabled} />
+      <PasskeysPanel />
     </div>
   );
 }

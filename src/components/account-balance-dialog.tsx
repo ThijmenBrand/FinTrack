@@ -17,7 +17,15 @@ import { PotSaldoGraph } from "@/components/pot-saldo-graph";
 import { useBalanceTimeline } from "@/hooks/use-insights";
 import { useBudgetPlans } from "@/hooks/use-budget-plans";
 import { toIsoDate } from "@/lib/utils";
-import { ArrowRight, TrendingDown, TrendingUp, Wallet } from "lucide-react";
+import {
+  ArrowRight,
+  LayoutDashboard,
+  PieChart,
+  TrendingDown,
+  TrendingUp,
+  Wallet,
+} from "lucide-react";
+import { buttonVariants } from "@/components/ui/button";
 import type { Account } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
 import type { MessageKey } from "@/lib/i18n/translate";
@@ -147,35 +155,65 @@ function Body({ account }: { account: Account }) {
 
       {/* The chart raises questions the transaction list answers; the dialog
           used to be a dead end. */}
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t pt-3">
-        {/* Which budget this account's spending lands in, and a way into it —
-            the account card never says. */}
-        {plan ? (
+      <div className="space-y-2.5 border-t pt-3">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+          {/* Which budget this account's spending lands in, and a way into it —
+              the account card never says. */}
+          {plan ? (
+            <DialogClose asChild>
+              <Link
+                href={`/budgets?plan=${encodeURIComponent(plan.id)}`}
+                className="inline-flex min-w-0 items-center gap-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                aria-label={t("accountBalance.viewBudget", { name: plan.name })}
+              >
+                <Wallet className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{plan.name}</span>
+              </Link>
+            </DialogClose>
+          ) : (
+            <p className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+              <Wallet className="h-3.5 w-3.5 shrink-0" />
+              {t("accountBalance.noBudget")}
+            </p>
+          )}
           <DialogClose asChild>
             <Link
-              href={`/budgets?plan=${encodeURIComponent(plan.id)}`}
-              className="inline-flex min-w-0 items-center gap-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              aria-label={t("accountBalance.viewBudget", { name: plan.name })}
+              href={`/transactions?account=${account.id}`}
+              className="inline-flex items-center gap-1.5 rounded-md text-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             >
-              <Wallet className="h-3.5 w-3.5 shrink-0" />
-              <span className="truncate">{plan.name}</span>
+              {t("accountBalance.viewTransactions")}
+              <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </DialogClose>
-        ) : (
-          <p className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
-            <Wallet className="h-3.5 w-3.5 shrink-0" />
-            {t("accountBalance.noBudget")}
-          </p>
+        </div>
+        {/* An account is only ever part of a budget's picture, so the two pages
+            that draw that picture open on this account's budget rather than on
+            whichever one the dashboard happens to default to. Pointless without
+            a budget — both would just land on the default view. */}
+        {plan && (
+          <div className="flex flex-wrap gap-2">
+            <DialogClose asChild>
+              <Link
+                href={`/?budget=${encodeURIComponent(plan.id)}`}
+                className={buttonVariants({ variant: "outline", size: "sm" })}
+                aria-label={t("accountBalance.viewDashboardFor", { name: plan.name })}
+              >
+                <LayoutDashboard aria-hidden="true" />
+                {t("accountBalance.viewDashboard")}
+              </Link>
+            </DialogClose>
+            <DialogClose asChild>
+              <Link
+                href={`/insights?budget=${encodeURIComponent(plan.id)}`}
+                className={buttonVariants({ variant: "outline", size: "sm" })}
+                aria-label={t("accountBalance.viewInsightsFor", { name: plan.name })}
+              >
+                <PieChart aria-hidden="true" />
+                {t("accountBalance.viewInsights")}
+              </Link>
+            </DialogClose>
+          </div>
         )}
-        <DialogClose asChild>
-          <Link
-            href={`/transactions?account=${account.id}`}
-            className="inline-flex items-center gap-1.5 rounded-md text-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          >
-            {t("accountBalance.viewTransactions")}
-            <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
-        </DialogClose>
       </div>
     </>
   );

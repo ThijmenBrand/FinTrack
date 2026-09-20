@@ -37,6 +37,9 @@ import {
   MATCH_FIELD_LABEL_KEYS,
 } from "@/lib/match-types";
 import { useI18n } from "@/lib/i18n/client";
+import { cn } from "@/lib/utils";
+import { useArrivalHighlight } from "@/hooks/use-arrival-highlight";
+import { useResetOnChange } from "@/hooks/use-reset-on-change";
 import type { MessageKey } from "@/lib/i18n/translate";
 
 // Single source for the kind select's options — shared with the add/edit dialog.
@@ -64,6 +67,11 @@ interface CategoryRowProps {
   dragHandle?: React.ReactNode;
   selected?: boolean;
   onToggleSelect?: (selected: boolean) => void;
+  /** This category is what a ?category= deep link asked for: the card expands,
+   *  scrolls itself into view and glows. Null when it isn't the target. */
+  focusKey?: string | null;
+  /** The ?rule= inside it — that row takes the glow and the scroll instead. */
+  focusedRuleId?: string | null;
 }
 
 export function CategoryRow({
@@ -74,6 +82,8 @@ export function CategoryRow({
   dragHandle,
   selected,
   onToggleSelect,
+  focusKey,
+  focusedRuleId,
 }: CategoryRowProps) {
   const { t, plural } = useI18n();
   const updateRule = useUpdateCategoryRule();
@@ -88,6 +98,22 @@ export function CategoryRow({
   };
 
   const [expanded, setExpanded] = useState(false);
+  // Arriving on the category opens its rules — a link that lands on a
+  // collapsed card would hide the very thing it pointed at. Applied during
+  // render so the rule row below exists in the same commit, in time for its
+  // own ref to scroll to it.
+  useResetOnChange(focusKey, () => {
+    if (focusKey) setExpanded(true);
+  });
+
+  // The innermost target does the scrolling: with a rule to show, the card
+  // only glows and the rule row pulls the page to itself — two scrolls would
+  // fight each other.
+  const focusedRule = focusedRuleId
+    ? rules.find((r) => r.id === focusedRuleId)
+    : undefined;
+  const card = useArrivalHighlight(focusKey ?? null, { scroll: !focusedRule });
+  const ruleFocus = useArrivalHighlight(focusedRule?.id ?? null);
   const [editingRule, setEditingRule] = useState<string | null>(null);
   const [editPattern, setEditPattern] = useState("");
   const [editMatchType, setEditMatchType] = useState("contains");
@@ -125,7 +151,13 @@ export function CategoryRow({
   };
 
   return (
-    <Card className="overflow-hidden">
+    <Card
+      ref={card.ref}
+      className={cn(
+        "overflow-hidden transition-shadow duration-700",
+        card.active && "ring-2 ring-primary ring-offset-2 ring-offset-background"
+      )}
+    >
       {/* Category header row */}
       <div
         className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-muted/50 transition-colors"
@@ -213,7 +245,13 @@ export function CategoryRow({
               {rules.map((rule) => (
                 <div
                   key={rule.id}
-                  className="flex flex-col sm:flex-row sm:items-center gap-2 py-1.5 px-2 rounded-md hover:bg-muted/50 group/rule"
+                  ref={rule.id === focusedRule?.id ? ruleFocus.ref : undefined}
+                  className={cn(
+                    "flex flex-col sm:flex-row sm:items-center gap-2 py-1.5 px-2 rounded-md hover:bg-muted/50 group/rule transition-colors duration-700",
+                    rule.id === focusedRule?.id &&
+                      ruleFocus.active &&
+                      "bg-primary/10 ring-1 ring-primary/40 hover:bg-primary/10"
+                  )}
                 >
                   {editingRule === rule.id ? (
                     /* Edit mode */

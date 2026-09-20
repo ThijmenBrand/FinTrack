@@ -4,6 +4,7 @@ import {
   parseDate,
   matchesRule,
   ruleMatchTarget,
+  findMatchingRule,
   splitNameAndDescription,
   extractPattern,
   findMatchingRecurring,
@@ -11,6 +12,7 @@ import {
   isUnsettledRow,
   applyFee,
 } from "./csv-utils";
+import type { MatchableRule } from "./csv-utils";
 
 describe("applyFee", () => {
   // Real Revolut rows: the balance went 888,92 -> 880,85 -> 477,40, i.e. the
@@ -181,6 +183,48 @@ describe("ruleMatchTarget", () => {
   it("'description' is empty when the row has no separate name", () => {
     expect(ruleMatchTarget("Albert Heijn", "groceries", "description")).toBe("groceries");
     expect(ruleMatchTarget(null, "Albert Heijn", "description")).toBe("");
+  });
+});
+
+describe("findMatchingRule", () => {
+  const rule = (over: Partial<MatchableRule> & { id: string }): MatchableRule & { id: string } => ({
+    pattern: "albert",
+    matchType: "contains",
+    matchField: "both",
+    isActive: true,
+    categoryId: "groceries",
+    ...over,
+  });
+
+  it("finds the rule whose pattern matches the row", () => {
+    const rules = [rule({ id: "a", pattern: "shell" }), rule({ id: "b", pattern: "albert" })];
+    expect(findMatchingRule(rules, "Albert Heijn", "groceries")?.id).toBe("b");
+  });
+
+  it("returns null when nothing matches", () => {
+    expect(findMatchingRule([rule({ id: "a", pattern: "shell" })], "Albert Heijn", "")).toBeNull();
+  });
+
+  it("skips deactivated rules", () => {
+    const rules = [rule({ id: "a", isActive: false })];
+    expect(findMatchingRule(rules, "Albert Heijn", "")).toBeNull();
+  });
+
+  it("prefers a match filing into the category the row already sits in", () => {
+    const rules = [
+      rule({ id: "a", categoryId: "shopping" }),
+      rule({ id: "b", categoryId: "groceries" }),
+    ];
+    expect(findMatchingRule(rules, "Albert Heijn", "", "groceries")?.id).toBe("b");
+    // No preference, or one nothing matches: first match wins.
+    expect(findMatchingRule(rules, "Albert Heijn", "")?.id).toBe("a");
+    expect(findMatchingRule(rules, "Albert Heijn", "", "travel")?.id).toBe("a");
+  });
+
+  it("honours each rule's own matchField", () => {
+    const rules = [rule({ id: "a", pattern: "groceries", matchField: "name" })];
+    expect(findMatchingRule(rules, "Albert Heijn", "groceries")).toBeNull();
+    expect(findMatchingRule([rule({ id: "b", pattern: "groceries", matchField: "description" })], "Albert Heijn", "groceries")?.id).toBe("b");
   });
 });
 

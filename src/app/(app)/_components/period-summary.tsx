@@ -97,13 +97,16 @@ export async function PeriodSummary({
   userId,
   startDay = 1,
   accountIds,
+  planId,
 }: {
   userId: string;
   startDay?: number;
   accountIds?: string[];
+  /** The page's ?budget= pin; without it the headline follows the main plan. */
+  planId?: string;
 }) {
   const [budget, summary, { t, formatCurrency }] = await Promise.all([
-    getBudgetOverview(userId, startDay),
+    getBudgetOverview(userId, startDay, planId),
     getMonthSummary(userId, startDay, accountIds),
     getI18n(),
   ]);

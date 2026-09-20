@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,12 +18,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tag, Check } from "lucide-react";
-import { extractPattern } from "@/lib/csv-utils";
+import { Tag, Check, Zap, SlidersHorizontal, ArrowUpRight } from "lucide-react";
+import { extractPattern, findMatchingRule } from "@/lib/csv-utils";
 import { MATCH_TYPES, MATCH_FIELDS } from "@/lib/match-types";
 import { CategoryIcon } from "@/components/category-icon";
 import { CategoryPicker } from "@/components/category-picker";
 import { useCategorizeTransaction } from "@/hooks/use-transactions";
+import { useCategoryRules } from "@/hooks/use-categories";
 import type { Category, SubCategoryOption } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
 import { useResetOnChange } from "@/hooks/use-reset-on-change";
@@ -30,6 +32,10 @@ import { useResetOnChange } from "@/hooks/use-reset-on-change";
 interface CategorizePopoverProps {
   transactionId: string;
   transactionDescription: string;
+  /** The row's raw name/memo, so the rule that claims it is found the way the
+   *  server matches (see ruleMatchTarget). Without it the description above
+   *  stands in for both halves. */
+  transactionText?: { name: string | null; description: string };
   currentCategoryId: string | null;
   currentCategoryName: string | null;
   currentCategoryColor: string | null;
@@ -54,6 +60,7 @@ interface CategorizePopoverProps {
 export function CategorizePopover({
   transactionId,
   transactionDescription,
+  transactionText,
   currentCategoryId,
   currentCategoryName,
   currentCategoryColor,
@@ -81,6 +88,26 @@ export function CategorizePopover({
   const [ruleMatchType, setRuleMatchType] = useState("contains");
   const [ruleMatchField, setRuleMatchField] = useState("both");
   const categorize = useCategorizeTransaction();
+
+  // Fetched only while the popover is open — a long list would otherwise have
+  // every row subscribe — and only where the rules are ours: on someone else's
+  // account they are the owner's config, invisible and uneditable from here.
+  const { data: rules = [] } = useCategoryRules({ enabled: open && canCreateRule });
+  // Which rule (if any) already claims this row. Prefer one filing into the
+  // category the row sits in, so the link points at the rule that put it there.
+  const matchedRule = findMatchingRule(
+    rules,
+    transactionText?.name ?? null,
+    transactionText?.description ?? transactionDescription,
+    currentCategoryId
+  );
+  // A rule's row lives under its own category in settings; without a rule the
+  // link just opens the category that is selected here.
+  const settingsCategoryId =
+    matchedRule?.categoryId || selectedCategoryId || currentCategoryId;
+  const settingsHref =
+    `/settings/categories?category=${encodeURIComponent(settingsCategoryId ?? "")}` +
+    (matchedRule ? `&rule=${encodeURIComponent(matchedRule.id)}` : "");
 
   // Extract a sensible default pattern from the description
   useResetOnChange(open ? transactionDescription : null, () => {
@@ -164,6 +191,28 @@ export function CategorizePopover({
               accountId={accountId}
               className="h-8 text-sm"
             />
+
+            {/* Why this row is where it is — and the way out to the rule that
+                decides it. Sits under the picker because it annotates it. */}
+            {canCreateRule && settingsCategoryId && (
+              <Link
+                href={settingsHref}
+                onClick={() => setOpen(false)}
+                className="group/rule-link flex w-full items-center gap-2 rounded-md border border-dashed px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-solid hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {matchedRule ? (
+                  <Zap className="h-3 w-3 shrink-0 text-primary" />
+                ) : (
+                  <SlidersHorizontal className="h-3 w-3 shrink-0" />
+                )}
+                <span className="min-w-0 flex-1 truncate">
+                  {matchedRule
+                    ? t("categorize.matchedRule", { pattern: matchedRule.pattern })
+                    : t("categorize.manageRules")}
+                </span>
+                <ArrowUpRight className="h-3 w-3 shrink-0 opacity-60 transition-transform group-hover/rule-link:-translate-y-px group-hover/rule-link:translate-x-px" />
+              </Link>
+            )}
           </div>
 
           {/* Create Rule Checkbox */}

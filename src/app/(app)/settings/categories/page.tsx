@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -41,6 +42,8 @@ function SortableCategoryRow({
   onEdit,
   selected,
   onToggleSelect,
+  focusKey,
+  focusedRuleId,
 }: {
   category: CategoryWithDetails;
   rules: RuleWithCategory[];
@@ -48,6 +51,8 @@ function SortableCategoryRow({
   onEdit: (category: CategoryWithDetails) => void;
   selected: boolean;
   onToggleSelect: (selected: boolean) => void;
+  focusKey?: string | null;
+  focusedRuleId?: string | null;
 }) {
   const { t } = useI18n();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
@@ -70,6 +75,8 @@ function SortableCategoryRow({
         onEdit={onEdit}
         selected={selected}
         onToggleSelect={onToggleSelect}
+        focusKey={focusKey}
+        focusedRuleId={focusedRuleId}
         dragHandle={
           <button
             className="cursor-grab active:cursor-grabbing touch-none text-muted-foreground/50 focus-visible:ring-2 focus-visible:ring-ring rounded"
@@ -87,9 +94,21 @@ function SortableCategoryRow({
 }
 
 export default function CategoriesPage() {
+  // useSearchParams needs one — the deep link below reads ?category=/?rule=.
+  return (
+    <Suspense>
+      <CategoriesPageInner />
+    </Suspense>
+  );
+}
+
+function CategoriesPageInner() {
   const { t, plural } = useI18n();
   const { data: categories = [], isLoading: loading } = useCategories();
   const { data: rules = [] } = useCategoryRules();
+  const searchParams = useSearchParams();
+  const categoryParam = searchParams.get("category");
+  const ruleParam = searchParams.get("rule");
   const reapplyRules = useReapplyCategoryRules();
   const reorderCategories = useReorderCategories();
   const qc = useQueryClient();
@@ -186,6 +205,13 @@ export default function CategoriesPage() {
     },
     {} as Record<string, RuleWithCategory[]>
   );
+
+  // Deep link from a transaction's category popover: ?category= opens and
+  // glows that category, ?rule= the one rule inside it. The rule alone is
+  // enough — it knows which category it files into, so a stale ?category=
+  // never sends the page to the wrong row.
+  const focusedRule = ruleParam ? rules.find((r) => r.id === ruleParam) : undefined;
+  const focusedCategoryId = focusedRule?.categoryId ?? categoryParam;
 
   return (
     <div className="space-y-6">
@@ -355,6 +381,10 @@ export default function CategoriesPage() {
                             onEdit={openEditCategory}
                             selected={selectedIds.includes(cat.id)}
                             onToggleSelect={(sel) => toggleSelect(cat.id, sel)}
+                            focusKey={cat.id === focusedCategoryId ? cat.id : null}
+                            focusedRuleId={
+                              cat.id === focusedCategoryId ? (focusedRule?.id ?? null) : null
+                            }
                           />
                         ))}
                       </div>

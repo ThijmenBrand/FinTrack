@@ -327,6 +327,39 @@ export function matchesRule(
   }
 }
 
+/** As much of a categorization rule as matching it needs. */
+export interface MatchableRule {
+  pattern: string;
+  matchType: string;
+  matchField: string;
+  isActive?: boolean;
+  categoryId?: string;
+}
+
+/**
+ * The rule that claims a transaction: the first active rule whose pattern
+ * matches the text its matchField points at. A rule filing into
+ * `preferCategoryId` wins, so a row already sitting in a category names the
+ * rule that most likely put it there rather than some other rule that happens
+ * to match too.
+ */
+export function findMatchingRule<R extends MatchableRule>(
+  rules: R[],
+  name: string | null | undefined,
+  description: string,
+  preferCategoryId?: string | null
+): R | null {
+  let fallback: R | null = null;
+  for (const rule of rules) {
+    if (rule.isActive === false) continue;
+    const target = ruleMatchTarget(name, description, rule.matchField);
+    if (!matchesRule(target, rule.pattern, rule.matchType)) continue;
+    if (preferCategoryId && rule.categoryId === preferCategoryId) return rule;
+    fallback ??= rule;
+  }
+  return fallback;
+}
+
 /**
  * Split the bank's "name" (counterparty) and "description" (memo) CSV fields
  * into the two `transactions.name` / `transactions.description` columns.

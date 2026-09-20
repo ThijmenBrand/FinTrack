@@ -13,7 +13,7 @@ const checkPasswordRateLimit = createRateLimiter(15 * 60 * 1000, 5);
 export async function GET() {
   return withUser(async (userId) => {
     const result = await db.run(
-      sql`SELECT id, name, image, role, two_factor_enabled, created_at FROM "user" WHERE id = ${userId}`
+      sql`SELECT id, name, email, image, role, two_factor_enabled, created_at FROM "user" WHERE id = ${userId}`
     );
     const user = result.rows[0] as Record<string, unknown> | undefined;
 
@@ -24,6 +24,7 @@ export async function GET() {
     return NextResponse.json({
       id: user.id,
       displayName: user.name,
+      email: user.email,
       imageUrl: user.image ?? null,
       isAdmin: user.role === "admin",
       twoFactorEnabled: user.two_factor_enabled === 1 || user.two_factor_enabled === true,
