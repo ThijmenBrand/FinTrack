@@ -17,7 +17,7 @@ const { getUpcomingMoney } = await import("@/app/(app)/_lib/dashboard-queries");
 const { db } = await import("@/db");
 const { accountMembers, accounts, categories, recurringTransactions, transactions } =
   await import("@/db/schema");
-const { eq } = await import("drizzle-orm");
+const { and, eq } = await import("drizzle-orm");
 
 const ME = "upcoming-me";
 const OWNER = "upcoming-owner";
@@ -201,7 +201,9 @@ describe("getUpcomingMoney", () => {
     await db
       .update(recurringTransactions)
       .set({ isActive: false })
-      .where(eq(recurringTransactions.id, "rec-rent"));
+      .where(
+        and(eq(recurringTransactions.id, "rec-rent"), eq(recurringTransactions.userId, ME)),
+      );
 
     const r = await getUpcomingMoney(ME);
 
