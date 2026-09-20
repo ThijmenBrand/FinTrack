@@ -198,11 +198,14 @@ export function useReorderCategories() {
   });
 }
 
-export function useCategoryRules() {
+/** Pass `enabled: false` to hold the fetch back — surfaces that only need the
+ *  rules once a popover opens shouldn't make every row in a list subscribe. */
+export function useCategoryRules(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ["category-rules"],
     queryFn: () => apiFetch<RuleWithCategory[]>("/api/categories/rules"),
     staleTime: 60 * 1000,
+    enabled: options?.enabled ?? true,
   });
 }
 

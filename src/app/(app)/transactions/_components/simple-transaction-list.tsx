@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
+import {
+  useEffect,
+  useState,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+} from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -16,11 +22,26 @@ import { Search, Upload, FileSpreadsheet, Split } from "lucide-react";
 import { SplitBadge } from "@/components/split-badge";
 import type { Category, Pagination, Transaction } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
+import { useIsCategorizing } from "@/hooks/use-transactions";
 import { PaginationBar } from "./transactions-table";
+import { SAVING_ROW } from "./transaction-row";
 import { PERIOD_OPTIONS } from "./transaction-search-bar";
 import { Amount } from "./transaction-amount";
 
 type Option = { value: string; label: string };
+
+/**
+ * A row and its split parts, pulsing while the row's category change is still
+ * with the server — the same cue the full table gives.
+ */
+function Row({ transactionId, children }: { transactionId: string; children: ReactNode }) {
+  const saving = useIsCategorizing(transactionId);
+  return (
+    <div aria-busy={saving} className={saving ? SAVING_ROW : undefined}>
+      {children}
+    </div>
+  );
+}
 
 /** One dropdown, "all" first — the only filter shape simple mode offers. */
 function FilterSelect({
@@ -194,6 +215,7 @@ export function SimpleTransactionList({
                 <CategorizePopover
                   transactionId={tx.id}
                   transactionDescription={tx.name || tx.description}
+                  transactionText={{ name: tx.name, description: tx.description }}
                   currentCategoryId={tx.categoryId}
                   currentCategoryName={tx.categoryName}
                   currentCategoryColor={tx.categoryColor}
@@ -217,7 +239,7 @@ export function SimpleTransactionList({
                   : allSplits;
               const children = matched.length ? matched : allSplits;
               return (
-                <div key={tx.id}>
+                <Row key={tx.id} transactionId={tx.id}>
                   {/* Not a <button>: the category picker is an interactive control
                       inside the row, which can't nest in one. */}
                   <div
@@ -313,7 +335,7 @@ export function SimpleTransactionList({
                       </span>
                     </div>
                   ))}
-                </div>
+                </Row>
               );
             })}
           </div>

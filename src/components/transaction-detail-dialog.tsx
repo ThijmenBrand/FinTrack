@@ -218,6 +218,7 @@ export function TransactionDetailDialog({
               <CategorizePopover
                 transactionId={tx.id}
                 transactionDescription={tx.name || tx.description}
+                transactionText={{ name: tx.name, description: tx.description }}
                 currentCategoryId={tx.categoryId}
                 currentCategoryName={tx.categoryName}
                 currentCategoryColor={tx.categoryColor}

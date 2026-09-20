@@ -7,6 +7,9 @@ export interface PasskeyItem {
   id: string;
   name?: string | null;
   createdAt?: string | null;
+  /** "multiDevice" when the authenticator syncs the key (iCloud, a password
+   *  manager); "singleDevice" when it lives on that one device only. */
+  deviceType?: string | null;
 }
 
 export function usePasskeys(enabled: boolean) {

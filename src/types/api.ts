@@ -291,9 +291,45 @@ export interface MonthMoneyView {
   thisMonthSpikes: ThisMonthSpike[];
 }
 
+/**
+ * One occurrence of a recurring plan inside the dashboard's look-ahead window:
+ * a bill about to leave, or income about to land.
+ */
+export interface UpcomingMoneyEvent {
+  /** Plan id + date — a plan can occur more than once in the window. */
+  key: string;
+  planId: string;
+  /** YYYY-MM-DD. */
+  date: string;
+  /** Whole days from today; negative for an occurrence nothing has settled. */
+  daysUntil: number;
+  description: string;
+  /** Signed: positive for income, negative for a bill. */
+  amount: number;
+  type: "income" | "expense";
+  categoryName: string | null;
+  categoryColor: string | null;
+  accountName: string | null;
+  /** Due date passed and no payment has landed against it — see getUpcomingMoney. */
+  overdue: boolean;
+}
+
+export interface UpcomingMoneyView {
+  events: UpcomingMoneyEvent[];
+  /** Totals over the whole window, not just the events a card chooses to show. */
+  incoming: number;
+  outgoing: number;
+  net: number;
+  /** Active, non-transfer plans in scope — tells an empty card which story to tell. */
+  planCount: number;
+  windowDays: number;
+}
+
 export interface Profile {
   id: string;
   displayName: string;
+  /** The address this account signs in with. Read-only here. */
+  email: string;
   /** Profile picture URL; null falls back to initials. */
   imageUrl: string | null;
   isAdmin: boolean;

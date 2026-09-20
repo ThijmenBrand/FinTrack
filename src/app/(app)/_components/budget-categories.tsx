@@ -8,19 +8,22 @@ import { getBudgetOverview, getUserPlans } from "../_lib/dashboard-queries";
 import { BudgetCategoriesCard } from "./budget-categories-card";
 
 /**
- * Server shell for the dashboard budget card: fetches the main plan's
- * overview and the plan list, then hands rendering (and in-card budget
- * switching) to the client card.
+ * Server shell for the dashboard budget card: fetches the plan's overview and
+ * the plan list, then hands rendering (and in-card budget switching) to the
+ * client card. `planId` is the page's ?budget= pin; without it the card opens
+ * on the main plan as before.
  */
 export async function BudgetCategories({
   userId,
   startDay = 1,
+  planId,
 }: {
   userId: string;
   startDay?: number;
+  planId?: string;
 }) {
   const [data, plans] = await Promise.all([
-    getBudgetOverview(userId, startDay),
+    getBudgetOverview(userId, startDay, planId),
     getUserPlans(userId),
   ]);
 

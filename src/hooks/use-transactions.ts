@@ -1,4 +1,10 @@
-import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
+import {
+  useQuery,
+  useMutation,
+  useIsMutating,
+  useQueryClient,
+  keepPreviousData,
+} from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import type { Transaction, Pagination, Category, PotRangeTotal, SubCategoryOption } from "@/types/api";
 
@@ -114,9 +120,29 @@ type CategorizePayload = {
 
 type TransactionsQueryKey = readonly [string, TransactionFilters];
 
+/** Tags every in-flight categorisation so a row can find its own. */
+const CATEGORIZE_KEY = ["transactions", "categorize"] as const;
+
+/**
+ * True while this transaction's category change is still with the server.
+ * The optimistic update already shows the new category, so a row uses this to
+ * say "not settled yet" rather than to hide anything.
+ */
+export function useIsCategorizing(transactionId: string) {
+  return (
+    useIsMutating({
+      mutationKey: CATEGORIZE_KEY,
+      predicate: (m) =>
+        (m.state.variables as CategorizePayload | undefined)?.transactionId ===
+        transactionId,
+    }) > 0
+  );
+}
+
 export function useCategorizeTransaction() {
   const qc = useQueryClient();
   return useMutation({
+    mutationKey: CATEGORIZE_KEY,
     mutationFn: (payload: CategorizePayload) =>
       apiFetch("/api/transactions/categorize", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
     onMutate: async (payload) => {
