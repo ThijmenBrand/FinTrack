@@ -196,12 +196,16 @@ export async function GET(request: NextRequest) {
         ]
       : [orderFn(sortColumn)];
 
-    // Get total count
-    const countResult = await db
+    // Every read below is built first and sent together in ONE `db.batch`
+    // further down. Against hosted libsql each awaited statement is a network
+    // round trip, and this endpoint used to make six of them in sequence —
+    // that, not the SQL itself, was most of the time the page spent loading.
+
+    // Total count for the pagination footer.
+    const countQuery = db
       .select({ count: sql<number>`count(*)` })
       .from(transactions)
       .where(whereClause);
-    const total = countResult[0]?.count || 0;
 
     // Get paginated results with joined data (including linked account name)
     const offset = (page - 1) * limit;
@@ -330,7 +334,7 @@ export async function GET(request: NextRequest) {
         parentTransactionId: transactions.parentTransactionId,
         isSplitParent: transactions.isSplitParent,
     };
-    const rows = await db
+    const rowsQuery = db
       .select(rowSelect)
       .from(transactions)
       .leftJoin(accounts, eq(transactions.accountId, accounts.id))
@@ -340,12 +344,98 @@ export async function GET(request: NextRequest) {
       .limit(limit)
       .offset(offset);
 
+    // Get distinct types that exist in the database
+    const distinctTypesQuery = db
+      .selectDistinct({ type: transactions.type })
+      .from(transactions)
+      .where(visibleTransactions(userId));
+
+    // Sum totals for the filtered set. Pot members are NOT counted individually;
+    // each pot contributes one net, split by sign: net > 0 → income, net < 0 →
+    // expense. So direct sums cover ungrouped rows only, pot nets are added on
+    // top. Note the pot row rendered in the list shows the pot's LIFETIME
+    // figures; these totals deliberately cover the filtered range instead.
+    //
+    // Expenses are reimbursement-adjusted (same `effectiveExpenseAmount` the
+    // rows and /api/insights use) so the card matches the struck-through amounts
+    // in the table below it. Because reimbursements are already netted off the
+    // expenses here, they must NOT be added to `net` again on top.
+    const directSumQuery = db
+      .select({
+        totalIncome: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END), 0)`,
+        totalExpense: sql<number>`-COALESCE(SUM(CASE WHEN ${transactions.type} = 'expense' THEN (
+          ${effectiveExpenseAmount()}
+        ) ELSE 0 END), 0)`,
+        totalTransfers: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.type} = 'internal_transfer' THEN ${transactions.amount} ELSE 0 END), 0)`,
+        totalReimbursements: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.type} = 'reimbursement' THEN ${transactions.amount} ELSE 0 END), 0)`,
+      })
+      .from(transactions)
+      // Split parents are pure wrappers and count in no totals — only their
+      // children (already covered by `conditions`, which is NOT restricted to
+      // top-level rows here) do.
+      .where(and(...conditions, eq(transactions.isSplitParent, false), isNull(transactions.groupId)));
+
+    // Which pots the current filters touch. The row-level filters decide
+    // *whether* a pot counts; they must not decide *how much* it counts, or a
+    // `type: expense` filter would drop the pot's refunds and overstate spend.
+    // A subquery rather than a fetched id list so the pot-net query below
+    // needs nothing from an earlier round trip. `conditions` refers to the
+    // unaliased `transactions` table, which inside this subquery resolves to
+    // the subquery's own FROM — exactly the rows it filtered before.
+    const filteredPotIds = db
+      .selectDistinct({ groupId: transactions.groupId })
+      .from(transactions)
+      .where(and(...conditions, isNotNull(transactions.groupId)));
+
+    // Net per pot over every member in range. Scoped to the range, not the
+    // pot's whole lifetime: a pot with one member in July must not drag its
+    // January spending into a July total. Mirrors /api/insights
+    // `potSpendingPerPot`, including the internal-transfer exclusion — moving
+    // money into a pot isn't spending it. `memberCount` vs `totalMemberCount`
+    // tells the UI whether the range covers the whole pot.
+    const potNetQuery = db
+      .select({
+        groupId: transactions.groupId,
+        net: sql<number>`COALESCE(SUM(${transactions.amount}), 0)`,
+        memberCount: sql<number>`COUNT(*)`,
+        // Correlated to the row's owner, not the caller: a pot on a shared
+        // account belongs to the account owner. Every row in a group shares
+        // one pot (hence one owner), so the bare column is deterministic.
+        totalMemberCount: sql<number>`(
+          SELECT COUNT(*) FROM transactions t2
+          WHERE t2.group_id = ${transactions.groupId}
+            AND t2.user_id = "transactions"."user_id"
+            AND t2.type != 'internal_transfer'
+        )`,
+      })
+      .from(transactions)
+      .where(
+        and(
+          ...scopeConditions,
+          inArray(transactions.groupId, filteredPotIds),
+          sql`${transactions.type} != 'internal_transfer'`
+        )
+      )
+      .groupBy(transactions.groupId);
+
+    // One round trip for everything that does not depend on the page's rows.
+    const [countResult, rows, distinctTypes, [directSum], potNetRows] = await db.batch([
+      countQuery,
+      rowsQuery,
+      distinctTypesQuery,
+      directSumQuery,
+      potNetQuery,
+    ]);
+    const total = countResult[0]?.count || 0;
+
     // Attach each split parent's children (same joined shape as the rows
     // above) so the list can render them indented beneath it without a
     // separate round trip per parent. Children are never filtered out here —
     // the full set rides along and the UI narrows it to an active category
     // filter (falling back to all parts when the match was on a child's pot,
-    // which a child row doesn't carry).
+    // which a child row doesn't carry). The only read that has to wait for
+    // the batch: it needs to know which parents landed on this page, and most
+    // pages have none, so it usually costs nothing.
     const parentIds = rows.filter((r) => r.isSplitParent).map((r) => r.id);
     const childRows = parentIds.length
       ? await db
@@ -371,82 +461,6 @@ export async function GET(request: NextRequest) {
     const rowsWithSplits = rows.map((r) =>
       r.isSplitParent ? { ...r, splits: childrenByParent.get(r.id) ?? [] } : r
     );
-
-    // Get distinct types that exist in the database
-    const distinctTypes = await db
-      .selectDistinct({ type: transactions.type })
-      .from(transactions)
-      .where(visibleTransactions(userId));
-
-    // Sum totals for the filtered set. Pot members are NOT counted individually;
-    // each pot contributes one net, split by sign: net > 0 → income, net < 0 →
-    // expense. So direct sums cover ungrouped rows only, pot nets are added on
-    // top. Note the pot row rendered in the list shows the pot's LIFETIME
-    // figures; these totals deliberately cover the filtered range instead.
-    //
-    // Expenses are reimbursement-adjusted (same `effectiveExpenseAmount` the
-    // rows and /api/insights use) so the card matches the struck-through amounts
-    // in the table below it. Because reimbursements are already netted off the
-    // expenses here, they must NOT be added to `net` again on top.
-    const [directSum] = await db
-      .select({
-        totalIncome: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} ELSE 0 END), 0)`,
-        totalExpense: sql<number>`-COALESCE(SUM(CASE WHEN ${transactions.type} = 'expense' THEN (
-          ${effectiveExpenseAmount()}
-        ) ELSE 0 END), 0)`,
-        totalTransfers: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.type} = 'internal_transfer' THEN ${transactions.amount} ELSE 0 END), 0)`,
-        totalReimbursements: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.type} = 'reimbursement' THEN ${transactions.amount} ELSE 0 END), 0)`,
-      })
-      .from(transactions)
-      // Split parents are pure wrappers and count in no totals — only their
-      // children (already covered by `conditions`, which is NOT restricted to
-      // top-level rows here) do.
-      .where(and(...conditions, eq(transactions.isSplitParent, false), isNull(transactions.groupId)));
-
-    // Which pots the current filters touch. The row-level filters decide
-    // *whether* a pot counts; they must not decide *how much* it counts, or a
-    // `type: expense` filter would drop the pot's refunds and overstate spend.
-    const filteredPotIds = (
-      await db
-        .selectDistinct({ groupId: transactions.groupId })
-        .from(transactions)
-        .where(and(...conditions, isNotNull(transactions.groupId)))
-    )
-      .map((r) => r.groupId)
-      .filter((id): id is string => !!id);
-
-    // Net per pot over every member in range. Scoped to the range, not the
-    // pot's whole lifetime: a pot with one member in July must not drag its
-    // January spending into a July total. Mirrors /api/insights
-    // `potSpendingPerPot`, including the internal-transfer exclusion — moving
-    // money into a pot isn't spending it. `memberCount` vs `totalMemberCount`
-    // tells the UI whether the range covers the whole pot.
-    const potNetRows = filteredPotIds.length
-      ? await db
-          .select({
-            groupId: transactions.groupId,
-            net: sql<number>`COALESCE(SUM(${transactions.amount}), 0)`,
-            memberCount: sql<number>`COUNT(*)`,
-            // Correlated to the row's owner, not the caller: a pot on a shared
-            // account belongs to the account owner. Every row in a group shares
-            // one pot (hence one owner), so the bare column is deterministic.
-            totalMemberCount: sql<number>`(
-              SELECT COUNT(*) FROM transactions t2
-              WHERE t2.group_id = ${transactions.groupId}
-                AND t2.user_id = "transactions"."user_id"
-                AND t2.type != 'internal_transfer'
-            )`,
-          })
-          .from(transactions)
-          .where(
-            and(
-              ...scopeConditions,
-              inArray(transactions.groupId, filteredPotIds),
-              sql`${transactions.type} != 'internal_transfer'`
-            )
-          )
-          .groupBy(transactions.groupId)
-      : [];
 
     // A pot contributes one net, on the side its sign puts it. With a `type`
     // filter active, only count the side the user asked for — otherwise
