@@ -50,12 +50,15 @@ import { TransactionTotals } from "./_components/transaction-totals";
 import { TransactionBulkBar } from "./_components/transaction-bulk-bar";
 import { TransactionsTable } from "./_components/transactions-table";
 import { SimpleTransactionList } from "./_components/simple-transaction-list";
+import { TransactionsPageSkeleton } from "./_components/transactions-skeleton";
 import { useResetOnChange } from "@/hooks/use-reset-on-change";
 
 // --- Main Page ---
 export default function TransactionsPageWrapper() {
   return (
-    <Suspense>
+    // The same skeleton loading.tsx shows, so the page's own suspension
+    // (useSearchParams) never flashes an empty screen between the two.
+    <Suspense fallback={<TransactionsPageSkeleton />}>
       <TransactionsPage />
     </Suspense>
   );
