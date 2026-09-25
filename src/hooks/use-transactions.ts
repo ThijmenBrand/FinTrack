@@ -73,6 +73,34 @@ export function useDeleteTransaction() {
   });
 }
 
+/** Hand-enter one income/expense row — money no bank export will report. */
+export function useCreateTransaction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: {
+      accountId: string;
+      date: string;
+      description: string;
+      amount: number;
+      type: "income" | "expense";
+      categoryId: string | null;
+      notes: string | null;
+    }) =>
+      apiFetch<Transaction>("/api/transactions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["transactions"] });
+      qc.invalidateQueries({ queryKey: ["accounts"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      qc.invalidateQueries({ queryKey: ["budgets"] });
+      qc.invalidateQueries({ queryKey: ["insights"] });
+    },
+  });
+}
+
 export function useDetectTransfers() {
   const qc = useQueryClient();
   return useMutation({

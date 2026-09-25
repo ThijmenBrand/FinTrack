@@ -15,6 +15,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { AddToPotDialog } from "@/components/add-to-pot-dialog";
 import { CsvUploadDialog } from "@/components/csv-upload-dialog";
+import { AddTransactionDialog } from "@/components/add-transaction-dialog";
 import { PullToRefresh } from "@/components/pull-to-refresh";
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog";
 import { ReimbursementPicker } from "@/components/reimbursement-picker";
@@ -27,6 +28,7 @@ import {
   Loader2,
   Plus,
   History,
+  PenLine,
 } from "lucide-react";
 import { useAccounts } from "@/hooks/use-accounts";
 import { useAccountCategories, useCategories } from "@/hooks/use-categories";
@@ -108,6 +110,7 @@ function TransactionsPage() {
   const [uploadOpen, setUploadOpen] = useState(
     () => searchParams.get("action") === "upload",
   );
+  const [addOpen, setAddOpen] = useState(false);
   const [transferResult, setTransferResult] = useState<string | null>(null);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [reimbursePicker, setReimbursePicker] = useState<Transaction | null>(null);
@@ -130,6 +133,9 @@ function TransactionsPage() {
   // Filters — initialized from URL params
   const [search, setSearch] = useState(searchParams.get("search") || "");
   const [accountFilter, setAccountFilter] = useState(searchParams.get("account") || "all");
+  // A list narrowed to one account is where a hand-entered row most likely goes.
+  const singleAccountFilter =
+    accountFilter !== "all" && !accountFilter.includes(",") ? accountFilter : undefined;
   const [potFilter, setPotFilter] = useState(searchParams.get("pot") || "all");
   const [categoryFilters, setCategoryFilters] = useState<string[]>(() => searchParams.getAll("category"));
   const [excludeCategories, setExcludeCategories] = useState<string[]>(() => searchParams.getAll("excludeCategory"));
@@ -528,10 +534,16 @@ function TransactionsPage() {
             <h1 className="text-3xl font-bold tracking-tight">{t("tx.title")}</h1>
             <p className="text-muted-foreground">{t("tx.simple.subtitle")}</p>
           </div>
-          <Button data-tour="import-csv" size="sm" onClick={() => setUploadOpen(true)}>
-            <Upload className="mr-2 h-4 w-4" />
-            {t("tx.importCsv")}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setAddOpen(true)}>
+              <PenLine className="mr-2 h-4 w-4" />
+              {t("tx.add.button")}
+            </Button>
+            <Button data-tour="import-csv" size="sm" onClick={() => setUploadOpen(true)}>
+              <Upload className="mr-2 h-4 w-4" />
+              {t("tx.importCsv")}
+            </Button>
+          </div>
         </div>
 
         {totals && <TransactionTotals totals={totals} />}
@@ -567,6 +579,13 @@ function TransactionsPage() {
           open={uploadOpen}
           onOpenChange={setUploadOpen}
           accounts={accounts}
+        />
+
+        <AddTransactionDialog
+          open={addOpen}
+          onOpenChange={setAddOpen}
+          accounts={accounts}
+          defaultAccountId={singleAccountFilter}
         />
 
         <TransactionDetailDialog
@@ -609,6 +628,15 @@ function TransactionsPage() {
               <History className="sm:mr-2 h-4 w-4" />
               <span className="hidden sm:inline">{t("tx.importHistory")}</span>
             </Link>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setAddOpen(true)}
+            aria-label={t("tx.add.button")}
+          >
+            <PenLine className="sm:mr-2 h-4 w-4" />
+            <span className="hidden sm:inline">{t("tx.add.button")}</span>
           </Button>
           <Button data-tour="import-csv" size="sm" onClick={() => setUploadOpen(true)}>
             <Upload className="sm:mr-2 h-4 w-4" />
@@ -756,6 +784,14 @@ function TransactionsPage() {
         open={uploadOpen}
         onOpenChange={setUploadOpen}
         accounts={accounts}
+      />
+
+      {/* Manual Transaction Dialog */}
+      <AddTransactionDialog
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        accounts={accounts}
+        defaultAccountId={singleAccountFilter}
       />
 
       {/* Transaction Detail Modal */}
