@@ -347,6 +347,14 @@ describe("POST /api/transactions", () => {
     expect(res.status).toBe(404);
   });
 
+  it("rejects an amount whose sign contradicts the type, and a zero amount", async () => {
+    actor = OWNER;
+    const base = { accountId: "acc-shared", date: "2026-08-01", description: "Wrong way round" };
+    expect((await post({ ...base, amount: 42, type: "expense" })).status).toBe(400);
+    expect((await post({ ...base, amount: -42, type: "income" })).status).toBe(400);
+    expect((await post({ ...base, amount: 0, type: "expense" })).status).toBe(400);
+  });
+
   it("the owner posting to their own account works as before", async () => {
     actor = OWNER;
     const res = await post({

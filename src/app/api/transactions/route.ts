@@ -530,6 +530,14 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
+    // Every aggregate reads the sign, not the type, so a positive "expense"
+    // would count as income on one screen and as spending on another.
+    if (type === "expense" ? amount >= 0 : amount <= 0) {
+      return NextResponse.json(
+        { error: "amount must be negative for an expense and positive for income" },
+        { status: 400 },
+      );
+    }
     if (name != null && typeof name !== "string") {
       return NextResponse.json({ error: "name must be a string" }, { status: 400 });
     }
