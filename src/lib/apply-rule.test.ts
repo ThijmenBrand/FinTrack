@@ -6,7 +6,7 @@ const testDb = await setupTestDb("apply-rule");
 
 const { db } = await import("@/db");
 const { applyRuleToTransactions } = await import("./apply-rule");
-const { transactions, categories } = await import("@/db/schema");
+const { transactions, categories, accounts } = await import("@/db/schema");
 const { eq } = await import("drizzle-orm");
 
 const USER = "user-1";
@@ -14,9 +14,9 @@ const OTHER_USER = "user-2";
 
 let seq = 0;
 
-async function insertCategory(): Promise<string> {
+async function insertCategory(kind: "expense" | "transfer" = "expense"): Promise<string> {
   const id = `cat-${++seq}`;
-  await db.insert(categories).values({ id, userId: USER, name: `Cat ${seq}` });
+  await db.insert(categories).values({ id, userId: USER, name: `Cat ${seq}`, kind });
   return id;
 }
 
@@ -26,12 +26,15 @@ async function insertTx(opts: {
   type?: "income" | "expense" | "internal_transfer" | "reimbursement";
   categoryId?: string | null;
   userId?: string;
+  accountId?: string;
+  counterpartyIban?: string | null;
 }): Promise<string> {
   const id = `tx-${++seq}`;
   await db.insert(transactions).values({
     id,
     userId: opts.userId ?? USER,
-    accountId: "acct-1",
+    accountId: opts.accountId ?? "acct-1",
+    counterpartyIban: opts.counterpartyIban ?? null,
     date: "2026-05-01",
     name: opts.name ?? null,
     description: opts.description,
@@ -251,5 +254,42 @@ describe("applyRuleToTransactions", () => {
         userId: USER,
       }),
     ).toBe(3);
+  });
+
+  it("keeps a transfer bucket off rows the account policy rules out as a transfer", async () => {
+    await db.insert(accounts).values([
+      { id: "own", userId: USER, name: "Own", type: "checking", internalTransfers: true },
+      {
+        id: "joint",
+        userId: USER,
+        name: "Joint",
+        type: "joint",
+        iban: "AT48 2011 1858 2536 6500",
+        internalTransfers: false,
+      },
+    ]);
+    const transferCat = await insertCategory("transfer");
+    // A contribution from your own account to the joint one...
+    const contribution = await insertTx({
+      description: "Overboeking spaar",
+      accountId: "own",
+      counterpartyIban: "AT482011185825366500",
+    });
+    // ...the same money seen from the joint account's side...
+    const onJoint = await insertTx({ description: "Overboeking spaar", accountId: "joint" });
+    // ...and a move between two accounts that are both still yours.
+    const ownMove = await insertTx({ description: "Overboeking spaar", accountId: "own" });
+
+    expect(
+      await applyRuleToTransactions({
+        pattern: "overboeking",
+        categoryId: transferCat,
+        matchType: "contains",
+        userId: USER,
+      }),
+    ).toBe(1);
+    expect((await getTx(contribution)).categoryId).toBeNull();
+    expect((await getTx(onJoint)).categoryId).toBeNull();
+    expect((await getTx(ownMove)).categoryId).toBe(transferCat);
   });
 });

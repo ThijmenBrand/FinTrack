@@ -6,6 +6,7 @@ import { accounts } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { isLocale } from "@/lib/i18n";
 import { resolveBudgetPlan } from "@/lib/budget-plan";
+import { isFiniteNumber } from "@/lib/validation";
 
 export async function GET() {
   return withUser(async (userId) => {
@@ -13,9 +14,6 @@ export async function GET() {
     return NextResponse.json(prefs);
   }, "Failed to fetch preferences");
 }
-
-const isFiniteNumber = (v: unknown): v is number =>
-  typeof v === "number" && Number.isFinite(v);
 
 export async function PUT(request: NextRequest) {
   return withUser(async (userId) => {

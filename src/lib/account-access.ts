@@ -46,7 +46,7 @@ export function visibleTransactions(userId: string) {
 }
 
 /** Subquery of account ids where `userId` has an active EDITOR membership. */
-export function writableMemberAccountIds(userId: string) {
+function writableMemberAccountIds(userId: string) {
   return db
     .select({ id: accountMembers.accountId })
     .from(accountMembers)

@@ -28,6 +28,7 @@ import {
   Repeat,
   Split,
   Paperclip,
+  Filter,
 } from "lucide-react";
 import { CategorizePopover } from "@/components/categorize-popover";
 import { RecurringLinkPopover } from "@/components/recurring-link-popover";
@@ -63,6 +64,9 @@ interface TransactionDetailDialogProps {
   onCategorized?: () => void;
   /** Open straight into the split editor — set from the row context menu's "Split…"/"Edit split…". */
   openSplitEditor?: boolean;
+  /** Narrows the list behind the dialog to this row's account. Left unset
+   *  where there is no list to narrow, or it already is. */
+  onFilterByAccount?: (accountId: string) => void;
 }
 
 export function TransactionDetailDialog({
@@ -70,6 +74,7 @@ export function TransactionDetailDialog({
   onOpenChange,
   onCategorized,
   openSplitEditor,
+  onFilterByAccount,
 }: TransactionDetailDialogProps) {
   const { t, formatCurrency, formatDate, formatDateTime } = useI18n();
   // Scoped to this transaction's account: on a shared account the row lives in
@@ -203,7 +208,23 @@ export function TransactionDetailDialog({
           <div className="flex items-center gap-3">
             <Wallet className="h-4 w-4 text-muted-foreground shrink-0" />
             <span className="text-muted-foreground w-20 shrink-0">{t("common.account")}</span>
-            <span className="font-medium">{tx.accountName || "—"}</span>
+            <span className="font-medium truncate">{tx.accountName || "—"}</span>
+            {onFilterByAccount && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="ml-auto h-7 shrink-0 gap-1.5 text-xs text-muted-foreground [&_svg]:size-3.5"
+                // A title, not an aria-label: the accessible name must keep the
+                // visible "Filter" so voice control can reach the button by it.
+                title={t("txDetail.filterByAccountHint", {
+                  account: tx.accountName || t("common.account"),
+                })}
+                onClick={() => onFilterByAccount(tx.accountId)}
+              >
+                <Filter />
+                {t("txDetail.filterByAccount")}
+              </Button>
+            )}
           </div>
 
           <div className="flex items-center gap-3">

@@ -6,8 +6,14 @@ import { setupTestDb } from "./test-db";
 const testDb = await setupTestDb("detect-transfers");
 
 const { db } = await import("@/db");
-const { detectTransfers, undoTransfer, splitTransfersForAccount, isTransferPair } =
-  await import("./detect-transfers");
+const {
+  detectTransfers,
+  undoTransfer,
+  splitTransfersForAccount,
+  isTransferPair,
+  sharedMoneyIbans,
+  transferRuledOut,
+} = await import("./detect-transfers");
 const { transactions, categories, accounts, accountMembers } = await import("@/db/schema");
 const { and, eq } = await import("drizzle-orm");
 
@@ -530,5 +536,32 @@ describe("detectTransfers", () => {
     it("is a no-op on an unknown id", async () => {
       expect(await undoTransfer(db, "nope", USER)).toEqual({ reverted: 0, counterparts: [] });
     });
+  });
+});
+
+describe("transferRuledOut", () => {
+  const shared = sharedMoneyIbans([
+    { iban: "AT48 2011 1858 2536 6500", internalTransfers: false },
+    { iban: "NL91ABNA0417164300", internalTransfers: true },
+    { iban: null, internalTransfers: false },
+  ]);
+
+  it("collects only the IBANs of shared-money accounts, normalized", () => {
+    expect([...shared]).toEqual(["AT482011185825366500"]);
+  });
+
+  it("rules out every row on an account whose money is shared", () => {
+    expect(transferRuledOut({ internalTransfers: false }, null, shared)).toBe(true);
+  });
+
+  it("rules out a row whose counterparty is a shared-money account", () => {
+    expect(
+      transferRuledOut({ internalTransfers: true }, "at48 2011 1858 2536 6500", shared),
+    ).toBe(true);
+  });
+
+  it("leaves a row between two of your own accounts, or with no IBAN, open", () => {
+    expect(transferRuledOut({ internalTransfers: true }, "NL91ABNA0417164300", shared)).toBe(false);
+    expect(transferRuledOut({ internalTransfers: true }, null, shared)).toBe(false);
   });
 });

@@ -13,7 +13,6 @@ import type {
   CategoryWithDetails,
   HistoryData,
   SubCategoryOption,
-  Transaction,
 } from "@/types/api";
 import {
   addLine,
@@ -452,14 +451,5 @@ export function useDeleteSubLine() {
     },
     onError: shared.onError,
     onSettled: shared.onSettled,
-  });
-}
-
-export function useBudgetMonthTransactions(categoryId: string, dateFrom: string, dateTo: string, enabled: boolean) {
-  return useQuery({
-    queryKey: ["transactions", { categoryId, dateFrom, dateTo, type: "expense" }],
-    queryFn: () => apiFetch<{ data: Transaction[] }>(`/api/transactions?categoryId=${categoryId}&dateFrom=${dateFrom}&dateTo=${dateTo}&type=expense&limit=100&sortBy=date&sortOrder=desc`),
-    enabled,
-    staleTime: 60 * 1000,
   });
 }

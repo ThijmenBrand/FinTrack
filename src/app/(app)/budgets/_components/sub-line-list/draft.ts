@@ -2,11 +2,6 @@ import type { BudgetChildInput } from "@/hooks/use-budgets";
 import type { BudgetSubLine } from "@/types/api";
 import { sumLines } from "@/lib/budget-cache";
 
-// The tree edits are the same at every level of this feature — a draft, a
-// saved sub-line and an optimistic cache patch all key on `id` and hold
-// `children` — so they live next to the cache patches that also need them.
-export { addLine, removeLine, sumLines, updateLine } from "@/lib/budget-cache";
-
 /**
  * The plan a line stands for, reduced to what a row has to show: which cadence
  * it runs on and when it next falls due. A saved sub-line's `recurring` block

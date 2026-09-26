@@ -6,19 +6,27 @@ import { eq, and, sql, inArray } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 
 /**
+ * The expense ids a POST names, deduplicated — or null when the field isn't a
+ * non-empty array of non-empty strings.
+ */
+function parseExpenseIds(raw: unknown): string[] | null {
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  if (!raw.every((id) => typeof id === "string" && id.length > 0)) return null;
+  return [...new Set(raw as string[])];
+}
+
+/**
  * POST /api/transactions/reimburse
  * Link an income transaction as a reimbursement of one or more expenses.
  * Body: { transactionId: string, expenseIds: string[] }
- * Also accepts legacy { transactionId: string, expenseId: string }
  */
 export async function POST(request: NextRequest) {
   return withUser(async (userId) => {
-    const body = await request.json();
-    const transactionId: string = body.transactionId;
-    // Support both single expenseId and array of expenseIds
-    const expenseIds: string[] = body.expenseIds || (body.expenseId ? [body.expenseId] : []);
+    const body = await request.json().catch(() => null);
+    const transactionId: unknown = body?.transactionId;
+    const expenseIds = parseExpenseIds(body?.expenseIds);
 
-    if (!transactionId || expenseIds.length === 0) {
+    if (typeof transactionId !== "string" || !transactionId || !expenseIds) {
       return NextResponse.json(
         { error: "transactionId and at least one expenseId are required" },
         { status: 400 }
@@ -64,9 +72,22 @@ export async function POST(request: NextRequest) {
       return apiError("api.splitParentAction", 409);
     }
 
-    // Insert links into the junction table
+    // Insert links into the junction table, skipping pairs already linked. The
+    // pair's unique index lives only in initializeDatabase, not in schema.ts,
+    // so don't lean on it: a duplicate row would skew the pro-rata share every
+    // linked expense gets (see effectiveExpenseAmount).
+    const existing = await db
+      .select({ expenseId: reimbursementLinks.expenseId })
+      .from(reimbursementLinks)
+      .where(
+        and(
+          eq(reimbursementLinks.reimbursementId, transactionId),
+          inArray(reimbursementLinks.expenseId, expenseIds),
+        ),
+      );
+    const alreadyLinked = new Set(existing.map((l) => l.expenseId));
     const now = new Date().toISOString();
-    for (const expenseId of expenseIds) {
+    for (const expenseId of expenseIds.filter((id) => !alreadyLinked.has(id))) {
       await db
         .insert(reimbursementLinks)
         .values({

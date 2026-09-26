@@ -31,7 +31,12 @@ import {
   resyncUpwards,
 } from "@/lib/budget-sub-lines";
 import { getStatsCutoff } from "@/lib/stat-reset";
-import { accountScopeFilter, resolveBudgetPlan, resolveBudgetRowAccess } from "@/lib/budget-plan";
+import {
+  accountScopeFilter,
+  effectiveStartDay,
+  resolveBudgetPlan,
+  resolveBudgetRowAccess,
+} from "@/lib/budget-plan";
 import {
   financialYearOf,
   getFinancialYearRange,
@@ -206,10 +211,7 @@ export async function GET(request: NextRequest) {
     // spending and the owner's financial-month window — so member and owner
     // see identical numbers. Own plans: dataUserId === userId.
     const dataUserId = plan?.ownerId ?? userId;
-    const startDay =
-      plan && plan.ownerId !== userId
-        ? (await getUserPreferences(plan.ownerId)).financialMonthStartDay
-        : prefs.financialMonthStartDay;
+    const startDay = await effectiveStartDay(userId, plan, prefs.financialMonthStartDay);
 
     // Every spend-derived number in this endpoint respects one scope: an
     // explicit accountId param wins, otherwise the plan's accounts (main plan

@@ -44,7 +44,7 @@ export function isHexColor(v: unknown): v is string {
   return typeof v === "string" && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(v);
 }
 
-export const MATCH_TYPES = ["contains", "exact", "starts_with"] as const;
+const MATCH_TYPES = ["contains", "exact", "starts_with"] as const;
 export type RuleMatchType = (typeof MATCH_TYPES)[number];
 
 /** Allowlist check for category-rule match types (CLAUDE.md requirement). */
@@ -53,7 +53,7 @@ export function isMatchType(v: unknown): v is RuleMatchType {
 }
 
 /** Which transaction text a rule matches against. "both" = "name — description". */
-export const MATCH_FIELDS = ["both", "name", "description"] as const;
+const MATCH_FIELDS = ["both", "name", "description"] as const;
 export type RuleMatchField = (typeof MATCH_FIELDS)[number];
 
 export function isMatchField(v: unknown): v is RuleMatchField {

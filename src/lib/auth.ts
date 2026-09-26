@@ -8,7 +8,6 @@ import * as schema from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import crypto from "crypto";
 import { logAuthEvent } from "@/lib/audit";
 import { sendVerificationEmail, sendPasswordResetEmail } from "@/lib/email";
 import { MIN_PASSWORD_LENGTH } from "@/lib/validation";
@@ -16,6 +15,7 @@ import { seedCategoriesForUser } from "@/db/migrate";
 import { apiError } from "@/lib/api-errors";
 import { getRequestLocale } from "@/lib/i18n/request";
 import { isLocale, type Locale } from "@/lib/i18n";
+import { hashPassword, verifyPassword } from "@/lib/password-hash";
 
 /**
  * Language for a mail sent to `userId`: their stored preference, or — for
@@ -32,29 +32,8 @@ async function emailLocale(userId: string): Promise<Locale> {
   return isLocale(stored) ? stored : getRequestLocale();
 }
 
-// ─── Password Hashing (scrypt — compatible with existing hashes) ────────────
-
-function hashPassword(password: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const salt = crypto.randomBytes(16).toString("hex");
-    crypto.scrypt(password, salt, 64, (err, derivedKey) => {
-      if (err) return reject(err);
-      resolve(`${salt}:${derivedKey.toString("hex")}`);
-    });
-  });
-}
-
-function verifyPassword(password: string, hash: string): Promise<boolean> {
-  return new Promise((resolve, reject) => {
-    const [salt, key] = hash.split(":");
-    crypto.scrypt(password, salt, 64, (err, derivedKey) => {
-      if (err) return reject(err);
-      resolve(crypto.timingSafeEqual(Buffer.from(key, "hex"), derivedKey));
-    });
-  });
-}
-
-// Re-export for use in migrate.ts
+// Route handlers take the password helpers from here, next to the auth they
+// belong to; the implementation lives apart so scripts can use it too.
 export { hashPassword, verifyPassword };
 
 // ─── Better Auth Instance ──────────────────────────────────────────────────
@@ -190,7 +169,7 @@ export interface SessionData {
  * Get the current user's ID from the session.
  * Use in API routes — returns userId or throws a Response.
  */
-export async function getUserId(): Promise<string> {
+async function getUserId(): Promise<string> {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session?.user?.id) {
     throw await apiError("api.unauthorized", 401);
@@ -242,7 +221,7 @@ export async function requireBackofficeAdmin(): Promise<SessionData> {
  * Require admin privileges. For use in API routes.
  * Throws 401 if not authenticated, 403 for non-admin users.
  */
-export async function requireAdmin(): Promise<SessionData> {
+async function requireAdmin(): Promise<SessionData> {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session?.user?.id) {
     throw await apiError("api.unauthorized", 401);

@@ -375,6 +375,59 @@ describe("POST /api/transactions", () => {
     expect(row.user_id).toBe(OWNER);
     expect(row.created_by).toBe(OWNER);
   });
+
+  describe("sub-categories", () => {
+    beforeEach(async () => {
+      const now = new Date().toISOString();
+      await testDb.client.execute({
+        sql: `INSERT INTO categories (id, user_id, name, created_at) VALUES ('cat-owner-2', ?, 'Dining', ?)`,
+        args: [OWNER, now],
+      });
+      await testDb.client.execute({
+        sql: `INSERT INTO budgets (id, user_id, budget_id, category_id, amount, period, is_active, status, source, created_at)
+              VALUES ('alloc-groceries', ?, NULL, 'cat-owner', 100, 'monthly', 1, 'active', 'manual', ?)`,
+        args: [OWNER, now],
+      });
+      await testDb.client.execute({
+        sql: `INSERT INTO budget_sub_lines (id, user_id, allocation_id, parent_id, name, amount, created_at)
+              VALUES ('sub-veg', ?, 'alloc-groceries', NULL, 'Veg', 40, ?)`,
+        args: [OWNER, now],
+      });
+    });
+
+    const base = {
+      accountId: "acc-shared",
+      date: "2026-08-01",
+      description: "Market",
+      amount: -12,
+      type: "expense",
+    };
+
+    it("an editor books onto a sub-line of the owner's plan", async () => {
+      actor = EDITOR;
+      const res = await post({ ...base, categoryId: "cat-owner", subLineId: "sub-veg" });
+      expect(res.status).toBe(201);
+      const created = await res.json();
+      const row = (
+        await testDb.client.execute({
+          sql: `SELECT category_id, sub_line_id FROM transactions WHERE id = ?`,
+          args: [created.id],
+        })
+      ).rows[0];
+      expect(row.category_id).toBe("cat-owner");
+      expect(row.sub_line_id).toBe("sub-veg");
+    });
+
+    it("refuses a sub-line of another category, or one without a category", async () => {
+      expect(
+        (await post({ ...base, categoryId: "cat-owner-2", subLineId: "sub-veg" })).status,
+      ).toBe(400);
+      expect((await post({ ...base, subLineId: "sub-veg" })).status).toBe(400);
+      expect(
+        (await post({ ...base, categoryId: "cat-owner", subLineId: "sub-missing" })).status,
+      ).toBe(400);
+    });
+  });
 });
 
 const del = (query: string) =>

@@ -10,12 +10,6 @@ export function useStatResets() {
   });
 }
 
-/** The newest reset date — the one that governs every average. */
-export function useStatsCutoff(): string | null {
-  const { data } = useStatResets();
-  return data?.[0]?.date ?? null;
-}
-
 function useStatResetMutation<TArgs>(
   mutationFn: (args: TArgs) => Promise<StatResetData[]>,
 ) {

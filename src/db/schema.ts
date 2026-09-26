@@ -291,8 +291,9 @@ export const budgets = sqliteTable("budgets", {
     .primaryKey()
     .$defaultFn(() => crypto.randomUUID()),
   userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
-  // The plan this allocation belongs to. Nullable only for pre-plan legacy
-  // rows; the 0009 backfill attaches every row to the user's Main plan.
+  // The plan this allocation belongs to. Null for a user who has no plan
+  // (none is created at signup, and the last one can be deleted); the 0009
+  // backfill attached every row that existed then to its user's Main plan.
   budgetId: text("budget_id").references(() => budgetPlans.id, { onDelete: "cascade" }),
   categoryId: text("category_id")
     .notNull()

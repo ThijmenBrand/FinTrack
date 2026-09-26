@@ -23,9 +23,7 @@
  */
 
 import type { FinancialMonthSlot } from "@/lib/financial-year";
-
-/** Money is stored as floats; anything under half a cent is noise. */
-export const MONEY_EPSILON = 0.005;
+import { MONEY_EPSILON } from "@/lib/validation";
 
 export interface LedgerMonthInput extends FinancialMonthSlot {
   /** True once the month has fully elapsed — its target stops following the allocation. */

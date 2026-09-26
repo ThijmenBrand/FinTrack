@@ -84,6 +84,8 @@ export function useCreateTransaction() {
       amount: number;
       type: "income" | "expense";
       categoryId: string | null;
+      /** Sub-line under `categoryId`; the server refuses one of another category. */
+      subLineId: string | null;
       notes: string | null;
     }) =>
       apiFetch<Transaction>("/api/transactions", {

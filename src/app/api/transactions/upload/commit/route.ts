@@ -17,7 +17,9 @@ import { withUser } from "@/lib/auth";
 import { requireAccountAccess } from "@/lib/account-access";
 import {
   detectTransfers,
-  findTransferCategory,
+  loadTransferCategories,
+  sharedMoneyIbans,
+  transferRuledOut,
   TRANSFER_WINDOW_DAYS,
   withinTransferWindow,
 } from "@/lib/detect-transfers";
@@ -37,7 +39,14 @@ type TxType = (typeof TX_TYPES)[number];
 
 // Backstop against unbounded request bodies — a real bank CSV is far smaller.
 const MAX_IMPORT_ROWS = 5000;
-import { canSplitImportRow, matchesRule, ruleMatchTarget, splitDuplicates, type SplitPart } from "@/lib/csv-utils";
+import {
+  canSplitImportRow,
+  matchesRule,
+  ruleCategoryFor,
+  ruleMatchTarget,
+  splitDuplicates,
+  type SplitPart,
+} from "@/lib/csv-utils";
 import { applyRuleToTransactions } from "@/lib/apply-rule";
 import { splitStamps } from "@/lib/transaction-split";
 import { subLineCategories } from "@/lib/budget-sub-lines";
@@ -149,7 +158,7 @@ export async function POST(request: NextRequest) {
     const importedAccountIban = access.account.iban;
 
     const ownerAccounts = await db
-      .select({ id: accounts.id, internalTransfers: accounts.internalTransfers })
+      .select({ id: accounts.id, iban: accounts.iban, internalTransfers: accounts.internalTransfers })
       .from(accounts)
       .where(eq(accounts.userId, ownerId));
     const ownerAccountIds = new Set(ownerAccounts.map((a) => a.id));
@@ -213,19 +222,49 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const activeRules = await db
+      .select()
+      .from(categoryRules)
+      .where(and(eq(categoryRules.isActive, true), eq(categoryRules.userId, ownerId)));
+    const { primary: transferCategory, ids: transferCategories } =
+      await loadTransferCategories(db, ownerId);
+    const sharedIbans = sharedMoneyIbans(ownerAccounts);
+
+    // A row the policy no longer lets be a transfer, filed the way a fresh
+    // preview would: by the rules, none of them into a transfer bucket.
+    const refileAsPlain = (tx: CommitTransaction) => {
+      tx.categoryId = ruleCategoryFor(activeRules, tx.name, tx.description, transferCategories);
+      tx.subLineId = undefined;
+    };
+
     // The account policy decides what a transfer IS, and the preview that
     // proposed these rows may be minutes old — the flag can have been switched
     // off in another tab since. Re-checked here because this is where the rows
     // are written: either side holding money that isn't purely the owner's
     // makes the move a real expense on one side and a real income on the other,
-    // so the row goes in as the plain transaction the CSV already describes.
+    // so the row goes in as the plain transaction the CSV already describes —
+    // out of the transfer bucket the preview put it in.
     if (sharedMoney.size > 0) {
       for (const tx of txList) {
         if (tx.type !== "internal_transfer" || !tx.targetAccountId) continue;
         if (sharedMoney.has(accountId) || sharedMoney.has(tx.targetAccountId)) {
           tx.type = tx.amount >= 0 ? "income" : "expense";
           tx.targetAccountId = undefined;
+          if (tx.categoryId && transferCategories.has(tx.categoryId)) refileAsPlain(tx);
         }
+      }
+    }
+
+    // The same staleness for rules: a stale preview may have let a rule file a
+    // now ruled-out row into a transfer bucket. A transfer bucket that is
+    // exactly what the rules pick with the policy ignored is taken as that
+    // rule's doing and re-filed; any other transfer pick is the reviewer's own.
+    for (const tx of txList) {
+      if (tx.splits || tx.type === "internal_transfer") continue;
+      if (!tx.categoryId || !transferCategories.has(tx.categoryId)) continue;
+      if (!transferRuledOut(access.account, tx.counterpartyIban, sharedIbans)) continue;
+      if (ruleCategoryFor(activeRules, tx.name, tx.description) === tx.categoryId) {
+        refileAsPlain(tx);
       }
     }
 
@@ -353,9 +392,6 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Get the "Internal Transfer" category for mirror transactions
-    const transferCategory = await findTransferCategory(db, ownerId);
-
     // Only allow pot assignments to pots the owner actually owns
     const ownerPots = await db
       .select({ id: transactionGroups.id })
@@ -366,17 +402,21 @@ export async function POST(request: NextRequest) {
     // Pre-fetch active rules so we can detect, per row, whether an incoming
     // categoryId is the result of a rule match (auto) or a user override during
     // review. Overrides must be marked 'manual' so Recalculate All preserves them.
-    const activeRules = await db
-      .select()
-      .from(categoryRules)
-      .where(and(eq(categoryRules.isActive, true), eq(categoryRules.userId, ownerId)));
-
+    // A transfer bucket on a row the account policy rules out survived the
+    // re-filing above, so it can only be the user's own pick.
     const sourceForReviewedTx = (
       name: string | null,
       description: string,
-      categoryId: string | null
+      categoryId: string | null,
+      counterpartyIban: string | null | undefined,
     ): "manual" | "rule" | null => {
       if (!categoryId) return null;
+      if (
+        transferCategories.has(categoryId) &&
+        transferRuledOut(access.account, counterpartyIban, sharedIbans)
+      ) {
+        return "manual";
+      }
       for (const rule of activeRules) {
         const matchTarget = ruleMatchTarget(name, description, rule.matchField);
         if (matchesRule(matchTarget, rule.pattern, rule.matchType) && rule.categoryId === categoryId) {
@@ -582,7 +622,7 @@ export async function POST(request: NextRequest) {
           categoryId: splits ? null : tx.categoryId,
           categorySource: splits
             ? null
-            : sourceForReviewedTx(tx.name, tx.description, tx.categoryId),
+            : sourceForReviewedTx(tx.name, tx.description, tx.categoryId, tx.counterpartyIban),
           // A wrapper carries no category, so it carries no sub-line either.
           // ponytail: the parts don't take one — a split already answers
           // "which part of this went where". Add it if a part ever needs both.
@@ -744,6 +784,7 @@ export async function POST(request: NextRequest) {
         matchType: rule.matchType || "contains",
         matchField: rule.matchField || "both",
         userId: ownerId,
+        transferCategoryIds: transferCategories,
       });
     }
 

@@ -29,6 +29,7 @@ import {
 import { Info, Loader2, Plus } from "lucide-react";
 import type { Account, CategoryWithDetails, RecurringTx } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
+import { toIsoDate } from "@/lib/utils";
 
 /**
  * The (i) beside a field label, explaining why the field is narrowed or locked.
@@ -179,7 +180,7 @@ function RecurringFormBody({
     String(seed?.dayOfMonth ?? 1)
   );
   const [fStartDate, setFStartDate] = useState(
-    seed?.startDate ?? new Date().toISOString().slice(0, 10)
+    seed?.startDate ?? toIsoDate(new Date())
   );
   const [submitting, setSubmitting] = useState(false);
 

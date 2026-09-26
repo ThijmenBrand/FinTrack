@@ -136,4 +136,3 @@ export const db = drizzle({ client: guarded(lazyClient), schema });
  */
 export const adminDb = drizzle({ client: lazyClient, schema });
 
-export { schema };

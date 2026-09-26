@@ -1,13 +1,6 @@
 import { describe, it, expect } from "vitest";
-import {
-  addLine,
-  removeLine,
-  sumLines,
-  toChildInput,
-  toLineNodes,
-  updateLine,
-  type DraftLine,
-} from "./draft";
+import { addLine, removeLine, sumLines, updateLine } from "@/lib/budget-cache";
+import { toChildInput, toLineNodes, type DraftLine } from "./draft";
 import type { BudgetSubLine } from "@/types/api";
 
 function draft(

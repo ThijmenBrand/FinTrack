@@ -11,7 +11,7 @@ function parts(iso: string): [number, number, number] {
 }
 
 /** Whole days from today. Negative for the past, 0 for today. */
-export function daysUntil(iso: string): number {
+function daysUntil(iso: string): number {
   const [y, m, d] = parts(iso);
   const then = new Date(y, m - 1, d).getTime();
   const now = new Date();
@@ -30,17 +30,4 @@ export function relativeDay(t: I18n["t"], iso: string): string | null {
   if (days === 1) return t("date.tomorrow");
   if (days <= 14) return t("date.inDays", { count: days });
   return null;
-}
-
-/** Last day of a YYYY-MM month, as YYYY-MM-DD — where a month's end balance lands. */
-export function endOfMonth(month: string): string {
-  const [y, m] = month.split("-").map(Number);
-  const last = new Date(y, m, 0).getDate();
-  return `${month}-${String(last).padStart(2, "0")}`;
-}
-
-/** Today as YYYY-MM-DD in local time. */
-export function todayIso(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }

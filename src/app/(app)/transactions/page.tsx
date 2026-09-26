@@ -765,6 +765,9 @@ function TransactionsPage() {
         }}
         onFilterByCategory={(tx) => { if (tx.categoryId) applyFilter("category", tx.categoryId); }}
         onFilterByName={(tx) => applyFilter("search", tx.name || tx.description)}
+        onFilterByAccount={
+          accountFilter === "all" ? (tx) => applyFilter("account", tx.accountId) : undefined
+        }
         onSplit={(tx) => {
           setSelectedTransaction(tx);
           setSplitEditorOpen(true);
@@ -804,6 +807,17 @@ function TransactionsPage() {
           }
         }}
         openSplitEditor={splitEditorOpen}
+        // Only while no account filter is set: with one, every row shown is
+        // already on a filtered account and the button would change nothing.
+        onFilterByAccount={
+          accountFilter === "all"
+            ? (accountId) => {
+                applyFilter("account", accountId);
+                setSelectedTransaction(null);
+                setSplitEditorOpen(false);
+              }
+            : undefined
+        }
       />
 
       {/* Reimbursement Picker */}

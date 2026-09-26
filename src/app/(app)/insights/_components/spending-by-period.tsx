@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toIsoDate } from "@/lib/utils";
+import { formatTick, niceMax } from "./chart-axis";
 import { placeResetMarks, type ResetMark } from "@/lib/stat-reset-marks";
 import type { StatResetData } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
@@ -33,29 +34,6 @@ interface SpendingByPeriodProps {
   resets: StatResetData[];
   /** Clicking a bucket opens the transactions list for its inclusive date range. */
   onSelectRange: (from: string, to: string) => void;
-}
-
-function formatTick(amount: number) {
-  if (amount === 0) return "€0";
-  if (Math.abs(amount) >= 1000) {
-    const k = amount / 1000;
-    return `€${k % 1 === 0 ? k.toFixed(0) : k.toFixed(1)}k`;
-  }
-  return `€${Math.round(amount)}`;
-}
-
-// Round up to a "nice" number for an axis upper bound.
-function niceMax(max: number): number {
-  if (max <= 0) return 100;
-  const exp = Math.pow(10, Math.floor(Math.log10(max)));
-  const f = max / exp;
-  let nice: number;
-  if (f <= 1) nice = 1;
-  else if (f <= 2) nice = 2;
-  else if (f <= 2.5) nice = 2.5;
-  else if (f <= 5) nice = 5;
-  else nice = 10;
-  return nice * exp;
 }
 
 // Returns the Monday (ISO week start) for a given date.

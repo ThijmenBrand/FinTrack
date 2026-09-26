@@ -1,10 +1,13 @@
 import { describe, it, expect } from "vitest";
 import {
+  toCommitRow,
+  type PreviewTransaction,
   parseAmount,
   parseDate,
   matchesRule,
   ruleMatchTarget,
   findMatchingRule,
+  ruleCategoryFor,
   splitNameAndDescription,
   extractPattern,
   findMatchingRecurring,
@@ -228,6 +231,26 @@ describe("findMatchingRule", () => {
   });
 });
 
+describe("ruleCategoryFor", () => {
+  const rule = (pattern: string, categoryId: string) => ({
+    pattern,
+    matchType: "contains",
+    matchField: "both",
+    categoryId,
+  });
+  const rules = [rule("overboeking", "transfer"), rule("spaar", "savings")];
+
+  it("files the row under the first rule that matches", () => {
+    expect(ruleCategoryFor(rules, null, "Overboeking spaar")).toBe("transfer");
+    expect(ruleCategoryFor(rules, null, "Albert Heijn")).toBeNull();
+  });
+
+  it("passes over rules into a skipped category", () => {
+    expect(ruleCategoryFor(rules, null, "Overboeking spaar", new Set(["transfer"]))).toBe("savings");
+    expect(ruleCategoryFor(rules, null, "Overboeking", new Set(["transfer"]))).toBeNull();
+  });
+});
+
 describe("splitNameAndDescription", () => {
   it("keeps both fields when both are present", () => {
     expect(splitNameAndDescription("Albert Heijn", "groceries")).toEqual({
@@ -435,5 +458,113 @@ describe("splitDuplicates", () => {
     ]);
     expect(duplicates).toHaveLength(1);
     expect(unique).toHaveLength(1);
+  });
+});
+
+describe("toCommitRow", () => {
+  const base: PreviewTransaction = {
+    tempId: "t-1",
+    date: "2026-08-05",
+    name: "Albert Heijn",
+    description: "AH 1234 Amsterdam",
+    amount: -42.5,
+    balance: 1000,
+    type: "expense",
+    categoryId: "cat-groceries",
+    suggestedPattern: "albert heijn",
+  };
+
+  it("carries every stored field and drops the review-only ones", () => {
+    const row = toCommitRow({
+      ...base,
+      subLineId: "sub-1",
+      groupId: "pot-1",
+      reimbursesExpenseId: "tx-old",
+      reimbursesTempId: "t-0",
+      reimbursesDescription: "Dinner",
+      notes: "split with Sam",
+      counterpartyIban: "NL91ABNA0417164300",
+      targetAccountId: "acc-2",
+      targetAccountName: "Savings",
+      recurringTransactionId: "rec-1",
+      recurringDescription: "Rent",
+      splits: [
+        { amount: -20, categoryId: "cat-a" },
+        { amount: -22.5, categoryId: "cat-b" },
+      ],
+      splitRuleId: "rule-1",
+    });
+
+    expect(row).toEqual({
+      tempId: "t-1",
+      date: "2026-08-05",
+      name: "Albert Heijn",
+      description: "AH 1234 Amsterdam",
+      amount: -42.5,
+      balance: 1000,
+      type: "expense",
+      categoryId: "cat-groceries",
+      subLineId: "sub-1",
+      groupId: "pot-1",
+      reimbursesExpenseId: "tx-old",
+      reimbursesTempId: "t-0",
+      notes: "split with Sam",
+      targetAccountId: "acc-2",
+      counterpartyIban: "NL91ABNA0417164300",
+      recurringTransactionId: "rec-1",
+      splits: [
+        { amount: -20, categoryId: "cat-a" },
+        { amount: -22.5, categoryId: "cat-b" },
+      ],
+      splitRuleId: "rule-1",
+      attachments: null,
+    });
+    expect(row).not.toHaveProperty("suggestedPattern");
+    expect(row).not.toHaveProperty("reimbursesDescription");
+    expect(row).not.toHaveProperty("targetAccountName");
+    expect(row).not.toHaveProperty("recurringDescription");
+  });
+
+  it("sends the receipts dropped on a row during review, as ids only", () => {
+    const row = toCommitRow({
+      ...base,
+      attachments: [
+        { id: "att-1", fileName: "bon.jpg", contentType: "image/webp", size: 1200, createdAt: "2026-08-05T10:00:00Z" },
+        { id: "att-2", fileName: "factuur.pdf", contentType: "application/pdf", size: 9000, createdAt: "2026-08-05T10:01:00Z" },
+      ],
+    });
+    expect(row.attachments).toEqual([{ id: "att-1" }, { id: "att-2" }]);
+  });
+
+  it("sends null for a row with no receipts, or an emptied list", () => {
+    expect(toCommitRow(base).attachments).toBeNull();
+    expect(toCommitRow({ ...base, attachments: null }).attachments).toBeNull();
+    expect(toCommitRow({ ...base, attachments: [] }).attachments).toBeNull();
+  });
+
+  it("normalises absent optional links to null, so the server sees one shape", () => {
+    const row = toCommitRow(base);
+    expect(row).toMatchObject({
+      subLineId: null,
+      groupId: null,
+      reimbursesExpenseId: null,
+      reimbursesTempId: null,
+      notes: null,
+      counterpartyIban: null,
+      recurringTransactionId: null,
+      splits: null,
+      splitRuleId: null,
+    });
+    // Left undefined (dropped from the JSON) rather than null: the commit
+    // treats a missing target as "not a transfer to another account".
+    expect(row.targetAccountId).toBeUndefined();
+  });
+
+  it("survives a JSON round trip with the attachment ids intact", () => {
+    const [sent] = JSON.parse(
+      JSON.stringify([toCommitRow({ ...base, attachments: [{ id: "att-9", fileName: "x", contentType: "image/webp", size: 1, createdAt: "" }] })]),
+    );
+    expect(sent.attachments).toEqual([{ id: "att-9" }]);
+    expect("targetAccountId" in sent).toBe(false);
   });
 });

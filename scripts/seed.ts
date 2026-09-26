@@ -43,7 +43,8 @@ import {
   transactions,
   userPreferences,
 } from "../src/db/schema";
-import { hashPassword, seedCategoriesForUser } from "../src/db/migrate";
+import { seedCategoriesForUser } from "../src/db/migrate";
+import { hashPassword } from "@/lib/password-hash";
 import { buildLedgerYear } from "@/lib/budget-ledger-db";
 import { financialYearOf } from "@/lib/financial-year";
 
