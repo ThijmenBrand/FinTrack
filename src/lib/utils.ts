@@ -34,16 +34,6 @@ export function formatCurrency(
   }).format(amount);
 }
 
-const dateFormatter = new Intl.DateTimeFormat("nl-NL", {
-  day: "2-digit",
-  month: "short",
-  year: "numeric",
-});
-
-export function formatDate(date: Date | string): string {
-  return dateFormatter.format(new Date(date));
-}
-
 /** Local (not UTC) YYYY-MM-DD for a Date. */
 export function toIsoDate(d: Date): string {
   const y = d.getFullYear();

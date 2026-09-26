@@ -10,6 +10,7 @@ import { parseSearchTerm } from "@/lib/search-query";
 import { effectiveExpenseAmount } from "@/lib/reimbursement-sql";
 import { requireAccountAccess, visibleTransactions } from "@/lib/account-access";
 import { isFiniteNumber, isIsoDate, sanitizeNote } from "@/lib/validation";
+import { subLineCategories } from "@/lib/budget-sub-lines";
 import {
   parentHasChildInCategories,
   parentHasUncategorizedChild,
@@ -510,7 +511,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   return withUser(async (userId) => {
     const body = await request.json();
-    const { accountId, date, name, description, amount, type, categoryId, notes } = body;
+    const { accountId, date, name, description, amount, type, categoryId, subLineId, notes } = body;
 
     if (typeof accountId !== "string" || !accountId) {
       return NextResponse.json({ error: "accountId is required" }, { status: 400 });
@@ -565,6 +566,21 @@ export async function POST(request: NextRequest) {
       validCategoryId = categoryId;
     }
 
+    // A sub-line only narrows the category being set: it must plan for that
+    // very category in the owner's space, or the row is refused — same rule
+    // as recategorizing an existing row.
+    let validSubLineId: string | null = null;
+    if (subLineId != null) {
+      if (typeof subLineId !== "string" || !validCategoryId) {
+        return apiError("api.subCategoryWrongCategory", 400);
+      }
+      const ownerSubLines = await subLineCategories(db, ownerId);
+      if (ownerSubLines.get(subLineId) !== validCategoryId) {
+        return apiError("api.subCategoryWrongCategory", 400);
+      }
+      validSubLineId = subLineId;
+    }
+
     const id = crypto.randomUUID();
     await db.insert(transactions).values({
       id,
@@ -579,6 +595,7 @@ export async function POST(request: NextRequest) {
       balance: null,
       categoryId: validCategoryId,
       categorySource: validCategoryId ? "manual" : null,
+      subLineId: validSubLineId,
       type: type as ManualTxType,
       linkedTransactionId: null,
       notes: sanitizeNote(notes),

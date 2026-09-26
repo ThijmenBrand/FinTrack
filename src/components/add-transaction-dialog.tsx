@@ -23,9 +23,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { BankLogo } from "@/components/bank-logo";
-import { CategoryPicker } from "@/components/category-picker";
+import { CategoryPicker, planCategoryIds } from "@/components/category-picker";
 import { useCategories } from "@/hooks/use-categories";
-import { useBudgets } from "@/hooks/use-budgets";
+import { useBudgets, useSubCategories } from "@/hooks/use-budgets";
 import { useCreateTransaction } from "@/hooks/use-transactions";
 import { ApiError } from "@/lib/api";
 import { parseAmount } from "@/lib/csv-utils";
@@ -73,6 +73,7 @@ function Form({
     return writable.length === 1 ? writable[0].id : "";
   });
   const [categoryId, setCategoryId] = useState<string | null>(null);
+  const [subLineId, setSubLineId] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [lastAdded, setLastAdded] = useState<string | null>(null);
@@ -88,14 +89,13 @@ function Form({
     noScale: true,
     enabled: !!budgetId,
   });
-  const budgetCategoryIds = useMemo(() => {
-    if (!budgetId || !budget) return null;
-    const planned = [
-      ...budget.allocations.map((a) => a.categoryId),
-      ...budget.fixedCosts.map((f) => f.categoryId),
-    ];
-    return planned.length === 0 ? null : new Set(planned);
-  }, [budgetId, budget]);
+  const budgetCategoryIds = useMemo(
+    () => (budgetId ? planCategoryIds(budget) : null),
+    [budgetId, budget],
+  );
+  // The plan's sub-lines, so a cash cost can land on "Groceries › Veg" rather
+  // than the category alone; empty for an account outside a plan.
+  const { data: subCategories = [] } = useSubCategories(accountId || undefined);
 
   const parsed = parseManualAmount(amount);
   const valid =
@@ -113,6 +113,7 @@ function Form({
         amount: signed,
         type: direction,
         categoryId,
+        subLineId,
         notes: notes.trim() || null,
       });
     } catch (err) {
@@ -134,6 +135,7 @@ function Form({
     setAmount("");
     setDescription("");
     setCategoryId(null);
+    setSubLineId(null);
     setNotes("");
     amountRef.current?.focus();
   };
@@ -228,6 +230,8 @@ function Form({
             // Another owner's account has another category space; a pick from
             // the old one would 404 on save.
             if (writable.find((a) => a.id === id)?.userId !== account?.userId) setCategoryId(null);
+            // Sub-lines belong to the old account's plan; the new one may not have them.
+            setSubLineId(null);
           }}
         >
           <SelectTrigger id="add-tx-account" className="w-full">
@@ -256,9 +260,14 @@ function Form({
         <CategoryPicker
           key={accountId}
           categories={categories}
+          subCategories={subCategories}
           budgetCategoryIds={budgetCategoryIds}
           value={categoryId}
-          onChange={(id) => setCategoryId(id)}
+          subLineId={subLineId}
+          onChange={(id, sub) => {
+            setCategoryId(id);
+            setSubLineId(sub);
+          }}
           accountId={accountId || undefined}
         />
       </div>

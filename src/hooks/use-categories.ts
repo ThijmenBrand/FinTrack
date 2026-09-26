@@ -26,7 +26,7 @@ export function useCategories(accountId?: string) {
 
 /** Own categories plus those of owners sharing an account — for a list that
  *  spans accounts. Pick per row with the row account's owner. */
-export function useVisibleCategories() {
+function useVisibleCategories() {
   return useQuery({
     queryKey: ["categories", "visible"],
     queryFn: () => apiFetch<CategoryWithDetails[]>("/api/categories?scope=visible"),

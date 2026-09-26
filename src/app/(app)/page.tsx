@@ -14,7 +14,7 @@ import {
   PeriodSummarySkeleton,
 } from "./_components/period-summary";
 import { getMainPlan, getScopeAccountRows } from "./_lib/dashboard-queries";
-import { resolveBudgetPlan } from "@/lib/budget-plan";
+import { effectiveStartDay, resolveBudgetPlan } from "@/lib/budget-plan";
 import { defaultScopeAccountIds } from "@/lib/account-scope";
 import {
   BudgetCategories,
@@ -146,9 +146,7 @@ export default async function DashboardPage({
   // member's own identity and startDay.
   const planIsForeign = mainPlan !== null && mainPlan.ownerId !== userId;
   const planUserId = planIsForeign ? mainPlan.ownerId : userId;
-  const planStartDay = planIsForeign
-    ? (await getUserPreferences(mainPlan.ownerId)).financialMonthStartDay
-    : startDay;
+  const planStartDay = await effectiveStartDay(userId, mainPlan, startDay);
   // Only a plan that actually resolved gets passed on; the cards fall back to
   // the main plan on their own when this is undefined.
   const pinnedPlanId = pinned && mainPlan ? mainPlan.id : undefined;

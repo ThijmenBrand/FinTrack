@@ -1,4 +1,5 @@
 import { parseAmount } from "@/lib/csv-utils";
+import { MONTHS_PER_YEAR } from "@/lib/financial-year";
 import type { CategoryKind } from "@/types/api";
 
 /**
@@ -433,13 +434,6 @@ export function detectRootType(
   return { type: "variable", confident: stored === "expense" };
 }
 
-/**
- * Rebuild a tree from (edited) review rows. A row deeper than its
- * predecessor + 1 — e.g. because its parent was deselected — clamps up to the
- * nearest available ancestor.
- */
-export const MONTHS_PER_YEAR = 12;
-
 /** The wizard's per-root settings, indexed by FlatImportRow.rootIndex. */
 export interface RootConfig {
   type: RowType;
@@ -504,6 +498,11 @@ export function buildSubmitRoots(
   return out;
 }
 
+/**
+ * Rebuild a tree from (edited) review rows. A row deeper than its
+ * predecessor + 1 — e.g. because its parent was deselected — clamps up to the
+ * nearest available ancestor.
+ */
 export function buildTree(
   rows: { name: string; amount: number | null; depth: number; recurring?: boolean }[],
 ): ImportNode[] {

@@ -5,6 +5,7 @@ import {
   matchesRule,
   ruleMatchTarget,
   findMatchingRule,
+  ruleCategoryFor,
   splitNameAndDescription,
   extractPattern,
   findMatchingRecurring,
@@ -225,6 +226,26 @@ describe("findMatchingRule", () => {
     const rules = [rule({ id: "a", pattern: "groceries", matchField: "name" })];
     expect(findMatchingRule(rules, "Albert Heijn", "groceries")).toBeNull();
     expect(findMatchingRule([rule({ id: "b", pattern: "groceries", matchField: "description" })], "Albert Heijn", "groceries")?.id).toBe("b");
+  });
+});
+
+describe("ruleCategoryFor", () => {
+  const rule = (pattern: string, categoryId: string) => ({
+    pattern,
+    matchType: "contains",
+    matchField: "both",
+    categoryId,
+  });
+  const rules = [rule("overboeking", "transfer"), rule("spaar", "savings")];
+
+  it("files the row under the first rule that matches", () => {
+    expect(ruleCategoryFor(rules, null, "Overboeking spaar")).toBe("transfer");
+    expect(ruleCategoryFor(rules, null, "Albert Heijn")).toBeNull();
+  });
+
+  it("passes over rules into a skipped category", () => {
+    expect(ruleCategoryFor(rules, null, "Overboeking spaar", new Set(["transfer"]))).toBe("savings");
+    expect(ruleCategoryFor(rules, null, "Overboeking", new Set(["transfer"]))).toBeNull();
   });
 });
 

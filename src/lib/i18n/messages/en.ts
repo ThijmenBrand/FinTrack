@@ -632,6 +632,7 @@ export const en = {
   "tx.menu.addNote": "Add note",
   "tx.menu.filterByName": "Filter by name & description",
   "tx.menu.filterByCategory": "Filter by category",
+  "tx.menu.filterByAccount": "Filter by account",
   "tx.menu.changeCategory": "Change category",
   "tx.menu.removeCategory": "Remove category",
   "tx.note.title": "Note — {name}",
@@ -1525,6 +1526,8 @@ export const en = {
   "txDetail.balance": "Balance",
   "txDetail.linkedTo": "Linked to",
   "txDetail.notATransfer": "Not a transfer",
+  "txDetail.filterByAccount": "Filter",
+  "txDetail.filterByAccountHint": "Show only transactions from {account}",
   // Shown after un-pairing: the other leg lives on a different account, so it
   // is almost never in the list the user is looking at.
   "txDetail.otherLegNeedsCategory":

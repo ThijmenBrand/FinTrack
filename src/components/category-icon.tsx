@@ -151,7 +151,7 @@ export const LUCIDE_ICON_SECTIONS: { labelKey: MessageKey; icons: string[] }[] =
   },
 ];
 
-export function isEmoji(icon: string): boolean {
+function isEmoji(icon: string): boolean {
   return icon.codePointAt(0)! > 255;
 }
 

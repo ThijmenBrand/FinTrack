@@ -3,7 +3,11 @@ import { apiError } from "@/lib/api-errors";
 import { db } from "@/db";
 import { categoryRules, accounts, recurringTransactions, transactions as transactionsTable } from "@/db/schema";
 import { eq, and, isNull } from "drizzle-orm";
-import { findTransferCategory } from "@/lib/detect-transfers";
+import {
+  loadTransferCategories,
+  sharedMoneyIbans,
+  transferRuledOut,
+} from "@/lib/detect-transfers";
 import { withUser } from "@/lib/auth";
 import { requireAccountAccess } from "@/lib/account-access";
 import { bankHasSeparateFeeColumn } from "@/lib/banks";
@@ -11,8 +15,7 @@ import Papa from "papaparse";
 import {
   parseAmount,
   parseDate,
-  matchesRule,
-  ruleMatchTarget,
+  ruleCategoryFor,
   extractPattern,
   splitNameAndDescription,
   findMatchingRecurring,
@@ -114,8 +117,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Get the "Internal Transfer" category
-    const transferCategory = await findTransferCategory(db, ownerId);
+    // The "Internal Transfer" category, plus every transfer bucket: rules can
+    // point at one too, and those are held back on rows the account policy
+    // says can't be a transfer (see transferRuledOut).
+    const { primary: transferCategory, ids: transferCategories } =
+      await loadTransferCategories(db, ownerId);
+    const sharedIbans = sharedMoneyIbans(allAccounts);
 
     // Active recurring plans — used to auto-link rows that look like a
     // recurring bill so they don't double-count in Free to Spend.
@@ -240,13 +247,13 @@ export async function POST(request: NextRequest) {
       if (type === "internal_transfer" && transferCategory) {
         categoryId = transferCategory.id;
       } else {
-        for (const rule of rules) {
-          const matchTarget = ruleMatchTarget(name, description, rule.matchField);
-          if (matchesRule(matchTarget, rule.pattern, rule.matchType)) {
-            categoryId = rule.categoryId;
-            break;
-          }
-        }
+        const noTransfer = transferRuledOut(ownedAccount, counterpartyIban, sharedIbans);
+        categoryId = ruleCategoryFor(
+          rules,
+          name,
+          description,
+          noTransfer ? transferCategories : undefined,
+        );
       }
 
       // Try to match this row to an active recurring plan (skip transfers —

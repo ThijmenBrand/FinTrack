@@ -6,16 +6,7 @@ import crypto from "crypto";
 import { validatePassword } from "@/lib/validation";
 import { DEFAULT_CATEGORIES, defaultCategoryName } from "@/lib/default-categories";
 import { DEFAULT_LOCALE, type Locale } from "@/lib/i18n";
-
-export function hashPassword(password: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const salt = crypto.randomBytes(16).toString("hex");
-    crypto.scrypt(password, salt, 64, (err, derivedKey) => {
-      if (err) reject(err);
-      resolve(`${salt}:${derivedKey.toString("hex")}`);
-    });
-  });
-}
+import { hashPassword } from "@/lib/password-hash";
 
 /**
  * Seed default categories for a specific user, in their language.

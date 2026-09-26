@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { cn, formatCurrency, formatDate, toIsoDate } from "./utils";
+import { cn, formatCurrency, toIsoDate } from "./utils";
 
 // Intl output uses non-breaking / narrow spaces; normalize for stable asserts.
 const norm = (s: string) => s.replace(/[\u00A0\u202F]/g, " ");
@@ -29,16 +29,6 @@ describe("formatCurrency", () => {
 
   it("supports fixed fraction digits (rounded axis labels)", () => {
     expect(norm(formatCurrency(1234.56, "EUR", 0))).toBe("€ 1.235");
-  });
-});
-
-describe("formatDate", () => {
-  it("formats an ISO string in nl-NL", () => {
-    expect(norm(formatDate("2026-05-01"))).toBe("01 mei 2026");
-  });
-
-  it("accepts a Date object", () => {
-    expect(norm(formatDate(new Date(2026, 0, 9)))).toBe("09 jan 2026");
   });
 });
 

@@ -620,6 +620,7 @@ export const nl: Record<MessageKey, string> = {
   "tx.menu.addNote": "Notitie toevoegen",
   "tx.menu.filterByName": "Filter op naam en omschrijving",
   "tx.menu.filterByCategory": "Filter op categorie",
+  "tx.menu.filterByAccount": "Filter op rekening",
   "tx.menu.changeCategory": "Categorie wijzigen",
   "tx.menu.removeCategory": "Categorie verwijderen",
   "tx.note.title": "Notitie — {name}",
@@ -1510,6 +1511,8 @@ export const nl: Record<MessageKey, string> = {
   "txDetail.balance": "Saldo",
   "txDetail.linkedTo": "Gekoppeld aan",
   "txDetail.notATransfer": "Geen overboeking",
+  "txDetail.filterByAccount": "Filter",
+  "txDetail.filterByAccountHint": "Toon alleen transacties van {account}",
   "txDetail.otherLegNeedsCategory":
     "Ook losgekoppeld: {amount} op {account}. Geef die ook een categorie, anders telt hij niet mee in het budget van die rekening.",
   "txDetail.pot": "Potje",

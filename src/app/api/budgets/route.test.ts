@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import { setupTestDb, type TestDb } from "@/lib/test-db";
+import { getFinancialMonthRange } from "@/lib/financial-month";
+import { toIsoDate } from "@/lib/utils";
 
 const OWNER = "budgets-route-owner";
 const EDITOR = "budgets-route-editor";
@@ -707,5 +709,62 @@ describe("GET /api/budgets — linked sub-lines", () => {
       isActive: true,
     });
     expect(lines.find((l) => l.name === "Snacks")!.recurring).toBeUndefined();
+  });
+});
+
+describe("GET /api/budgets — a shared plan runs on the OWNER's financial month", () => {
+  const setStartDay = (userId: string, day: number) =>
+    testDb.client.execute({
+      sql: `INSERT INTO user_preferences (id, user_id, financial_month_start_day, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)`,
+      args: [`prefs-${userId}`, userId, day, new Date().toISOString(), new Date().toISOString()],
+    });
+
+  // A date inside the financial month that starts on `ownerDay` but outside
+  // the one that starts on `otherDay` — the two windows always differ on an edge.
+  const edgeDate = (ownerDay: number, otherDay: number) => {
+    const owner = getFinancialMonthRange(new Date(), ownerDay);
+    const other = getFinancialMonthRange(new Date(), otherDay);
+    const date = owner.from < other.from ? owner.from : owner.to;
+    expect(date < other.from || date > other.to).toBe(true);
+    return date;
+  };
+
+  it("a member without a date range sees the owner's window, not their own", async () => {
+    await setStartDay(OWNER, 15);
+    await setStartDay(VIEWER, 1);
+    await addTransaction({ id: "tx-edge", amount: -50, type: "expense", categoryId: "cat-x", date: edgeDate(15, 1) });
+    await addTransaction({ id: "tx-today", amount: -20, type: "expense", categoryId: "cat-x", date: toIsoDate(new Date()) });
+
+    actor = VIEWER;
+    const asViewer = await (await getBudgets("budgetId=plan-x")).json();
+    actor = OWNER;
+    const asOwner = await (await getBudgets("budgetId=plan-x")).json();
+
+    expect(asViewer.totalSpentThisMonth).toBe(70);
+    expect(asViewer.totalSpentThisMonth).toBe(asOwner.totalSpentThisMonth);
+  });
+
+  it("ignores the member's own start day when the owner keeps calendar months", async () => {
+    await setStartDay(VIEWER, 15);
+    await addTransaction({ id: "tx-edge", amount: -50, type: "expense", categoryId: "cat-x", date: edgeDate(15, 1) });
+    await addTransaction({ id: "tx-today", amount: -20, type: "expense", categoryId: "cat-x", date: toIsoDate(new Date()) });
+
+    actor = VIEWER;
+    const body = await (await getBudgets("budgetId=plan-x")).json();
+
+    // Only the row inside the owner's calendar month counts.
+    expect(body.totalSpentThisMonth).toBe(20);
+  });
+
+  it("the owner reading their own plan uses their own start day", async () => {
+    await setStartDay(OWNER, 15);
+    await addTransaction({ id: "tx-edge", amount: -50, type: "expense", categoryId: "cat-x", date: edgeDate(1, 15) });
+    await addTransaction({ id: "tx-today", amount: -20, type: "expense", categoryId: "cat-x", date: toIsoDate(new Date()) });
+
+    const body = await (await getBudgets("budgetId=plan-x")).json();
+
+    // The calendar-month-only row falls outside the owner's 15th-to-14th window.
+    expect(body.totalSpentThisMonth).toBe(20);
   });
 });

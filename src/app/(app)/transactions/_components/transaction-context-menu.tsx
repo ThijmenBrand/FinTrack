@@ -31,6 +31,7 @@ import {
   Filter,
   Search,
   Split,
+  Wallet,
 } from "lucide-react";
 import { useCategorizeTransaction, useUpdateTransactionNotes } from "@/hooks/use-transactions";
 import { MAX_NOTE_LENGTH, sanitizeNote } from "@/lib/validation";
@@ -54,6 +55,9 @@ interface TransactionContextMenuProps {
   onDelete: (tx: Transaction) => void;
   onFilterByCategory: (tx: Transaction) => void;
   onFilterByName: (tx: Transaction) => void;
+  /** Unset while the list is already narrowed to accounts — adding one more
+   *  would widen it, not filter it. */
+  onFilterByAccount?: (tx: Transaction) => void;
   /** Opens the detail dialog with the split editor active — new split or edit. */
   onSplit: (tx: Transaction) => void;
   onUnsplit: (tx: Transaction) => void;
@@ -83,6 +87,7 @@ export function TransactionContextMenu({
   onDelete,
   onFilterByCategory,
   onFilterByName,
+  onFilterByAccount,
   onSplit,
   onUnsplit,
 }: TransactionContextMenuProps) {
@@ -109,6 +114,12 @@ export function TransactionContextMenu({
             <Search />
             {t("tx.menu.filterByName")}
           </DropdownMenuItem>
+          {onFilterByAccount && (
+            <DropdownMenuItem onSelect={() => onFilterByAccount(tx)}>
+              <Wallet />
+              {t("tx.menu.filterByAccount")}
+            </DropdownMenuItem>
+          )}
           {tx.categoryId && (
             <DropdownMenuItem onSelect={() => onFilterByCategory(tx)}>
               <Filter />

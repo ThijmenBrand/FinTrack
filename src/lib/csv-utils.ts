@@ -361,6 +361,26 @@ export function findMatchingRule<R extends MatchableRule>(
 }
 
 /**
+ * The category the rules file an imported row under: the first rule in order
+ * whose pattern matches wins, passing over any rule into `skipCategories` —
+ * the transfer buckets on a row the account policy rules out as a transfer
+ * (see transferRuledOut). One helper so every import path agrees.
+ */
+export function ruleCategoryFor(
+  rules: (MatchableRule & { categoryId: string })[],
+  name: string | null | undefined,
+  description: string,
+  skipCategories?: ReadonlySet<string>,
+): string | null {
+  for (const rule of rules) {
+    if (skipCategories?.has(rule.categoryId)) continue;
+    const target = ruleMatchTarget(name, description, rule.matchField);
+    if (matchesRule(target, rule.pattern, rule.matchType)) return rule.categoryId;
+  }
+  return null;
+}
+
+/**
  * Split the bank's "name" (counterparty) and "description" (memo) CSV fields
  * into the two `transactions.name` / `transactions.description` columns.
  *

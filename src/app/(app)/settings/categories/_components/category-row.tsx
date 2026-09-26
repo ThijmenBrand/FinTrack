@@ -112,7 +112,9 @@ export function CategoryRow({
   const focusedRule = focusedRuleId
     ? rules.find((r) => r.id === focusedRuleId)
     : undefined;
-  const card = useArrivalHighlight(focusKey ?? null, { scroll: !focusedRule });
+  const { ref: cardRef, active: cardActive } = useArrivalHighlight(focusKey ?? null, {
+    scroll: !focusedRule,
+  });
   const ruleFocus = useArrivalHighlight(focusedRule?.id ?? null);
   const [editingRule, setEditingRule] = useState<string | null>(null);
   const [editPattern, setEditPattern] = useState("");
@@ -152,10 +154,10 @@ export function CategoryRow({
 
   return (
     <Card
-      ref={card.ref}
+      ref={cardRef}
       className={cn(
         "overflow-hidden transition-shadow duration-700",
-        card.active && "ring-2 ring-primary ring-offset-2 ring-offset-background"
+        cardActive && "ring-2 ring-primary ring-offset-2 ring-offset-background"
       )}
     >
       {/* Category header row */}

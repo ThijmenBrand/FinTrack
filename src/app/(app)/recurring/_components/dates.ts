@@ -31,16 +31,3 @@ export function relativeDay(t: I18n["t"], iso: string): string | null {
   if (days <= 14) return t("date.inDays", { count: days });
   return null;
 }
-
-/** Last day of a YYYY-MM month, as YYYY-MM-DD — where a month's end balance lands. */
-export function endOfMonth(month: string): string {
-  const [y, m] = month.split("-").map(Number);
-  const last = new Date(y, m, 0).getDate();
-  return `${month}-${String(last).padStart(2, "0")}`;
-}
-
-/** Today as YYYY-MM-DD in local time. */
-export function todayIso(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}

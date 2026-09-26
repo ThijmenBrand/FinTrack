@@ -5,6 +5,7 @@ import { transactions, importBatches, categoryRules } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { requireAccountAccess } from "@/lib/account-access";
+import { loadTransferCategories } from "@/lib/detect-transfers";
 import Papa from "papaparse";
 
 // Backstop against unbounded uploads — a real bank CSV is far smaller.
@@ -13,8 +14,7 @@ const MAX_ROWS = 5000;
 import {
   parseAmount,
   parseDate,
-  matchesRule,
-  ruleMatchTarget,
+  ruleCategoryFor,
   splitNameAndDescription,
   type ColumnMapping,
 } from "@/lib/csv-utils";
@@ -67,6 +67,12 @@ export async function POST(request: NextRequest) {
       .select()
       .from(categoryRules)
       .where(and(eq(categoryRules.isActive, true), eq(categoryRules.userId, ownerId)));
+    // Same policy as the preview: an account holding shared money has no
+    // transfers, so rules into a transfer bucket don't apply to its rows. This
+    // route reads no counterparty IBAN, so the account flag is all it can check.
+    const skipCategories = access.account.internalTransfers
+      ? undefined
+      : (await loadTransferCategories(db, ownerId)).ids;
 
     // Create import batch
     const batchId = crypto.randomUUID();
@@ -141,15 +147,7 @@ export async function POST(request: NextRequest) {
       const type: "income" | "expense" = amount >= 0 ? "income" : "expense";
 
       // Auto-categorize using rules, each against the text its matchField names.
-      let categoryId: string | null = null;
-      for (const rule of rules) {
-        const matchTarget = ruleMatchTarget(name, description, rule.matchField);
-        const matches = matchesRule(matchTarget, rule.pattern, rule.matchType);
-        if (matches) {
-          categoryId = rule.categoryId;
-          break;
-        }
-      }
+      const categoryId = ruleCategoryFor(rules, name, description, skipCategories);
 
       const txId = crypto.randomUUID();
       importedTransactions.push({

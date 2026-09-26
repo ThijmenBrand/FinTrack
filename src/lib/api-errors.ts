@@ -9,7 +9,7 @@ import { getI18nFor, type I18n, type MessageKey, type Vars } from "@/lib/i18n/tr
  * stored preference into, so this stays free of the session + preferences
  * lookup `getI18n()` does — an error path should not cost two queries.
  */
-export async function requestI18n(): Promise<I18n> {
+async function requestI18n(): Promise<I18n> {
   return getI18nFor(await getRequestLocale());
 }
 

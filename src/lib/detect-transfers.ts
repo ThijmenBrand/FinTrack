@@ -23,6 +23,52 @@ export async function findTransferCategory(db: typeof defaultDb, userId: string)
 }
 
 /**
+ * Every category the user marked as a transfer bucket in one read: `primary`
+ * is the one findTransferCategory would pick, `ids` all of them — rules can
+ * file into any, so the account policy has to hold back every one.
+ */
+export async function loadTransferCategories(db: typeof defaultDb, userId: string) {
+  const rows = await db
+    .select()
+    .from(categories)
+    .where(and(eq(categories.kind, "transfer"), eq(categories.userId, userId)))
+    .orderBy(asc(categories.createdAt), asc(categories.id));
+  return { primary: rows.at(0), ids: new Set(rows.map((r) => r.id)) };
+}
+
+/**
+ * Normalized IBANs of the accounts whose money is no longer purely the owner's
+ * (`internalTransfers` off) — a counterparty on this list proves the row is a
+ * real expense or income, never a transfer.
+ */
+export function sharedMoneyIbans(
+  accountList: { iban: string | null; internalTransfers: boolean }[],
+): Set<string> {
+  const ibans = new Set<string>();
+  for (const acc of accountList) {
+    const iban = normalizeIban(acc.iban);
+    if (iban && !acc.internalTransfers) ibans.add(iban);
+  }
+  return ibans;
+}
+
+/**
+ * Whether the account policy rules a row out as a transfer before any pairing:
+ * it sits on an account holding shared money, or its counterparty is one. A
+ * category rule must then not hand it a transfer-kind category — the flag is
+ * the user's explicit say on what a transfer is, a text pattern only a guess.
+ */
+export function transferRuledOut(
+  account: { internalTransfers: boolean },
+  counterpartyIban: string | null | undefined,
+  sharedIbans: ReadonlySet<string>,
+): boolean {
+  if (!account.internalTransfers) return true;
+  const iban = normalizeIban(counterpartyIban);
+  return !!iban && sharedIbans.has(iban);
+}
+
+/**
  * Undo a transfer pairing: both legs drop back to plain income/expense by sign,
  * lose the transfer category, and are marked `transferDismissed` so the next
  * import can't re-pair them.
