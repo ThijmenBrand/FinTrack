@@ -30,7 +30,7 @@ import {
 import { Upload, FileText, CheckCircle2, AlertCircle } from "lucide-react";
 import { ImportReviewStep } from "@/components/import-review-step";
 import { planCategoryIds } from "@/components/category-picker";
-import type { PreviewTransaction } from "@/lib/csv-utils";
+import { toCommitRow, type PreviewTransaction } from "@/lib/csv-utils";
 import { useCategories } from "@/hooks/use-categories";
 import { useBudgets, useSubCategories } from "@/hooks/use-budgets";
 import { usePots } from "@/hooks/use-pots";
@@ -254,30 +254,7 @@ export function CsvUploadDialog({
       const data = await commit.mutateAsync({
         accountId: selectedAccountId,
         fileName: file?.name || "import.csv",
-        transactions: transactions.map((tx) => ({
-          tempId: tx.tempId,
-          date: tx.date,
-          name: tx.name,
-          description: tx.description,
-          amount: tx.amount,
-          balance: tx.balance,
-          type: tx.type,
-          categoryId: tx.categoryId,
-          subLineId: tx.subLineId ?? null,
-          groupId: tx.groupId ?? null,
-          reimbursesExpenseId: tx.reimbursesExpenseId ?? null,
-          reimbursesTempId: tx.reimbursesTempId ?? null,
-          notes: tx.notes ?? null,
-          targetAccountId: tx.targetAccountId,
-          // Stored on the row: transfer detection proves a pair with it later,
-          // long after the CSV is gone.
-          counterpartyIban: tx.counterpartyIban ?? null,
-          recurringTransactionId: tx.recurringTransactionId ?? null,
-          splits: tx.splits ?? null,
-          // Kept only while the parts are still the rule's own proposal — the
-          // commit uses it to record the children as rule-categorized.
-          splitRuleId: tx.splitRuleId ?? null,
-        })),
+        transactions: transactions.map(toCommitRow),
         newRules,
       });
 

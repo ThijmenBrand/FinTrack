@@ -12,7 +12,7 @@ import { excludeSplitParents } from "@/lib/split-sql";
  * transfer makes it eligible. Oldest row wins so the seeded category beats a
  * later one the user also marked.
  */
-export async function findTransferCategory(db: typeof defaultDb, userId: string) {
+async function findTransferCategory(db: typeof defaultDb, userId: string) {
   const rows = await db
     .select()
     .from(categories)

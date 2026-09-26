@@ -11,7 +11,7 @@ function parts(iso: string): [number, number, number] {
 }
 
 /** Whole days from today. Negative for the past, 0 for today. */
-export function daysUntil(iso: string): number {
+function daysUntil(iso: string): number {
   const [y, m, d] = parts(iso);
   const then = new Date(y, m - 1, d).getTime();
   const now = new Date();

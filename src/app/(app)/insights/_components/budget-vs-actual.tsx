@@ -12,33 +12,11 @@ import { useI18n } from "@/lib/i18n/client";
 import type { I18n } from "@/lib/i18n/translate";
 import { useInsights } from "@/hooks/use-insights";
 import { toIsoDate } from "@/lib/utils";
+import { formatTick, niceMax } from "./chart-axis";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const CHART_HEIGHT = 200;
 const TICK_COUNT = 4;
-
-function formatTick(amount: number) {
-  if (amount === 0) return "€0";
-  if (Math.abs(amount) >= 1000) {
-    const k = amount / 1000;
-    return `€${k % 1 === 0 ? k.toFixed(0) : k.toFixed(1)}k`;
-  }
-  return `€${Math.round(amount)}`;
-}
-
-// Round up to a "nice" number for an axis upper bound.
-function niceMax(max: number): number {
-  if (max <= 0) return 100;
-  const exp = Math.pow(10, Math.floor(Math.log10(max)));
-  const f = max / exp;
-  let nice: number;
-  if (f <= 1) nice = 1;
-  else if (f <= 2) nice = 2;
-  else if (f <= 2.5) nice = 2.5;
-  else if (f <= 5) nice = 5;
-  else nice = 10;
-  return nice * exp;
-}
 
 function monthLabel(i18n: I18n, month: string): string {
   const [y, m] = month.split("-").map(Number);

@@ -68,6 +68,39 @@ export interface PreviewTransaction {
   attachments?: TransactionAttachment[] | null;
 }
 
+/**
+ * What the commit endpoint is sent for one reviewed row: everything it stores,
+ * without the fields that only exist to draw the review (suggested pattern,
+ * the labels shown beside a link), and each receipt reduced to its id.
+ */
+export function toCommitRow(tx: PreviewTransaction) {
+  return {
+    tempId: tx.tempId,
+    date: tx.date,
+    name: tx.name,
+    description: tx.description,
+    amount: tx.amount,
+    balance: tx.balance,
+    type: tx.type,
+    categoryId: tx.categoryId,
+    subLineId: tx.subLineId ?? null,
+    groupId: tx.groupId ?? null,
+    reimbursesExpenseId: tx.reimbursesExpenseId ?? null,
+    reimbursesTempId: tx.reimbursesTempId ?? null,
+    notes: tx.notes ?? null,
+    targetAccountId: tx.targetAccountId,
+    // Stored on the row: transfer detection proves a pair with it later,
+    // long after the CSV is gone.
+    counterpartyIban: tx.counterpartyIban ?? null,
+    recurringTransactionId: tx.recurringTransactionId ?? null,
+    splits: tx.splits ?? null,
+    // Kept only while the parts are still the rule's own proposal — the
+    // commit uses it to record the children as rule-categorized.
+    splitRuleId: tx.splitRuleId ?? null,
+    attachments: tx.attachments?.length ? tx.attachments.map((a) => ({ id: a.id })) : null,
+  };
+}
+
 export interface SplitPart {
   amount: number;
   categoryId: string | null;

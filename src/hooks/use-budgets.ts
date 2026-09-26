@@ -13,7 +13,6 @@ import type {
   CategoryWithDetails,
   HistoryData,
   SubCategoryOption,
-  Transaction,
 } from "@/types/api";
 import {
   addLine,

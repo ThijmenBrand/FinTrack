@@ -89,10 +89,10 @@ function Form({
     noScale: true,
     enabled: !!budgetId,
   });
-  const budgetCategoryIds = useMemo(
-    () => (budgetId ? planCategoryIds(budget) : null),
-    [budgetId, budget],
-  );
+  // Only an account in a plan is narrowed: without one the query is disabled,
+  // and whatever it still holds isn't this account's plan.
+  const planIds = useMemo(() => planCategoryIds(budget), [budget]);
+  const budgetCategoryIds = budgetId ? planIds : null;
   // The plan's sub-lines, so a cash cost can land on "Groceries › Veg" rather
   // than the category alone; empty for an account outside a plan.
   const { data: subCategories = [] } = useSubCategories(accountId || undefined);

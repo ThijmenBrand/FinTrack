@@ -243,7 +243,7 @@ export async function POST(request: NextRequest) {
 
       // Auto-categorize using rules (skip if already detected as transfer).
       // Each rule matches the text its matchField names.
-      let categoryId: string | null = null;
+      let categoryId: string | null;
       if (type === "internal_transfer" && transferCategory) {
         categoryId = transferCategory.id;
       } else {
