@@ -146,6 +146,25 @@ verification emails will fail.
 Security headers (HSTS, CSP, X-Frame-Options, etc.) are set in
 `next.config.ts` and apply to all routes.
 
+### Self-hosted (Docker on a VPS)
+
+`.github/workflows/deploy.yml` tests, builds a Docker image (`next build`
+standalone), pushes it to `ghcr.io` and deploys it over SSH on every push to
+`main`. In the container `TURSO_*` stays unset, so the app uses the SQLite file
+in `/app/data` (a host volume), and `RUN_MIGRATIONS_ON_START=1` makes
+`src/instrumentation.ts` apply pending migrations before the first request.
+Server setup lives outside this repo (`setup-deploy.sh`).
+
+Repository settings it needs:
+
+| Name | Kind | Value |
+|------|------|-------|
+| `DEPLOY_HOST` | secret | server IP or hostname |
+| `DEPLOY_SSH_KEY` | secret | private key of the restricted `deploy` user |
+| `DEPLOY_KNOWN_HOSTS` | secret | the server's host key line (printed by `setup-deploy.sh`) |
+| `SENTRY_AUTH_TOKEN` | secret | optional, source-map upload |
+| `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT` | variables | optional |
+
 ## How it works
 
 ```

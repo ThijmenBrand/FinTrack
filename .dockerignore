@@ -1,0 +1,16 @@
+.git
+.github
+.claude
+.codex
+.impeccable
+.next
+node_modules
+data
+*.db
+*.db-wal
+*.db-shm
+.env*
+!.env.example
+coverage
+Dockerfile
+.dockerignore

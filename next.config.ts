@@ -2,6 +2,9 @@ import { withSentryConfig } from "@sentry/nextjs/config";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Self-contained server bundle (server.js + only the node_modules it needs)
+  // for the Docker image. Vercel ignores this setting.
+  output: "standalone",
   serverExternalPackages: ["@libsql/client"],
   async headers() {
     const base = [
