@@ -49,3 +49,4 @@ data/*
 
 # npm lockfile — this repo installs with pnpm
 package-lock.json
+.env*
