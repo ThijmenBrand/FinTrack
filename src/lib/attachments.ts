@@ -44,7 +44,7 @@ export function detectAttachmentType(bytes: Uint8Array): AttachmentKind | null {
 }
 
 /**
- * Where an attachment lives inside the blob store.
+ * Where an attachment lives inside the file store (src/lib/file-store.ts).
  *
  * Same shape and same reasoning as `avatars/` (see src/lib/avatar.ts): the
  * store is private, the DB holds this pathname rather than a URL, and no slash

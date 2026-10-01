@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { apiError } from "@/lib/api-errors";
-import { put, del } from "@vercel/blob";
+import { deleteFile, putFile } from "@/lib/file-store";
 // ponytail: sharp is pinned to ^0.34.5 — the version Next itself depends on.
 // Turbopack builds on Vercel don't ship 0.35.x's libvips .so, so the route
 // 500s with ERR_DLOPEN_FAILED. Unpin once lovell/sharp#4567 is fixed.
@@ -35,11 +35,11 @@ async function setImage(userId: string, url: string | null): Promise<void> {
   );
 }
 
-/** Drop a superseded avatar. Never fatal — a leaked blob beats a failed save. */
+/** Drop a superseded avatar. Never fatal — a leaked file beats a failed save. */
 async function discard(pathname: string | null): Promise<void> {
   if (!isAvatarPathname(pathname)) return;
   try {
-    await del(pathname);
+    await deleteFile(pathname);
   } catch {
     // The new image is already live; an orphan in the store is cosmetic.
   }
@@ -48,9 +48,6 @@ async function discard(pathname: string | null): Promise<void> {
 // POST /api/auth/profile/avatar — replace the current user's profile picture
 export async function POST(request: NextRequest) {
   return withUser(async (userId) => {
-    if (!process.env.BLOB_READ_WRITE_TOKEN) {
-      return apiError("api.avatarNotConfigured", 503);
-    }
     if (!allowUpload(userId)) {
       return apiError("api.rateLimitedUploads", 429);
     }
@@ -91,16 +88,11 @@ export async function POST(request: NextRequest) {
     }
 
     const previous = await currentImage(userId);
-    // Random suffix, not a stable path: overwriting one pathname leaves the CDN
-    // serving the old face for up to a month.
-    const blob = await put(`avatars/${userId}.webp`, out, {
-      access: "private",
-      contentType: "image/webp",
-      addRandomSuffix: true,
-    });
-    // The pathname, not `blob.url` — a private store's URL needs credentials to
-    // fetch, so what we persist is the key that /api/avatar reads back.
-    await setImage(userId, blob.pathname);
+    // Random suffix, not a stable key: /api/avatar serves files as immutable,
+    // so a reused key would leave browsers showing the old face.
+    const key = await putFile("avatars", userId, "webp", out);
+    // The storage key, which /api/avatar reads back — never a direct URL.
+    await setImage(userId, key);
     await discard(previous);
 
     const { ipAddress, userAgent } = getRequestMeta(request.headers);
@@ -114,7 +106,7 @@ export async function POST(request: NextRequest) {
       userAgent,
     });
 
-    return NextResponse.json({ imageUrl: avatarSrc(blob.pathname) });
+    return NextResponse.json({ imageUrl: avatarSrc(key) });
   }, "Failed to upload profile picture");
 }
 

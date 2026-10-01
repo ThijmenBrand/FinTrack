@@ -4,11 +4,11 @@ import { setupTestDb, type TestDb } from "@/lib/test-db";
 const OWNER = "sweep-owner";
 const OTHER = "sweep-other";
 
-// The blob store is the one thing here that isn't the DB; record what the sweep
+// The file store is the one thing here that isn't the DB; record what the sweep
 // asks it to delete so the bytes can be asserted on alongside the rows.
 const deleted: string[] = [];
-vi.mock("@vercel/blob", () => ({
-  del: async (pathname: string) => {
+vi.mock("@/lib/file-store", () => ({
+  deleteFile: async (pathname: string) => {
     deleted.push(pathname);
   },
 }));

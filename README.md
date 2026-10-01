@@ -89,7 +89,7 @@ empty `.env` still runs.
 | `SEED_USERNAME` / `SEED_PASSWORD` / `SEED_EMAIL` | no | Defaults for `db:seed`'s target user. Default `demo`/`demo`, signing in as `demo@local.test`. |
 | `RESEND_API_KEY` / `EMAIL_FROM` | prod | Signup verification and password-reset mail. Unset locally → mail contents are logged to the console instead. |
 | `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN` | prod | Leave **unset** for local (uses the SQLite file). Set **both** to use Turso. |
-| `BLOB_READ_WRITE_TOKEN` | no | Vercel Blob store for profile pictures — create it with **private** access. Auto-injected on Vercel; unset → avatar upload returns 503 and the app falls back to initials. |
+| `FILE_STORAGE_DIR` | no | Where avatars and receipts are stored on disk. Default `data/files`, next to the database. Files are only ever served through authenticated routes. |
 
 The DB target is chosen at runtime: if `TURSO_DATABASE_URL` is set it uses
 Turso, otherwise the local SQLite file. Same switch drives `drizzle.config.ts`.
@@ -145,6 +145,25 @@ verification emails will fail.
 
 Security headers (HSTS, CSP, X-Frame-Options, etc.) are set in
 `next.config.ts` and apply to all routes.
+
+### Self-hosted (Docker on a VPS)
+
+`.github/workflows/deploy.yml` tests, builds a Docker image (`next build`
+standalone), pushes it to `ghcr.io` and deploys it over SSH on every push to
+`main`. In the container `TURSO_*` stays unset, so the app uses the SQLite file
+in `/app/data` (a host volume), and `RUN_MIGRATIONS_ON_START=1` makes
+`src/instrumentation.ts` apply pending migrations before the first request.
+Server setup lives outside this repo (`setup-deploy.sh`).
+
+Repository settings it needs:
+
+| Name | Kind | Value |
+|------|------|-------|
+| `DEPLOY_HOST` | secret | server IP or hostname |
+| `DEPLOY_SSH_KEY` | secret | private key of the restricted `deploy` user |
+| `DEPLOY_KNOWN_HOSTS` | secret | the server's host key line (printed by `setup-deploy.sh`) |
+| `SENTRY_AUTH_TOKEN` | secret | optional, source-map upload |
+| `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT` | variables | optional |
 
 ## How it works
 
