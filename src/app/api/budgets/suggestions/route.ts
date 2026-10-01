@@ -4,6 +4,7 @@ import { budgets } from "@/db/schema";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
+import { resolveBudgetRowAccess } from "@/lib/budget-plan";
 
 interface AcceptItem {
   id: string;
@@ -21,7 +22,31 @@ interface AcceptItem {
  *   - Otherwise the suggestion row is promoted to status='active' (and isActive).
  *
  * Reject: the suggestion rows are deleted.
+ *
+ * Suggestions are generated in the plan OWNER's space, so an editor of a
+ * shared plan acts on rows whose userId isn't theirs: each row is checked with
+ * resolveBudgetRowAccess, and rows the caller can't write are skipped.
  */
+async function writableSuggestions(userId: string, ids: string[]) {
+  const rows = await db
+    .select()
+    .from(budgets)
+    .where(and(eq(budgets.status, "suggested"), inArray(budgets.id, ids)));
+  // Rows of one plan share an answer — resolve each (owner, plan) pair once.
+  const access = new Map<string, boolean>();
+  const writable: typeof rows = [];
+  for (const row of rows) {
+    const key = `${row.userId}:${row.budgetId ?? ""}`;
+    let ok = access.get(key);
+    if (ok === undefined) {
+      ok = (await resolveBudgetRowAccess(userId, row)).ok;
+      access.set(key, ok);
+    }
+    if (ok) writable.push(row);
+  }
+  return writable;
+}
+
 export async function POST(request: NextRequest) {
   return withUser(async (userId) => {
     const body = await request.json();
@@ -34,17 +59,17 @@ export async function POST(request: NextRequest) {
     if (action === "reject") {
       const ids = Array.isArray(body?.ids) ? (body.ids as string[]).filter((v) => typeof v === "string") : [];
       if (ids.length === 0) return NextResponse.json({ error: "ids[] is required" }, { status: 400 });
-      await db
-        .delete(budgets)
-        .where(
-          and(
-            eq(budgets.userId, userId),
-            eq(budgets.status, "suggested"),
-            inArray(budgets.id, ids),
-          ),
-        );
-      logDataEvent({ userId, action: "budget_suggestion_reject", targetType: "budget", details: { count: ids.length } });
-      return NextResponse.json({ success: true, count: ids.length });
+      const rows = await writableSuggestions(userId, ids);
+      // Each delete stays scoped to the owner whose space the rows live in.
+      const idsByOwner = new Map<string, string[]>();
+      for (const row of rows) idsByOwner.set(row.userId, [...(idsByOwner.get(row.userId) ?? []), row.id]);
+      for (const [ownerId, ownerIds] of idsByOwner) {
+        await db
+          .delete(budgets)
+          .where(and(eq(budgets.userId, ownerId), eq(budgets.status, "suggested"), inArray(budgets.id, ownerIds)));
+      }
+      logDataEvent({ userId, action: "budget_suggestion_reject", targetType: "budget", details: { count: rows.length } });
+      return NextResponse.json({ success: true, count: rows.length });
     }
 
     const items = Array.isArray(body?.items) ? (body.items as AcceptItem[]) : [];
@@ -58,18 +83,18 @@ export async function POST(request: NextRequest) {
       if (typeof item.id === "string") overrideById.set(item.id, typeof item.amount === "number" ? item.amount : undefined);
     }
 
+    const suggestions = await writableSuggestions(userId, ids);
+    if (suggestions.length === 0) {
+      return NextResponse.json({ success: true, count: 0 });
+    }
+
     const accepted = await db.transaction(async (tx) => {
-      const suggestions = await tx
-        .select()
-        .from(budgets)
-        .where(and(eq(budgets.userId, userId), eq(budgets.status, "suggested"), inArray(budgets.id, ids)));
-
-      if (suggestions.length === 0) return 0;
-
       const now = new Date().toISOString();
       let count = 0;
 
       for (const suggestion of suggestions) {
+        // The plan owner's space — the caller's own for their own plans.
+        const dataUserId = suggestion.userId;
         const override = overrideById.get(suggestion.id);
         const finalAmount =
           typeof override === "number" && Number.isFinite(override) && override > 0
@@ -83,7 +108,7 @@ export async function POST(request: NextRequest) {
           .from(budgets)
           .where(
             and(
-              eq(budgets.userId, userId),
+              eq(budgets.userId, dataUserId),
               eq(budgets.categoryId, suggestion.categoryId),
               eq(budgets.status, "active"),
               eq(budgets.isActive, true),
@@ -98,13 +123,13 @@ export async function POST(request: NextRequest) {
           await tx
             .update(budgets)
             .set({ amount: finalAmount, source: "auto", generatedAt: now })
-            .where(and(eq(budgets.id, existingActive[0].id), eq(budgets.userId, userId)));
-          await tx.delete(budgets).where(and(eq(budgets.id, suggestion.id), eq(budgets.userId, userId)));
+            .where(and(eq(budgets.id, existingActive[0].id), eq(budgets.userId, dataUserId)));
+          await tx.delete(budgets).where(and(eq(budgets.id, suggestion.id), eq(budgets.userId, dataUserId)));
         } else {
           await tx
             .update(budgets)
             .set({ amount: finalAmount, status: "active", isActive: true, source: "auto", generatedAt: now })
-            .where(and(eq(budgets.id, suggestion.id), eq(budgets.userId, userId)));
+            .where(and(eq(budgets.id, suggestion.id), eq(budgets.userId, dataUserId)));
         }
         count += 1;
       }

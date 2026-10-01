@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { apiError } from "@/lib/api-errors";
 import { db } from "@/db";
-import { transactions, accounts, categories, reimbursementLinks } from "@/db/schema";
+import { transactions, accounts, categories, reimbursementLinks, recurringTransactions } from "@/db/schema";
 import { eq, desc, asc, and, gte, lte, like, or, sql, inArray, notInArray, isNull, isNotNull } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
@@ -11,6 +11,7 @@ import { effectiveExpenseAmount } from "@/lib/reimbursement-sql";
 import { requireAccountAccess, visibleTransactions } from "@/lib/account-access";
 import { isFiniteNumber, isIsoDate, sanitizeNote } from "@/lib/validation";
 import { subLineCategories } from "@/lib/budget-sub-lines";
+import { findRecurringForRow } from "@/lib/recurring-match";
 import {
   parentHasChildInCategories,
   parentHasUncategorizedChild,
@@ -581,6 +582,32 @@ export async function POST(request: NextRequest) {
       validSubLineId = subLineId;
     }
 
+    // A hand-entered payment to a known bill links to its plan, the same way
+    // an imported one does (see recurring-match.ts).
+    const plans = await db
+      .select({
+        id: recurringTransactions.id,
+        accountId: recurringTransactions.accountId,
+        description: recurringTransactions.description,
+        amount: recurringTransactions.amount,
+        type: recurringTransactions.type,
+        isActive: recurringTransactions.isActive,
+        matchPattern: recurringTransactions.matchPattern,
+        matchField: recurringTransactions.matchField,
+      })
+      .from(recurringTransactions)
+      .where(
+        and(
+          eq(recurringTransactions.userId, ownerId),
+          eq(recurringTransactions.accountId, accountId),
+          eq(recurringTransactions.isActive, true),
+        ),
+      );
+    const recurringTransactionId = findRecurringForRow(
+      { accountId, amount, name: name || null, description: description.trim() },
+      plans,
+    );
+
     const id = crypto.randomUUID();
     await db.insert(transactions).values({
       id,
@@ -602,6 +629,7 @@ export async function POST(request: NextRequest) {
       createdBy: userId,
       isManual: true,
       importBatchId: null,
+      recurringTransactionId,
       createdAt: new Date().toISOString(),
     });
 

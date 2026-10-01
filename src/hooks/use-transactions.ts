@@ -6,6 +6,7 @@ import {
   keepPreviousData,
 } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
+import { announceLearnedRule } from "@/lib/learned-rule-notice";
 import type { Transaction, Pagination, Category, PotRangeTotal, SubCategoryOption } from "@/types/api";
 
 interface TransactionFilters {
@@ -300,16 +301,28 @@ export function useLinkRecurringTransaction() {
       transactionId: string;
       recurringTransactionId: string | null;
     }) =>
-      apiFetch("/api/transactions/recurring", {
+      apiFetch<{ success: boolean; learnedPattern: string | null; alsoLinkedIds: string[] }>("/api/transactions/recurring", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       }),
-    onSuccess: () => {
+    // A first link can teach the plan a rule and link its whole history, so
+    // the plan's own views (detail page, next date) go stale too — and the
+    // user is told what was learned, with a way to take it back.
+    onSuccess: (data, payload) => {
+      if (data.learnedPattern && payload.recurringTransactionId) {
+        announceLearnedRule({
+          planId: payload.recurringTransactionId,
+          pattern: data.learnedPattern,
+          linkedIds: data.alsoLinkedIds,
+        });
+      }
       qc.invalidateQueries({ queryKey: ["transactions"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
       qc.invalidateQueries({ queryKey: ["budgets"] });
       qc.invalidateQueries({ queryKey: ["insights"] });
+      qc.invalidateQueries({ queryKey: ["recurring"] });
+      qc.invalidateQueries({ queryKey: ["recurring-forecast"] });
     },
   });
 }

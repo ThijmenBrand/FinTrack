@@ -30,7 +30,7 @@ import {
 import { Upload, FileText, CheckCircle2, AlertCircle } from "lucide-react";
 import { ImportReviewStep } from "@/components/import-review-step";
 import { planCategoryIds } from "@/components/category-picker";
-import { toCommitRow, type PreviewTransaction } from "@/lib/csv-utils";
+import { detectAccountByIban, toCommitRow, type PreviewTransaction } from "@/lib/csv-utils";
 import { useCategories } from "@/hooks/use-categories";
 import { useBudgets, useSubCategories } from "@/hooks/use-budgets";
 import { usePots } from "@/hooks/use-pots";
@@ -72,6 +72,9 @@ export function CsvUploadDialog({
   const { t, plural } = useI18n();
   const [step, setStep] = useState<UploadStep>("select-file");
   const [selectedAccountId, setSelectedAccountId] = useState("");
+  // Set when the account was picked from the IBAN in the file, so the dialog
+  // can say why; any manual pick clears it.
+  const [accountDetected, setAccountDetected] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [headers, setHeaders] = useState<string[]>([]);
   const [previewRows, setPreviewRows] = useState<Record<string, string>[]>([]);
@@ -129,6 +132,7 @@ export function CsvUploadDialog({
   const reset = () => {
     setStep("select-file");
     setSelectedAccountId("");
+    setAccountDetected(false);
     setFile(null);
     setHeaders([]);
     setPreviewRows([]);
@@ -210,6 +214,17 @@ export function CsvUploadDialog({
           autoMapping.description = findBestMatch(cols, namePriority);
         }
         setMapping(autoMapping);
+
+        const detected = detectAccountByIban(
+          f.name,
+          results.data as Record<string, string>[],
+          accounts,
+          autoMapping.counterpartyIban,
+        );
+        if (detected) {
+          setSelectedAccountId(detected);
+          setAccountDetected(true);
+        }
         setStep("map-columns");
       },
     });
@@ -364,7 +379,10 @@ export function CsvUploadDialog({
                 <Label>{t("csv.targetAccount")}</Label>
                 <Select
                   value={selectedAccountId}
-                  onValueChange={setSelectedAccountId}
+                  onValueChange={(v) => {
+                    setSelectedAccountId(v);
+                    setAccountDetected(false);
+                  }}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder={t("csv.selectAccount")} />
@@ -385,6 +403,11 @@ export function CsvUploadDialog({
                     ))}
                   </SelectContent>
                 </Select>
+                {accountDetected && (
+                  <p className="text-xs text-muted-foreground">
+                    {t("csv.accountDetected")}
+                  </p>
+                )}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

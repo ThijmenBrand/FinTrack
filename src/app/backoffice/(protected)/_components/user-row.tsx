@@ -7,6 +7,7 @@ import {
   ChevronUp,
   KeyRound,
   Settings2,
+  ShieldOff,
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -22,6 +23,7 @@ import {
 import {
   useDeleteUser,
   useResetPassword,
+  useResetTwoFactor,
   useSetBanned,
   useUpdateUser,
   type UserUpdate,
@@ -61,6 +63,7 @@ export function UserRow({
   const { t, plural, formatDate, formatNumber } = useI18n();
   const deleteUser = useDeleteUser();
   const resetPassword = useResetPassword();
+  const resetTwoFactor = useResetTwoFactor();
   const setBanned = useSetBanned();
   const updateUser = useUpdateUser();
 
@@ -113,6 +116,15 @@ export function UserRow({
       }
     } catch (err) {
       fail(err, user.banned ? t("backoffice.unbanFailed") : t("backoffice.banFailed"));
+    }
+  }
+
+  async function handleResetTwoFactor() {
+    if (!confirm(t("backoffice.confirmResetTwoFactor", { name: user.displayName }))) return;
+    try {
+      await resetTwoFactor.mutateAsync(user.id);
+    } catch (err) {
+      fail(err, t("backoffice.resetTwoFactorFailed"));
     }
   }
 
@@ -375,6 +387,32 @@ export function UserRow({
                 </Button>
               </form>
 
+              <div className="mt-6 space-y-3 border-t pt-5">
+                <div>
+                  <div className="flex items-center gap-2 font-semibold text-foreground">
+                    <ShieldOff className="h-4 w-4 text-muted-foreground" />
+                    {t("backoffice.resetTwoFactor")}
+                  </div>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {user.isCurrentUser
+                      ? t("backoffice.resetOwnTwoFactorHint")
+                      : user.twoFactorEnabled
+                        ? t("backoffice.resetTwoFactorHint")
+                        : t("backoffice.twoFactorNotEnabled")}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleResetTwoFactor}
+                  disabled={user.isCurrentUser || !user.twoFactorEnabled || resetTwoFactor.isPending}
+                >
+                  {resetTwoFactor.isPending
+                    ? t("backoffice.resettingTwoFactor")
+                    : t("backoffice.resetTwoFactor")}
+                </Button>
+              </div>
+
               <dl className="mt-6 grid grid-cols-2 gap-x-4 gap-y-3 border-t pt-5 text-sm">
                 <div>
                   <dt className="text-muted-foreground">{t("backoffice.lastActive")}</dt>
@@ -401,6 +439,8 @@ export function UserRow({
                 <div className="col-span-2">
                   <dt className="text-muted-foreground">{t("backoffice.security")}</dt>
                   <dd className="mt-0.5 font-medium text-foreground">
+                    {user.twoFactorEnabled ? t("backoffice.twoFactorOn") : t("backoffice.twoFactorOff")}
+                    {" · "}
                     {user.passkeyCount > 0
                       ? plural(user.passkeyCount, "backoffice.passkeys.one", "backoffice.passkeys.other")
                       : t("backoffice.noPasskeys")}

@@ -1,0 +1,1 @@
+ALTER TABLE `transactions` ADD `recurring_excluded_plan_id` text;

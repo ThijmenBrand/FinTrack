@@ -86,6 +86,15 @@ export function useSetBanned() {
   });
 }
 
+export function useResetTwoFactor() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch("/api/admin/users", json("PUT", { id, resetTwoFactor: true })),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["admin-users"] }); },
+  });
+}
+
 export function useAppSettings() {
   return useQuery({
     queryKey: ["admin-settings"],

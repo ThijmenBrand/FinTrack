@@ -28,6 +28,55 @@ export function normalizeIban(raw: string | null | undefined): string | null {
   return cleaned || null;
 }
 
+/**
+ * The account a bank export belongs to, read from its own IBAN. Banks put it
+ * in the file name ("AT48…500_2026-10-01_2026-10-31.csv") or in a column that
+ * repeats it on every row (ING "Rekening", Rabobank "IBAN/BBAN"). A column only
+ * counts when every sampled row carries the same IBAN, and the counterparty
+ * column is skipped outright — on a transfer it names one of your own
+ * accounts, and a one-row file would otherwise pass the "every row" test.
+ * Returns null unless exactly one account matches.
+ */
+export function detectAccountByIban(
+  fileName: string,
+  rows: Record<string, string>[],
+  accounts: { id: string; iban: string | null }[],
+  counterpartyColumn?: string,
+): string | null {
+  const byIban = new Map<string, string>();
+  for (const a of accounts) {
+    const iban = normalizeIban(a.iban);
+    if (iban) byIban.set(iban, a.id);
+  }
+  if (byIban.size === 0) return null;
+
+  const matches = new Set<string>();
+  const name = normalizeIban(fileName) ?? "";
+  for (const [iban, id] of byIban) {
+    if (name.includes(iban)) matches.add(id);
+  }
+
+  const columns = new Set(rows.flatMap((r) => Object.keys(r)));
+  for (const col of columns) {
+    if (col === counterpartyColumn) continue;
+    // Not every value is a string at runtime: PapaParse puts a row's surplus
+    // fields in `__parsed_extra` as an array.
+    const values = new Set(
+      rows
+        .map((r) => {
+          const v: unknown = r[col];
+          return typeof v === "string" ? normalizeIban(v) : null;
+        })
+        .filter((v) => v !== null),
+    );
+    if (values.size !== 1) continue;
+    const id = byIban.get([...values][0]);
+    if (id) matches.add(id);
+  }
+
+  return matches.size === 1 ? [...matches][0] : null;
+}
+
 export interface PreviewTransaction {
   tempId: string;
   date: string;

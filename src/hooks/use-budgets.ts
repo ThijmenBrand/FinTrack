@@ -254,84 +254,9 @@ export function useGenerateBudgets() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload ?? {}),
       }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["budgets"] });
-    },
-  });
-}
-
-export function useAcceptBudgetSuggestions() {
-  const qc = useQueryClient();
-  const shared = optimistic(qc);
-  return useMutation({
-    mutationFn: (items: { id: string; amount?: number }[]) =>
-      apiFetch<{ success: boolean; count: number }>("/api/budgets/suggestions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "accept", items }),
-      }),
-    onMutate: async (items) => {
-      await shared.begin();
-      const amounts = new Map(items.map((i) => [i.id, i.amount]));
-      // Suggestions belong to one plan, so a payload holding none of these
-      // ids is another plan's and comes back unchanged.
-      return patchCaches(qc, (data) => {
-        const accepted = data.suggestions.filter((s) => amounts.has(s.id));
-        if (accepted.length === 0) return data;
-        const takenCategories = new Set(accepted.map((s) => s.categoryId));
-        return patchBudget(
-          {
-            ...data,
-            suggestions: data.suggestions.filter((s) => !amounts.has(s.id)),
-            // Those categories stop being unbudgeted the moment they have a line.
-            unbudgetedSpending: data.unbudgetedSpending.filter(
-              (u) => !takenCategories.has(u.categoryId),
-            ),
-          },
-          (allocations) =>
-            accepted.reduce(
-              (list, s) =>
-                upsertAllocation(list, {
-                  categoryId: s.categoryId,
-                  categoryName: s.categoryName,
-                  categoryColor: s.categoryColor,
-                  amount: amounts.get(s.id) ?? s.suggestedAmount,
-                  spent:
-                    list.find((a) => a.categoryId === s.categoryId)?.spent ??
-                    data.unbudgetedSpending.find(
-                      (u) => u.categoryId === s.categoryId,
-                    )?.spent ??
-                    0,
-                }),
-              allocations,
-            ),
-        );
-      });
-    },
-    onError: shared.onError,
-    onSettled: shared.onSettled,
-  });
-}
-
-export function useRejectBudgetSuggestions() {
-  const qc = useQueryClient();
-  const shared = optimistic(qc);
-  return useMutation({
-    mutationFn: (ids: string[]) =>
-      apiFetch<{ success: boolean; count: number }>("/api/budgets/suggestions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "reject", ids }),
-      }),
-    onMutate: async (ids) => {
-      await shared.begin();
-      return patchCaches(qc, (data) => ({
-        ...data,
-        suggestions: data.suggestions.filter((s) => !ids.includes(s.id)),
-      }));
-    },
-    onError: shared.onError,
-    onSettled: shared.onSettled,
+    // Returned, so `mutateAsync` resolves only once the list holds the new
+    // suggestions — the editor's review waits on exactly that.
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["budgets"] }),
   });
 }
 
@@ -342,14 +267,14 @@ export function useRejectBudgetSuggestions() {
  * Keyed under ["budgets"] so every sub-line write already invalidates it;
  * `patchCaches` skips it because it carries no plan payload to patch.
  */
-export function useSubCategories(accountId?: string) {
+export function useSubCategories(accountId?: string, { enabled = true }: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: ["budgets", "sub-categories", accountId ?? null],
     queryFn: () =>
       apiFetch<SubCategoryOption[]>(
         `/api/budgets/sub-lines?accountId=${encodeURIComponent(accountId!)}`,
       ),
-    enabled: !!accountId,
+    enabled: enabled && !!accountId,
     staleTime: 60 * 1000,
   });
 }

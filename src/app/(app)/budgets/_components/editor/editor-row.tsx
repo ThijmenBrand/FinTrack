@@ -8,6 +8,7 @@ import { useI18n } from "@/lib/i18n/client";
 import { ROW_BRACKET, ROW_SHELL, ROW_TWIST } from "../budget-row";
 import { cents } from "../sub-line-list/constants";
 import { ColorDot } from "./color-dot";
+import { REVIEW_TONE, type ReviewTone } from "./review-tone";
 
 /**
  * A line of the plan, as it is written rather than as it is tracked.
@@ -35,6 +36,8 @@ export function EditorRow({
   removed = false,
   onRemove,
   onRestore,
+  tone,
+  annotation,
   children,
 }: {
   name: string | null;
@@ -48,12 +51,24 @@ export function EditorRow({
   removed?: boolean;
   onRemove?: () => void;
   onRestore?: () => void;
+  /** A suggestion touches this row: an edge in its colour marks it in the list. */
+  tone?: ReviewTone;
+  /** Under the row's head, above its children: the suggestion on it, if any. */
+  annotation?: ReactNode;
   children?: ReactNode;
 }) {
   const { t } = useI18n();
 
   return (
-    <li className={removed ? "bg-destructive/[0.04]" : undefined}>
+    <li
+      className={
+        removed
+          ? "bg-destructive/[0.04]"
+          : tone
+            ? `${REVIEW_TONE[tone].edge} ${REVIEW_TONE[tone].wash}`
+            : undefined
+      }
+    >
       <div className={`${ROW_SHELL} items-center`}>
         {/* Empty, and the same 32px the view's twist takes: the two lists have
             to agree on where a name starts or the switch between them reads as
@@ -136,6 +151,8 @@ export function EditorRow({
           </>
         )}
       </div>
+
+      {annotation && !removed && <div className="pb-3 pl-12 pr-4">{annotation}</div>}
 
       {/* Struck-through rows keep their breakdown out of the way: it is going
           with them, and it cannot be edited on the way out. */}

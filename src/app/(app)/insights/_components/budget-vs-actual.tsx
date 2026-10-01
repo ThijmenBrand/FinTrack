@@ -183,8 +183,15 @@ export function BudgetVsActual({
                           }`}
                           style={{ height: `${pct}%` }}
                         />
+                        {/* Sits just above the bar, but never above the chart
+                            itself, where it would cover the card description. */}
                         {isHovered && (
-                          <div className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 -translate-x-1/2 whitespace-nowrap rounded-md border bg-popover px-2 py-1 text-xs shadow-md">
+                          <div
+                            className="pointer-events-none absolute left-1/2 z-20 -translate-x-1/2 whitespace-nowrap rounded-md border bg-popover px-2 py-1 text-xs shadow-md"
+                            style={{
+                              bottom: `min(calc(${pct}% + 4px), calc(100% - 1.75rem))`,
+                            }}
+                          >
                             <span className="font-medium">
                               {monthLabel(i18n, m.month)}
                             </span>{" "}

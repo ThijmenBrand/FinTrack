@@ -25,6 +25,7 @@ import { CategoryIcon } from "@/components/category-icon";
 import { CategoryPicker } from "@/components/category-picker";
 import { useCategorizeTransaction } from "@/hooks/use-transactions";
 import { useCategoryRules } from "@/hooks/use-categories";
+import { useSubCategories } from "@/hooks/use-budgets";
 import type { Category, SubCategoryOption } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
 import { useResetOnChange } from "@/hooks/use-reset-on-change";
@@ -45,8 +46,8 @@ interface CategorizePopoverProps {
   currentSubLineName?: string | null;
   categories: Category[];
   /**
-   * Sub-lines of the account's budget plan. Omit it and the popover still
-   * keeps whatever sub-line the row already had, unless the category changes.
+   * Sub-lines of the account's budget plan. Omit it and the popover fetches
+   * them for `accountId` itself once opened.
    */
   subCategories?: SubCategoryOption[];
   /** Account the transaction belongs to — new categories land in its owner's space. */
@@ -93,6 +94,12 @@ export function CategorizePopover({
   // every row subscribe — and only where the rules are ours: on someone else's
   // account they are the owner's config, invisible and uneditable from here.
   const { data: rules = [] } = useCategoryRules({ enabled: open && canCreateRule });
+  // Same reasoning for the sub-lines when the caller didn't hand them over:
+  // one query per account, shared by every row, and only once a popover opens.
+  const { data: fetchedSubCategories } = useSubCategories(accountId, {
+    enabled: open && !subCategories,
+  });
+  const pickerSubCategories = subCategories ?? fetchedSubCategories;
   // Which rule (if any) already claims this row. Prefer one filing into the
   // category the row sits in, so the link points at the rule that put it there.
   const matchedRule = findMatchingRule(
@@ -187,7 +194,7 @@ export function CategorizePopover({
                 setSelectedSubLineId(subLineId);
               }}
               categories={categories}
-              subCategories={subCategories}
+              subCategories={pickerSubCategories}
               accountId={accountId}
               className="h-8 text-sm"
             />

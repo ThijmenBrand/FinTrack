@@ -48,6 +48,12 @@ describe("run-migrations pipeline", () => {
 
     // The column whose absence took prod down must exist after migrating.
     expect(await columnNames("user_preferences")).toContain("hide_internal_transfers");
+    // initializeDatabase rebuilds recurring_transactions from a fixed column
+    // list after the migrations ran — columns added since must survive it.
+    expect(await columnNames("recurring_transactions")).toEqual(
+      expect.arrayContaining(["match_pattern", "match_field"]),
+    );
+    expect(await columnNames("transactions")).toContain("recurring_excluded_plan_id");
 
     // Every journal entry recorded once, the oldest stamped at 0000's journal
     // timestamp so the migrator skips it but still runs any future migration.

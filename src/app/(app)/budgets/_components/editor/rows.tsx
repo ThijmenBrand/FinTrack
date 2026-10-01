@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +16,7 @@ import type { RecurringTx } from "@/types/api";
 import { AddPlanRow } from "./add-plan-row";
 import { AmountField, DerivedAmount, EditorRow } from "./editor-row";
 import type { EditorRow as Row } from "./draft";
+import type { ReviewTone } from "./review-tone";
 
 interface Units {
   /** Stored (monthly) → what the fields show. A yearly plan multiplies by 12. */
@@ -46,6 +47,9 @@ export function AllocationEditor({
   onRemove,
   onRestore,
   onHistory,
+  tone,
+  annotation,
+  reference,
 }: {
   row: Row;
   units: Units;
@@ -67,6 +71,11 @@ export function AllocationEditor({
   onRemove: () => void;
   onRestore: () => void;
   onHistory?: () => void;
+  /** A suggestion on this row; see `EditorRow`. */
+  tone?: ReviewTone;
+  annotation?: ReactNode;
+  /** Overrides the averages line, e.g. on a row a suggestion just added. */
+  reference?: string;
 }) {
   const { t, formatCurrency } = useI18n();
   // A new row has a local tree; a saved one has the server's, with this
@@ -81,8 +90,11 @@ export function AllocationEditor({
       color={row.categoryColor}
       onColor={onColor}
       unit={units.unit}
+      tone={tone}
+      annotation={annotation}
       reference={
-        row.isNew
+        reference ??
+        (row.isNew
           ? t("budgets.editor.newLine")
           : row.avgMonthly > 0
             ? // In the same period as the field beside it. The average is
@@ -93,7 +105,7 @@ export function AllocationEditor({
                 unit: units.unit,
                 months: row.avgMonths,
               })
-            : t("budgets.editor.noHistory")
+            : t("budgets.editor.noHistory"))
       }
       // A row that has never been saved has no spend behind it to plot.
       onHistory={row.isNew ? undefined : onHistory}

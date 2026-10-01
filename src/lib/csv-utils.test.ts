@@ -14,8 +14,59 @@ import {
   splitDuplicates,
   isUnsettledRow,
   applyFee,
+  detectAccountByIban,
 } from "./csv-utils";
 import type { MatchableRule } from "./csv-utils";
+
+describe("detectAccountByIban", () => {
+  const accounts = [
+    { id: "a", iban: "AT48 2011 1858 2536 6500" },
+    { id: "b", iban: "NL91ABNA0417164300" },
+    { id: "c", iban: null },
+  ];
+
+  it("finds the IBAN in the file name", () => {
+    expect(
+      detectAccountByIban("AT482011185825366500_2026-10-01_2026-10-31.csv", [], accounts),
+    ).toBe("a");
+  });
+
+  it("finds an own-account column that repeats on every row", () => {
+    const rows = [
+      { Rekening: "NL91 ABNA 0417 1643 00", Tegenrekening: "DE89370400440532013000" },
+      { Rekening: "NL91ABNA0417164300", Tegenrekening: "" },
+    ];
+    expect(detectAccountByIban("export.csv", rows, accounts, "Tegenrekening")).toBe("b");
+  });
+
+  it("ignores the counterparty column, even when a transfer names an own account", () => {
+    const rows = [{ Tegenrekening: "AT482011185825366500" }];
+    expect(detectAccountByIban("export.csv", rows, accounts, "Tegenrekening")).toBeNull();
+  });
+
+  it("ignores a column whose IBAN changes from row to row", () => {
+    const rows = [{ IBAN: "AT482011185825366500" }, { IBAN: "NL91ABNA0417164300" }];
+    expect(detectAccountByIban("export.csv", rows, accounts)).toBeNull();
+  });
+
+  it("refuses to guess when the file points at two accounts", () => {
+    const rows = [{ Rekening: "NL91ABNA0417164300" }];
+    expect(
+      detectAccountByIban("AT482011185825366500.csv", rows, accounts),
+    ).toBeNull();
+  });
+
+  it("skips PapaParse's array of surplus fields instead of throwing", () => {
+    const rows = [
+      { Rekening: "NL91ABNA0417164300", __parsed_extra: ["x"] } as unknown as Record<string, string>,
+    ];
+    expect(detectAccountByIban("export.csv", rows, accounts)).toBe("b");
+  });
+
+  it("returns null when no account has an IBAN", () => {
+    expect(detectAccountByIban("AT482011185825366500.csv", [], [{ id: "c", iban: null }])).toBeNull();
+  });
+});
 
 describe("applyFee", () => {
   // Real Revolut rows: the balance went 888,92 -> 880,85 -> 477,40, i.e. the

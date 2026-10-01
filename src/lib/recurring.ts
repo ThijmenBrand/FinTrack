@@ -270,3 +270,24 @@ export function isOccurrencePaid(
     Math.abs(new Date(date).getTime() - new Date(lastPaid).getTime()) / 86_400_000;
   return days < (PERIOD_DAYS[frequency] ?? 30) / 2;
 }
+
+/**
+ * The plan's next occurrence that hasn't been paid yet: when the payment for
+ * the coming date already landed (`isOccurrencePaid`), the one after it.
+ */
+export function nextUnpaidOccurrence(
+  plan: {
+    frequency: string;
+    startDate: string;
+    dayOfWeek: number | null;
+    dayOfMonth: number | null;
+    monthOfYear: number | null;
+  },
+  lastPaid: string | null | undefined
+): string {
+  const { frequency, startDate, dayOfWeek, dayOfMonth, monthOfYear } = plan;
+  const next = getNextOccurrence(frequency, startDate, dayOfWeek, dayOfMonth, monthOfYear);
+  return isOccurrencePaid(frequency, next, lastPaid)
+    ? getNextOccurrence(frequency, startDate, dayOfWeek, dayOfMonth, monthOfYear, new Date(next))
+    : next;
+}

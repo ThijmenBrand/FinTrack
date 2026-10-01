@@ -217,6 +217,11 @@ export const transactions = sqliteTable("transactions", {
   // amount is already counted via `totalFixedCosts` — keeping both would
   // double-count.
   recurringTransactionId: text("recurring_transaction_id"),
+  // The plan the user unlinked this row from by hand. Automatic matching (the
+  // backfill, imports, the detail page's look-alikes) never offers the row to
+  // that plan again; linking it by hand clears this. No FK: an id left behind
+  // by a deleted plan matches nothing.
+  recurringExcludedPlanId: text("recurring_excluded_plan_id"),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
@@ -468,6 +473,18 @@ export const recurringTransactions = sqliteTable("recurring_transactions", {
   startDate: text("start_date").notNull(),
   endDate: text("end_date"),
   isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  // The auto-link rule: a transaction whose `matchField` text contains this
+  // pattern (case-insensitive) belongs to this plan, whatever its amount — a
+  // price change is still the same subscription. Learned from the first
+  // transaction linked by hand (see src/lib/recurring-match.ts), editable on
+  // the plan's detail page. Null until then; the plan still auto-links by
+  // description + amount the way it always did.
+  matchPattern: text("match_pattern"),
+  matchField: text("match_field", {
+    enum: ["both", "name", "description"],
+  })
+    .notNull()
+    .default("name"),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),

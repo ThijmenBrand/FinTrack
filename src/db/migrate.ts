@@ -256,6 +256,17 @@ export async function initializeDatabase() {
     console.error("Failed to migrate recurring_transactions CHECK constraint:", e);
   }
 
+  // The rebuild above copies a fixed column list, so on a database whose table
+  // came from the versioned migrations it runs once AFTER them and drops every
+  // column added since — match_pattern/match_field (0032) among them, while the
+  // ledger already says 0032 is done. Re-add them; idempotent once present.
+  await db
+    .run(sql`ALTER TABLE recurring_transactions ADD COLUMN match_pattern TEXT`)
+    .catch(() => {});
+  await db
+    .run(sql`ALTER TABLE recurring_transactions ADD COLUMN match_field TEXT NOT NULL DEFAULT 'name'`)
+    .catch(() => {});
+
   // The Reserved (set-aside) feature was removed: fold its transactions back
   // into income/expense based on amount sign (same restore rule the feature
   // itself used). The CHECK constraints above still permit 'reserved' in old

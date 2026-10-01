@@ -3,6 +3,7 @@ import { Sidebar } from "@/components/sidebar";
 import { BottomNav } from "@/components/bottom-nav";
 import { OnboardingTour } from "@/components/onboarding-tour";
 import { PwaInstallPrompt } from "@/components/pwa-install-prompt";
+import { LearnedRuleNotice } from "@/components/learned-rule-notice";
 import { ViewTransitions } from "@/components/view-transitions";
 import { requireAuth } from "@/lib/auth";
 
@@ -24,6 +25,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <BottomNav />
       <OnboardingTour />
       <PwaInstallPrompt />
+      <LearnedRuleNotice />
     </div>
   );
 }

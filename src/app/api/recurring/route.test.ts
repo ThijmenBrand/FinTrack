@@ -228,3 +228,65 @@ describe("DELETE /api/recurring — linked sub-line propagation", () => {
     expect(await allocationAmount("alloc-5")).toBe(30);
   });
 });
+
+describe("recurring plans link their own history", () => {
+  async function bankRow(id: string, name: string, amount: number) {
+    await testDb.client.execute({
+      sql: `INSERT INTO transactions (id, user_id, account_id, date, name, description, amount, type, created_at)
+            VALUES (?, ?, 'acc-h', '2026-05-01', ?, 'Incasso', ?, 'expense', ?)`,
+      args: [id, USER, name, amount, new Date().toISOString()],
+    });
+  }
+  const linkOf = async (id: string) =>
+    (
+      await testDb.client.execute({
+        sql: "SELECT recurring_transaction_id AS r FROM transactions WHERE id = ?",
+        args: [id],
+      })
+    ).rows[0].r;
+
+  it("a new plan picks up the payments already there", async () => {
+    await makeAccount("acc-h", USER);
+    await bankRow("t-1", "Netflix", -13.99);
+    await bankRow("t-2", "Netflix", -40);
+    const { POST } = await import("./route");
+    const res = await POST(
+      new Request("http://x/api/recurring", {
+        method: "POST",
+        body: JSON.stringify({
+          accountId: "acc-h",
+          description: "Netflix",
+          amount: 13.99,
+          type: "expense",
+          frequency: "monthly",
+          startDate: "2026-01-01",
+        }),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any,
+    );
+    expect(res.status).toBe(201);
+    const { id, linked } = await res.json();
+    expect(linked).toBe(1);
+    expect(await linkOf("t-1")).toBe(id);
+    // Off by far more than the guess allows — that takes a rule.
+    expect(await linkOf("t-2")).toBeNull();
+  });
+
+  it("setting a rule links every price; a too-long one is refused", async () => {
+    await makeAccount("acc-h", USER);
+    await makeRecurring("rec-h", USER, "acc-h", -13.99, "monthly");
+    await bankRow("t-3", "NETFLIX.COM", -40);
+
+    const tooLong = await put({ id: "rec-h", matchPattern: "x".repeat(201) });
+    expect(tooLong.status).toBe(400);
+    const badField = await put({ id: "rec-h", matchPattern: "netflix", matchField: "iban" });
+    expect(badField.status).toBe(400);
+
+    const res = await put({ id: "rec-h", matchPattern: "netflix", matchField: "name" });
+    expect(await res.json()).toEqual({ success: true, linked: 1 });
+    expect(await linkOf("t-3")).toBe("rec-h");
+
+    const cleared = await put({ id: "rec-h", matchPattern: null });
+    expect(await cleared.json()).toEqual({ success: true, linked: 0 });
+  });
+});
