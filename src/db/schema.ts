@@ -485,6 +485,15 @@ export const recurringTransactions = sqliteTable("recurring_transactions", {
   })
     .notNull()
     .default("name"),
+  // The company's logo, re-encoded and kept in the private file store
+  // (`logos/<id>-<random>.webp`, see src/lib/merchant-logo.ts) and served by
+  // /api/recurring/[id]/logo. `logoSource` is the domain or image link it came
+  // from. `logoCheckedAt` is when the automatic name lookup last ran, so a plan
+  // it found nothing for (or whose logo was removed) isn't looked up again on
+  // every list read; null = not tried yet.
+  logoKey: text("logo_key"),
+  logoSource: text("logo_source"),
+  logoCheckedAt: text("logo_checked_at"),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),

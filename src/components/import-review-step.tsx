@@ -28,7 +28,7 @@ import {
   type ImportPot,
 } from "@/components/import-transaction-row";
 import { ReimbursementPicker } from "@/components/reimbursement-picker";
-import { CategoryPicker } from "@/components/category-picker";
+import { CategoryPicker, selectedSubCategory } from "@/components/category-picker";
 import type { PreviewTransaction } from "@/lib/csv-utils";
 import type { SubCategoryOption, TransactionAttachment } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
@@ -89,12 +89,39 @@ function findSimilar(
   });
 }
 
+/**
+ * Re-file one review row under a pick: the category and sub-line as picked,
+ * and the plan link decided the way the categorize popover decides it. A
+ * picked plan links the row; picking away from the plan the row showed as its
+ * sub-category unlinks it; a link to another category's plan was never shown,
+ * so it stays.
+ */
+function refile(
+  tx: PreviewTransaction,
+  categoryId: string,
+  subLineId: string | null,
+  planId: string | null,
+  options: SubCategoryOption[],
+): PreviewTransaction {
+  const shownPlanId =
+    selectedSubCategory(options, tx.categoryId, tx.subLineId, tx.recurringTransactionId)
+      ?.recurringTransactionId ?? null;
+  return {
+    ...tx,
+    categoryId,
+    subLineId,
+    recurringTransactionId: planId ?? (shownPlanId ? null : tx.recurringTransactionId ?? null),
+  };
+}
+
 interface BatchApplyBanner {
   triggerTxId: string;
   pattern: string;
   categoryId: string;
   /** Applied to the matches alongside the category; rules can't express one. */
   subLineId: string | null;
+  /** The plan the pick stands for, linked on the matches too. */
+  planId: string | null;
   /** "Category › Sub-category" once the trigger row was narrowed to a sub-line. */
   categoryName: string;
   matchCount: number;
@@ -147,10 +174,12 @@ export function ImportReviewStep({
   );
 
   const handleCategoryChange = useCallback(
-    (tempId: string, categoryId: string, subLineId: string | null) => {
+    (tempId: string, categoryId: string, subLineId: string | null, planId: string | null) => {
       // Update the single transaction
       setTransactions((prev) =>
-        prev.map((tx) => (tx.tempId === tempId ? { ...tx, categoryId, subLineId } : tx))
+        prev.map((tx) =>
+          tx.tempId === tempId ? refile(tx, categoryId, subLineId, planId, subCategories) : tx
+        )
       );
 
       // Check for similar uncategorized transactions
@@ -160,7 +189,9 @@ export function ImportReviewStep({
       const pattern = extractPattern(tx.name || tx.description);
       const similar = findSimilar(pattern, tempId, transactions);
       const cat = categories.find((c) => c.id === categoryId);
-      const sub = subCategories.find((s) => s.id === subLineId);
+      const sub = subLineId
+        ? subCategories.find((s) => s.kind === "line" && s.id === subLineId)
+        : subCategories.find((s) => s.kind === "plan" && s.id === planId);
 
       if (similar.length > 0) {
         setBatchBanner({
@@ -168,6 +199,7 @@ export function ImportReviewStep({
           pattern,
           categoryId,
           subLineId,
+          planId,
           categoryName: [cat?.name || t("csvReview.unknownCategory"), sub?.name]
             .filter(Boolean)
             .join(" › "),
@@ -186,12 +218,15 @@ export function ImportReviewStep({
   const handleBatchApply = useCallback(() => {
     if (!batchBanner) return;
 
-    const { matchIds, categoryId, subLineId, createRule, pattern, ruleMatchType } = batchBanner;
+    const { matchIds, categoryId, subLineId, planId, createRule, pattern, ruleMatchType } =
+      batchBanner;
 
     // Apply category to all matching transactions
     setTransactions((prev) =>
       prev.map((tx) =>
-        matchIds.includes(tx.tempId) ? { ...tx, categoryId, subLineId } : tx
+        matchIds.includes(tx.tempId)
+          ? refile(tx, categoryId, subLineId, planId, subCategories)
+          : tx
       )
     );
 
@@ -208,7 +243,7 @@ export function ImportReviewStep({
     }
 
     setBatchBanner(null);
-  }, [batchBanner]);
+  }, [batchBanner, subCategories]);
 
   const handleDismissBatch = useCallback(() => {
     setBatchBanner(null);
@@ -393,11 +428,11 @@ export function ImportReviewStep({
     });
   }, []);
 
-  const handleBulkCategory = (categoryId: string, subLineId: string | null) => {
+  const handleBulkCategory = (categoryId: string, subLineId: string | null, planId: string | null) => {
     setTransactions((prev) =>
       prev.map((tx) =>
         selectedIds.has(tx.tempId) && !tx.splits?.length
-          ? { ...tx, categoryId, subLineId }
+          ? refile(tx, categoryId, subLineId, planId, subCategories)
           : tx
       )
     );

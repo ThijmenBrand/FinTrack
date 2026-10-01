@@ -5,7 +5,8 @@ import path from "node:path";
 import { Readable } from "node:stream";
 
 /**
- * Private file storage on local disk — avatars and transaction attachments.
+ * Private file storage on local disk — avatars, transaction attachments and
+ * recurring-plan logos.
  *
  * Replaces Vercel Blob. Keys keep the exact shape Blob used
  * (`avatars/<id>-<random>.webp`, `attachments/<id>-<random>.<ext>`), so rows
@@ -21,9 +22,9 @@ import { Readable } from "node:stream";
  * so in Docker it lands on the same host volume and in the same backups.
  */
 
-const KEY = /^(avatars|attachments)\/[A-Za-z0-9._-]+\.(webp|pdf)$/;
+const KEY = /^(avatars|attachments|logos)\/[A-Za-z0-9._-]+\.(webp|pdf)$/;
 
-export type StorePrefix = "avatars" | "attachments";
+export type StorePrefix = "avatars" | "attachments" | "logos";
 
 function storageRoot(): string {
   return path.resolve(

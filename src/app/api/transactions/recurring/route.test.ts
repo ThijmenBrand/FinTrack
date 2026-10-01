@@ -17,6 +17,11 @@ vi.mock("@/lib/auth", () => ({
     }),
 }));
 vi.mock("@/lib/audit", () => ({ logDataEvent: () => {} }));
+// Logo lookups run in `after()` and reach the network; neither exists here.
+vi.mock("@/lib/recurring-logo", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/recurring-logo")>()),
+  scheduleLogoLookups: () => {},
+}));
 
 let testDb: TestDb;
 
@@ -124,13 +129,34 @@ describe("PUT /api/transactions/recurring — learning", () => {
     expect(await planRule()).toMatchObject({ p: "HBO" });
   });
 
+  it("learns a nameless row's text — a single-column import keeps the title there", async () => {
+    const nameless = async (description: string, amount: number) => {
+      const id = `tx-${++seq}`;
+      await testDb.client.execute({
+        sql: `INSERT INTO transactions (id, user_id, account_id, date, name, description, amount, type, created_at)
+              VALUES (?, ?, 'acc', '2026-05-01', NULL, ?, ?, 'expense', ?)`,
+        args: [id, ME, description, amount, new Date().toISOString()],
+      });
+      return id;
+    };
+    const first = await nameless("VERmax Messtechnik GmbH", -47.79);
+    const next = await nameless("VERmax Messtechnik GmbH", -52.1);
+
+    const res = await link(first, "hbo");
+    expect(await res.json()).toMatchObject({
+      learnedPattern: "VERmax Messtechnik GmbH",
+      alsoLinkedIds: [next],
+    });
+    expect(await planRule()).toMatchObject({ p: "VERmax Messtechnik GmbH", f: "name" });
+  });
+
   it("doesn't learn from a row on another account", async () => {
     const elsewhere = await tx("HBO Max", -4.5, "acc-2");
     await link(elsewhere, "hbo");
     expect((await planRule()).p).toBeNull();
   });
 
-  it("doesn't learn a payment processor's name, or a row without a name", async () => {
+  it("doesn't learn a payment processor's name", async () => {
     const paypal = await tx("PayPal Europe S.a.r.l. et Cie S.C.A", -4.5);
     await tx("PayPal Europe S.a.r.l. et Cie S.C.A", -30);
     const res = await link(paypal, "hbo");
@@ -235,6 +261,24 @@ describe("GET /api/recurring/[id]", () => {
     expect(body.transactions.map((t: { id: string }) => t.id)).toEqual([newer, older]);
     expect(body.suggestions.map((t: { id: string }) => t.id)).toEqual([lookalike]);
     expect(body.plan).not.toHaveProperty("userId");
+  });
+
+  it("suggests rows like a payment linked before the plan could learn", async () => {
+    // HBO Max shared through a friend: nothing in the bank text says HBO.
+    const linkedEarlier = await tx("Inge Pebesma", -4.5, "acc", "2026-07-01");
+    await testDb.client.execute({
+      sql: "UPDATE transactions SET recurring_transaction_id = 'hbo' WHERE id = ?",
+      args: [linkedEarlier],
+    });
+    const sameFriend = await tx("Inge Pebesma", -4.5, "acc", "2026-06-01");
+    await tx("Someone else", -4.5, "acc", "2026-06-01");
+
+    const body = await (await detail("hbo")).json();
+    expect(body.suggestions.map((t: { id: string }) => t.id)).toEqual([sameFriend]);
+
+    // Once it has a rule, the rule did the linking — no second guess.
+    await testDb.client.execute("UPDATE recurring_transactions SET match_pattern = 'Netflix' WHERE id = 'hbo'");
+    expect((await (await detail("hbo")).json()).suggestions).toEqual([]);
   });
 
   it("doesn't suggest a row the user unlinked from this plan", async () => {

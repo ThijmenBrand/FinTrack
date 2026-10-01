@@ -14,14 +14,25 @@ import {
 import { useUpdateRecurring } from "@/hooks/use-recurring";
 import { MATCH_FIELDS, MATCH_FIELD_LABEL_KEYS } from "@/lib/match-types";
 import { useI18n } from "@/lib/i18n/client";
-import type { RecurringTx } from "@/types/api";
+import { learnMatchRule } from "@/lib/recurring-match";
+import type { RecurringPayment, RecurringTx } from "@/types/api";
 
 /**
  * The plan's auto-link rule: what it is, and a way to change it. The rule is
  * normally learned from the first payment linked by hand, so the empty state
- * says that rather than asking for one up front.
+ * says that rather than asking for one up front. A plan linked before it could
+ * learn starts from what its newest payment would have taught it.
  */
-export function MatchRuleEditor({ plan, canEdit }: { plan: RecurringTx; canEdit: boolean }) {
+export function MatchRuleEditor({
+  plan,
+  canEdit,
+  payments,
+}: {
+  plan: RecurringTx;
+  canEdit: boolean;
+  /** Linked payments, newest first. */
+  payments: RecurringPayment[];
+}) {
   const { t, plural } = useI18n();
   const update = useUpdateRecurring();
   const [editing, setEditing] = useState(false);
@@ -31,7 +42,11 @@ export function MatchRuleEditor({ plan, canEdit }: { plan: RecurringTx; canEdit:
   const [linked, setLinked] = useState<number | null>(null);
 
   const startEdit = () => {
-    setPattern(plan.matchPattern ?? plan.description);
+    setPattern(
+      plan.matchPattern ??
+        payments.map((p) => learnMatchRule(p)?.matchPattern).find(Boolean) ??
+        plan.description,
+    );
     setField(plan.matchField);
     setLinked(null);
     update.reset();

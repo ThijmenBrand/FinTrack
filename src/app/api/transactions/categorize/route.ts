@@ -1,17 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import { apiError } from "@/lib/api-errors";
 import { db } from "@/db";
-import { transactions, categoryRules, categories } from "@/db/schema";
+import {
+  transactions,
+  categoryRules,
+  categories,
+  budgetSubLines,
+  recurringTransactions,
+} from "@/db/schema";
 import { eq, and, inArray } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { validatePattern, isMatchType, isMatchField } from "@/lib/validation";
 import { applyRuleToTransactions } from "@/lib/apply-rule";
 import { subLineCategories } from "@/lib/budget-sub-lines";
 import { writableTransactions } from "@/lib/account-access";
+import { setRecurringLink, type LinkablePlan } from "@/lib/recurring-link";
 
 // PUT /api/transactions/categorize — categorize one or more transactions
 // (and optionally create a rule). Pass `transactionId` for a single one or
 // `transactionIds` for a bulk update.
+//
+// `recurringTransactionId` (single row only) files the row under a recurring
+// plan's sub-category: a plan id links the row to that plan, null unlinks it,
+// and leaving it out leaves the link alone — see setRecurringLink.
 export async function PUT(request: NextRequest) {
   return withUser(async (userId) => {
     const body = await request.json();
@@ -24,6 +35,7 @@ export async function PUT(request: NextRequest) {
       rulePattern,
       ruleMatchType,
       ruleMatchField,
+      recurringTransactionId,
     } = body;
 
     const ids: string[] = Array.isArray(transactionIds)
@@ -34,6 +46,16 @@ export async function PUT(request: NextRequest) {
 
     if (ids.length === 0 || ids.length > 500) {
       return apiError("api.transactionIdRange", 400);
+    }
+    // A link teaches its plan from the one row linked (see setRecurringLink),
+    // which a batch has no single answer for.
+    const linkRequested = recurringTransactionId !== undefined;
+    if (
+      linkRequested &&
+      (ids.length !== 1 ||
+        (recurringTransactionId !== null && typeof recurringTransactionId !== "string"))
+    ) {
+      return NextResponse.json({ error: "Invalid recurringTransactionId" }, { status: 400 });
     }
 
     // A split parent is a pure wrapper — only its (already-normal) children
@@ -89,6 +111,68 @@ export async function PUT(request: NextRequest) {
       resolvedSubLineId = subLineId;
     }
 
+    // A plan is a sub-category of the category it is filed under, so it can
+    // only be picked with that category — or through a sub-line that stands
+    // for it, whatever the plan's own category says. Same owner-space rule as
+    // the sub-line above.
+    let plan: LinkablePlan | null = null;
+    if (typeof recurringTransactionId === "string") {
+      if (!categoryOwnerId) return apiError("api.subCategoryWrongCategory", 400);
+      const [found] = await db
+        .select({
+          id: recurringTransactions.id,
+          accountId: recurringTransactions.accountId,
+          matchPattern: recurringTransactions.matchPattern,
+          categoryId: recurringTransactions.categoryId,
+        })
+        .from(recurringTransactions)
+        .where(
+          and(
+            eq(recurringTransactions.id, recurringTransactionId),
+            eq(recurringTransactions.userId, categoryOwnerId),
+          ),
+        );
+      if (!found) return apiError("api.recurringNotFound", 404);
+      let viaSubLine = false;
+      if (resolvedSubLineId) {
+        const [line] = await db
+          .select({ recurringTransactionId: budgetSubLines.recurringTransactionId })
+          .from(budgetSubLines)
+          .where(
+            and(eq(budgetSubLines.id, resolvedSubLineId), eq(budgetSubLines.userId, categoryOwnerId)),
+          );
+        viaSubLine = line?.recurringTransactionId === found.id;
+      }
+      if (found.categoryId !== categoryId && !viaSubLine) {
+        return apiError("api.subCategoryWrongCategory", 400);
+      }
+      plan = { id: found.id, accountId: found.accountId, matchPattern: found.matchPattern };
+    }
+
+    // The row the link is written to, read before the update so an unlink can
+    // remember the plan it leaves. Same gate as the update: a row the caller
+    // can't write, or one outside the category owner's space, is skipped.
+    const [linkRow] = linkRequested
+      ? await db
+          .select({
+            id: transactions.id,
+            userId: transactions.userId,
+            accountId: transactions.accountId,
+            name: transactions.name,
+            description: transactions.description,
+            recurringTransactionId: transactions.recurringTransactionId,
+            recurringExcludedPlanId: transactions.recurringExcludedPlanId,
+          })
+          .from(transactions)
+          .where(
+            and(
+              eq(transactions.id, ids[0]),
+              writableTransactions(userId),
+              ...(categoryOwnerId ? [eq(transactions.userId, categoryOwnerId)] : []),
+            ),
+          )
+      : [];
+
     // writableTransactions already excludes viewer-shared rows; ids the
     // caller can't write to (or, when setting a category, whose account owner
     // doesn't match the category's owner) are silently skipped — same
@@ -109,6 +193,19 @@ export async function PUT(request: NextRequest) {
         modifiedBy: userId,
       })
       .where(and(...rowConditions));
+
+    let learnedPattern: string | null = null;
+    let alsoLinkedIds: string[] = [];
+    // Only when it would change something: re-saving a row under the plan it
+    // is already linked to must not log a link or re-learn anything.
+    if (linkRow && linkRow.recurringTransactionId !== (plan?.id ?? null)) {
+      ({ learnedPattern, alsoLinkedIds } = await setRecurringLink({
+        actorId: userId,
+        ownerId: linkRow.userId,
+        row: linkRow,
+        plan,
+      }));
+    }
 
     let ruleId: string | null = null;
     let appliedCount = 0;
@@ -155,6 +252,8 @@ export async function PUT(request: NextRequest) {
       success: true,
       ruleId,
       appliedCount,
+      learnedPattern,
+      alsoLinkedIds,
     });
   }, "Failed to categorize transaction");
 }

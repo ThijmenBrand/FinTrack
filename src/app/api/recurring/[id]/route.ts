@@ -6,7 +6,8 @@ import { and, desc, eq, inArray, isNull, ne, or } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { getAccountAccess, memberAccountIds, visibleTransactions } from "@/lib/account-access";
 import { nextUnpaidOccurrence } from "@/lib/recurring";
-import { looksLikePlan } from "@/lib/recurring-match";
+import { learnMatchRule, looksLikePlan, matchesPlanRule } from "@/lib/recurring-match";
+import { isLogoPending, logoUrl, scheduleLogoLookups } from "@/lib/recurring-logo";
 
 /** Unlinked look-alikes offered for linking — enough to act on, not a search. */
 const MAX_SUGGESTIONS = 10;
@@ -53,6 +54,9 @@ export async function GET(
         isActive: recurringTransactions.isActive,
         matchPattern: recurringTransactions.matchPattern,
         matchField: recurringTransactions.matchField,
+        logoKey: recurringTransactions.logoKey,
+        logoSource: recurringTransactions.logoSource,
+        logoCheckedAt: recurringTransactions.logoCheckedAt,
       })
       .from(recurringTransactions)
       .leftJoin(accounts, eq(recurringTransactions.accountId, accounts.id))
@@ -71,7 +75,8 @@ export async function GET(
 
     const access = await getAccountAccess(userId, row.accountId);
     const canEdit = !!access && access.role !== "viewer";
-    const { userId: ownerId, ...plan } = row;
+    const { userId: ownerId, logoKey, logoCheckedAt, ...plan } = row;
+    scheduleLogoLookups([row]);
 
     const [linked, unlinked] = await Promise.all([
       // Bank rows only: a split bill's slices inherit the link, and listing
@@ -116,13 +121,26 @@ export async function GET(
             .orderBy(desc(transactions.date))
         : Promise.resolve([]),
     ]);
+    // A plan without a rule — linked before plans learned, or from a row it
+    // couldn't learn from — has never looked for the rest of its payments.
+    // The rules its linked rows would teach find them: "one is linked, so
+    // are these?". Linking one of them teaches the plan for real.
+    const linkedRules = plan.matchPattern
+      ? []
+      : linked.flatMap((t) => learnMatchRule(t) ?? []);
     const suggestions = unlinked
-      .filter((t) => looksLikePlan(plan.description, t.name, t.description))
+      .filter(
+        (t) =>
+          looksLikePlan(plan.description, t.name, t.description) ||
+          linkedRules.some((rule) => matchesPlanRule(rule, t.name, t.description)),
+      )
       .slice(0, MAX_SUGGESTIONS);
 
     return NextResponse.json({
       plan: {
         ...plan,
+        logoUrl: logoUrl(plan.id, logoKey),
+        logoPending: isLogoPending({ logoKey, logoCheckedAt }),
         nextOccurrence: plan.isActive ? nextUnpaidOccurrence(plan, linked[0]?.date) : null,
       },
       canEdit,

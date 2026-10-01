@@ -11,6 +11,7 @@ import { eq, and, sum, isNotNull, gte, lte } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { generateOccurrences, isOccurrencePaid } from "@/lib/recurring";
 import { lastPaidByPlan } from "@/lib/recurring-paid";
+import { logoUrl } from "@/lib/recurring-logo";
 import { toMonthly } from "@/lib/month-money";
 import { getI18n } from "@/lib/i18n/server";
 import { excludeSplitChildren } from "@/lib/split-sql";
@@ -68,6 +69,7 @@ export async function GET(request: NextRequest) {
         monthOfYear: recurringTransactions.monthOfYear,
         startDate: recurringTransactions.startDate,
         endDate: recurringTransactions.endDate,
+        logoKey: recurringTransactions.logoKey,
       })
       .from(recurringTransactions)
       .leftJoin(
@@ -89,6 +91,7 @@ export async function GET(request: NextRequest) {
       type: string;
       categoryName: string | null;
       categoryColor: string | null;
+      logoUrl: string | null;
       source: "recurring" | "spike";
     }
 
@@ -123,6 +126,7 @@ export async function GET(request: NextRequest) {
           type: r.categoryKind === "transfer" ? "transfer" : r.type,
           categoryName: r.categoryName,
           categoryColor: r.categoryColor,
+          logoUrl: logoUrl(r.id, r.logoKey),
           source: "recurring",
         });
       }
@@ -163,6 +167,7 @@ export async function GET(request: NextRequest) {
         type: "expense",
         categoryName: s.categoryName,
         categoryColor: s.categoryColor,
+        logoUrl: null,
         source: "spike",
       });
     }

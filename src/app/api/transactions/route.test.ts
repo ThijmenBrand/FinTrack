@@ -813,3 +813,171 @@ describe("GET /api/transactions — sub-categories", () => {
     expect(await row("tx-gone")).toMatchObject({ subLineId: null, subLineName: null });
   });
 });
+
+describe("recurring plans as sub-categories", () => {
+  // A plan filed under a category is offered as that category's sub-category;
+  // filing a row under it IS linking the row to the plan.
+  beforeEach(async () => {
+    const now = new Date().toISOString();
+    await testDb.client.execute({
+      sql: `INSERT INTO categories (id, user_id, name, created_at) VALUES ('cat-contrib', ?, 'Personal contributions', ?)`,
+      args: [OWNER, now],
+    });
+    await testDb.client.execute({
+      sql: `INSERT INTO recurring_transactions (id, user_id, account_id, description, amount, type, category_id, frequency, day_of_month, start_date, is_active, created_at)
+            VALUES ('plan-sam', ?, 'acc-private', 'Sam contribution', 500, 'income', 'cat-contrib', 'monthly', 1, '2026-01-01', 1, ?),
+                   ('plan-alex', ?, 'acc-private', 'Alex contribution', 900, 'income', 'cat-contrib', 'monthly', 1, '2026-01-01', 1, ?),
+                   ('plan-gym', ?, 'acc-private', 'Gym', 30, 'expense', 'cat-owner', 'monthly', 1, '2026-01-01', 1, ?)`,
+      args: [OWNER, now, OWNER, now, OWNER, now],
+    });
+    await testDb.client.execute({
+      sql: `INSERT INTO transactions (id, user_id, account_id, date, name, description, amount, type, created_at)
+            VALUES ('tx-sam-aug', ?, 'acc-private', '2026-08-01', 'S. Jansen', 'Bijdrage aug', 500, 'income', ?),
+                   ('tx-sam-sep', ?, 'acc-private', '2026-09-01', 'S. Jansen', 'Bijdrage sep', 500, 'income', ?)`,
+      args: [OWNER, now, OWNER, now],
+    });
+  });
+
+  const stored = async (id: string) =>
+    (
+      await testDb.client.execute({
+        sql: `SELECT category_id, sub_line_id, recurring_transaction_id, recurring_excluded_plan_id
+              FROM transactions WHERE id = ? AND user_id = ?`,
+        args: [id, OWNER],
+      })
+    ).rows[0];
+
+  const listed = async (id: string) => {
+    const body = await (await get("limit=50")).json();
+    return body.data.find((r: { id: string }) => r.id === id);
+  };
+
+  it("filing a row under a plan sets the category and links the plan, which learns from it", async () => {
+    const res = await categorize({
+      transactionId: "tx-sam-aug",
+      categoryId: "cat-contrib",
+      recurringTransactionId: "plan-sam",
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      learnedPattern: "S. Jansen",
+      alsoLinkedIds: ["tx-sam-sep"],
+    });
+    expect(await stored("tx-sam-aug")).toMatchObject({
+      category_id: "cat-contrib",
+      sub_line_id: null,
+      recurring_transaction_id: "plan-sam",
+    });
+    expect((await stored("tx-sam-sep")).recurring_transaction_id).toBe("plan-sam");
+  });
+
+  it("lists a linked row under its plan when the plan is filed under the row's category", async () => {
+    await testDb.client.execute({
+      sql: `UPDATE transactions SET category_id = 'cat-contrib', recurring_transaction_id = 'plan-sam' WHERE id = 'tx-sam-aug'`,
+      args: [],
+    });
+    expect(await listed("tx-sam-aug")).toMatchObject({
+      subLineId: null,
+      subLineName: "Sam contribution",
+      recurringTransactionId: "plan-sam",
+    });
+  });
+
+  it("names the sub-line that stands for the plan, rather than the plan", async () => {
+    const now = new Date().toISOString();
+    await testDb.client.execute({
+      sql: `INSERT INTO budgets (id, user_id, budget_id, category_id, amount, period, is_active, status, source, created_at)
+            VALUES ('alloc-contrib', ?, NULL, 'cat-contrib', 500, 'monthly', 1, 'active', 'manual', ?)`,
+      args: [OWNER, now],
+    });
+    await testDb.client.execute({
+      sql: `INSERT INTO budget_sub_lines (id, user_id, allocation_id, parent_id, name, amount, recurring_transaction_id, created_at)
+            VALUES ('sub-sam', ?, 'alloc-contrib', NULL, 'Sam', 500, 'plan-sam', ?)`,
+      args: [OWNER, now],
+    });
+    await testDb.client.execute({
+      sql: `UPDATE transactions SET category_id = 'cat-contrib', recurring_transaction_id = 'plan-sam' WHERE id = 'tx-sam-aug'`,
+      args: [],
+    });
+    expect((await listed("tx-sam-aug")).subLineName).toBe("Sam");
+  });
+
+  it("does not show a link to another category's plan as a sub-category", async () => {
+    await testDb.client.execute({
+      sql: `UPDATE transactions SET category_id = 'cat-owner', recurring_transaction_id = 'plan-sam' WHERE id = 'tx-sam-aug'`,
+      args: [],
+    });
+    expect((await listed("tx-sam-aug")).subLineName).toBeNull();
+  });
+
+  it("refuses a plan filed under another category", async () => {
+    const res = await categorize({
+      transactionId: "tx-sam-aug",
+      categoryId: "cat-contrib",
+      recurringTransactionId: "plan-gym",
+    });
+    expect(res.status).toBe(400);
+    expect((await stored("tx-sam-aug")).recurring_transaction_id).toBeNull();
+  });
+
+  it("refuses a plan in a bulk categorize — a link teaches from one row", async () => {
+    const res = await categorize({
+      transactionIds: ["tx-sam-aug", "tx-sam-sep"],
+      categoryId: "cat-contrib",
+      recurringTransactionId: "plan-sam",
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("null unlinks and remembers the plan, so matching never hands the row back", async () => {
+    await testDb.client.execute({
+      sql: `UPDATE transactions SET category_id = 'cat-contrib', recurring_transaction_id = 'plan-sam' WHERE id = 'tx-sam-aug'`,
+      args: [],
+    });
+    const res = await categorize({
+      transactionId: "tx-sam-aug",
+      categoryId: "cat-contrib",
+      recurringTransactionId: null,
+    });
+    expect(res.status).toBe(200);
+    expect(await stored("tx-sam-aug")).toMatchObject({
+      recurring_transaction_id: null,
+      recurring_excluded_plan_id: "plan-sam",
+    });
+  });
+
+  it("leaves the link alone when the body says nothing about it", async () => {
+    await testDb.client.execute({
+      sql: `UPDATE transactions SET recurring_transaction_id = 'plan-sam' WHERE id = 'tx-sam-aug'`,
+      args: [],
+    });
+    await categorize({ transactionId: "tx-sam-aug", categoryId: "cat-owner" });
+    expect((await stored("tx-sam-aug")).recurring_transaction_id).toBe("plan-sam");
+  });
+
+  it("a hand-entered row takes the plan picked as its sub-category over any guess", async () => {
+    const res = await post({
+      accountId: "acc-private",
+      date: "2026-09-15",
+      description: "Cash from Alex",
+      amount: 50,
+      type: "income",
+      categoryId: "cat-contrib",
+      recurringTransactionId: "plan-alex",
+    });
+    expect(res.status).toBe(201);
+    const created = await res.json();
+    expect(created.recurringTransactionId).toBe("plan-alex");
+
+    const wrong = await post({
+      accountId: "acc-private",
+      date: "2026-09-15",
+      description: "Cash",
+      amount: 50,
+      type: "income",
+      categoryId: "cat-owner",
+      recurringTransactionId: "plan-alex",
+    });
+    expect(wrong.status).toBe(400);
+  });
+});

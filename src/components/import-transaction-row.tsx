@@ -53,7 +53,12 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
   subCategories: SubCategoryOption[];
   pots: ImportPot[];
   accountId: string;
-  onCategoryChange: (tempId: string, categoryId: string, subLineId: string | null) => void;
+  onCategoryChange: (
+    tempId: string,
+    categoryId: string,
+    subLineId: string | null,
+    planId: string | null,
+  ) => void;
   onNotesChange: (tempId: string, notes: string | null) => void;
   onAttachmentsChange: (
     tempId: string,
@@ -105,7 +110,8 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
       subCategories={subCategories}
       value={tx.categoryId || null}
       subLineId={tx.subLineId ?? null}
-      onChange={(v, subLineId) => onCategoryChange(tx.tempId, v, subLineId)}
+      recurringTransactionId={tx.recurringTransactionId ?? null}
+      onChange={(v, subLineId, planId) => onCategoryChange(tx.tempId, v, subLineId, planId)}
       accountId={accountId}
       className={triggerClass}
       placeholder={tx.categoryId ? undefined : t("csvRow.selectPlaceholder")}

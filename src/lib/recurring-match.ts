@@ -88,24 +88,35 @@ export function isPaymentProcessorName(name: string): boolean {
   );
 }
 
+// A run of digits is a reference, date, IBAN or card number — different on
+// every payment, so text carrying one is a bank memo, not a payee.
+const REFERENCE_DIGITS = /\d{4,}/;
+
 /**
- * The rule to learn from a row the user linked by hand: its counterparty
- * name, the stable part of a bank row ("HBO Max") — the description is mostly
- * reference numbers that change every month.
+ * The rule to learn from a row the user linked by hand: the row's title, the
+ * stable part of a bank row ("HBO Max"). That is its counterparty name — the
+ * description beside it is mostly reference numbers that change every month.
+ * A row imported from a single CSV column has no name and its lone text, the
+ * title it shows, in the description (see splitNameAndDescription); that text
+ * is learned instead, and a "name" rule falls back to it the same way (see
+ * ruleMatchTarget).
  *
- * Nothing is learned when that name can't single out one payee, because the
+ * Nothing is learned when the title can't single out one payee, because the
  * rule ignores the amount and is applied to the account's whole history at
- * once: a row without a name (its description's first words are "SEPA Incasso
- * algemeen" on every direct debit) or a name that is only a payment processor.
- * The plan then keeps its description + amount guess, and a rule can still be
- * set by hand on its detail page.
+ * once: a name that is only a payment processor, or a nameless row whose
+ * text is a memo ("SEPA Incasso algemeen doorlopend … 0012345678") rather
+ * than a payee. The plan then keeps its description + amount guess, and a
+ * rule can still be set by hand on its detail page.
  */
 export function learnMatchRule(row: {
   name: string | null;
+  description: string;
 }): { matchPattern: string; matchField: "name" } | null {
   const name = row.name?.trim();
-  if (!name || isPaymentProcessorName(name)) return null;
-  return { matchPattern: name.slice(0, MAX_PATTERN_LENGTH), matchField: "name" };
+  const title = name || row.description.trim();
+  if (!title || isPaymentProcessorName(title)) return null;
+  if (!name && REFERENCE_DIGITS.test(title)) return null;
+  return { matchPattern: title.slice(0, MAX_PATTERN_LENGTH), matchField: "name" };
 }
 
 /**

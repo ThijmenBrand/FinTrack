@@ -18,6 +18,7 @@ import { RecurringFormDialog } from "../_components/recurring-form-dialog";
 import { PaymentChart } from "../_components/payment-chart";
 import { PaymentList } from "../_components/payment-list";
 import { MatchRuleEditor } from "../_components/match-rule-editor";
+import { LogoEditor } from "../_components/logo-editor";
 
 // Same reading column as the list page this one is opened from.
 const PAGE = "mx-auto max-w-4xl";
@@ -88,10 +89,12 @@ export default function RecurringDetailPage() {
 
       <header className="mt-4 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="flex items-center gap-2.5">
-            <span
-              className="h-2.5 w-2.5 shrink-0 rounded-full"
-              style={{ backgroundColor: plan.categoryColor || (incoming ? "#10b981" : "#94a3b8") }}
+          <div className="flex items-center gap-3">
+            <LogoEditor
+              plan={plan}
+              canEdit={canEdit}
+              color={plan.categoryColor || (incoming ? "#10b981" : "#94a3b8")}
+              className="h-11 w-11 text-lg"
             />
             <h1 className="truncate text-3xl font-semibold tracking-tight">{plan.description}</h1>
             {!plan.isActive && (
@@ -167,7 +170,7 @@ export default function RecurringDetailPage() {
         </CardContent>
       </Card>
 
-      <MatchRuleEditor plan={plan} canEdit={canEdit} />
+      <MatchRuleEditor plan={plan} canEdit={canEdit} payments={transactions} />
 
       {canEdit && suggestions.length > 0 && (
         <section className="mt-8">

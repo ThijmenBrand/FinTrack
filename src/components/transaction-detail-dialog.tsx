@@ -246,6 +246,7 @@ export function TransactionDetailDialog({
                 currentCategoryIcon={tx.categoryIcon}
                 currentSubLineId={tx.subLineId}
                 currentSubLineName={tx.subLineName}
+                currentRecurringId={tx.recurringTransactionId}
                 categories={resolvedCategories}
                 subCategories={subCategories}
                 accountId={tx.accountId}

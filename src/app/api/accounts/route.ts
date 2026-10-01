@@ -10,6 +10,7 @@ import { isBank, bankLabel } from "@/lib/banks";
 import { getAccessibleAccounts, requireAccountAccess, visibleTransactions } from "@/lib/account-access";
 import { excludeSplitChildren } from "@/lib/split-sql";
 import { detectTransfers, splitTransfersForAccount } from "@/lib/detect-transfers";
+import { discardLogosAfter } from "@/lib/recurring-logo";
 
 const ACCOUNT_TYPES = ["checking", "savings", "joint", "credit", "other"] as const;
 type AccountType = (typeof ACCOUNT_TYPES)[number];
@@ -251,7 +252,10 @@ export async function DELETE(request: NextRequest) {
     // Deleting the account is "manage" — owner-only, even for editors.
     await requireAccountAccess(userId, id, "manage");
 
-    await db.delete(accounts).where(and(eq(accounts.id, id), eq(accounts.userId, userId)));
+    // The account's plans go with it, and their logo files after them.
+    await discardLogosAfter({ userId, accountId: id }, () =>
+      db.delete(accounts).where(and(eq(accounts.id, id), eq(accounts.userId, userId))),
+    );
 
     logDataEvent({ userId, action: "account_delete", targetId: id, targetType: "account" });
 

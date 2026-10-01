@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { apiError } from "@/lib/api-errors";
 import { db } from "@/db";
-import { transactions, accounts, categories, reimbursementLinks, recurringTransactions } from "@/db/schema";
+import {
+  transactions,
+  accounts,
+  categories,
+  reimbursementLinks,
+  recurringTransactions,
+  budgetSubLines,
+} from "@/db/schema";
 import { eq, desc, asc, and, gte, lte, like, or, sql, inArray, notInArray, isNull, isNotNull } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
@@ -249,7 +256,24 @@ export async function GET(request: NextRequest) {
         // can't be forgotten; a stale pair reads as the category alone instead
         // of as "Groceries › Fuel".
         subLineId: sql<string | null>`(SELECT sl.id FROM budget_sub_lines sl WHERE ${subLineOfOwnCategory})`,
-        subLineName: sql<string | null>`(SELECT sl.name FROM budget_sub_lines sl WHERE ${subLineOfOwnCategory})`,
+        // Falls back to the recurring plan the row is linked to, when that plan
+        // is filed under the row's own category: the budget page hangs a plan
+        // under its category, and the picker offers it there as a sub-category
+        // — as the line that stands for it, if one does. A plan in another
+        // category is a link, not a sub-category, and is shown as neither.
+        subLineName: sql<string | null>`COALESCE(
+          (SELECT sl.name FROM budget_sub_lines sl WHERE ${subLineOfOwnCategory}),
+          (SELECT sl.name FROM budget_sub_lines sl
+            JOIN budgets b ON b.id = sl.allocation_id
+            WHERE sl.recurring_transaction_id = ${transactions.recurringTransactionId}
+              AND sl.user_id = "transactions"."user_id"
+              AND b.category_id = "transactions"."category_id"
+            ORDER BY sl.created_at LIMIT 1),
+          (SELECT r.description FROM recurring_transactions r
+            WHERE r.id = ${transactions.recurringTransactionId}
+              AND r.user_id = "transactions"."user_id"
+              AND r.category_id = "transactions"."category_id")
+        )`,
         type: transactions.type,
         linkedTransactionId: transactions.linkedTransactionId,
         // Caller-visibility, not row-owner visibility: a transfer counterpart
@@ -512,7 +536,18 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   return withUser(async (userId) => {
     const body = await request.json();
-    const { accountId, date, name, description, amount, type, categoryId, subLineId, notes } = body;
+    const {
+      accountId,
+      date,
+      name,
+      description,
+      amount,
+      type,
+      categoryId,
+      subLineId,
+      recurringTransactionId: pickedPlanId,
+      notes,
+    } = body;
 
     if (typeof accountId !== "string" || !accountId) {
       return NextResponse.json({ error: "accountId is required" }, { status: 400 });
@@ -603,10 +638,41 @@ export async function POST(request: NextRequest) {
           eq(recurringTransactions.isActive, true),
         ),
       );
-    const recurringTransactionId = findRecurringForRow(
-      { accountId, amount, name: name || null, description: description.trim() },
-      plans,
-    );
+    // A plan picked as the row's sub-category is the answer; only without one
+    // is it guessed. Picked, it must be the owner's and filed under the
+    // category being set — or stood for by the sub-line being set.
+    let recurringTransactionId: string | null;
+    if (pickedPlanId != null) {
+      if (typeof pickedPlanId !== "string" || !validCategoryId) {
+        return apiError("api.subCategoryWrongCategory", 400);
+      }
+      const [picked] = await db
+        .select({ categoryId: recurringTransactions.categoryId })
+        .from(recurringTransactions)
+        .where(
+          and(eq(recurringTransactions.id, pickedPlanId), eq(recurringTransactions.userId, ownerId)),
+        )
+        .limit(1);
+      if (!picked) return apiError("api.recurringNotFound", 404);
+      let viaSubLine = false;
+      if (validSubLineId) {
+        const [line] = await db
+          .select({ recurringTransactionId: budgetSubLines.recurringTransactionId })
+          .from(budgetSubLines)
+          .where(and(eq(budgetSubLines.id, validSubLineId), eq(budgetSubLines.userId, ownerId)))
+          .limit(1);
+        viaSubLine = line?.recurringTransactionId === pickedPlanId;
+      }
+      if (picked.categoryId !== validCategoryId && !viaSubLine) {
+        return apiError("api.subCategoryWrongCategory", 400);
+      }
+      recurringTransactionId = pickedPlanId;
+    } else {
+      recurringTransactionId = findRecurringForRow(
+        { accountId, amount, name: name || null, description: description.trim() },
+        plans,
+      );
+    }
 
     const id = crypto.randomUUID();
     await db.insert(transactions).values({

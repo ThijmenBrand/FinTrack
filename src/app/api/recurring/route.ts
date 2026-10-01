@@ -15,6 +15,7 @@ import { lastPaidByPlan } from "@/lib/recurring-paid";
 import { resyncUpwards } from "@/lib/budget-sub-lines";
 import { isFiniteNumber, isIsoDate, validatePattern } from "@/lib/validation";
 import { linkMatchingTransactions } from "@/lib/recurring-backfill";
+import { discardLogo, isLogoPending, logoUrl, scheduleLogoLookups } from "@/lib/recurring-logo";
 
 const RECURRING_TYPES = ["income", "expense"] as const;
 const FREQUENCIES = ["weekly", "biweekly", "monthly", "yearly"] as const;
@@ -89,6 +90,10 @@ export async function GET() {
         isActive: recurringTransactions.isActive,
         matchPattern: recurringTransactions.matchPattern,
         matchField: recurringTransactions.matchField,
+        userId: recurringTransactions.userId,
+        logoKey: recurringTransactions.logoKey,
+        logoSource: recurringTransactions.logoSource,
+        logoCheckedAt: recurringTransactions.logoCheckedAt,
         createdAt: recurringTransactions.createdAt,
       })
       .from(recurringTransactions)
@@ -108,9 +113,15 @@ export async function GET() {
 
     const lastPaid = await lastPaidByPlan(rows.map((r) => r.id), userId);
 
+    // Plans never looked up (new, renamed, or from before logos) get one
+    // found once this response is out; `logoPending` keeps the client polling.
+    scheduleLogoLookups(rows);
+
     // Payment already in for the coming date? Skip ahead to the one after it.
-    const withNextOccurrence = rows.map((r) => ({
+    const withNextOccurrence = rows.map(({ userId: _owner, logoKey, logoCheckedAt, ...r }) => ({
       ...r,
+      logoUrl: logoUrl(r.id, logoKey),
+      logoPending: isLogoPending({ logoKey, logoCheckedAt }),
       nextOccurrence: r.isActive ? nextUnpaidOccurrence(r, lastPaid.get(r.id)) : null,
     }));
 
@@ -240,7 +251,14 @@ export async function PUT(request: NextRequest) {
     // Explicit field allowlist — never spread the client body into `set`
     // (userId/createdAt/id must not be client-settable).
     const updates: Partial<typeof recurringTransactions.$inferInsert> = {};
-    if ("description" in body) updates.description = (body.description as string).trim();
+    if ("description" in body) {
+      updates.description = (body.description as string).trim();
+      // A renamed plan without a logo gets another automatic try under its new
+      // name. One that has a logo keeps it — that may have been picked by hand.
+      if (updates.description !== existing.description && !existing.logoKey) {
+        updates.logoCheckedAt = null;
+      }
+    }
     if ("type" in body) updates.type = body.type;
     if ("categoryId" in body) updates.categoryId = body.categoryId || null;
     if ("accountId" in body) updates.accountId = body.accountId;
@@ -344,7 +362,7 @@ export async function DELETE(request: NextRequest) {
     // keeps its amount and becomes an ordinary planning line, so no re-sum:
     // its contribution to every ancestor's sum hasn't changed, only the link
     // that used to explain where the number came from.
-    await db.transaction(async (tx) => {
+    const logoKey = await db.transaction(async (tx) => {
       await tx
         .update(budgetSubLines)
         .set({ recurringTransactionId: null })
@@ -354,10 +372,20 @@ export async function DELETE(request: NextRequest) {
             eq(budgetSubLines.userId, ownerId),
           ),
         );
+      // Read inside the transaction, after its first write has taken the lock:
+      // a background lookup can't store a logo between this read and the delete.
+      const [plan] = await tx
+        .select({ logoKey: recurringTransactions.logoKey })
+        .from(recurringTransactions)
+        .where(and(eq(recurringTransactions.id, id), eq(recurringTransactions.userId, ownerId)))
+        .limit(1);
       await tx
         .delete(recurringTransactions)
         .where(and(eq(recurringTransactions.id, id), eq(recurringTransactions.userId, ownerId)));
+      return plan?.logoKey ?? null;
     });
+    // The stored file goes once the row is gone, so a failed delete keeps it.
+    await discardLogo(logoKey);
 
     return NextResponse.json({ success: true });
   }, "Failed to delete recurring transaction");

@@ -33,24 +33,43 @@ const row = (overrides: Partial<Parameters<typeof findRecurringForRow>[0]> = {})
 
 describe("learnMatchRule", () => {
   it("learns the counterparty name — the stable part of a bank row", () => {
-    expect(learnMatchRule({ name: "  HBO Max  " })).toEqual({
+    expect(learnMatchRule({ name: "  HBO Max  ", description: "Incasso ref 88123" })).toEqual({
       matchPattern: "HBO Max",
       matchField: "name",
     });
   });
 
-  it("learns nothing without a name — a description's first words are often the same on every debit", () => {
-    expect(learnMatchRule({ name: null })).toBeNull();
-    expect(learnMatchRule({ name: "   " })).toBeNull();
+  it("learns a nameless row's description — the title a single-column import shows", () => {
+    const learned = learnMatchRule({ name: null, description: " VERmax Messtechnik GmbH " });
+    expect(learned).toEqual({ matchPattern: "VERmax Messtechnik GmbH", matchField: "name" });
+    // The "name" rule reads the description on such rows, so it finds the next one.
+    expect(matchesPlanRule(learned!, null, "VERMAX MESSTECHNIK GMBH")).toBe(true);
   });
 
-  it("learns nothing from a name that is only a payment processor", () => {
-    expect(learnMatchRule({ name: "PayPal Europe S.a.r.l. et Cie S.C.A" })).toBeNull();
-    expect(learnMatchRule({ name: "SumUp *Bakker Jansen" })?.matchPattern).toBe("SumUp *Bakker Jansen");
+  it("learns nothing from a nameless row whose text is a memo with references", () => {
+    expect(
+      learnMatchRule({ name: null, description: "SEPA Incasso algemeen doorlopend Incassant NL12ZZZ301234560000" }),
+    ).toBeNull();
+    expect(learnMatchRule({ name: null, description: "Betaalautomaat 01-10-2026 12:04 pasnr. 001" })).toBeNull();
+    // A name is learned even when it carries digits — it's the payee, not a memo.
+    expect(learnMatchRule({ name: "Basic-Fit 1234", description: "" })?.matchPattern).toBe("Basic-Fit 1234");
+  });
+
+  it("learns nothing from a row with no text at all", () => {
+    expect(learnMatchRule({ name: null, description: "" })).toBeNull();
+    expect(learnMatchRule({ name: "   ", description: "  " })).toBeNull();
+  });
+
+  it("learns nothing from a title that is only a payment processor", () => {
+    expect(learnMatchRule({ name: "PayPal Europe S.a.r.l. et Cie S.C.A", description: "" })).toBeNull();
+    expect(learnMatchRule({ name: null, description: "Stichting Mollie Payments" })).toBeNull();
+    expect(learnMatchRule({ name: "SumUp *Bakker Jansen", description: "" })?.matchPattern).toBe(
+      "SumUp *Bakker Jansen",
+    );
   });
 
   it("caps the pattern at the rule length limit", () => {
-    const learned = learnMatchRule({ name: "x".repeat(300) });
+    const learned = learnMatchRule({ name: "x".repeat(300), description: "" });
     expect(learned?.matchPattern).toHaveLength(200);
   });
 
