@@ -74,6 +74,8 @@ function Form({
   });
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [subLineId, setSubLineId] = useState<string | null>(null);
+  // A plan picked as the sub-category; null leaves the server to match one.
+  const [planId, setPlanId] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [lastAdded, setLastAdded] = useState<string | null>(null);
@@ -114,6 +116,7 @@ function Form({
         type: direction,
         categoryId,
         subLineId,
+        recurringTransactionId: planId,
         notes: notes.trim() || null,
       });
     } catch (err) {
@@ -136,6 +139,7 @@ function Form({
     setDescription("");
     setCategoryId(null);
     setSubLineId(null);
+    setPlanId(null);
     setNotes("");
     amountRef.current?.focus();
   };
@@ -230,8 +234,10 @@ function Form({
             // Another owner's account has another category space; a pick from
             // the old one would 404 on save.
             if (writable.find((a) => a.id === id)?.userId !== account?.userId) setCategoryId(null);
-            // Sub-lines belong to the old account's plan; the new one may not have them.
+            // Sub-lines and plans belong to the old account's budget; the new
+            // one may not have them.
             setSubLineId(null);
+            setPlanId(null);
           }}
         >
           <SelectTrigger id="add-tx-account" className="w-full">
@@ -264,9 +270,11 @@ function Form({
           budgetCategoryIds={budgetCategoryIds}
           value={categoryId}
           subLineId={subLineId}
-          onChange={(id, sub) => {
+          recurringTransactionId={planId}
+          onChange={(id, sub, plan) => {
             setCategoryId(id);
             setSubLineId(sub);
+            setPlanId(plan);
           }}
           accountId={accountId || undefined}
         />

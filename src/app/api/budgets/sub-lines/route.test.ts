@@ -635,3 +635,76 @@ describe("DELETE /api/budgets (allocation)", () => {
     expect(await subLineCount()).toBe(0);
   });
 });
+
+describe("GET /api/budgets/sub-lines — recurring plans as sub-categories", () => {
+  // A recurring plan filed under a category hangs under that category on the
+  // budget page; the picker offers it there too.
+  beforeEach(async () => {
+    const now = new Date().toISOString();
+    await testDb.client.execute({
+      sql: `INSERT INTO budget_plans (id, user_id, name, is_main, created_at, updated_at) VALUES ('sl-plan', ?, 'Main', 1, ?, ?)`,
+      args: [USER, now, now],
+    });
+    await testDb.client.execute({
+      sql: `UPDATE budgets SET budget_id = 'sl-plan' WHERE id = 'sl-budget'`,
+      args: [],
+    });
+    await testDb.client.execute({
+      sql: `INSERT INTO accounts (id, user_id, name, type, currency, initial_balance, sort_order, budget_id, created_at, updated_at)
+            VALUES ('sl-acc', ?, 'Checking', 'checking', 'EUR', 0, 0, 'sl-plan', ?, ?),
+                   ('sl-acc-outside', ?, 'Savings', 'savings', 'EUR', 0, 1, NULL, ?, ?)`,
+      args: [USER, now, now, USER, now, now],
+    });
+    await testDb.client.execute({
+      sql: `INSERT INTO recurring_transactions (id, user_id, account_id, description, amount, type, category_id, frequency, day_of_month, start_date, is_active, created_at)
+            VALUES ('rp-milk', ?, 'sl-acc', 'Milk box', -20, 'expense', 'sl-cat', 'monthly', 1, '2026-01-01', 1, ?),
+                   ('rp-veg', ?, 'sl-acc', 'Veg box', -30, 'expense', 'sl-cat', 'monthly', 1, '2026-01-01', 0, ?),
+                   ('rp-loose', ?, 'sl-acc', 'No category', -5, 'expense', NULL, 'monthly', 1, '2026-01-01', 1, ?),
+                   ('rp-elsewhere', ?, 'sl-acc-outside', 'Other account', -5, 'expense', 'sl-cat', 'monthly', 1, '2026-01-01', 1, ?)`,
+      args: [USER, now, USER, now, USER, now, USER, now],
+    });
+    await testDb.client.execute({
+      sql: `INSERT INTO budget_sub_lines (id, user_id, allocation_id, parent_id, name, amount, recurring_transaction_id, created_at)
+            VALUES ('sl-milk-line', ?, 'sl-budget', NULL, 'Milk', 20, 'rp-milk', ?)`,
+      args: [USER, now],
+    });
+  });
+
+  const get = (accountId: string) =>
+    import("./route").then(({ GET }) =>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      GET(new Request(`http://x/api/budgets/sub-lines?accountId=${accountId}`) as any),
+    );
+
+  it("offers the budget plan's recurring plans under their category, a linked one once as its line", async () => {
+    const options = await (await get("sl-acc")).json();
+    expect(options).toEqual([
+      {
+        id: "sl-milk-line",
+        kind: "line",
+        categoryId: "sl-cat",
+        name: "Milk",
+        depth: 1,
+        recurringTransactionId: "rp-milk",
+      },
+      // Paused plans too — the budget page still lists them.
+      {
+        id: "rp-veg",
+        kind: "plan",
+        categoryId: "sl-cat",
+        name: "Veg box",
+        depth: 1,
+        recurringTransactionId: "rp-veg",
+      },
+    ]);
+  });
+
+  it("adds an account's own plans when it sits outside the main plan it falls back to", async () => {
+    const options = await (await get("sl-acc-outside")).json();
+    expect(options.map((o: { id: string }) => o.id)).toEqual([
+      "sl-milk-line",
+      "rp-elsewhere",
+      "rp-veg",
+    ]);
+  });
+});

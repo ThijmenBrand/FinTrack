@@ -22,7 +22,7 @@ import { Tag, Check, Zap, SlidersHorizontal, ArrowUpRight } from "lucide-react";
 import { extractPattern, findMatchingRule } from "@/lib/csv-utils";
 import { MATCH_TYPES, MATCH_FIELDS } from "@/lib/match-types";
 import { CategoryIcon } from "@/components/category-icon";
-import { CategoryPicker } from "@/components/category-picker";
+import { CategoryPicker, selectedSubCategory } from "@/components/category-picker";
 import { useCategorizeTransaction } from "@/hooks/use-transactions";
 import { useCategoryRules } from "@/hooks/use-categories";
 import { useSubCategories } from "@/hooks/use-budgets";
@@ -44,6 +44,8 @@ interface CategorizePopoverProps {
   /** The budget sub-line the row is filed under, inside the current category. */
   currentSubLineId?: string | null;
   currentSubLineName?: string | null;
+  /** The recurring plan the row is linked to — a sub-category when it is filed under the row's category. */
+  currentRecurringId?: string | null;
   categories: Category[];
   /**
    * Sub-lines of the account's budget plan. Omit it and the popover fetches
@@ -68,6 +70,7 @@ export function CategorizePopover({
   currentCategoryIcon,
   currentSubLineId,
   currentSubLineName,
+  currentRecurringId,
   categories,
   subCategories,
   accountId,
@@ -84,6 +87,9 @@ export function CategorizePopover({
   const [selectedSubLineId, setSelectedSubLineId] = useState<string | null>(
     currentSubLineId ?? null
   );
+  // The plan the picked sub-category stands for; undefined until the user
+  // picks something, so an untouched save never rewrites the row's link.
+  const [selectedPlanId, setSelectedPlanId] = useState<string | null | undefined>(undefined);
   const [createRule, setCreateRule] = useState(false);
   const [rulePattern, setRulePattern] = useState("");
   const [ruleMatchType, setRuleMatchType] = useState("contains");
@@ -124,6 +130,15 @@ export function CategorizePopover({
   });
 
   const handleSave = () => {
+    // The link changes only when the plan shown as the sub-category does. A
+    // link to a plan of some other category isn't shown here, so picking a
+    // plain category leaves it alone; picking away from the plan the row
+    // showed unlinks it — that sub-category IS the link.
+    const shownPlanId =
+      selectedSubCategory(pickerSubCategories, currentCategoryId, currentSubLineId, currentRecurringId)
+        ?.recurringTransactionId ?? null;
+    const recurringTransactionId =
+      selectedPlanId === undefined || selectedPlanId === shownPlanId ? undefined : selectedPlanId;
     setOpen(false);
     onCategorized?.(selectedCategoryId || null);
     categorize.mutate(
@@ -131,6 +146,7 @@ export function CategorizePopover({
         transactionId,
         categoryId: selectedCategoryId || null,
         subLineId: selectedSubLineId,
+        recurringTransactionId,
         createRule,
         rulePattern: createRule ? rulePattern : undefined,
         ruleMatchType: createRule ? ruleMatchType : undefined,
@@ -145,7 +161,20 @@ export function CategorizePopover({
   };
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        // Every opening starts from the row as it is now: a pick left over
+        // from a cancelled edit, or from before a refetch, would otherwise be
+        // saved as if it were this one's.
+        if (next) {
+          setSelectedCategoryId(currentCategoryId || "");
+          setSelectedSubLineId(currentSubLineId ?? null);
+          setSelectedPlanId(undefined);
+        }
+        setOpen(next);
+      }}
+    >
       <PopoverTrigger asChild>
         <button
           data-tour="tx-category"
@@ -189,9 +218,13 @@ export function CategorizePopover({
             <CategoryPicker
               value={selectedCategoryId || null}
               subLineId={selectedSubLineId}
-              onChange={(categoryId, subLineId) => {
+              recurringTransactionId={
+                selectedPlanId === undefined ? currentRecurringId : selectedPlanId
+              }
+              onChange={(categoryId, subLineId, planId) => {
                 setSelectedCategoryId(categoryId);
                 setSelectedSubLineId(subLineId);
+                setSelectedPlanId(planId);
               }}
               categories={categories}
               subCategories={pickerSubCategories}

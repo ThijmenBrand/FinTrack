@@ -6,6 +6,7 @@ const line = (id: string, parentId: string | null, name = id, categoryId = "cat-
   parentId,
   name,
   categoryId,
+  recurringTransactionId: null,
 });
 
 describe("flattenSubLines", () => {

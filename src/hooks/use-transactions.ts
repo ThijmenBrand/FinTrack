@@ -87,6 +87,8 @@ export function useCreateTransaction() {
       categoryId: string | null;
       /** Sub-line under `categoryId`; the server refuses one of another category. */
       subLineId: string | null;
+      /** A plan picked as the sub-category; null lets the server match one. */
+      recurringTransactionId: string | null;
       notes: string | null;
     }) =>
       apiFetch<Transaction>("/api/transactions", {
@@ -143,6 +145,8 @@ type CategorizePayload = {
   categoryId: string | null;
   /** Sub-line under `categoryId`; the server clears it whenever the category changes. */
   subLineId?: string | null;
+  /** Link the row to this plan (null unlinks); omitted leaves the link alone. */
+  recurringTransactionId?: string | null;
   createRule?: boolean;
   rulePattern?: string;
   ruleMatchType?: string;
@@ -175,7 +179,10 @@ export function useCategorizeTransaction() {
   return useMutation({
     mutationKey: CATEGORIZE_KEY,
     mutationFn: (payload: CategorizePayload) =>
-      apiFetch("/api/transactions/categorize", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
+      apiFetch<{ learnedPattern: string | null; alsoLinkedIds: string[] }>(
+        "/api/transactions/categorize",
+        { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+      ),
     onMutate: async (payload) => {
       await qc.cancelQueries({ queryKey: ["transactions"] });
 
@@ -185,14 +192,18 @@ export function useCategorizeTransaction() {
       const target = payload.categoryId
         ? categories.find((c) => c.id === payload.categoryId) ?? null
         : null;
-      // The name behind the chosen sub-line, from whichever account's list the
-      // picker was filled from — so the row reads right before the refetch.
+      // The name behind the chosen sub-category — a line, or a plan picked as
+      // one — from whichever account's list the picker was filled from, so the
+      // row reads right before the refetch.
+      const options = qc
+        .getQueriesData<SubCategoryOption[]>({ queryKey: ["budgets", "sub-categories"] })
+        .flatMap(([, list]) => list ?? []);
       const subLineName = payload.subLineId
-        ? qc
-            .getQueriesData<SubCategoryOption[]>({ queryKey: ["budgets", "sub-categories"] })
-            .flatMap(([, list]) => list ?? [])
-            .find((line) => line.id === payload.subLineId)?.name ?? null
-        : null;
+        ? options.find((o) => o.kind === "line" && o.id === payload.subLineId)?.name ?? null
+        : payload.recurringTransactionId
+          ? options.find((o) => o.kind === "plan" && o.id === payload.recurringTransactionId)
+              ?.name ?? null
+          : null;
 
       for (const [key, data] of previous) {
         if (!data) continue;
@@ -226,7 +237,12 @@ export function useCategorizeTransaction() {
               categoryColor: target?.color ?? null,
               categoryIcon: target?.icon ?? null,
               subLineId: payload.subLineId ?? null,
+              // Blank when the link is left alone: whether its plan is a
+              // sub-category of the new category is the refetch's to say.
               subLineName,
+              ...(payload.recurringTransactionId !== undefined
+                ? { recurringTransactionId: payload.recurringTransactionId }
+                : {}),
             };
           });
           if (changed) qc.setQueryData<TransactionsResponse>(key, { ...data, data: next });
@@ -235,17 +251,33 @@ export function useCategorizeTransaction() {
 
       return { previous };
     },
+    onSuccess: (data, payload) => {
+      // Filing a row under a plan is linking it, which can teach the plan a
+      // rule — announced the same way as a link from the plan's own page.
+      if (data.learnedPattern && payload.recurringTransactionId) {
+        announceLearnedRule({
+          planId: payload.recurringTransactionId,
+          pattern: data.learnedPattern,
+          linkedIds: data.alsoLinkedIds,
+        });
+      }
+    },
     onError: (_err, _vars, ctx) => {
       if (!ctx?.previous) return;
       for (const [key, data] of ctx.previous) {
         qc.setQueryData(key, data);
       }
     },
-    onSettled: () => {
+    onSettled: (_data, _err, payload) => {
       qc.invalidateQueries({ queryKey: ["transactions"] });
       qc.invalidateQueries({ queryKey: ["categories"] });
       qc.invalidateQueries({ queryKey: ["budgets"] });
       qc.invalidateQueries({ queryKey: ["insights"] });
+      if (payload.recurringTransactionId !== undefined) {
+        qc.invalidateQueries({ queryKey: ["dashboard"] });
+        qc.invalidateQueries({ queryKey: ["recurring"] });
+        qc.invalidateQueries({ queryKey: ["recurring-forecast"] });
+      }
     },
   });
 }

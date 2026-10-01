@@ -304,6 +304,7 @@ export function TransactionRow({
               currentCategoryIcon={tx.categoryIcon}
               currentSubLineId={tx.subLineId}
               currentSubLineName={tx.subLineName}
+              currentRecurringId={tx.recurringTransactionId}
               categories={categories}
               accountId={tx.accountId}
               canCreateRule={canCreateRule}

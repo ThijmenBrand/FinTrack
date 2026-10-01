@@ -144,7 +144,11 @@ export interface Transaction {
   categoryIcon: string | null;
   /** Budget sub-line the row is filed under, inside `categoryId`. */
   subLineId: string | null;
-  /** Null once the sub-line is gone from the budget — the row keeps its category. */
+  /**
+   * The sub-category the row shows: its sub-line, else the recurring plan it
+   * is linked to when that plan is filed under the row's own category. Null
+   * once neither resolves — the row keeps its category.
+   */
   subLineName: string | null;
   type: "income" | "expense" | "internal_transfer" | "reimbursement";
   linkedTransactionId: string | null;
@@ -499,14 +503,23 @@ export interface BudgetSubLine {
 }
 
 /**
- * One sub-line as a picker offers it: flat, pre-ordered, and tied to the
+ * One sub-category as a picker offers it: flat, pre-ordered, and tied to the
  * category it refines. `depth` is 1 for a line directly under the category.
+ *
+ * Two kinds share the list. A budget sub-line (`kind: "line"`, `id` is the
+ * line's) and a recurring plan filed under the category (`kind: "plan"`, `id`
+ * is the plan's) — the plans the budget page hangs under a category, so a row
+ * can be filed under "Personal contributions › Rent share" there too. Filing a
+ * row under a plan, or under a line that stands for one, links it to that plan.
  */
 export interface SubCategoryOption {
   id: string;
+  kind: "line" | "plan";
   categoryId: string;
   name: string;
   depth: number;
+  /** The plan this option links a row to: the plan itself, or the one a line stands for. */
+  recurringTransactionId: string | null;
 }
 
 export interface Allocation {

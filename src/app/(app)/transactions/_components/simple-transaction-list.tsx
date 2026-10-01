@@ -230,6 +230,7 @@ export function SimpleTransactionList({
                   currentCategoryIcon={tx.categoryIcon}
                   currentSubLineId={tx.subLineId}
                   currentSubLineName={tx.subLineName}
+                  currentRecurringId={tx.recurringTransactionId}
                   categories={categoriesFor(tx.accountId)}
                   accountId={tx.accountId}
                   canCreateRule={ownsAccount(tx.accountId)}

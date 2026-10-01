@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { ChevronDown, ChevronRight, Tag } from "lucide-react";
+import { ChevronDown, ChevronRight, Repeat, Tag } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCreateCategory } from "@/hooks/use-categories";
 import { useI18n } from "@/lib/i18n/client";
@@ -18,10 +18,12 @@ const DEFAULT_COLOR = "#94a3b8";
 
 /**
  * Categories and sub-categories share one flat list, so the ids are prefixed
- * to say which table a row came from.
+ * to say which table a row came from: a category, a budget sub-line, or a
+ * recurring plan filed under a category.
  */
 const CATEGORY = "c:";
 const SUB = "s:";
+const PLAN = "r:";
 
 interface Row {
   id: string;
@@ -31,6 +33,8 @@ interface Row {
   color: string | null;
   /** A sub-category: same colour as its category, a smaller dot. */
   sub: boolean;
+  /** A recurring plan as sub-category — marked with the repeat icon instead of a dot. */
+  plan?: boolean;
   /** Band heading — set only when the list is split by the budget plan. */
   section?: string;
 }
@@ -70,7 +74,42 @@ export function bandByPlan<T extends { id: string }>(
   return inPlan.length && rest.length ? { inPlan, rest, banded: true } : flat;
 }
 
-function Swatch({ color, sub }: { color: string | null; sub?: boolean }) {
+/**
+ * The sub-category a row shows, from what it is filed under: its sub-line,
+ * else the plan it is linked to — as the line that stands for that plan, if
+ * one does. Only ever an option of `categoryId` itself: a line or plan left
+ * behind by a recategorization resolves to nothing, and the row reads as its
+ * category alone. Mirrors `subLineName` in GET /api/transactions.
+ */
+export function selectedSubCategory(
+  options: SubCategoryOption[] | undefined,
+  categoryId: string | null,
+  subLineId: string | null | undefined,
+  recurringTransactionId: string | null | undefined,
+): SubCategoryOption | undefined {
+  if (!options || !categoryId) return undefined;
+  const own = options.filter((o) => o.categoryId === categoryId);
+  if (subLineId) {
+    const line = own.find((o) => o.kind === "line" && o.id === subLineId);
+    if (line) return line;
+  }
+  if (!recurringTransactionId) return undefined;
+  return (
+    own.find((o) => o.kind === "line" && o.recurringTransactionId === recurringTransactionId) ??
+    own.find((o) => o.kind === "plan" && o.id === recurringTransactionId)
+  );
+}
+
+function Swatch({ color, sub, plan }: { color: string | null; sub?: boolean; plan?: boolean }) {
+  if (plan) {
+    return (
+      <Repeat
+        className="h-3 w-3 shrink-0 opacity-70"
+        style={{ color: color || DEFAULT_COLOR }}
+        aria-hidden
+      />
+    );
+  }
   return (
     <span
       className={cn("shrink-0 rounded-full", sub ? "h-1.5 w-1.5 opacity-60" : "h-2 w-2")}
@@ -86,6 +125,7 @@ export function CategoryPicker({
   budgetCategoryIds,
   value,
   subLineId,
+  recurringTransactionId,
   onChange,
   className,
   placeholder,
@@ -106,8 +146,17 @@ export function CategoryPicker({
   budgetCategoryIds?: Set<string> | null;
   value: string | null;
   subLineId?: string | null;
-  /** A sub-category also sets the category it belongs to; the two never disagree. */
-  onChange: (categoryId: string, subLineId: string | null) => void;
+  /**
+   * The plan the row is linked to. Shown as the sub-category when that plan
+   * (or a line standing for it) is one of `value`'s — see selectedSubCategory.
+   */
+  recurringTransactionId?: string | null;
+  /**
+   * A sub-category also sets the category it belongs to; the two never
+   * disagree. `planId` is the recurring plan the pick stands for — the plan
+   * itself, or the one a sub-line stands for — and null for anything else.
+   */
+  onChange: (categoryId: string, subLineId: string | null, planId: string | null) => void;
   className?: string;
   /** Shown instead of the selected category — set for a "set category" style trigger. */
   placeholder?: string;
@@ -131,12 +180,13 @@ export function CategoryPicker({
     const rowsFor = (cat: PickerCategory, section?: string): Row[] => [
       { id: CATEGORY + cat.id, name: cat.name, color: cat.color, sub: false, section },
       ...(byCategory.get(cat.id) ?? []).map((line) => ({
-        id: SUB + line.id,
+        id: (line.kind === "plan" ? PLAN : SUB) + line.id,
         name: line.name,
         depth: line.depth,
         group: { id: CATEGORY + cat.id, name: cat.name },
         color: cat.color,
         sub: true,
+        plan: line.kind === "plan",
         section,
       })),
     ];
@@ -149,12 +199,7 @@ export function CategoryPicker({
   }, [categories, subCategories, budgetCategoryIds, t]);
 
   const selected = categories.find((c) => c.id === value);
-  // Only when it really is a line of the selected category: a sub-line left
-  // behind by a recategorization, or deleted from the budget since, resolves to
-  // nothing and the row falls back to its category alone.
-  const selectedSub = subLineId
-    ? (subCategories ?? []).find((s) => s.id === subLineId && s.categoryId === value)
-    : undefined;
+  const selectedSub = selectedSubCategory(subCategories, value, subLineId, recurringTransactionId);
 
   const label = selected
     ? selectedSub
@@ -165,11 +210,26 @@ export function CategoryPicker({
   return (
     <SearchCreatePicker
       items={rows}
-      value={selectedSub ? SUB + selectedSub.id : value ? CATEGORY + value : null}
+      value={
+        selectedSub
+          ? (selectedSub.kind === "plan" ? PLAN : SUB) + selectedSub.id
+          : value
+            ? CATEGORY + value
+            : null
+      }
       onSelect={(id) => {
         if (id.startsWith(SUB)) {
-          const line = (subCategories ?? []).find((s) => s.id === id.slice(SUB.length));
-          if (line) onChange(line.categoryId, line.id);
+          const line = (subCategories ?? []).find(
+            (s) => s.kind === "line" && s.id === id.slice(SUB.length),
+          );
+          if (line) onChange(line.categoryId, line.id, line.recurringTransactionId);
+          return;
+        }
+        if (id.startsWith(PLAN)) {
+          const plan = (subCategories ?? []).find(
+            (s) => s.kind === "plan" && s.id === id.slice(PLAN.length),
+          );
+          if (plan) onChange(plan.categoryId, null, plan.id);
           return;
         }
         const categoryId = id.slice(CATEGORY.length);
@@ -183,7 +243,7 @@ export function CategoryPicker({
         // while the query loads, and leaves it empty for an account outside a
         // plan — both are pickers that could never have offered the line.
         const keep = !subCategories?.length && categoryId === value;
-        onChange(categoryId, keep ? subLineId ?? null : null);
+        onChange(categoryId, keep ? subLineId ?? null : null, null);
       }}
       creating={createCategory.isPending}
       onCreate={(name) => {
@@ -203,7 +263,7 @@ export function CategoryPicker({
         empty: "categoryPicker.empty",
         create: "categoryPicker.create",
       }}
-      renderLeading={(row) => <Swatch color={row.color} sub={row.sub} />}
+      renderLeading={(row) => <Swatch color={row.color} sub={row.sub} plan={row.plan} />}
       trigger={
         <button
           type="button"

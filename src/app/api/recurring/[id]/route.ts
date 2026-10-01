@@ -6,7 +6,7 @@ import { and, desc, eq, inArray, isNull, ne, or } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { getAccountAccess, memberAccountIds, visibleTransactions } from "@/lib/account-access";
 import { nextUnpaidOccurrence } from "@/lib/recurring";
-import { looksLikePlan } from "@/lib/recurring-match";
+import { learnMatchRule, looksLikePlan, matchesPlanRule } from "@/lib/recurring-match";
 
 /** Unlinked look-alikes offered for linking — enough to act on, not a search. */
 const MAX_SUGGESTIONS = 10;
@@ -116,8 +116,19 @@ export async function GET(
             .orderBy(desc(transactions.date))
         : Promise.resolve([]),
     ]);
+    // A plan without a rule — linked before plans learned, or from a row it
+    // couldn't learn from — has never looked for the rest of its payments.
+    // The rules its linked rows would teach find them: "one is linked, so
+    // are these?". Linking one of them teaches the plan for real.
+    const linkedRules = plan.matchPattern
+      ? []
+      : linked.flatMap((t) => learnMatchRule(t) ?? []);
     const suggestions = unlinked
-      .filter((t) => looksLikePlan(plan.description, t.name, t.description))
+      .filter(
+        (t) =>
+          looksLikePlan(plan.description, t.name, t.description) ||
+          linkedRules.some((rule) => matchesPlanRule(rule, t.name, t.description)),
+      )
       .slice(0, MAX_SUGGESTIONS);
 
     return NextResponse.json({

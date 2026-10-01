@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { apiError } from "@/lib/api-errors";
 import { db } from "@/db";
 import { budgets, budgetSubLines, recurringTransactions } from "@/db/schema";
-import { eq, and, asc, inArray, ne, sql } from "drizzle-orm";
+import { eq, and, asc, inArray, isNotNull, ne, sql } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { requireAccountAccess } from "@/lib/account-access";
 import { logDataEvent } from "@/lib/audit";
@@ -100,8 +100,10 @@ function ruleError(code: string) {
 }
 
 // GET /api/budgets/sub-lines?accountId= — the sub-categories a transaction on
-// that account can be filed under: every sub-line of the account's budget plan,
-// flat and pre-ordered, tagged with the category it refines.
+// that account can be filed under, flat and pre-ordered, each tagged with the
+// category it refines: every sub-line of the account's budget plan, then the
+// recurring plans filed under a category — the ones the budget page hangs
+// under that category's row. Filing a row under a plan links it to the plan.
 //
 // The budgets page reads the same lines as a tree inside the plan payload; a
 // picker wants neither the tree nor the plan's spend math, so it asks here.
@@ -117,26 +119,61 @@ export async function GET(request: NextRequest) {
     // the dashboard budgets against.
     const plan = await resolveBudgetPlan(userId, account.budgetId);
     // Rows on this account belong to its OWNER, and only that owner's sub-line
-    // ids survive the write path's check (see subLineCategories), so a plan
-    // belonging to anyone else has nothing to offer here.
-    if (!plan || plan.ownerId !== account.userId) {
-      return NextResponse.json([]);
-    }
+    // and plan ids survive the write paths' checks, so a budget plan belonging
+    // to anyone else has no lines to offer here.
+    const ownPlan = plan && plan.ownerId === account.userId ? plan : null;
 
-    const rows = await db
+    const lines = ownPlan
+      ? await db
+          .select({
+            id: budgetSubLines.id,
+            parentId: budgetSubLines.parentId,
+            name: budgetSubLines.name,
+            categoryId: budgets.categoryId,
+            recurringTransactionId: budgetSubLines.recurringTransactionId,
+          })
+          .from(budgetSubLines)
+          .innerJoin(budgets, eq(budgets.id, budgetSubLines.allocationId))
+          .where(and(eq(budgetSubLines.userId, ownPlan.ownerId), eq(budgets.budgetId, ownPlan.id)))
+          // Creation order, the order the budget editor shows them in.
+          .orderBy(asc(budgetSubLines.createdAt), asc(budgetSubLines.id))
+      : [];
+
+    // The recurring plans on the budget plan's accounts, and always the
+    // account's own — it may sit outside the plan it falls back to. Paused
+    // plans too: the budget page still lists them, and last month's payment
+    // can still be filed under one.
+    const planAccountIds = [...new Set([...(ownPlan?.accountIds ?? []), accountId])];
+    const plans = await db
       .select({
-        id: budgetSubLines.id,
-        parentId: budgetSubLines.parentId,
-        name: budgetSubLines.name,
-        categoryId: budgets.categoryId,
+        id: recurringTransactions.id,
+        categoryId: recurringTransactions.categoryId,
+        description: recurringTransactions.description,
       })
-      .from(budgetSubLines)
-      .innerJoin(budgets, eq(budgets.id, budgetSubLines.allocationId))
-      .where(and(eq(budgetSubLines.userId, plan.ownerId), eq(budgets.budgetId, plan.id)))
-      // Creation order, the order the budget editor shows them in.
-      .orderBy(asc(budgetSubLines.createdAt), asc(budgetSubLines.id));
+      .from(recurringTransactions)
+      .where(
+        and(
+          eq(recurringTransactions.userId, account.userId),
+          inArray(recurringTransactions.accountId, planAccountIds),
+          isNotNull(recurringTransactions.categoryId),
+        ),
+      )
+      .orderBy(asc(recurringTransactions.description), asc(recurringTransactions.id));
 
-    const options: SubCategoryOption[] = flattenSubLines(rows);
+    const options: SubCategoryOption[] = flattenSubLines(lines);
+    // A plan a sub-line already stands for is offered as that line, once.
+    const represented = new Set(options.map((o) => o.recurringTransactionId).filter(Boolean));
+    for (const p of plans) {
+      if (!p.categoryId || represented.has(p.id)) continue;
+      options.push({
+        id: p.id,
+        kind: "plan",
+        categoryId: p.categoryId,
+        name: p.description,
+        depth: 1,
+        recurringTransactionId: p.id,
+      });
+    }
     return NextResponse.json(options);
   }, "Failed to fetch sub-categories");
 }

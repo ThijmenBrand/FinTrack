@@ -167,7 +167,7 @@ export default function RecurringDetailPage() {
         </CardContent>
       </Card>
 
-      <MatchRuleEditor plan={plan} canEdit={canEdit} />
+      <MatchRuleEditor plan={plan} canEdit={canEdit} payments={transactions} />
 
       {canEdit && suggestions.length > 0 && (
         <section className="mt-8">

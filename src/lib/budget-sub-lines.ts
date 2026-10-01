@@ -6,6 +6,7 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
 import type { db } from "@/db";
 import { budgets, budgetSubLines } from "@/db/schema";
+import type { SubCategoryOption } from "@/types/api";
 
 /** Deepest tree the API accepts; level 1 hangs directly off the allocation. */
 export const MAX_SUB_LINE_DEPTH = 3;
@@ -188,21 +189,34 @@ export async function subLineCategories(
  * tree only ever exists to be walked in this order, so it is never built.
  */
 export function flattenSubLines(
-  rows: { id: string; parentId: string | null; name: string; categoryId: string }[],
-): { id: string; categoryId: string; name: string; depth: number }[] {
+  rows: {
+    id: string;
+    parentId: string | null;
+    name: string;
+    categoryId: string;
+    recurringTransactionId: string | null;
+  }[],
+): SubCategoryOption[] {
   const byParent = new Map<string | null, typeof rows>();
   for (const row of rows) {
     const siblings = byParent.get(row.parentId);
     if (siblings) siblings.push(row);
     else byParent.set(row.parentId, [row]);
   }
-  const out: { id: string; categoryId: string; name: string; depth: number }[] = [];
+  const out: SubCategoryOption[] = [];
   // Bounded by the same cap the writes enforce, so a parent chain that
   // shouldn't be possible costs a missing row rather than a hung request.
   const walk = (parentId: string | null, depth: number) => {
     if (depth > MAX_SUB_LINE_DEPTH) return;
     for (const row of byParent.get(parentId) ?? []) {
-      out.push({ id: row.id, categoryId: row.categoryId, name: row.name, depth });
+      out.push({
+        id: row.id,
+        kind: "line",
+        categoryId: row.categoryId,
+        name: row.name,
+        depth,
+        recurringTransactionId: row.recurringTransactionId,
+      });
       walk(row.id, depth + 1);
     }
   };
