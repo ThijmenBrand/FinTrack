@@ -96,6 +96,8 @@ async function createSchema() {
     start_date TEXT NOT NULL,
     end_date TEXT,
     is_active INTEGER NOT NULL DEFAULT 1,
+    match_pattern TEXT,
+    match_field TEXT NOT NULL DEFAULT 'name',
     created_at TEXT NOT NULL
   )`);
 

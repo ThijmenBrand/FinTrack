@@ -622,7 +622,11 @@ function BudgetsPageInner() {
             )}
           </span>
           <Button variant="ghost" size="sm" className="ml-auto" asChild>
-            <Link href={editHref}>{t("budgets.generateSuggestions")}</Link>
+            {/* Straight into the review: the editor runs the generation on
+                arrival and lays the results over the plan itself. */}
+            <Link href={`${editHref}${editHref.includes("?") ? "&" : "?"}generate=1`}>
+              {t("budgets.generateSuggestions")}
+            </Link>
           </Button>
         </NoticeLine>
       )}

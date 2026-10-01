@@ -1,6 +1,6 @@
 import { apiFetch } from "@/lib/api";
 import type { BudgetChildInput } from "@/hooks/use-budgets";
-import { afterSave, toSteps, type Draft, type Step } from "./draft";
+import { afterSave, changeCount, toSteps, type Draft, type Step } from "./draft";
 
 /** What a run left behind: the draft that still has to happen, and why. */
 export interface SaveResult {
@@ -41,16 +41,24 @@ export async function saveDraft(
    */
   const idMap: Record<string, string> = {};
   const realId = (id: string) => idMap[id] ?? id;
+  // Counted the way `changeCount` counts the draft, so "saved 1 of 3" speaks
+  // of the same changes the Save bar listed: the dismiss request weighs as
+  // many as the declines it carries (accepts are counted as their own edits).
+  const declined = Object.values(draft.decided).filter((d) => d.kind === "declined").length;
+  const weight = (s: Step) => (s.kind === "dismiss" ? declined : 1);
+  const total = changeCount(draft);
+  let saved = 0;
 
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
     try {
       await run(step, budgetId, idMap, realId);
+      saved += weight(step);
     } catch (err) {
       return {
         draft: afterSave(draft, steps, i, idMap),
-        saved: i,
-        total: steps.length,
+        saved,
+        total,
         failed: step,
         error: err instanceof Error ? err.message : String(err),
       };
@@ -59,8 +67,8 @@ export async function saveDraft(
 
   return {
     draft: afterSave(draft, steps, steps.length, idMap),
-    saved: steps.length,
-    total: steps.length,
+    saved,
+    total,
   };
 }
 
@@ -70,6 +78,10 @@ async function run(
   idMap: Record<string, string>,
   realId: (id: string) => string,
 ): Promise<void> {
+  if (step.kind === "dismiss") {
+    await post("/api/budgets/suggestions", "POST", { action: "reject", ids: step.ids });
+    return;
+  }
   if (step.kind === "remove") {
     await apiFetch(`/api/budgets?id=${encodeURIComponent(step.id)}`, {
       method: "DELETE",

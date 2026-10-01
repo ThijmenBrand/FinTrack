@@ -1,23 +1,19 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   ArrowLeft,
+  CheckCircle2,
   Coins,
   Loader2,
   Lock,
   Sparkles,
 } from "lucide-react";
-import {
-  useAcceptBudgetSuggestions,
-  useBudgets,
-  useGenerateBudgets,
-  useRejectBudgetSuggestions,
-} from "@/hooks/use-budgets";
+import { useBudgets, useGenerateBudgets } from "@/hooks/use-budgets";
 import { useBudgetPlans } from "@/hooks/use-budget-plans";
 import { useAccounts } from "@/hooks/use-accounts";
 import { useCategories, useUpdateCategory } from "@/hooks/use-categories";
@@ -32,9 +28,8 @@ import {
   BudgetHistoryDialog,
   type HistoryTarget,
 } from "@/components/budget-history-dialog";
-import { BudgetSuggestionsDialog } from "@/components/budget-suggestions-dialog";
 import { useI18n } from "@/lib/i18n/client";
-import type { CategoryWithDetails } from "@/types/api";
+import type { BudgetSuggestion, CategoryWithDetails } from "@/types/api";
 import type { EmptyGenerateReason } from "@/lib/auto-budget";
 import { BudgetsSkeleton } from "../_components/budgets-skeleton";
 import { SectionHeader } from "../_components/section-header";
@@ -42,7 +37,6 @@ import { NoticeLine } from "../_components/notice-line";
 import { EmptyGenerateNotice } from "../_components/empty-generate-notice";
 import { ImportBudgetDialog } from "../_components/import-budget-dialog";
 import { RegenerateConfirmDialog } from "../_components/regenerate-confirm-dialog";
-import { SuggestionRow } from "../_components/suggestion-row";
 import { linkedRecurringIds } from "../_components/budget-row";
 import { UNCATEGORIZED, useRecurringPlans } from "../_components/recurring-sections";
 import type { TreeActions } from "../_components/sub-line-list/constants";
@@ -63,9 +57,27 @@ import {
   overlay,
   unfilePlan,
   type Draft,
+  type EditorRow as Row,
   type NewAllocation,
 } from "../_components/editor/draft";
 import { saveDraft } from "../_components/editor/save";
+import { EditorRow } from "../_components/editor/editor-row";
+import {
+  AcceptedSuggestion,
+  NewChip,
+  PendingSuggestion,
+  ReviewBar,
+} from "../_components/editor/review";
+import type { ReviewTone } from "../_components/editor/review-tone";
+import {
+  acceptSuggestion,
+  acceptedOn,
+  declineSuggestion,
+  pendingSuggestions,
+  settable,
+  suggestionTarget,
+  undoSuggestion,
+} from "../_components/editor/suggestions";
 
 export default function BudgetEditPage() {
   return (
@@ -163,12 +175,17 @@ function BudgetEditPageInner() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [historyTarget, setHistoryTarget] = useState<HistoryTarget | null>(null);
-  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const [regenerateOpen, setRegenerateOpen] = useState(false);
   const [emptyReason, setEmptyReason] = useState<EmptyGenerateReason | null>(null);
+  /**
+   * From the click until the list holds the new suggestions — longer than the
+   * mutation alone, which settles a refetch before the rows it reviews exist.
+   * Arriving with `?generate=1` starts here already, so the first paint says
+   * what is happening instead of showing the plan unreviewed for a beat.
+   */
+  const [generating, setGenerating] = useState(() => searchParams.get("generate") === "1");
+  const [generateFailed, setGenerateFailed] = useState(false);
   const generateBudgets = useGenerateBudgets();
-  const acceptSuggestions = useAcceptBudgetSuggestions();
-  const rejectSuggestions = useRejectBudgetSuggestions();
 
   const recurring = useRecurringPlans({
     planAccountIds: activePlan ? activePlan.accounts.map((a) => a.id) : null,
@@ -366,12 +383,45 @@ function BudgetEditPageInner() {
     );
   };
 
-  const runGenerate = async () => {
+  // No dialog: the suggestions land on the rows they would change, and are
+  // answered there (see the review below).
+  const runGenerate = () => {
     setEmptyReason(null);
-    const result = await generateBudgets.mutateAsync({ budgetId: activePlanId });
-    if (result.suggestions.length > 0) setSuggestionsOpen(true);
-    else setEmptyReason(result.emptyReason ?? "no-history");
+    setGenerateFailed(false);
+    setGenerating(true);
+    void generate();
   };
+  const generate = async () => {
+    try {
+      // Resolves once the hook's own refetch of ["budgets"] has landed.
+      const result = await generateBudgets.mutateAsync({ budgetId: activePlanId });
+      // Answers given so far were to suggestions that no longer exist. What an
+      // accept changed stays, as the plain edit it became.
+      setDraft((d) => ({ ...d, decided: {} }));
+      if (result.suggestions.length === 0) setEmptyReason(result.emptyReason ?? "no-history");
+    } catch {
+      setGenerateFailed(true);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  // "Generate suggestions" on the budget page lands here with `?generate=1`:
+  // the review happens where the plan is edited, so the run starts on
+  // arrival. Once — and the flag comes off the URL, so a reload or a Back
+  // doesn't throw away the suggestions being reviewed by generating new ones.
+  const autoGenerate = searchParams.get("generate") === "1";
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (!autoGenerate || autoStarted.current || !plansData || !data) return;
+    autoStarted.current = true;
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("generate");
+    const qs = params.toString();
+    router.replace(qs ? `/budgets/edit?${qs}` : "/budgets/edit", { scroll: false });
+    if (data.automation.enabled && activePlan?.role !== "viewer") void generate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one run per arrival, guarded by the ref
+  }, [autoGenerate, plansData, data]);
 
   if (isLoading || accountsLoading) return <BudgetsSkeleton />;
   if (!data) return null;
@@ -436,6 +486,108 @@ function BudgetEditPageInner() {
   const unallocated = incomeMonthly - allocatedMonthly - lockedMonthly;
 
   const hasSuggestions = data.suggestions.length > 0;
+  // A run that can't start — automation off — never clears `generating`, and
+  // must not leave the page saying it is reading.
+  const busy = generating && data.automation.enabled;
+
+  // ─── Suggestions, reviewed in place ────────────────────────────────────────
+  // A pending suggestion either sits on the row it would change, or — where
+  // the plan has no row for its category — is drawn where that row would
+  // appear once accepted. Hidden while a run is in flight: the list still
+  // holds the previous set until the refetch lands.
+  const pending = busy ? [] : pendingSuggestions(data.suggestions, draft);
+  const pendingOnRow = new Map<string, BudgetSuggestion>();
+  const pendingNew: BudgetSuggestion[] = [];
+  let pendingNet = 0;
+  // Pending ones "accept all" can actually take: a row whose total is set by
+  // its lines can only be declined, so it stays in the review after it.
+  let acceptable = 0;
+  for (const s of pending) {
+    const target = suggestionTarget(rows, s);
+    if (target) {
+      pendingOnRow.set(s.categoryId, s);
+      if (settable(target)) {
+        pendingNet += s.suggestedAmount - target.amount;
+        acceptable += 1;
+      }
+    } else {
+      pendingNew.push(s);
+      pendingNet += s.suggestedAmount;
+      acceptable += 1;
+    }
+  }
+  const answered = Object.keys(draft.decided).length;
+  const showReview = busy || pending.length > 0;
+
+  const accept = (s: BudgetSuggestion) =>
+    setDraft((d) => acceptSuggestion(d, s, data.allocations));
+  const decline = (s: BudgetSuggestion) => setDraft((d) => declineSuggestion(d, s.id));
+  const undo = (id: string) => setDraft((d) => undoSuggestion(d, id));
+  // The window a suggestion was computed from. Not `s.avgMonthly`: the list
+  // attaches the category's all-history average, which can sit far from a
+  // number rounded up from the last few months and read as a contradiction.
+  const lookbackMonths = isYearly ? MONTHS_PER_YEAR : data.automation.lookbackMonths;
+  const fromWindow = plural(
+    lookbackMonths,
+    "budgets.review.window.one",
+    "budgets.review.window.other",
+  );
+  const basis = (s: BudgetSuggestion) =>
+    t("budgets.suggestions.avgOver", {
+      amount: formatCurrency(s.avgMonthly),
+      months: s.monthsOfData,
+    });
+
+  /** What a suggestion does to one row: its colour, its panel, and its overrides. */
+  const reviewOf = (
+    row: Row,
+  ): {
+    tone?: ReviewTone;
+    annotation?: React.ReactNode;
+    reference?: string;
+    onRemove?: () => void;
+  } => {
+    if (row.removed) return {};
+    const s = pendingOnRow.get(row.categoryId);
+    if (s) {
+      return {
+        tone: "changed",
+        annotation: (
+          <PendingSuggestion
+            tone="changed"
+            name={row.categoryName ?? ""}
+            from={units.toDisplay(row.amount)}
+            to={units.toDisplay(s.suggestedAmount)}
+            unit={units.unit}
+            basis={fromWindow}
+            blocked={settable(row) ? undefined : t("budgets.review.blocked")}
+            onAccept={() => accept(s)}
+            onDecline={() => decline(s)}
+          />
+        ),
+      };
+    }
+    const id = acceptedOn(draft, row.id);
+    const decision = id ? draft.decided[id] : undefined;
+    if (!id || decision?.kind !== "accepted") return {};
+    const source = data.suggestions.find((x) => x.id === id);
+    const was = data.allocations.find((a) => a.id === row.id)?.amount ?? decision.prev;
+    return {
+      tone: decision.created ? "added" : "changed",
+      annotation: (
+        <AcceptedSuggestion
+          tone={decision.created ? "added" : "changed"}
+          from={decision.created || was === undefined ? undefined : units.toDisplay(was)}
+          to={units.toDisplay(row.amount)}
+          onUndo={() => undo(id)}
+        />
+      ),
+      reference: decision.created && source ? basis(source) : undefined,
+      // Removing a line a suggestion added is taking the suggestion back: it
+      // returns to the review rather than going nowhere unanswered.
+      onRemove: decision.created ? () => undo(id) : undefined,
+    };
+  };
 
   return (
     <div className="space-y-5 pb-24">
@@ -517,6 +669,42 @@ function BudgetEditPageInner() {
 
       {saveError && <NoticeLine icon={AlertTriangle}>{saveError}</NoticeLine>}
 
+      {showReview ? (
+        <ReviewBar
+          generating={busy}
+          lookbackMonths={lookbackMonths}
+          changed={pendingOnRow.size}
+          added={pendingNew.length}
+          net={units.toDisplay(pendingNet)}
+          unit={units.unit}
+          onAcceptAll={
+            acceptable > 0
+              ? () =>
+                  setDraft((d) =>
+                    pending.reduce((acc, s) => acceptSuggestion(acc, s, data.allocations), d),
+                  )
+              : undefined
+          }
+          onDeclineAll={() =>
+            setDraft((d) => pending.reduce((acc, s) => declineSuggestion(acc, s.id), d))
+          }
+        />
+      ) : (
+        answered > 0 && (
+          <NoticeLine
+            icon={CheckCircle2}
+            filled
+            iconTone="text-emerald-600 dark:text-emerald-400"
+          >
+            <span className="text-muted-foreground">{t("budgets.review.done")}</span>
+          </NoticeLine>
+        )
+      )}
+
+      {generateFailed && (
+        <NoticeLine icon={AlertTriangle}>{t("budgets.review.failed")}</NoticeLine>
+      )}
+
       {emptyReason && (
         <EmptyGenerateNotice
           reason={emptyReason}
@@ -549,12 +737,12 @@ function BudgetEditPageInner() {
                   onClick={() =>
                     hasSuggestions ? setRegenerateOpen(true) : runGenerate()
                   }
-                  disabled={generateBudgets.isPending || !data.automation.enabled}
+                  disabled={busy || !data.automation.enabled}
                   title={
                     data.automation.enabled ? undefined : t("budgets.generateDisabled")
                   }
                 >
-                  {generateBudgets.isPending ? (
+                  {busy ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin sm:mr-1.5" />
                   ) : (
                     <Sparkles className="h-3.5 w-3.5 sm:mr-1.5" />
@@ -581,31 +769,6 @@ function BudgetEditPageInner() {
               </>
             }
           />
-
-          {/* ponytail: suggestions write straight through, unlike everything
-              else here — they are the server's rows, not the user's edits, and
-              accepting one is a yes/no rather than a change to review. Fold
-              them into the draft if the split ever confuses anyone. */}
-          {data.suggestions.length > 0 && (
-            <GroupLabel>
-              {plural(
-                data.suggestions.length,
-                "budgets.suggestionsReady.one",
-                "budgets.suggestionsReady.other",
-              )}
-            </GroupLabel>
-          )}
-          {data.suggestions.map((s) => (
-            <SuggestionRow
-              key={s.id}
-              suggestion={s}
-              busy={acceptSuggestions.isPending || rejectSuggestions.isPending}
-              onAccept={() =>
-                acceptSuggestions.mutate([{ id: s.id, amount: s.suggestedAmount }])
-              }
-              onReject={() => rejectSuggestions.mutate([s.id])}
-            />
-          ))}
 
           {/* Always, even with nothing in it: the section is where income is
               added from, and one that only appears once income exists cannot
@@ -650,29 +813,60 @@ function BudgetEditPageInner() {
 
           <GroupLabel>{t("budgets.editor.spending")}</GroupLabel>
 
-          {rows.map((row) => (
-            <AllocationEditor
-              key={row.id}
-              row={row}
-              units={units}
-              actions={row.isNew ? newActions(row.id) : savedActions(row.id)}
-              plans={plansByCategory.get(row.categoryId) ?? []}
-              planRowProps={recurring.rowProps}
-              onAddPlan={() => recurring.addUnderCategory(row.categoryId, "expense")}
-              // Only where a line would be counted; a typed cap already covers
-              // the payments under it (see `linkable`).
-              onFilePlan={
-                linkable(row)
-                  ? (tx) => setDraft((d) => filePlan(d, tx, data.allocations))
-                  : undefined
+          {rows.map((row) => {
+            const review = reviewOf(row);
+            return (
+              <AllocationEditor
+                key={row.id}
+                row={row}
+                tone={review.tone}
+                annotation={review.annotation}
+                reference={review.reference}
+                units={units}
+                actions={row.isNew ? newActions(row.id) : savedActions(row.id)}
+                plans={plansByCategory.get(row.categoryId) ?? []}
+                planRowProps={recurring.rowProps}
+                onAddPlan={() => recurring.addUnderCategory(row.categoryId, "expense")}
+                // Only where a line would be counted; a typed cap already covers
+                // the payments under it (see `linkable`).
+                onFilePlan={
+                  linkable(row)
+                    ? (tx) => setDraft((d) => filePlan(d, tx, data.allocations))
+                    : undefined
+                }
+                onAmount={(stored) =>
+                  row.isNew ? setNewAmount(row.id, stored) : setAmount(row.id, stored)
+                }
+                onColor={recolor(row.categoryId)}
+                onRemove={review.onRemove ?? (() => remove(row.id))}
+                onRestore={() => restore(row.id)}
+                onHistory={() => setHistoryTarget(row)}
+              />
+            );
+          })}
+
+          {/* A suggested category the plan doesn't have yet, drawn where it
+              will sit once accepted — the end of the lines above — so the
+              answer moves nothing but its colour. */}
+          {pendingNew.map((s) => (
+            <EditorRow
+              key={`suggestion:${s.id}`}
+              name={s.categoryName ?? t("common.uncategorized")}
+              color={s.categoryColor}
+              reference={t("budgets.review.notInBudget")}
+              tone="added"
+              control={<NewChip />}
+              annotation={
+                <PendingSuggestion
+                  tone="added"
+                  name={s.categoryName ?? t("common.uncategorized")}
+                  to={units.toDisplay(s.suggestedAmount)}
+                  unit={units.unit}
+                  basis={fromWindow}
+                  onAccept={() => accept(s)}
+                  onDecline={() => decline(s)}
+                />
               }
-              onAmount={(stored) =>
-                row.isNew ? setNewAmount(row.id, stored) : setAmount(row.id, stored)
-              }
-              onColor={recolor(row.categoryId)}
-              onRemove={() => remove(row.id)}
-              onRestore={() => restore(row.id)}
-              onHistory={() => setHistoryTarget(row)}
             />
           ))}
 
@@ -729,19 +923,12 @@ function BudgetEditPageInner() {
         }}
       />
 
-      <BudgetSuggestionsDialog
-        open={suggestionsOpen}
-        onOpenChange={setSuggestionsOpen}
-        suggestions={data.suggestions}
-        lookbackMonths={data.automation.lookbackMonths}
-      />
-
       <RegenerateConfirmDialog
         open={regenerateOpen}
         onOpenChange={setRegenerateOpen}
         suggestionCount={data.suggestions.length}
         lookbackMonths={data.automation.lookbackMonths}
-        pending={generateBudgets.isPending}
+        pending={busy}
         onConfirm={() => {
           setRegenerateOpen(false);
           runGenerate();

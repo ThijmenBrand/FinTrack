@@ -37,7 +37,8 @@ export async function GET() {
         (SELECT MAX(s.updated_at) FROM session s WHERE s.user_id = u.id) AS last_active,
         (SELECT COUNT(*) FROM accounts a WHERE a.user_id = u.id) AS account_count,
         (SELECT COUNT(*) FROM transactions t WHERE t.user_id = u.id) AS transaction_count,
-        (SELECT COUNT(*) FROM passkey pk WHERE pk.user_id = u.id) AS passkey_count
+        (SELECT COUNT(*) FROM passkey pk WHERE pk.user_id = u.id) AS passkey_count,
+        u.two_factor_enabled
       FROM "user" u
       ORDER BY u.created_at ASC
     `);
@@ -57,6 +58,7 @@ export async function GET() {
         accountCount: Number(row.account_count) || 0,
         transactionCount: Number(row.transaction_count) || 0,
         passkeyCount: Number(row.passkey_count) || 0,
+        twoFactorEnabled: Number(row.two_factor_enabled) === 1,
         banned: Number(row.banned) === 1,
         banReason: (row.ban_reason as string) ?? null,
       }))
@@ -67,10 +69,10 @@ export async function GET() {
 // Accounts are created by invite only — see /api/admin/invites.
 
 // PUT /api/admin/users — update user (reset password, change display name or
-// email, toggle verified/admin, ban)
+// email, toggle verified/admin, ban, reset two-factor)
 export async function PUT(request: NextRequest) {
   return withAdmin(async (session) => {
-    const { id, password, displayName, email, emailVerified, isAdmin, banned, banReason } =
+    const { id, password, displayName, email, emailVerified, isAdmin, banned, banReason, resetTwoFactor } =
       await request.json();
 
     if (!id) {
@@ -169,6 +171,28 @@ export async function PUT(request: NextRequest) {
         await db.run(sql`DELETE FROM session WHERE user_id = ${id}`);
       }
       await logAdminAction(session.userId, banned ? "user_ban" : "user_unban", id, reason ? { reason } : undefined);
+    }
+
+    if (resetTwoFactor !== undefined) {
+      if (resetTwoFactor !== true) {
+        return NextResponse.json({ error: "resetTwoFactor must be true" }, { status: 400 });
+      }
+      // Your own 2FA is turned off from your profile, with your password. From
+      // here it would bounce you to /backoffice/security mid-session.
+      if (id === session.userId) {
+        return apiError("api.cannotResetOwnTwoFactor", 400);
+      }
+      // Same steps as Better Auth's own disable — flag off, secret and backup
+      // codes gone — plus every trusted-device record (the plugin only clears
+      // the one on the calling browser) and every open session, so the next
+      // sign-in is password-only and the user can enrol a new authenticator.
+      await db.transaction(async (tx) => {
+        await tx.run(sql`UPDATE "user" SET two_factor_enabled = 0, updated_at = ${now} WHERE id = ${id}`);
+        await tx.run(sql`DELETE FROM "twoFactor" WHERE user_id = ${id}`);
+        await tx.run(sql`DELETE FROM verification WHERE value = ${id} AND identifier LIKE ${"trust-device-%"}`);
+        await tx.run(sql`DELETE FROM session WHERE user_id = ${id}`);
+      });
+      await logAdminAction(session.userId, "two_factor_reset", id);
     }
 
     return NextResponse.json({ success: true });

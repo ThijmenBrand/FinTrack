@@ -10,15 +10,18 @@ import {
 import { eq, and, or, inArray } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { memberAccountIds, requireAccountAccess } from "@/lib/account-access";
-import { getNextOccurrence, isOccurrencePaid, toMonthly } from "@/lib/recurring";
+import { nextUnpaidOccurrence, toMonthly } from "@/lib/recurring";
 import { lastPaidByPlan } from "@/lib/recurring-paid";
 import { resyncUpwards } from "@/lib/budget-sub-lines";
-import { isFiniteNumber, isIsoDate } from "@/lib/validation";
+import { isFiniteNumber, isIsoDate, validatePattern } from "@/lib/validation";
+import { linkMatchingTransactions } from "@/lib/recurring-backfill";
 
 const RECURRING_TYPES = ["income", "expense"] as const;
 const FREQUENCIES = ["weekly", "biweekly", "monthly", "yearly"] as const;
+const MATCH_FIELDS = ["both", "name", "description"] as const;
 type RecurringType = (typeof RECURRING_TYPES)[number];
 type Frequency = (typeof FREQUENCIES)[number];
+type MatchField = (typeof MATCH_FIELDS)[number];
 
 function isIntInRange(v: unknown, min: number, max: number): v is number {
   return typeof v === "number" && Number.isInteger(v) && v >= min && v <= max;
@@ -45,6 +48,8 @@ function validateRecurringFields(body: Record<string, unknown>): string | null {
     return "dayOfMonth must be 1-31";
   if ("monthOfYear" in body && body.monthOfYear != null && !isIntInRange(body.monthOfYear, 1, 12))
     return "monthOfYear must be 1-12";
+  if ("matchField" in body && !MATCH_FIELDS.includes(body.matchField as MatchField))
+    return `matchField must be one of: ${MATCH_FIELDS.join(", ")}`;
   return null;
 }
 
@@ -82,6 +87,8 @@ export async function GET() {
         startDate: recurringTransactions.startDate,
         endDate: recurringTransactions.endDate,
         isActive: recurringTransactions.isActive,
+        matchPattern: recurringTransactions.matchPattern,
+        matchField: recurringTransactions.matchField,
         createdAt: recurringTransactions.createdAt,
       })
       .from(recurringTransactions)
@@ -101,30 +108,11 @@ export async function GET() {
 
     const lastPaid = await lastPaidByPlan(rows.map((r) => r.id), userId);
 
-    const withNextOccurrence = rows.map((r) => {
-      if (!r.isActive) return { ...r, nextOccurrence: null };
-      const next = getNextOccurrence(
-        r.frequency,
-        r.startDate,
-        r.dayOfWeek,
-        r.dayOfMonth,
-        r.monthOfYear
-      );
-      // Payment already in for that date? Skip ahead to the one after it.
-      return {
-        ...r,
-        nextOccurrence: isOccurrencePaid(r.frequency, next, lastPaid.get(r.id))
-          ? getNextOccurrence(
-              r.frequency,
-              r.startDate,
-              r.dayOfWeek,
-              r.dayOfMonth,
-              r.monthOfYear,
-              new Date(next)
-            )
-          : next,
-      };
-    });
+    // Payment already in for the coming date? Skip ahead to the one after it.
+    const withNextOccurrence = rows.map((r) => ({
+      ...r,
+      nextOccurrence: r.isActive ? nextUnpaidOccurrence(r, lastPaid.get(r.id)) : null,
+    }));
 
     return NextResponse.json(withNextOccurrence);
   }, "Failed to fetch recurring transactions");
@@ -187,7 +175,11 @@ export async function POST(request: NextRequest) {
       createdAt: new Date().toISOString(),
     });
 
-    return NextResponse.json({ success: true, id }, { status: 201 });
+    // A plan added for a bill that's already been paying out finds those
+    // payments now, rather than only on the next import.
+    const linked = (await linkMatchingTransactions(id, ownerId)).length;
+
+    return NextResponse.json({ success: true, id, linked }, { status: 201 });
   }, "Failed to create recurring transaction");
 }
 
@@ -233,6 +225,17 @@ export async function PUT(request: NextRequest) {
     if (body.categoryId && !(await userOwnsCategory(ownerId, body.categoryId))) {
       return apiError("api.categoryNotFound", 404);
     }
+    // Same bound as a category rule's pattern; null/"" clears the rule.
+    let matchPattern: string | null | undefined;
+    if ("matchPattern" in body) {
+      if (body.matchPattern == null || body.matchPattern === "") {
+        matchPattern = null;
+      } else {
+        const checked = validatePattern(body.matchPattern);
+        if (!checked.ok) return apiError(checked.error, 400, checked.vars);
+        matchPattern = checked.value;
+      }
+    }
 
     // Explicit field allowlist — never spread the client body into `set`
     // (userId/createdAt/id must not be client-settable).
@@ -248,6 +251,8 @@ export async function PUT(request: NextRequest) {
     if ("startDate" in body) updates.startDate = body.startDate;
     if ("endDate" in body) updates.endDate = body.endDate || null;
     if ("isActive" in body) updates.isActive = Boolean(body.isActive);
+    if (matchPattern !== undefined) updates.matchPattern = matchPattern;
+    if ("matchField" in body) updates.matchField = body.matchField;
     if ("amount" in body) {
       // Ensure amount sign matches the (possibly updated) type.
       const effectiveType = (updates.type ?? existing.type) as string;
@@ -296,7 +301,14 @@ export async function PUT(request: NextRequest) {
       }
     });
 
-    return NextResponse.json({ success: true });
+    // A new or edited rule applies to the history already there, the same as
+    // the first link that taught it.
+    const linked =
+      updates.matchPattern || ("matchField" in updates && existing.matchPattern)
+        ? (await linkMatchingTransactions(id, ownerId)).length
+        : 0;
+
+    return NextResponse.json({ success: true, linked });
   }, "Failed to update recurring transaction");
 }
 

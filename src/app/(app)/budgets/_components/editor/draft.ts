@@ -41,7 +41,27 @@ export interface Draft {
    * closed would move the figures under a Save button that stayed greyed out.
    */
   recurring: RecurringTx[];
+  /**
+   * Generated suggestions answered in this session, by suggestion id. An
+   * accept is ALSO an ordinary edit — an amount typed over a row, or a new
+   * row — made by `acceptSuggestion`; this entry is what lets it be taken back
+   * and what tells Save to clear the suggestion off the server. A decline is
+   * only this entry.
+   */
+  decided: Record<string, Decision>;
 }
+
+export type Decision =
+  | { kind: "declined" }
+  | {
+      kind: "accepted";
+      /** The editor row it landed on: an allocation id, or a new row's key. */
+      rowId: string;
+      /** The row was made by the accept, so undoing it takes the row away. */
+      created: boolean;
+      /** The drafted amount it replaced; absent when there was none. */
+      prev?: number;
+    };
 
 /**
  * A category budgeted for the first time. It carries its own tree rather than
@@ -84,6 +104,7 @@ export const EMPTY_DRAFT: Draft = {
   added: [],
   ops: [],
   recurring: [],
+  decided: {},
 };
 
 /**
@@ -96,7 +117,11 @@ export const EMPTY_DRAFT: Draft = {
  * the user's trust, and `toSteps` already knows exactly which edits survive.
  */
 export function changeCount(draft: Draft): number {
-  return toSteps(draft).length;
+  // An accepted suggestion is already counted as the edit it became; only a
+  // decline is a change of its own. The one request that clears them all is
+  // bookkeeping, not something the user did.
+  const declined = Object.values(draft.decided).filter((d) => d.kind === "declined");
+  return toSteps(draft).filter((s) => s.kind !== "dismiss").length + declined.length;
 }
 
 /** An allocation as the editor renders it: the server's, with the draft over it. */
@@ -362,11 +387,17 @@ export type Step =
       children: BudgetChildInput[];
     }
   | { kind: "op"; op: SubLineOp }
-  | { kind: "recurring"; tx: RecurringTx };
+  | { kind: "recurring"; tx: RecurringTx }
+  /** Clear answered suggestions off the server, accepted or declined alike. */
+  | { kind: "dismiss"; ids: string[] };
 
 /**
  * The draft as requests, in the only order that is safe:
  *
+ * 0. Answered suggestions, cleared. An accepted one has already become an
+ *    amount or a create below, so the suggestion row itself is only in the way
+ *    — and clearing it first means a save that fails halfway can never leave
+ *    an applied suggestion still asking to be applied.
  * 1. Removals, so a category freed here can be re-budgeted in the same save —
  *    the endpoint refuses two allocations for one category in one plan.
  * 2. Amounts, before the sub-line ops that may re-derive them upward.
@@ -397,7 +428,9 @@ export function toSteps(draft: Draft): Step[] {
       cancelled.add(op.id);
     }
   }
+  const decided = Object.keys(draft.decided);
   return [
+    ...(decided.length > 0 ? [{ kind: "dismiss", ids: decided } satisfies Step] : []),
     // A row added and removed in the same session was never written, so there
     // is nothing to delete — it just never gets created below.
     ...draft.removed
@@ -458,6 +491,7 @@ export function afterSave(
   const doneRecurring = new Set(
     landed.flatMap((s) => (s.kind === "recurring" ? [s.tx.id] : [])),
   );
+  const dismissed = landed.some((s) => s.kind === "dismiss");
   const removed = new Set(draft.removed);
   const gone = new Set(
     [...doneRemovals].concat(draft.added.map((row) => row.key).filter((k) => removed.has(k))),
@@ -495,6 +529,9 @@ export function afterSave(
           : { ...op, id: map(op.id) },
       ),
     recurring: draft.recurring.filter((tx) => !doneRecurring.has(tx.id)),
+    // The edits an accept made stay above until their own steps land; only
+    // the record of the answer goes, since the suggestion it answered has.
+    decided: dismissed ? {} : draft.decided,
   };
 }
 

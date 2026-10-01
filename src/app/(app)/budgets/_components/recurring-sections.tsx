@@ -87,6 +87,8 @@ function draftTx(
     endDate: null,
     isActive: true,
     nextOccurrence: getNextOccurrence(frequency, startDate, dayOfWeek, dayOfMonth, null),
+    matchPattern: null,
+    matchField: "name",
   };
 }
 

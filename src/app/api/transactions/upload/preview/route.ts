@@ -18,7 +18,6 @@ import {
   ruleCategoryFor,
   extractPattern,
   splitNameAndDescription,
-  findMatchingRecurring,
   splitDuplicates,
   isUnsettledRow,
   applyFee,
@@ -27,6 +26,7 @@ import {
   type PreviewTransaction,
 } from "@/lib/csv-utils";
 import { loadSplitRules, proposeSplitForRow } from "@/lib/split-rules";
+import { findRecurringForRow } from "@/lib/recurring-match";
 
 interface CsvRow {
   [key: string]: string;
@@ -134,6 +134,8 @@ export async function POST(request: NextRequest) {
         amount: recurringTransactions.amount,
         type: recurringTransactions.type,
         isActive: recurringTransactions.isActive,
+        matchPattern: recurringTransactions.matchPattern,
+        matchField: recurringTransactions.matchField,
       })
       .from(recurringTransactions)
       .where(
@@ -261,11 +263,8 @@ export async function POST(request: NextRequest) {
       let recurringTransactionId: string | null = null;
       let recurringDescription: string | null = null;
       if (type === "income" || type === "expense") {
-        recurringTransactionId = findMatchingRecurring(
-          accountId,
-          amount,
-          description,
-          name,
+        recurringTransactionId = findRecurringForRow(
+          { accountId, amount, name, description },
           recurringPlans,
         );
         if (recurringTransactionId) {

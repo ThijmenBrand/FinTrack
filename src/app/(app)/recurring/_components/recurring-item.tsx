@@ -1,8 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
-import { ChevronDown, Loader2, Pause, Pencil, Play } from "lucide-react";
+import { ChevronDown, History, Loader2, Pause, Pencil, Play } from "lucide-react";
 import { toMonthly } from "@/lib/recurring";
 import type { RecurringTx } from "@/types/api";
 import { relativeDay } from "./dates";
@@ -168,6 +169,12 @@ export function RecurringItem({
           {/* Full contrast even on a paused row — pausing must not dim the
               control that undoes it. */}
           <div className="mt-4 flex flex-wrap items-center gap-2">
+            <Button variant="outline" size="sm" asChild>
+              <Link href={`/recurring/${item.id}`}>
+                <History className="h-3.5 w-3.5" />
+                {t("recurring.detail.open")}
+              </Link>
+            </Button>
             <Button
               variant="outline"
               size="sm"

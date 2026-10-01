@@ -225,6 +225,20 @@
       "when": 1789292404905,
       "tag": "0031_bitter_the_enforcers",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1790882945524,
+      "tag": "0032_recurring_match_rule",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1790885112837,
+      "tag": "0033_recurring_excluded_plan",
+      "breakpoints": true
     }
   ]
 }

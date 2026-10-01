@@ -351,6 +351,7 @@ export interface AdminUser {
   accountCount: number;
   transactionCount: number;
   passkeyCount: number;
+  twoFactorEnabled: boolean;
   banned: boolean;
   banReason: string | null;
 }
@@ -386,6 +387,32 @@ export interface RecurringTx {
   endDate: string | null;
   isActive: boolean;
   nextOccurrence: string | null;
+  /** The auto-link rule; null until a payment is linked by hand or one is set. */
+  matchPattern: string | null;
+  /** "both" | "name" | "description" — which text `matchPattern` is read against. */
+  matchField: string;
+}
+
+/** A bank row as the recurring detail page lists it. */
+export interface RecurringPayment {
+  id: string;
+  date: string;
+  name: string | null;
+  description: string;
+  amount: number;
+  accountName: string | null;
+  categoryName: string | null;
+  categoryColor: string | null;
+}
+
+export interface RecurringDetail {
+  plan: RecurringTx;
+  /** False for a viewer on a shared account — the page drops its controls. */
+  canEdit: boolean;
+  /** Linked payments, newest first. */
+  transactions: RecurringPayment[];
+  /** Unlinked rows that look like this plan, newest first. */
+  suggestions: RecurringPayment[];
 }
 
 export interface ForecastData {

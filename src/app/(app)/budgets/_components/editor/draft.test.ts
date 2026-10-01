@@ -14,7 +14,14 @@ import {
 } from "./draft";
 import type { Allocation, BudgetSubLine, RecurringTx } from "@/types/api";
 
-const EMPTY: Draft = { amounts: {}, removed: [], added: [], ops: [], recurring: [] };
+const EMPTY: Draft = {
+  amounts: {},
+  removed: [],
+  added: [],
+  ops: [],
+  recurring: [],
+  decided: {},
+};
 
 function line(id: string, amount: number, children: BudgetSubLine[] = []): BudgetSubLine {
   return { id, parentId: null, name: id, amount, children };
@@ -145,6 +152,7 @@ describe("toSteps", () => {
       added: [],
       ops: [{ kind: "remove", allocationId: "a", id: "l1" }],
       recurring: [],
+      decided: {},
     });
     expect(steps).toEqual([{ kind: "remove", id: "a" }]);
   });
@@ -206,6 +214,7 @@ describe("afterSave", () => {
     added: [],
     ops: [],
     recurring: [],
+    decided: {},
   };
 
   it("clears the whole draft when every step landed", () => {
