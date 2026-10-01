@@ -33,7 +33,7 @@ export const PRIMARY_NAV: NavItem[] = [
 ];
 
 /** Secondary items — sidebar lists them inline, bottom nav tucks them under "More". */
-export const SECONDARY_NAV: NavItem[] = [
+const SECONDARY_NAV: NavItem[] = [
   { labelKey: "nav.accounts", href: "/accounts", icon: Landmark, section: "nav.section.money" },
   { labelKey: "nav.recurring", href: "/recurring", icon: RefreshCcw, section: "nav.section.planning" },
   { labelKey: "nav.pots", href: "/pots", icon: PiggyBank, section: "nav.section.planning", hideInSimple: true },

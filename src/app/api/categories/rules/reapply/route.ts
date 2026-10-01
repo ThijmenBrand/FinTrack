@@ -4,6 +4,7 @@ import { categoryRules, transactions } from "@/db/schema";
 import { sql, eq, and, isNull } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { applyRuleToTransactions } from "@/lib/apply-rule";
+import { loadTransferCategories } from "@/lib/detect-transfers";
 import { applySplitRulesToExisting } from "@/lib/split-rules";
 import { excludeSplitParents } from "@/lib/split-sql";
 
@@ -45,6 +46,7 @@ export async function POST() {
       .where(and(eq(categoryRules.isActive, true), eq(categoryRules.userId, userId)));
 
     // Step 3: Apply each rule in order
+    const { ids: transferCategoryIds } = await loadTransferCategories(db, userId);
     let totalApplied = 0;
     const ruleResults: { pattern: string; matchType: string; applied: number }[] = [];
 
@@ -55,6 +57,7 @@ export async function POST() {
         matchType: rule.matchType,
         matchField: rule.matchField,
         userId,
+        transferCategoryIds,
       });
       totalApplied += applied;
       ruleResults.push({

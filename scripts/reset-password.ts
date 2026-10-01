@@ -8,11 +8,12 @@
  * (reads from .env automatically via dotenv).
  */
 
-import crypto from "crypto";
 import readline from "readline";
 import fs from "fs";
 import path from "path";
 import { createClient } from "@libsql/client";
+import { hashPassword } from "../src/lib/password-hash";
+import { validatePassword } from "../src/lib/validation";
 
 // Load .env manually
 const envPath = path.resolve(import.meta.dirname ?? __dirname, "..", ".env");
@@ -29,16 +30,6 @@ if (fs.existsSync(envPath)) {
 }
 
 // ── Helpers ──────────────────────────────────────────────────
-
-function hashPassword(password: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const salt = crypto.randomBytes(16).toString("hex");
-    crypto.scrypt(password, salt, 64, (err, derivedKey) => {
-      if (err) reject(err);
-      resolve(`${salt}:${derivedKey.toString("hex")}`);
-    });
-  });
-}
 
 function prompt(question: string, hidden = false): Promise<string> {
   const rl = readline.createInterface({
@@ -121,8 +112,9 @@ async function main() {
   const name = users.rows[idx].name as string;
 
   const password = await prompt("New password (min 10 chars): ", true);
-  if (password.length < 10) {
-    console.error("Password must be at least 10 characters.");
+  const invalid = validatePassword(password);
+  if (invalid) {
+    console.error(invalid);
     process.exit(1);
   }
 

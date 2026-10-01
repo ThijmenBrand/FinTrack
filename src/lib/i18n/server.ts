@@ -28,8 +28,6 @@ export const getLocale = cache(async (): Promise<Locale> => {
   return getRequestLocale();
 });
 
-export { getRequestLocale };
-
 /**
  * Translator + locale-bound formatters for server components.
  *

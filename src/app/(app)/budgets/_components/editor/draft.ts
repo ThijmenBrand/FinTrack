@@ -162,7 +162,7 @@ export function overlay(allocations: Allocation[], draft: Draft): EditorRow[] {
 }
 
 /** A draft tree's total, with containers resolved the way the server resolves them. */
-export function sumDraft(lines: readonly DraftLine[]): number {
+function sumDraft(lines: readonly DraftLine[]): number {
   return lines.reduce(
     (total, line) =>
       total + (line.children.length > 0 ? sumDraft(line.children) : line.amount),

@@ -5,7 +5,7 @@ import { useI18n } from "@/lib/i18n/client";
 
 // Small "▲ €123 vs last month" line under a stat. `upIsGood`: income/net up =
 // emerald, expenses up = red. Near-zero deltas render as "≈ same as …".
-export function DeltaLine({
+function DeltaLine({
   delta,
   label,
   upIsGood,

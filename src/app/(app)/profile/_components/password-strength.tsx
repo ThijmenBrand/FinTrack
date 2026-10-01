@@ -15,7 +15,7 @@ import type { MessageKey } from "@/lib/i18n/translate";
  * list from the browser, so a confident "centuries to crack" would be a lie the
  * submit button then contradicts.
  */
-export function passwordScore(password: string): 0 | 1 | 2 | 3 | 4 {
+function passwordScore(password: string): 0 | 1 | 2 | 3 | 4 {
   if (password.length < MIN_PASSWORD_LENGTH) return 0;
   const classes = [/[a-z]/, /[A-Z]/, /\d/, /[^A-Za-z0-9]/].filter((re) =>
     re.test(password),

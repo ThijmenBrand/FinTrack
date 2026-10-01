@@ -6,16 +6,7 @@ import crypto from "crypto";
 import { validatePassword } from "@/lib/validation";
 import { DEFAULT_CATEGORIES, defaultCategoryName } from "@/lib/default-categories";
 import { DEFAULT_LOCALE, type Locale } from "@/lib/i18n";
-
-export function hashPassword(password: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const salt = crypto.randomBytes(16).toString("hex");
-    crypto.scrypt(password, salt, 64, (err, derivedKey) => {
-      if (err) reject(err);
-      resolve(`${salt}:${derivedKey.toString("hex")}`);
-    });
-  });
-}
+import { hashPassword } from "@/lib/password-hash";
 
 /**
  * Seed default categories for a specific user, in their language.
@@ -42,7 +33,8 @@ export async function seedCategoriesForUser(
 
 /**
  * Initialize database data: seed admin user, run data migrations, create indexes.
- * Table creation is handled by `drizzle-kit push` (see build script).
+ * Tables come from the versioned migrations in drizzle/ (scripts/migrate.ts
+ * applies those first, then calls this).
  */
 export async function initializeDatabase() {
   // ── Seed admin user if no users exist ──────────────────────────────────
@@ -387,10 +379,9 @@ export async function initializeDatabase() {
   }
 
   // ── Indexes ────────────────────────────────────────────────────────────
-  // Only indexes NOT created by drizzle-kit push live here. Push builds every
-  // index declared in schema.ts (and its userId-prefixed composites cover the
-  // single-column userId lookups), so those are omitted. auth-schema.ts is not
-  // in the push config, so its indexes are still created below.
+  // Only indexes the versioned migrations don't create live here. Every index
+  // declared in schema.ts comes from drizzle/ (and its userId-prefixed
+  // composites cover the single-column userId lookups), so those are omitted.
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date)`);
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_transactions_category ON transactions(category_id)`);
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type)`);
@@ -406,8 +397,8 @@ export async function initializeDatabase() {
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_import_batches_user ON import_batches(user_id)`);
   await db.run(sql`CREATE INDEX IF NOT EXISTS idx_transaction_groups_user ON transaction_groups(user_id)`);
 
-  // Auth-schema indexes (defined in auth-schema.ts). Created here so they
-  // exist before drizzle-kit push tries to diff against them on next deploy.
+  // Auth-schema indexes. The baseline migration creates these too; repeated
+  // here for databases that predate it. IF NOT EXISTS makes them no-ops otherwise.
   await db.run(sql`CREATE INDEX IF NOT EXISTS account_userId_idx ON account(user_id)`);
   await db.run(sql`CREATE INDEX IF NOT EXISTS session_userId_idx ON session(user_id)`);
   await db.run(sql`CREATE INDEX IF NOT EXISTS verification_identifier_idx ON verification(identifier)`);

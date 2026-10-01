@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { bandByPlan } from "./category-picker";
+import { bandByPlan, planCategoryIds } from "./category-picker";
 
 const cats = [{ id: "a" }, { id: "b" }, { id: "c" }];
 
@@ -32,5 +32,32 @@ describe("bandByPlan", () => {
     const { banded, rest } = bandByPlan(cats, new Set(["zzz"]));
     expect(banded).toBe(false);
     expect(rest).toEqual(cats);
+  });
+});
+
+describe("planCategoryIds", () => {
+  const plan = (over: Partial<Record<"allocations" | "fixedCosts" | "incomeLines", { categoryId: string }[]>>) =>
+    ({ allocations: [], fixedCosts: [], incomeLines: [], ...over }) as unknown as Parameters<typeof planCategoryIds>[0];
+
+  it("covers the plan's income lines alongside its spending lines", () => {
+    const ids = planCategoryIds(
+      plan({
+        allocations: [{ categoryId: "groceries" }],
+        fixedCosts: [{ categoryId: "rent" }],
+        incomeLines: [{ categoryId: "salary" }],
+      }),
+    );
+    expect([...ids!].sort()).toEqual(["groceries", "rent", "salary"]);
+  });
+
+  it("bands a plan that so far only has income", () => {
+    expect(planCategoryIds(plan({ incomeLines: [{ categoryId: "salary" }] }))).toEqual(
+      new Set(["salary"]),
+    );
+  });
+
+  it("is null for a plan with no lines, or no plan at all", () => {
+    expect(planCategoryIds(plan({}))).toBeNull();
+    expect(planCategoryIds(null)).toBeNull();
   });
 });

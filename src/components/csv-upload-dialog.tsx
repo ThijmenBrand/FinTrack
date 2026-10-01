@@ -29,7 +29,8 @@ import {
 } from "@/components/ui/table";
 import { Upload, FileText, CheckCircle2, AlertCircle } from "lucide-react";
 import { ImportReviewStep } from "@/components/import-review-step";
-import type { PreviewTransaction } from "@/lib/csv-utils";
+import { planCategoryIds } from "@/components/category-picker";
+import { toCommitRow, type PreviewTransaction } from "@/lib/csv-utils";
 import { useCategories } from "@/hooks/use-categories";
 import { useBudgets, useSubCategories } from "@/hooks/use-budgets";
 import { usePots } from "@/hooks/use-pots";
@@ -103,10 +104,10 @@ export function CsvUploadDialog({
   // owner's space, so only the owner's categories are valid ids.
   const { data: categories = [] } = useCategories(selectedAccountId || undefined);
 
-  // An account inside a budget plan mostly spends on that plan's lines, so the
-  // pickers below band those to the top. Everything else — income, transfers,
-  // the unplanned purchase every real statement carries — sits below the rule,
-  // one scroll away rather than missing.
+  // An account inside a budget plan mostly books onto that plan's lines —
+  // spending and income alike — so the pickers below band those to the top.
+  // Everything else — transfers, the unplanned purchase every real statement
+  // carries — sits below the rule, one scroll away rather than missing.
   const budgetId =
     accounts.find((a) => a.id === selectedAccountId)?.budgetId ?? null;
   const { data: budget } = useBudgets({
@@ -114,17 +115,10 @@ export function CsvUploadDialog({
     noScale: true,
     enabled: !!budgetId,
   });
-  const budgetCategoryIds = useMemo(() => {
-    if (!budgetId || !budget) return null;
-    const planned = [
-      ...budget.allocations.map((a) => a.categoryId),
-      ...budget.fixedCosts.map((f) => f.categoryId),
-    ];
-    // A plan with no expense lines yet has no top band to offer — a heading
-    // over an empty list is worse than no heading.
-    if (planned.length === 0) return null;
-    return new Set(planned);
-  }, [budgetId, budget]);
+  const budgetCategoryIds = useMemo(
+    () => (budgetId ? planCategoryIds(budget) : null),
+    [budgetId, budget],
+  );
   // Sub-categories come from the same plan the categories were narrowed to,
   // and stay empty for an account outside one.
   const { data: subCategories = [] } = useSubCategories(selectedAccountId || undefined);
@@ -260,30 +254,7 @@ export function CsvUploadDialog({
       const data = await commit.mutateAsync({
         accountId: selectedAccountId,
         fileName: file?.name || "import.csv",
-        transactions: transactions.map((tx) => ({
-          tempId: tx.tempId,
-          date: tx.date,
-          name: tx.name,
-          description: tx.description,
-          amount: tx.amount,
-          balance: tx.balance,
-          type: tx.type,
-          categoryId: tx.categoryId,
-          subLineId: tx.subLineId ?? null,
-          groupId: tx.groupId ?? null,
-          reimbursesExpenseId: tx.reimbursesExpenseId ?? null,
-          reimbursesTempId: tx.reimbursesTempId ?? null,
-          notes: tx.notes ?? null,
-          targetAccountId: tx.targetAccountId,
-          // Stored on the row: transfer detection proves a pair with it later,
-          // long after the CSV is gone.
-          counterpartyIban: tx.counterpartyIban ?? null,
-          recurringTransactionId: tx.recurringTransactionId ?? null,
-          splits: tx.splits ?? null,
-          // Kept only while the parts are still the rule's own proposal — the
-          // commit uses it to record the children as rule-categorized.
-          splitRuleId: tx.splitRuleId ?? null,
-        })),
+        transactions: transactions.map(toCommitRow),
         newRules,
       });
 

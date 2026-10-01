@@ -403,6 +403,68 @@ describe("POST /api/transactions/upload/commit — transfer mirrors", () => {
     expect(near[0].type).toBe("expense");
     expect(near[0].linked_transaction_id).toBeNull();
   });
+
+  const addRule = (id: string, pattern: string, categoryId: string) =>
+    testDb.client.execute({
+      sql: `INSERT INTO category_rules (id, user_id, pattern, category_id, created_at) VALUES (?, ?, ?, ?, ?)`,
+      args: [id, OWNER, pattern, categoryId, new Date().toISOString()],
+    });
+
+  // The preview put the transfer in the transfer bucket; once it is a plain
+  // expense it must not stay there, but land where the rules file it.
+  it("takes a transfer it downgrades out of the transfer bucket", async () => {
+    await testDb.client.execute({
+      sql: `UPDATE accounts SET internal_transfers = 0 WHERE id = 'acc-2' AND user_id = ?`,
+      args: [OWNER],
+    });
+    await addRule("r-transfer", "huishouden", "cat-transfer");
+    await addRule("r-a", "huishouden", "cat-a");
+
+    await commit([
+      row({
+        tempId: "t1",
+        description: "Bijdrage huishouden",
+        type: "internal_transfer",
+        categoryId: "cat-transfer",
+        targetAccountId: "acc-2",
+        counterpartyIban: IBAN_2,
+      }),
+    ]);
+
+    const near = await rowsOn("acc-1");
+    expect(near[0].type).toBe("expense");
+    expect(near[0].category_id).toBe("cat-a");
+    expect(near[0].category_source).toBe("rule");
+  });
+
+  // A preview made while the flag was still on let a transfer rule file the
+  // row; the commit re-files it the way a fresh preview would.
+  it("re-files a transfer bucket a stale preview's rule put on a ruled-out row", async () => {
+    await testDb.client.execute({
+      sql: `UPDATE accounts SET internal_transfers = 0 WHERE id = 'acc-1' AND user_id = ?`,
+      args: [OWNER],
+    });
+    await addRule("r-transfer", "overboeking", "cat-transfer");
+
+    await commit([row({ description: "Overboeking", categoryId: "cat-transfer" })]);
+
+    const [stored] = await rowsOn("acc-1");
+    expect(stored.category_id).toBeNull();
+    expect(stored.category_source).toBeNull();
+  });
+
+  it("keeps a transfer bucket the reviewer picked on a ruled-out row, as manual", async () => {
+    await testDb.client.execute({
+      sql: `UPDATE accounts SET internal_transfers = 0 WHERE id = 'acc-1' AND user_id = ?`,
+      args: [OWNER],
+    });
+
+    await commit([row({ description: "Overboeking", categoryId: "cat-transfer" })]);
+
+    const [stored] = await rowsOn("acc-1");
+    expect(stored.category_id).toBe("cat-transfer");
+    expect(stored.category_source).toBe("manual");
+  });
 });
 
 describe("POST /api/transactions/upload/commit — attachments", () => {

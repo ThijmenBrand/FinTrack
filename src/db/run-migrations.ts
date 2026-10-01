@@ -38,7 +38,7 @@ const ALREADY_APPLIED = /duplicate column name|already exists/i;
  * cleanly. Only the idempotency errors above are swallowed; anything else
  * still fails the deploy. Column-level drift is repaired by initializeDatabase.
  */
-export async function applyPendingMigrations(client: Client) {
+async function applyPendingMigrations(client: Client) {
   await client.execute(
     `CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

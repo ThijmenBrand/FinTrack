@@ -15,6 +15,7 @@ import {
 import { eq, and, or, asc, gte, lte, sql, sum, inArray, isNotNull, isNull } from "drizzle-orm";
 import {
   accountScopeFilter,
+  effectiveStartDay,
   resolveBudgetPlan,
   resolveMainPlan,
   type ResolvedBudgetPlan,
@@ -25,7 +26,6 @@ import {
   visibleAccounts,
   visibleTransactions,
 } from "@/lib/account-access";
-import { getUserPreferences } from "@/lib/preferences";
 import { currentFinancialSlot } from "@/lib/financial-year";
 import { buildLedgerYear } from "@/lib/budget-ledger-db";
 import { getPaySchedule, paydaysBetween, type PaySchedule } from "@/lib/pay-schedule";
@@ -49,7 +49,7 @@ import type {
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
-export function getPeriodRange(
+function getPeriodRange(
   period: string,
   startDay: number = 1,
 ): { from: string; to: string } {
@@ -407,9 +407,7 @@ export const getBudgetOverview = cache(async (
   // allocations, categories and financial-month window — so owner and member
   // see identical figures. Own plans: dataUserId === userId.
   const dataUserId = plan?.ownerId ?? userId;
-  if (plan && plan.ownerId !== userId) {
-    startDay = (await getUserPreferences(plan.ownerId)).financialMonthStartDay;
-  }
+  startDay = await effectiveStartDay(userId, plan, startDay);
   const scopeAccountIds = plan ? plan.accountIds : undefined;
   const txScope = accountScopeFilter(scopeAccountIds);
   const recurringScope =

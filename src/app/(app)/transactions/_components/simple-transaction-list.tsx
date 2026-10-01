@@ -24,6 +24,7 @@ import type { Category, Pagination, Transaction } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
 import { useIsCategorizing } from "@/hooks/use-transactions";
 import { PaginationBar } from "./transactions-table";
+import { PaginationBarSkeleton, SimpleRowsSkeleton } from "./transactions-skeleton";
 import { SAVING_ROW } from "./transaction-row";
 import { PERIOD_OPTIONS } from "./transaction-search-bar";
 import { Amount } from "./transaction-amount";
@@ -167,11 +168,18 @@ export function SimpleTransactionList({
         />
       </div>
 
-      {loading && transactions.length === 0 ? (
-        <div className="space-y-px">
-          {[1, 2, 3, 4, 5].map((i) => (
-            <div key={i} className="h-14 animate-pulse bg-muted/40" />
-          ))}
+      {loading ? (
+        <div aria-busy>
+          {/* Same column headers the loaded list shows, so nothing shifts. */}
+          <div className="hidden items-center gap-3 border-b px-4 py-2 text-xs font-medium text-muted-foreground sm:flex">
+            <span className="w-9 shrink-0" />
+            <span className="flex-1">{t("common.description")}</span>
+            <span className="w-28 shrink-0">{t("common.date")}</span>
+            <span className="w-40 shrink-0">{t("common.category")}</span>
+            <span className="w-28 shrink-0 text-right">{t("common.amount")}</span>
+          </div>
+          <SimpleRowsSkeleton />
+          <PaginationBarSkeleton />
         </div>
       ) : transactions.length === 0 ? (
         <div className="flex flex-col items-center justify-center px-4 py-16">

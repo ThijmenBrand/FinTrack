@@ -23,7 +23,13 @@ import {
   ChevronRight,
   FileSpreadsheet,
 } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 import { HeaderFilterDropdown, SortArrow } from "./header-filter-dropdown";
+import {
+  PaginationBarSkeleton,
+  TransactionCardsSkeleton,
+  TransactionRowsSkeleton,
+} from "./transactions-skeleton";
 import type { Pagination } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
 
@@ -136,9 +142,14 @@ export function TransactionsTable({
     <div className="overflow-hidden rounded-xl border bg-card text-card-foreground shadow-sm">
       {/* Toolbar */}
       <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
-        <h2 className="text-sm font-medium">
-          {plural(pagination.total, "common.transactions.one", "common.transactions.other")}
-        </h2>
+        {/* No "0 transactions" while the count is still on its way. */}
+        {loading ? (
+          <Skeleton className="h-4 w-28" />
+        ) : (
+          <h2 className="text-sm font-medium">
+            {plural(pagination.total, "common.transactions.one", "common.transactions.other")}
+          </h2>
+        )}
         <div className="flex items-center gap-3">
           <Select
           value={String(pagination.limit)}
@@ -160,13 +171,7 @@ export function TransactionsTable({
         </div>
       </div>
 
-      {loading && rowCount === 0 ? (
-        <div className="space-y-px">
-          {[1, 2, 3, 4, 5].map((i) => (
-            <div key={i} className="h-14 bg-muted/40 animate-pulse" />
-          ))}
-        </div>
-      ) : rowCount === 0 ? (
+      {!loading && rowCount === 0 ? (
         <div className="flex flex-col items-center justify-center px-4 py-16">
           <FileSpreadsheet className="h-16 w-16 text-muted-foreground/30 mb-4" />
             <h3 className="text-lg font-medium text-muted-foreground mb-1">
@@ -189,8 +194,10 @@ export function TransactionsTable({
           )}
         </div>
       ) : (
+        // The header renders during the first load too, with skeleton rows
+        // beneath it, so the columns are already in place when the data lands.
         <div
-          aria-busy={fetching}
+          aria-busy={loading || fetching}
           className={
             fetching ? "opacity-50 transition-opacity pointer-events-none" : "transition-opacity"
           }
@@ -269,16 +276,32 @@ export function TransactionsTable({
                     <TableHead className="w-[50px]" />
                   </TableRow>
                 </TableHeader>
-                <TableBody>{renderRows("table")}</TableBody>
+                <TableBody>
+                  {loading ? (
+                    <TransactionRowsSkeleton showCreator={showCreator} />
+                  ) : (
+                    renderRows("table")
+                  )}
+                </TableBody>
               </Table>
             </div>
 
             {/* Mobile List View */}
-            <div className="md:hidden divide-y">
-              {renderRows("card")}
-            </div>
+            {loading ? (
+              <div className="md:hidden">
+                <TransactionCardsSkeleton />
+              </div>
+            ) : (
+              <div className="md:hidden divide-y">
+                {renderRows("card")}
+              </div>
+            )}
 
-            <PaginationBar pagination={pagination} setPagination={setPagination} />
+            {loading ? (
+              <PaginationBarSkeleton />
+            ) : (
+              <PaginationBar pagination={pagination} setPagination={setPagination} />
+            )}
         </div>
       )}
     </div>

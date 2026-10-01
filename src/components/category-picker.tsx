@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { useCreateCategory } from "@/hooks/use-categories";
 import { useI18n } from "@/lib/i18n/client";
 import { SearchCreatePicker } from "@/components/search-create-picker";
-import type { SubCategoryOption } from "@/types/api";
+import type { BudgetData, SubCategoryOption } from "@/types/api";
 
 interface PickerCategory {
   id: string;
@@ -33,6 +33,24 @@ interface Row {
   sub: boolean;
   /** Band heading — set only when the list is split by the budget plan. */
   section?: string;
+}
+
+/**
+ * The categories a budget plan covers: its spending lines and its income lines
+ * both — the budget page lists the two, so the picker's top band does too.
+ * Null for a plan with no lines yet: a heading over an empty band is worse
+ * than no heading. Exported for its test.
+ */
+export function planCategoryIds(
+  budget: Pick<BudgetData, "allocations" | "fixedCosts" | "incomeLines"> | null | undefined,
+): Set<string> | null {
+  if (!budget) return null;
+  const planned = [
+    ...budget.allocations.map((a) => a.categoryId),
+    ...budget.fixedCosts.map((f) => f.categoryId),
+    ...budget.incomeLines.map((l) => l.categoryId),
+  ];
+  return planned.length === 0 ? null : new Set(planned);
 }
 
 /**

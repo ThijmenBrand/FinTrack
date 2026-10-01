@@ -12,7 +12,7 @@ external services required to run it locally.
 
 - **Next.js 16** (App Router, React 19) — UI and API routes
 - **Drizzle ORM** on **libSQL/SQLite** — local file DB in dev, [Turso](https://turso.tech) in prod
-- **better-auth** — email/password, PIN, and passkey login
+- **better-auth** — email/password and passkey login, with optional 2FA
 - **TanStack Query** — client data fetching/caching
 - **Tailwind v4 + Radix UI** — styling and components
 - **Vitest** — tests
@@ -161,8 +161,8 @@ src/
   hooks/                TanStack Query data hooks
 ```
 
-- **Auth**: `src/lib/auth.ts` configures better-auth (username/password, PIN,
-  passkey). Passwords use scrypt. Sessions are cookie-based. `(app)` routes are
+- **Auth**: `src/lib/auth.ts` configures better-auth (email/password,
+  passkey, 2FA). Passwords use scrypt. Sessions are cookie-based. `(app)` routes are
   gated behind a logged-in session.
 - **Data**: All persistence goes through Drizzle. The DB client
   (`src/db/index.ts`) is lazily constructed so importing a module for a pure
