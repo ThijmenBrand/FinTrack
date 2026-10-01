@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { put } from "@vercel/blob";
+import { putFile } from "@/lib/file-store";
 // ponytail: sharp is pinned to ^0.34.5 for the same reason the avatar route
 // documents — Turbopack builds on Vercel don't ship 0.35.x's libvips .so.
 import sharp from "sharp";
@@ -110,9 +110,6 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   return withUser(async (userId) => {
-    if (!process.env.BLOB_READ_WRITE_TOKEN) {
-      return apiError("api.attachmentsNotConfigured", 503);
-    }
     if (!allowUpload(userId)) {
       return apiError("api.rateLimitedUploads", 429);
     }
@@ -178,7 +175,7 @@ export async function POST(request: NextRequest) {
     // A PDF is stored byte-for-byte; only images go through sharp.
     let bytes: Buffer = Buffer.from(raw);
     let contentType = "application/pdf";
-    let extension = "pdf";
+    let extension: "webp" | "pdf" = "pdf";
     if (kind !== "pdf") {
       try {
         bytes = await sharp(raw, { limitInputPixels: 268402689 })
@@ -205,22 +202,17 @@ export async function POST(request: NextRequest) {
     await collectOrphanAttachments(ownerId);
 
     const id = crypto.randomUUID();
-    // Random suffix, not a stable path: reusing a pathname leaves the CDN
-    // serving the previous file for up to a month.
-    const blob = await put(`attachments/${id}.${extension}`, bytes, {
-      access: "private",
-      contentType,
-      addRandomSuffix: true,
-    });
+    // Random suffix, not a stable key: /api/attachments/<id> serves files as
+    // immutable, so a reused key would leave browsers showing the old file.
+    const key = await putFile("attachments", id, extension, bytes);
 
     const fileName = (file.name || `receipt.${extension}`).slice(0, MAX_FILE_NAME_LENGTH);
     const row = {
       id,
       userId: ownerId,
       transactionId,
-      // The pathname, not `blob.url` — a private store's URL needs credentials
-      // to fetch, so what we persist is the key /api/attachments/<id> reads back.
-      pathname: blob.pathname,
+      // The storage key, which /api/attachments/<id> reads back — never a URL.
+      pathname: key,
       fileName,
       contentType,
       size: bytes.byteLength,

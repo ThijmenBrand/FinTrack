@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { get } from "@vercel/blob";
+import { readFile } from "@/lib/file-store";
 import { apiError } from "@/lib/api-errors";
 import { withUser } from "@/lib/auth";
 import { isAvatarPathname } from "@/lib/avatar";
 
 /**
- * GET /api/avatar/avatars/<file>.webp — read-through for the private blob store.
+ * GET /api/avatar/avatars/<file>.webp — read-through for the private file store.
  *
  * The store serves nothing publicly, so every face in the app is fetched here
  * with the caller's session cookie attached. Signed out, the proxy in
@@ -20,15 +20,14 @@ export async function GET(
 
   return withUser(async () => {
     const pathname = path.join("/");
-    // `get()` fetches an arbitrary URL when handed one, so the allowlist is
-    // load-bearing: without it this route is an open fetch proxy. It also keeps
-    // the reach to `avatars/`, in case the store ever holds anything else.
+    // Keeps the reach to `avatars/`: the same store holds receipts, which
+    // have their own, stricter ownership check.
     if (!isAvatarPathname(pathname)) {
       return apiError("api.notFound", 404);
     }
 
-    const file = await get(pathname, { access: "private" });
-    if (!file || file.statusCode !== 200) {
+    const file = await readFile(pathname);
+    if (!file) {
       return apiError("api.notFound", 404);
     }
 
@@ -36,7 +35,8 @@ export async function GET(
       headers: {
         // Set at upload time and not derived from the request, so a stored
         // object can't talk the browser into treating it as anything but an image.
-        "Content-Type": file.blob.contentType,
+        "Content-Type": file.contentType,
+        "Content-Length": String(file.size),
         // The random suffix means a given URL's bytes never change, so this can
         // be cached hard — which matters when a dashboard paints a dozen faces.
         // `private` keeps it out of shared caches, where the next visitor

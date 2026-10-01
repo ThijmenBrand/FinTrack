@@ -1,4 +1,4 @@
-import { del } from "@vercel/blob";
+import { deleteFile } from "@/lib/file-store";
 import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { transactionAttachments, transactions } from "@/db/schema";
@@ -11,12 +11,12 @@ const UNCLAIMED_TTL_MS = 24 * 60 * 60 * 1000;
 const SWEEP_LIMIT = 50;
 
 /**
- * Drop one blob. Never fatal — an orphan in the store beats a failed request.
+ * Drop one stored file. Never fatal — an orphan in the store beats a failed request.
  */
 export async function discardBlob(pathname: string): Promise<void> {
   if (!isAttachmentPathname(pathname)) return;
   try {
-    await del(pathname);
+    await deleteFile(pathname);
   } catch {
     // The row is what the app reads; a leftover object is invisible.
   }
@@ -70,9 +70,9 @@ export async function collectOrphanAttachments(userId: string): Promise<number> 
 
   if (!stale.length) return 0;
 
-  // The blob deletes are independent network calls and this runs inline on an
-  // upload or a bulk delete, so serialising 50 of them would be 50 round trips
-  // added to a user-visible request. One batched DB delete for the same reason.
+  // The file deletes are independent and this runs inline on an upload or a
+  // bulk delete, so they go in parallel rather than one after another. One
+  // batched DB delete for the same reason.
   await Promise.all(stale.map((row) => discardBlob(row.pathname)));
   await db
     .delete(transactionAttachments)

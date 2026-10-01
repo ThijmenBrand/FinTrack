@@ -45,7 +45,7 @@ export function detectImageType(bytes: Uint8Array): ImageType | null {
 }
 
 /**
- * Where an avatar lives inside the blob store.
+ * Where an avatar lives inside the file store (src/lib/file-store.ts).
  *
  * The store is private, so `user.image` holds this pathname rather than a
  * public URL — there is no URL a signed-out browser could fetch. `put()` with

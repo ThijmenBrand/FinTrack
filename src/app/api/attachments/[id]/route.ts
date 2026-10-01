@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { get } from "@vercel/blob";
+import { readFile } from "@/lib/file-store";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { transactionAttachments, transactions } from "@/db/schema";
@@ -9,7 +9,7 @@ import { requireAccountAccess } from "@/lib/account-access";
 import { contentDisposition, isAttachmentPathname } from "@/lib/attachments";
 
 /**
- * GET /api/attachments/<id> — read-through for the private blob store.
+ * GET /api/attachments/<id> — read-through for the private file store.
  *
  * The store serves nothing publicly, so every receipt is fetched here with the
  * caller's session cookie attached and re-checked against the transaction's
@@ -55,14 +55,13 @@ export async function GET(
       return apiError("api.notFound", 404);
     }
 
-    // `get()` fetches an arbitrary URL when handed one, so the allowlist is
-    // load-bearing: without it this route is an open fetch proxy.
+    // Never trust a stored string blindly: the key must look like one we wrote.
     if (!isAttachmentPathname(row.pathname)) {
       return apiError("api.notFound", 404);
     }
 
-    const file = await get(row.pathname, { access: "private" });
-    if (!file || file.statusCode !== 200) {
+    const file = await readFile(row.pathname);
+    if (!file) {
       return apiError("api.notFound", 404);
     }
 
@@ -72,6 +71,7 @@ export async function GET(
         // a stored object can't talk the browser into treating it as anything
         // but the image or PDF it is.
         "Content-Type": row.contentType,
+        "Content-Length": String(file.size),
         // `inline` so a click opens a preview rather than a download; the
         // filename is percent-encoded, since it came off the user's disk and
         // could otherwise carry a CRLF into the header.

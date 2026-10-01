@@ -21,9 +21,8 @@ const nextConfig: NextConfig = {
         value: "strict-origin-when-cross-origin",
       },
     ];
-    // Avatars live in a private Vercel Blob store and are both written and read
-    // back through our own routes, so the blob host never appears in a src and
-    // 'self' covers it. `blob:` stays for the object-URL preview the file
+    // Avatars and receipts live in the server's private file store and are
+    // only read back through our own routes, so 'self' covers them. `blob:` stays for the object-URL preview the file
     // picker shows before upload.
     const csp =
       "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors ";

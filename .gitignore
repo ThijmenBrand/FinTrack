@@ -46,6 +46,10 @@ prisma/*.db
 prisma/*.db-journal
 data/*
 .vercel
+.env.vercel
+
+# one-off Vercel Blob export (scripts/export-vercel-blob.ts)
+blob-export/
 
 # npm lockfile — this repo installs with pnpm
 package-lock.json
