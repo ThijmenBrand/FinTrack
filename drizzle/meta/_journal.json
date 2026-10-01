@@ -239,6 +239,13 @@
       "when": 1790885112837,
       "tag": "0033_recurring_excluded_plan",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1790887058474,
+      "tag": "0034_recurring_logo",
+      "breakpoints": true
     }
   ]
 }

@@ -89,6 +89,9 @@ function draftTx(
     nextOccurrence: getNextOccurrence(frequency, startDate, dayOfWeek, dayOfMonth, null),
     matchPattern: null,
     matchField: "name",
+    logoUrl: null,
+    logoSource: null,
+    logoPending: false,
   };
 }
 

@@ -7,6 +7,7 @@ import { ChevronDown, History, Loader2, Pause, Pencil, Play } from "lucide-react
 import { toMonthly } from "@/lib/recurring";
 import type { RecurringTx } from "@/types/api";
 import { relativeDay } from "./dates";
+import { PlanLogo } from "./plan-logo";
 import type { SectionKey } from "./recurring-list";
 import { useI18n } from "@/lib/i18n/client";
 import type { MessageKey } from "@/lib/i18n/translate";
@@ -20,7 +21,7 @@ import { TONE_TEXT } from "@/app/(app)/budgets/_components/budget-row";
  * cost the row its gap, and auto-placement would then shift the chevron.
  */
 const ROW_GRID =
-  "grid w-full grid-cols-[0.5rem_minmax(0,1fr)_auto_1rem] items-center gap-3 rounded-md px-2 py-2.5 text-left transition-colors hover:bg-muted/50 sm:grid-cols-[0.5rem_minmax(0,1fr)_auto_auto_1rem]";
+  "grid w-full grid-cols-[2rem_minmax(0,1fr)_auto_1rem] items-center gap-3 rounded-md px-2 py-2.5 text-left transition-colors hover:bg-muted/50 sm:grid-cols-[2rem_minmax(0,1fr)_auto_auto_1rem]";
 
 const DT = "text-[10px] uppercase tracking-[0.08em] text-muted-foreground";
 
@@ -82,9 +83,11 @@ export function RecurringItem({
         aria-expanded={expanded}
         className={`${ROW_GRID} ${item.isActive ? "" : "opacity-60"}`}
       >
-        <span
-          className="h-2 w-2 shrink-0 rounded-full"
-          style={{ backgroundColor: item.categoryColor || (incoming ? "#10b981" : "#94a3b8") }}
+        <PlanLogo
+          name={item.description}
+          logoUrl={item.logoUrl}
+          color={item.categoryColor || (incoming ? "#10b981" : "#94a3b8")}
+          className="h-8 w-8 text-sm"
         />
 
         <span className="min-w-0">
@@ -141,7 +144,7 @@ export function RecurringItem({
       </button>
 
       {expanded && (
-        <div className="mb-3 ml-2 mr-2 rounded-lg border bg-card p-4 sm:ml-7">
+        <div className="mb-3 ml-2 mr-2 rounded-lg border bg-card p-4 sm:ml-13">
           <dl className="grid gap-3.5 [grid-template-columns:repeat(auto-fit,minmax(9rem,1fr))]">
             <div>
               <dt className={DT}>{t("recurring.form.frequency")}</dt>

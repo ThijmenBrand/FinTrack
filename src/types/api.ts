@@ -395,6 +395,12 @@ export interface RecurringTx {
   matchPattern: string | null;
   /** "both" | "name" | "description" — which text `matchPattern` is read against. */
   matchField: string;
+  /** Same-origin URL of the company logo; null when the plan has none. */
+  logoUrl: string | null;
+  /** Domain or image link the logo came from. */
+  logoSource: string | null;
+  /** An automatic lookup is due or running — poll until it settles. */
+  logoPending: boolean;
 }
 
 /** A bank row as the recurring detail page lists it. */
@@ -439,6 +445,8 @@ export interface ForecastData {
     type: string;
     categoryName: string | null;
     categoryColor: string | null;
+    /** The plan's logo; null for a planned spike or a plan without one. */
+    logoUrl?: string | null;
     source?: "recurring" | "spike";
   }[];
   advice: { type: "info" | "warning" | "success"; message: string }[];

@@ -2,10 +2,18 @@ import { useQuery, useMutation, useQueryClient, type QueryClient } from "@tansta
 import { apiFetch } from "@/lib/api";
 import type { RecurringTx, RecurringDetail, ForecastData } from "@/types/api";
 
+/**
+ * Logos are looked up server-side after the list is sent, so while any plan is
+ * still waiting on one the list re-reads itself until the answer is in.
+ */
+const LOGO_POLL_MS = 2500;
+
 export function useRecurring() {
   return useQuery({
     queryKey: ["recurring"],
     queryFn: () => apiFetch<RecurringTx[]>("/api/recurring"),
+    refetchInterval: (query) =>
+      query.state.data?.some((p) => p.logoPending) ? LOGO_POLL_MS : false,
   });
 }
 
@@ -13,6 +21,7 @@ export function useRecurringDetail(id: string) {
   return useQuery({
     queryKey: ["recurring", id, "detail"],
     queryFn: () => apiFetch<RecurringDetail>(`/api/recurring/${id}`),
+    refetchInterval: (query) => (query.state.data?.plan.logoPending ? LOGO_POLL_MS : false),
   });
 }
 
@@ -89,5 +98,40 @@ export function useDeleteRecurring() {
     onSuccess: async () => {
       await invalidatePlanViews(qc);
     },
+  });
+}
+
+/**
+ * Where a logo is drawn: the plan list and detail, and the upcoming-payments
+ * strip (the forecast). Nothing derived from amounts moves.
+ */
+function invalidateLogoViews(qc: QueryClient): Promise<void> {
+  qc.invalidateQueries({ queryKey: ["recurring-forecast"] });
+  return qc.invalidateQueries({ queryKey: ["recurring"] });
+}
+
+/**
+ * Find a plan's logo — from `source` (a website, image link or company name),
+ * or from the plan's own name when it's left out.
+ */
+export function useSetRecurringLogo() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, source }: { id: string; source?: string }) =>
+      apiFetch<{ logoUrl: string; logoSource: string }>(`/api/recurring/${encodeURIComponent(id)}/logo`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(source ? { source } : {}),
+      }),
+    onSuccess: () => invalidateLogoViews(qc),
+  });
+}
+
+export function useRemoveRecurringLogo() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`/api/recurring/${encodeURIComponent(id)}/logo`, { method: "DELETE" }),
+    onSuccess: () => invalidateLogoViews(qc),
   });
 }

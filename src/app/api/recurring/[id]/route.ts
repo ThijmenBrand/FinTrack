@@ -7,6 +7,7 @@ import { withUser } from "@/lib/auth";
 import { getAccountAccess, memberAccountIds, visibleTransactions } from "@/lib/account-access";
 import { nextUnpaidOccurrence } from "@/lib/recurring";
 import { learnMatchRule, looksLikePlan, matchesPlanRule } from "@/lib/recurring-match";
+import { isLogoPending, logoUrl, scheduleLogoLookups } from "@/lib/recurring-logo";
 
 /** Unlinked look-alikes offered for linking — enough to act on, not a search. */
 const MAX_SUGGESTIONS = 10;
@@ -53,6 +54,9 @@ export async function GET(
         isActive: recurringTransactions.isActive,
         matchPattern: recurringTransactions.matchPattern,
         matchField: recurringTransactions.matchField,
+        logoKey: recurringTransactions.logoKey,
+        logoSource: recurringTransactions.logoSource,
+        logoCheckedAt: recurringTransactions.logoCheckedAt,
       })
       .from(recurringTransactions)
       .leftJoin(accounts, eq(recurringTransactions.accountId, accounts.id))
@@ -71,7 +75,8 @@ export async function GET(
 
     const access = await getAccountAccess(userId, row.accountId);
     const canEdit = !!access && access.role !== "viewer";
-    const { userId: ownerId, ...plan } = row;
+    const { userId: ownerId, logoKey, logoCheckedAt, ...plan } = row;
+    scheduleLogoLookups([row]);
 
     const [linked, unlinked] = await Promise.all([
       // Bank rows only: a split bill's slices inherit the link, and listing
@@ -134,6 +139,8 @@ export async function GET(
     return NextResponse.json({
       plan: {
         ...plan,
+        logoUrl: logoUrl(plan.id, logoKey),
+        logoPending: isLogoPending({ logoKey, logoCheckedAt }),
         nextOccurrence: plan.isActive ? nextUnpaidOccurrence(plan, linked[0]?.date) : null,
       },
       canEdit,

@@ -3,6 +3,7 @@
 import type { ForecastData } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
 import { TONE_TEXT } from "@/app/(app)/budgets/_components/budget-row";
+import { PlanLogo } from "./plan-logo";
 
 /**
  * The schedule as one scrollable strip above the list rather than a column
@@ -36,7 +37,17 @@ export function UpcomingPayments({ payments }: { payments: ForecastData["upcomin
               key={i}
               className="w-32 shrink-0 snap-start rounded-md border bg-card px-3 py-2"
             >
-              <div className="text-[11px] text-muted-foreground">{formatDayMonth(p.date)}</div>
+              <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                {formatDayMonth(p.date)}
+                {p.logoUrl && (
+                  <PlanLogo
+                    name={p.description}
+                    logoUrl={p.logoUrl}
+                    color={p.categoryColor || "#94a3b8"}
+                    className="h-4 w-4 text-[9px]"
+                  />
+                )}
+              </div>
               <div className="truncate text-[13px]" title={p.description}>
                 {p.description}
               </div>

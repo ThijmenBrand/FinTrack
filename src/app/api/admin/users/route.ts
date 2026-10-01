@@ -6,6 +6,7 @@ import { withAdmin, hashPassword } from "@/lib/auth";
 import { validatePassword, validateName, validateEmail } from "@/lib/validation";
 import { logAudit, getRequestMeta } from "@/lib/audit";
 import { headers } from "next/headers";
+import { discardLogosAfter } from "@/lib/recurring-logo";
 
 async function logAdminAction(
   adminId: string,
@@ -230,8 +231,9 @@ export async function DELETE(request: NextRequest) {
     // behind. Every write path that removes a parent row does the same.
     await db.run(sql`DELETE FROM budget_sub_lines WHERE user_id = ${id}`);
 
-    // Delete user (cascade will handle related data)
-    await db.run(sql`DELETE FROM "user" WHERE id = ${id}`);
+    // Delete user (cascade will handle related data), then the logo files of
+    // the recurring plans that went with them.
+    await discardLogosAfter({ userId: id }, () => db.run(sql`DELETE FROM "user" WHERE id = ${id}`));
 
     return NextResponse.json({ success: true });
   }, "Failed to delete user");

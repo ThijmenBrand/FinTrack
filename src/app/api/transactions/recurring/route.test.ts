@@ -17,6 +17,11 @@ vi.mock("@/lib/auth", () => ({
     }),
 }));
 vi.mock("@/lib/audit", () => ({ logDataEvent: () => {} }));
+// Logo lookups run in `after()` and reach the network; neither exists here.
+vi.mock("@/lib/recurring-logo", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/recurring-logo")>()),
+  scheduleLogoLookups: () => {},
+}));
 
 let testDb: TestDb;
 
