@@ -25,7 +25,7 @@ export interface MappingAccount {
   iban: string | null;
   name: string | null;
   currency: string | null;
-  /** The user's account with this IBAN, if there is one. */
+  /** The user's not-yet-linked account with this IBAN, if there is one. */
   suggestedAccountId: string | null;
   /** The day after the newest row already in that account (or 90 days back). */
   suggestedSyncFrom: string;
@@ -56,6 +56,8 @@ export interface BankSyncStatus {
     validUntil: string | null;
     lastErrorCode: string | null;
     disconnecting: boolean;
+    /** Every bank account the consent covers, linked or not. */
+    accounts: MappingAccount[];
     links: Array<{
       id: string;
       accountId: string;
@@ -70,14 +72,12 @@ export interface BankSyncStatus {
       syncing: boolean;
     }>;
   }>;
-  /** A connect flow of THIS session waiting for its account mapping. */
-  pendingMapping: null | {
+  /** Connect flows of THIS session waiting for their account mapping, newest first. */
+  pendingMappings: Array<{
     authStateId: string;
     connectionId: string;
-    aspspName: string;
     expiresAt: string;
-    accounts: MappingAccount[];
-  };
+  }>;
 }
 
 const iso = (ms: number) => new Date(ms).toISOString();
@@ -144,6 +144,7 @@ export async function bankSyncStatus(ids: SessionIds): Promise<BankSyncStatus> {
         .groupBy(transactions.accountId)
     : [];
   const totalByAccount = new Map(totals.map((t) => [t.accountId, Number(t.total) || 0]));
+  const accountsOf = await mappingAccounts(userId, linkRows.map((r) => r.link));
 
   const connections: BankSyncStatus["connections"] = connectionRows.map((c) => ({
     id: c.id,
@@ -153,6 +154,7 @@ export async function bankSyncStatus(ids: SessionIds): Promise<BankSyncStatus> {
     validUntil: c.validUntil,
     lastErrorCode: c.lastErrorCode,
     disconnecting: revoking.has(c.id),
+    accounts: accountsOf(c),
     links: linkRows
       .filter((r) => r.link.connectionId === c.id)
       .map(({ link, accountName, initialBalance }) => ({
@@ -187,16 +189,19 @@ export async function bankSyncStatus(ids: SessionIds): Promise<BankSyncStatus> {
       : null,
     pendingCredentialJob,
     connections,
-    pendingMapping: await pendingMapping(ids, linkRows.map((r) => r.link)),
+    pendingMappings: (await openMappingStates(ids))
+      .filter((s) => connectionRows.some((c) => c.id === s.connectionId))
+      .map((s) => ({ authStateId: s.id, connectionId: s.connectionId!, expiresAt: s.expiresAt })),
   };
 }
 
 /**
  * The mapping screen is only ever open for a connection this very session
  * created, within the auth state's lifetime, and only until it is saved.
+ * Several can be open at once: one per bank connected in a row.
  */
-export async function openMappingState(ids: SessionIds, authStateId?: string) {
-  const [state] = await db
+function openMappingStates(ids: SessionIds, authStateId?: string) {
+  return db
     .select()
     .from(bankAuthStates)
     .where(
@@ -211,44 +216,41 @@ export async function openMappingState(ids: SessionIds, authStateId?: string) {
         authStateId ? eq(bankAuthStates.id, authStateId) : undefined,
       ),
     )
-    .orderBy(desc(bankAuthStates.createdAt))
-    .limit(1);
+    .orderBy(desc(bankAuthStates.createdAt));
+}
+
+export async function openMappingState(ids: SessionIds, authStateId: string) {
+  const [state] = await openMappingStates(ids, authStateId);
   return state ?? null;
 }
 
-async function pendingMapping(
-  ids: SessionIds,
-  links: Array<{ accountId: string; iban: string | null; externalUid: string; connectionId: string }>,
-): Promise<BankSyncStatus["pendingMapping"]> {
-  const state = await openMappingState(ids);
-  if (!state?.connectionId) return null;
-  const [connection] = await db
-    .select()
-    .from(bankConnections)
-    .where(and(eq(bankConnections.id, state.connectionId), eq(bankConnections.userId, ids.userId)))
-    .limit(1);
-  if (!connection) return null;
-
-  let available: Array<{ uid: string; iban: string | null; name: string | null; currency: string | null }>;
-  try {
-    available = JSON.parse(connection.availableAccounts);
-  } catch {
-    available = [];
-  }
+/**
+ * The bank accounts a connection's consent covers, each with the FinTrack
+ * account it feeds (if any) and a suggested target and start date.
+ */
+async function mappingAccounts(
+  userId: string,
+  links: Array<{ accountId: string; externalUid: string; connectionId: string }>,
+): Promise<(connection: typeof bankConnections.$inferSelect) => MappingAccount[]> {
   const own = await db
     .select({ id: accounts.id, iban: accounts.iban })
     .from(accounts)
-    .where(eq(accounts.userId, ids.userId));
-  const latest = await latestDates(own.map((a) => a.id), ids.userId);
+    .where(eq(accounts.userId, userId));
+  const latest = await latestDates(own.map((a) => a.id), userId);
+  const linkedAccounts = new Set(links.map((l) => l.accountId));
   const normalize = (v: string | null) => v?.replace(/\s/g, "").toUpperCase() || null;
 
-  return {
-    authStateId: state.id,
-    connectionId: connection.id,
-    aspspName: connection.aspspName,
-    expiresAt: state.expiresAt,
-    accounts: available.map((a) => {
-      const match = a.iban ? own.find((o) => normalize(o.iban) === normalize(a.iban)) : undefined;
+  return (connection) => {
+    let available: Array<{ uid: string; iban: string | null; name: string | null; currency: string | null }>;
+    try {
+      available = JSON.parse(connection.availableAccounts);
+    } catch {
+      available = [];
+    }
+    return available.map((a) => {
+      const match = a.iban
+        ? own.find((o) => !linkedAccounts.has(o.id) && normalize(o.iban) === normalize(a.iban))
+        : undefined;
       const linked = links.find((l) => l.connectionId === connection.id && l.externalUid === a.uid);
       return {
         uid: a.uid,
@@ -259,7 +261,7 @@ async function pendingMapping(
         suggestedSyncFrom: defaultSyncFrom(match ? latest.get(match.id) : undefined),
         linkedAccountId: linked?.accountId ?? null,
       };
-    }),
+    });
   };
 }
 
