@@ -1,7 +1,7 @@
 "use client";
 
 import type { LucideIcon } from "lucide-react";
-import { LayoutDashboard, Upload, PieChart, Wallet, PiggyBank, RefreshCcw, Landmark } from "lucide-react";
+import { LayoutDashboard, ReceiptText, PieChart, Wallet, PiggyBank, RefreshCcw, Landmark } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useSession, signOut } from "@/lib/auth-client";
 import { usePreferences } from "@/hooks/use-preferences";
@@ -27,7 +27,7 @@ export const NAV_SECTIONS: MessageKey[] = [
 /** Primary tabs shown in the bottom bar and top of the sidebar. */
 export const PRIMARY_NAV: NavItem[] = [
   { labelKey: "nav.dashboard", href: "/", icon: LayoutDashboard, section: "nav.section.overview" },
-  { labelKey: "nav.transactions", href: "/transactions", icon: Upload, section: "nav.section.money" },
+  { labelKey: "nav.transactions", href: "/transactions", icon: ReceiptText, section: "nav.section.money" },
   { labelKey: "nav.insights", href: "/insights", icon: PieChart, section: "nav.section.overview" },
   { labelKey: "nav.budgets", href: "/budgets", icon: Wallet, section: "nav.section.planning" },
 ];

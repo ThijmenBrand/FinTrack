@@ -107,13 +107,14 @@ const MobileDrawerContent = React.forwardRef<
     <VaulDrawer.Content
       ref={ref}
       className={cn(
-        "fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-2xl border-t bg-background shadow-lg max-h-[85vh]",
+        "fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-3xl border-t bg-background shadow-lg max-h-[90dvh]",
         className
       )}
       {...props}
     >
       <div className="mx-auto mt-3 h-1 w-10 rounded-full bg-muted-foreground/30" />
-      <div className="overflow-y-auto overflow-x-hidden flex-1 min-h-0 p-5 grid gap-4 [&>*]:min-w-0">
+      {/* Bottom padding clears the home indicator on edge-to-edge phones. */}
+      <div className="overflow-y-auto overflow-x-hidden flex-1 min-h-0 px-5 pt-4 pb-[calc(1.25rem+env(safe-area-inset-bottom))] grid gap-4 [&>*]:min-w-0">
         {children}
       </div>
     </VaulDrawer.Content>
@@ -194,7 +195,7 @@ const DialogFooter = ({
 }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
     className={cn(
-      "flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2",
+      "flex flex-col-reverse max-sm:gap-2 sm:flex-row sm:justify-end sm:space-x-2",
       className
     )}
     {...props}
@@ -211,7 +212,7 @@ const DialogTitle = React.forwardRef<
     return (
       <VaulDrawer.Title
         ref={ref}
-        className={cn("text-lg font-semibold leading-none tracking-tight", className)}
+        className={cn("text-xl font-semibold leading-tight tracking-tight", className)}
         {...props}
       />
     );

@@ -1,4 +1,5 @@
 import type { MessageKey } from "@/lib/i18n/translate";
+import { cn } from "@/lib/utils";
 import {
   ShoppingCart,
   UtensilsCrossed,
@@ -159,6 +160,7 @@ interface CategoryIconProps {
   icon: string | null;
   color: string | null;
   size?: "sm" | "md" | "lg";
+  className?: string;
 }
 
 const sizeClasses = {
@@ -185,13 +187,13 @@ const dotSizes = {
   lg: "w-4 h-4",
 };
 
-export function CategoryIcon({ icon, color, size = "md" }: CategoryIconProps) {
+export function CategoryIcon({ icon, color, size = "md", className }: CategoryIconProps) {
   const LucideComp = icon && !isEmoji(icon) ? LUCIDE_ICON_MAP[icon] : null;
   const emoji = icon && isEmoji(icon) ? icon : null;
 
   return (
     <div
-      className={`${sizeClasses[size]} rounded-full flex items-center justify-center shrink-0`}
+      className={cn(sizeClasses[size], "rounded-full flex items-center justify-center shrink-0", className)}
       style={{
         backgroundColor: color ? `${color}20` : undefined,
       }}

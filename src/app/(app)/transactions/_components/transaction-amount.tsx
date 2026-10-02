@@ -7,15 +7,17 @@ import { useI18n } from "@/lib/i18n/client";
  * Amount cell — shared between layouts and by split child rows; handles
  * reimbursement strike-through and in-pot/transfer muting.
  */
-export function Amount({ tx }: { tx: Transaction }) {
+export function Amount({ tx, large = false }: { tx: Transaction; large?: boolean }) {
   const { formatCurrency } = useI18n();
   const isTransfer = tx.type === "internal_transfer";
   const isReimbursement = tx.type === "reimbursement";
   const isInPot = !!tx.groupId;
+  // The phone list reads the amount at a glance, so it gets body size there.
+  const size = large ? "text-[15px]" : "text-sm";
   if (tx.reimbursementCount > 0) {
     return (
       <>
-        <span className="block font-mono text-sm font-medium text-red-600 dark:text-red-400">
+        <span className={`block font-mono ${size} font-medium text-red-600 dark:text-red-400`}>
           {formatCurrency(tx.effectiveAmount)}
         </span>
         <span className="block text-xs text-muted-foreground line-through">
@@ -26,7 +28,7 @@ export function Amount({ tx }: { tx: Transaction }) {
   }
   return (
     <span
-      className={`font-mono text-sm font-medium ${isInPot ? "line-through " : ""}${
+      className={`font-mono ${size} font-medium ${isInPot ? "line-through " : ""}${
         isTransfer || isReimbursement || isInPot
           ? "text-muted-foreground"
           : tx.amount >= 0

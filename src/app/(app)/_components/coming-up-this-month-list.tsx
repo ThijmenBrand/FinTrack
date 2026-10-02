@@ -58,7 +58,7 @@ export function ComingUpThisMonthList({
         </div>
       )}
 
-      <div className="space-y-2">
+      <div className="space-y-2 max-md:space-y-0">
         {spikes.map((spike) => {
           const statusStyles = {
             fits: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-400",
@@ -93,7 +93,7 @@ export function ComingUpThisMonthList({
                   setDetailPotId(spike.id);
                 }
               }}
-              className="flex items-center gap-3 rounded-lg border p-3 cursor-pointer transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring outline-none"
+              className="flex items-center gap-3 rounded-lg border p-3 cursor-pointer transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring outline-none max-md:rounded-none max-md:border-x-0 max-md:border-t-0 max-md:border-border/60 max-md:px-0 max-md:first:pt-0 max-md:last:border-b-0 max-md:last:pb-0"
             >
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
@@ -133,6 +133,7 @@ export function ComingUpThisMonthList({
               <Button
                 size="sm"
                 variant="outline"
+                className="max-md:h-9 max-md:rounded-full max-md:px-4"
                 onClick={(e) => {
                   e.stopPropagation();
                   setActiveSpike(spike);

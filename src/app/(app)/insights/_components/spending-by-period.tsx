@@ -252,7 +252,7 @@ export function SpendingByPeriod({
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0 pb-6 flex-wrap">
+      <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0 pb-6 flex-wrap max-md:gap-3 max-md:pb-4">
         <div>
           <CardTitle className="text-base">{t("insights.period.title")}</CardTitle>
           {entries.length > 0 && (
@@ -296,13 +296,20 @@ export function SpendingByPeriod({
         <Tabs
           value={granularity}
           onValueChange={(v) => setGranularity(v as Granularity)}
+          className="max-sm:w-full"
         >
-          <TabsList>
+          <TabsList className="max-sm:w-full">
             {!hideDaily && (
-              <TabsTrigger value="daily">{t("insights.period.daily")}</TabsTrigger>
+              <TabsTrigger value="daily" className="max-sm:flex-1">
+                {t("insights.period.daily")}
+              </TabsTrigger>
             )}
-            <TabsTrigger value="weekly">{t("insights.period.weekly")}</TabsTrigger>
-            <TabsTrigger value="monthly">{t("insights.period.monthly")}</TabsTrigger>
+            <TabsTrigger value="weekly" className="max-sm:flex-1">
+              {t("insights.period.weekly")}
+            </TabsTrigger>
+            <TabsTrigger value="monthly" className="max-sm:flex-1">
+              {t("insights.period.monthly")}
+            </TabsTrigger>
           </TabsList>
         </Tabs>
       </CardHeader>

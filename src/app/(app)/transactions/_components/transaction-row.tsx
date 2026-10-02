@@ -31,6 +31,8 @@ import { SplitBadge } from "@/components/split-badge";
 import type { Transaction, Category, Pot, PotRangeTotal } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
 import { useIsCategorizing } from "@/hooks/use-transactions";
+import { useLongPress } from "@/hooks/use-long-press";
+import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/user-avatar";
 import type { MessageKey } from "@/lib/i18n/translate";
 import { Amount } from "./transaction-amount";
@@ -80,6 +82,10 @@ interface TransactionRowProps {
   /** False on a shared account: rules are the owner's config, not a member's. */
   canCreateRule: boolean;
   selected: boolean;
+  /** Phone list only: a selection is open, so a tap toggles instead of opening. */
+  selecting?: boolean;
+  /** Phone list only: false when a day heading above the row already says it. */
+  showDate?: boolean;
   hasPots: boolean;
   /** Render the who-added-it column. Off unless a shared account is in view. */
   showCreator: boolean;
@@ -103,6 +109,8 @@ export function TransactionRow({
   categories,
   canCreateRule,
   selected,
+  selecting = false,
+  showDate = true,
   hasPots,
   showCreator,
   categoryFilters,
@@ -118,6 +126,8 @@ export function TransactionRow({
 }: TransactionRowProps) {
   const { t, formatDate } = useI18n();
   const saving = useIsCategorizing(tx.id);
+  // Phones have no checkbox column: press and hold a row to start selecting.
+  const longPress = useLongPress(onToggleSelect);
   const isTransfer = tx.type === "internal_transfer";
   const isReimbursement = tx.type === "reimbursement";
   const isInPot = !!tx.groupId;
@@ -144,35 +154,64 @@ export function TransactionRow({
   const splits = filtered.length ? filtered : matching;
 
   if (layout === "card") {
+    // With the day in a heading above, the second line has room for what the
+    // phone list otherwise never shows: the category. A missing one is the
+    // thing to review, so it says so in amber.
+    const needsCategory =
+      !tx.categoryName && !tx.isSplitParent && (tx.type === "expense" || tx.type === "income");
+    const detail = showDate ? formatDate(tx.date) : tx.categoryName;
     return (
       <>
         <div
           aria-busy={saving}
-          className={`flex items-center gap-3 px-4 py-3 active:bg-muted/50 cursor-pointer transition-colors ${
-            isReimbursement || isInPot ? "opacity-60" : ""
-          } ${saving ? SAVING_ROW : ""}`}
-          onClick={onOpen}
-          onContextMenu={onContextMenu}
+          className={cn(
+            "flex min-h-[4.25rem] cursor-pointer select-none items-center gap-3 px-4 py-2.5 transition-colors [-webkit-touch-callout:none] active:bg-muted/60",
+            selected && "bg-primary/5",
+            (isReimbursement || isInPot) && "opacity-60",
+            saving && SAVING_ROW,
+          )}
+          {...longPress.handlers}
+          onClick={() => {
+            if (longPress.consumeLongPress()) return;
+            if (selecting) onToggleSelect();
+            else onOpen();
+          }}
+          onContextMenu={(e) => {
+            // A held finger already selected the row; only a mouse gets the menu.
+            if (longPress.lastPointerWasTouch()) {
+              e.preventDefault();
+              return;
+            }
+            onContextMenu?.(e);
+          }}
         >
-          <span onClick={(e) => e.stopPropagation()} className="shrink-0">
-            <Checkbox
-              checked={selected}
-              onCheckedChange={onToggleSelect}
-              aria-label={t("tx.row.selectTransaction")}
-            />
-          </span>
+          {selecting && (
+            <span onClick={(e) => e.stopPropagation()} className="flex shrink-0 animate-in fade-in zoom-in-75 duration-150">
+              <Checkbox
+                checked={selected}
+                onCheckedChange={onToggleSelect}
+                aria-label={t("tx.row.selectTransaction")}
+                className="h-6 w-6 rounded-full [&_svg]:h-4 [&_svg]:w-4"
+              />
+            </span>
+          )}
           {tx.isSplitParent ? (
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
-              <Split className="h-4 w-4 text-muted-foreground" />
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted">
+              <Split className="h-[18px] w-[18px] text-muted-foreground" />
             </div>
           ) : (
-            <CategoryIcon icon={tx.categoryIcon} color={tx.categoryColor} size="md" />
+            <CategoryIcon
+              icon={tx.categoryIcon}
+              color={tx.categoryColor}
+              size="md"
+              className="h-10 w-10"
+            />
           )}
 
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5">
-              <p className={`text-sm font-medium truncate ${isInPot ? "line-through" : ""}`}>
-                {tx.description}
+              <p className={cn("truncate text-[15px] font-medium leading-snug", isInPot && "line-through")}>
+                {tx.name || tx.description}
               </p>
               {tx.isSplitParent && <SplitBadge className="text-[10px] px-1 py-0 shrink-0" />}
               {tx.groupId && tx.groupName && (
@@ -183,9 +222,16 @@ export function TransactionRow({
                 />
               )}
             </div>
-            <p className="text-xs text-muted-foreground">
-              {formatDate(tx.date)}
-              {tx.accountName && ` · ${tx.accountName}`}
+            <p className="truncate text-[13px] text-muted-foreground">
+              {!showDate && needsCategory ? (
+                <span className="text-amber-600 dark:text-amber-400">
+                  {t("common.uncategorized")}
+                </span>
+              ) : (
+                detail
+              )}
+              {tx.accountName && (detail || needsCategory) && " · "}
+              {tx.accountName}
             </p>
             {isReimbursement && tx.reimbursesDescription && (
               <p className="text-xs text-muted-foreground truncate mt-0.5">
@@ -205,7 +251,7 @@ export function TransactionRow({
           </div>
 
           <div className="text-right shrink-0">
-            <Amount tx={tx} />
+            <Amount tx={tx} large />
           </div>
         </div>
         {splits.length > 0 && <SplitChildCards splits={splits} onOpen={onOpenSplit} />}

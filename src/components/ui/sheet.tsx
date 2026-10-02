@@ -36,7 +36,7 @@ const SheetContent = React.forwardRef<
     <VaulDrawer.Content
       ref={ref}
       className={cn(
-        "fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-2xl border-t bg-background shadow-lg",
+        "fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-3xl border-t bg-background shadow-lg",
         className
       )}
       {...props}

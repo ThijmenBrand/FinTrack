@@ -8,6 +8,7 @@ import {
   useRef,
   Suspense,
   type Dispatch,
+  type ReactNode,
   type SetStateAction,
 } from "react";
 import Link from "next/link";
@@ -29,7 +30,14 @@ import {
   Plus,
   History,
   PenLine,
+  MoreHorizontal,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useAccounts } from "@/hooks/use-accounts";
 import { useAccountCategories, useCategories } from "@/hooks/use-categories";
 import { usePots, useDeletePot, useAddToPot, useRemoveFromPot, useCreatePot } from "@/hooks/use-pots";
@@ -54,6 +62,7 @@ import { TransactionsTable } from "./_components/transactions-table";
 import { SimpleTransactionList } from "./_components/simple-transaction-list";
 import { TransactionsPageSkeleton } from "./_components/transactions-skeleton";
 import { useResetOnChange } from "@/hooks/use-reset-on-change";
+import { formatDayHeading } from "./_components/day-heading";
 
 // --- Main Page ---
 export default function TransactionsPageWrapper() {
@@ -67,7 +76,7 @@ export default function TransactionsPageWrapper() {
 }
 
 function TransactionsPage() {
-  const { t, plural, formatDate } = useI18n();
+  const { t, plural, formatDate, intlLocale } = useI18n();
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -124,6 +133,8 @@ function TransactionsPage() {
 
   // Bulk selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // Phone list: "Select" opens selection before anything is ticked.
+  const [selectMode, setSelectMode] = useState(false);
   const [bulkPotOpen, setBulkPotOpen] = useState(false);
   // Sequential "mark as reimbursement" — walk each selected income tx through the
   // picker one at a time; head of the queue is the active one.
@@ -422,6 +433,12 @@ function TransactionsPage() {
   const allOnPageSelected =
     transactions.length > 0 && selectedOnPage.length === transactions.length;
 
+  const selecting = selectMode || selectedOnPage.length > 0;
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+    setSelectMode(false);
+  };
+
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -442,12 +459,12 @@ function TransactionsPage() {
       transactionIds: selectedOnPage.map((t) => t.id),
       categoryId: value === "none" ? null : value,
     });
-    setSelectedIds(new Set());
+    clearSelection();
   };
 
   const handleBulkDelete = async () => {
     await bulkDelete.mutateAsync(selectedOnPage.map((t) => t.id));
-    setSelectedIds(new Set());
+    clearSelection();
   };
 
   // Derived from the accounts, not the rows: createdByName is only set on
@@ -468,10 +485,9 @@ function TransactionsPage() {
     return categories.filter((c) => owners.has(c.userId));
   }, [selectedOnPage, accounts, categories]);
 
-  // Render pot/transaction rows for a given layout — used by both the desktop
+  // One pot/transaction row for a given layout — used by both the desktop
   // table and the mobile card list.
-  const renderItems = (layout: "table" | "card") =>
-    displayItems.map((item) =>
+  const renderItem = (item: DisplayItem, layout: "table" | "card", showDate = true) =>
       item.kind === "pot" ? (
         <PotRow
           key={`pot-${item.data.id}`}
@@ -493,6 +509,8 @@ function TransactionsPage() {
           categories={categoriesFor(item.data.accountId)}
           canCreateRule={ownsAccount(item.data.accountId)}
           selected={selectedIds.has(item.data.id)}
+          selecting={selecting}
+          showDate={showDate}
           hasPots={pots.length > 0}
           categoryFilters={categoryFilters}
           onToggleSelect={() => toggleSelect(item.data.id)}
@@ -508,8 +526,39 @@ function TransactionsPage() {
             setContextMenu({ x: e.clientX, y: e.clientY, tx: item.data });
           }}
         />
-      )
-    );
+      );
+
+  // The phone list, sorted by date, reads like a bank statement: one sticky
+  // heading per day, so the rows can use their second line for the category.
+  // A pot row heads the run of its members and files under the first one's day.
+  const renderItems = (layout: "table" | "card") => {
+    if (layout === "table" || sortBy !== "date") {
+      return displayItems.map((item) => renderItem(item, layout));
+    }
+    const now = new Date();
+    const days: { day: string; rows: ReactNode[] }[] = [];
+    displayItems.forEach((item, i) => {
+      const dated = item.kind === "transaction" ? item : displayItems[i + 1];
+      const day = dated?.kind === "transaction" ? dated.data.date.slice(0, 10) : "";
+      const last = days[days.length - 1];
+      const row = renderItem(item, layout, false);
+      if (last && last.day === day) last.rows.push(row);
+      else days.push({ day, rows: [row] });
+    });
+    return days.map(({ day, rows }) => (
+      <section key={day} aria-label={day ? formatDate(day) : undefined}>
+        {day && (
+          <h3 className="sticky top-[calc(env(safe-area-inset-top)+2.75rem)] z-10 border-b bg-muted/85 px-4 py-1.5 text-[13px] font-semibold text-muted-foreground backdrop-blur-md">
+            {formatDayHeading(day, now, intlLocale, {
+              today: t("tx.day.today"),
+              yesterday: t("tx.day.yesterday"),
+            })}
+          </h3>
+        )}
+        <div className="divide-y">{rows}</div>
+      </section>
+    ));
+  };
 
   const handleSimpleSearch = useCallback((value: string) => {
     setSearch(value);
@@ -600,12 +649,60 @@ function TransactionsPage() {
     <div className="space-y-6">
       <PullToRefresh />
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
           <h1 className="text-3xl font-bold tracking-tight">{t("tx.title")}</h1>
-          <p className="text-muted-foreground">{t("tx.subtitle")}</p>
+          <p className="hidden text-muted-foreground md:block">{t("tx.subtitle")}</p>
         </div>
-        <div className="flex items-center gap-2">
+        {/* Phones: the two everyday actions as round buttons, the rest in a
+            menu — five unlabeled icons in a row read as a toolbar, not an app. */}
+        <div className="flex shrink-0 items-center gap-2 md:hidden">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="icon"
+                className="rounded-full"
+                aria-label={t("tx.moreActions")}
+              >
+                <MoreHorizontal className="h-5 w-5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-60">
+              <DropdownMenuItem onSelect={() => setAddOpen(true)}>
+                <PenLine />
+                {t("tx.add.button")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setCreatePotOpen(true)}>
+                <Plus />
+                {t("tx.createPot")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={handleDetectTransfers}
+                disabled={detectTransfers.isPending}
+              >
+                {detectTransfers.isPending ? <Loader2 className="animate-spin" /> : <ArrowLeftRight />}
+                {t("tx.detectTransfers")}
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href="/import-history">
+                  <History />
+                  {t("tx.importHistory")}
+                </Link>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button
+            data-tour="import-csv"
+            size="icon"
+            className="rounded-full shadow-md"
+            onClick={() => setUploadOpen(true)}
+            aria-label={t("tx.importCsv")}
+          >
+            <Upload className="h-5 w-5" />
+          </Button>
+        </div>
+        <div className="hidden items-center gap-2 md:flex">
           <Button variant="outline" size="sm" onClick={() => setCreatePotOpen(true)}>
             <Plus className="sm:mr-2 h-4 w-4" />
             <span className="hidden sm:inline">{t("tx.createPot")}</span>
@@ -711,7 +808,7 @@ function TransactionsPage() {
           onAddToPot={() => setBulkPotOpen(true)}
           onReimburse={() => setReimburseQueue(selectedOnPage.filter((t) => t.type === "income"))}
           onDelete={handleBulkDelete}
-          onClear={() => setSelectedIds(new Set())}
+          onClear={clearSelection}
         />
       )}
 
@@ -749,7 +846,11 @@ function TransactionsPage() {
         onTypeChange={(v) => toggleInclude(setTypeFilters, v)}
         renderRows={renderItems}
         showCreator={showCreator}
+        selecting={selecting}
+        onToggleSelecting={() => (selecting ? clearSelection() : setSelectMode(true))}
       />
+      {/* The phone bulk bar floats over the list's end; leave room to reach it. */}
+      {selectedOnPage.length > 0 && <div aria-hidden className="h-24 md:hidden" />}
 
       {/* Right-click Context Menu */}
       <TransactionContextMenu
@@ -849,7 +950,7 @@ function TransactionsPage() {
             // Linked → advance to the next queued tx; cancelled → abort the whole run.
             if (bulkLinkedRef.current) {
               bulkLinkedRef.current = false;
-              if (reimburseQueue.length <= 1) setSelectedIds(new Set());
+              if (reimburseQueue.length <= 1) clearSelection();
               setReimburseQueue((q) => q.slice(1));
             } else {
               setReimburseQueue([]);
@@ -899,7 +1000,7 @@ function TransactionsPage() {
             for (const tx of selectedOnPage) {
               if (!tx.groupId) await addToPot.mutateAsync({ potId, transactionId: tx.id });
             }
-            setSelectedIds(new Set());
+            clearSelection();
           }}
         />
       )}

@@ -10,6 +10,7 @@ import {
 } from "@/lib/financial-month";
 import type { Account, Category, Pot } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
+import { useMediaQuery } from "@/hooks/use-browser";
 import type { I18n, MessageKey } from "@/lib/i18n/translate";
 
 export const TYPE_OPTIONS: { value: string; labelKey: MessageKey }[] = [
@@ -137,6 +138,8 @@ export function TransactionSearchBar({
   onClearAll,
 }: TransactionSearchBarProps) {
   const { t, formatDate } = useI18n();
+  // The syntax examples don't fit a phone-width field; they'd be cut mid-word.
+  const compact = useMediaQuery("(max-width: 767px)");
   const [inputValue, setInputValue] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedSuggestion, setSelectedSuggestion] = useState(0);
@@ -368,11 +371,13 @@ export function TransactionSearchBar({
         <input
           ref={inputRef}
           type="text"
-          className="flex-1 min-w-[120px] bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+          className="flex-1 min-w-[120px] bg-transparent text-sm max-md:text-base outline-none placeholder:text-muted-foreground"
           placeholder={
-            activeTokens.length === 0
-              ? t("tx.search.placeholder")
-              : t("tx.search.addFilter")
+            activeTokens.length > 0
+              ? t("tx.search.addFilter")
+              : compact
+                ? t("tx.search.placeholderShort")
+                : t("tx.search.placeholder")
           }
           value={inputValue}
           onChange={(e) => {

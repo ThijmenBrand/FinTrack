@@ -109,6 +109,9 @@ interface TransactionsTableProps {
   renderRows: (layout: "table" | "card") => ReactNode;
   /** Show the who-added-it column — only when a shared account is in view. */
   showCreator: boolean;
+  /** Phone list: whether rows are in selection mode, and its Select/Done toggle. */
+  selecting: boolean;
+  onToggleSelecting: () => void;
 }
 
 export function TransactionsTable({
@@ -136,10 +139,14 @@ export function TransactionsTable({
   onTypeChange,
   renderRows,
   showCreator,
+  selecting,
+  onToggleSelecting,
 }: TransactionsTableProps) {
   const { t, plural } = useI18n();
   return (
-    <div className="overflow-hidden rounded-xl border bg-card text-card-foreground shadow-sm">
+    // overflow-clip, not -hidden: hidden makes this box a scroll container,
+    // which pins the phone list's sticky day headings to it instead of <main>.
+    <div className="overflow-clip rounded-xl border bg-card text-card-foreground shadow-sm">
       {/* Toolbar */}
       <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
         {/* No "0 transactions" while the count is still on its way. */}
@@ -151,6 +158,17 @@ export function TransactionsTable({
           </h2>
         )}
         <div className="flex items-center gap-3">
+          {/* Phones have no checkbox column; this (or holding a row) opens one. */}
+          {!loading && rowCount > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="-my-1 -mr-2 h-9 px-3 text-[15px] font-medium text-primary hover:text-primary md:hidden"
+              onClick={onToggleSelecting}
+            >
+              {selecting ? t("common.done") : t("tx.select")}
+            </Button>
+          )}
           <Select
           value={String(pagination.limit)}
           onValueChange={(v) =>
