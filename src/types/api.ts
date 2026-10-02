@@ -395,6 +395,8 @@ export interface RecurringTx {
   matchPattern: string | null;
   /** "both" | "name" | "description" — which text `matchPattern` is read against. */
   matchField: string;
+  /** Optional second rule condition: the description must also contain this. */
+  matchDescriptionPattern: string | null;
   /** Same-origin URL of the company logo; null when the plan has none. */
   logoUrl: string | null;
   /** Domain or image link the logo came from. */

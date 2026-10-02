@@ -112,6 +112,18 @@ describe("matchesPlanRule", () => {
   it("never matches without a rule", () => {
     expect(matchesPlanRule(plan(), "HBO Max", "HBO Max")).toBe(false);
   });
+
+  it("ANDs a description pattern — two plans paid to the same person", () => {
+    const icloud = plan({ matchPattern: "J. de Vries", matchDescriptionPattern: "icloud" });
+    expect(matchesPlanRule(icloud, "J. de Vries", "Apple ICloud+ abonnement")).toBe(true);
+    expect(matchesPlanRule(icloud, "J. de Vries", "Spotify Duo")).toBe(false);
+    expect(matchesPlanRule(icloud, "Someone else", "Apple ICloud+ abonnement")).toBe(false);
+  });
+
+  it("never satisfies a description pattern from a nameless row's lone text", () => {
+    const p = plan({ matchPattern: "icloud", matchDescriptionPattern: "icloud" });
+    expect(matchesPlanRule(p, null, "Apple ICloud+ abonnement")).toBe(false);
+  });
 });
 
 describe("findRecurringForRow", () => {
@@ -139,6 +151,17 @@ describe("findRecurringForRow", () => {
       plan({ id: "premium", amount: -12, matchPattern: "HBO" }),
     ];
     expect(findRecurringForRow(row({ amount: -11 }), plans)).toBe("premium");
+  });
+
+  it("prefers the rule with a description condition over a broader one", () => {
+    const plans = [
+      plan({ id: "broad", amount: -3, matchPattern: "J. de Vries" }),
+      plan({ id: "spotify", amount: -11, matchPattern: "J. de Vries", matchDescriptionPattern: "spotify" }),
+    ];
+    const spotify = row({ name: "J. de Vries", description: "Spotify Duo", amount: -3 });
+    expect(findRecurringForRow(spotify, plans)).toBe("spotify");
+    const other = row({ name: "J. de Vries", description: "Apple ICloud+ abonnement", amount: -3 });
+    expect(findRecurringForRow(other, plans)).toBe("broad");
   });
 
   it("keeps to the plan's account, direction and active state", () => {

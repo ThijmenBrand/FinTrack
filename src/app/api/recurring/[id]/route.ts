@@ -54,6 +54,7 @@ export async function GET(
         isActive: recurringTransactions.isActive,
         matchPattern: recurringTransactions.matchPattern,
         matchField: recurringTransactions.matchField,
+        matchDescriptionPattern: recurringTransactions.matchDescriptionPattern,
         logoKey: recurringTransactions.logoKey,
         logoSource: recurringTransactions.logoSource,
         logoCheckedAt: recurringTransactions.logoCheckedAt,

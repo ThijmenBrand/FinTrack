@@ -485,6 +485,11 @@ export const recurringTransactions = sqliteTable("recurring_transactions", {
   })
     .notNull()
     .default("name"),
+  // An optional second condition, ANDed with the first: the transaction's
+  // description must also contain this. Tells apart two plans paid to the same
+  // payee ("J. de Vries" for iCloud and for Spotify) by what the memo says.
+  // Only set by hand; meaningless without `matchPattern`.
+  matchDescriptionPattern: text("match_description_pattern"),
   // The company's logo, re-encoded and kept in the private file store
   // (`logos/<id>-<random>.webp`, see src/lib/merchant-logo.ts) and served by
   // /api/recurring/[id]/logo. `logoSource` is the domain or image link it came

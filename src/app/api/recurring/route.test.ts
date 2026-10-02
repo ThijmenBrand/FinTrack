@@ -230,11 +230,11 @@ describe("DELETE /api/recurring — linked sub-line propagation", () => {
 });
 
 describe("recurring plans link their own history", () => {
-  async function bankRow(id: string, name: string, amount: number) {
+  async function bankRow(id: string, name: string, amount: number, description = "Incasso") {
     await testDb.client.execute({
       sql: `INSERT INTO transactions (id, user_id, account_id, date, name, description, amount, type, created_at)
-            VALUES (?, ?, 'acc-h', '2026-05-01', ?, 'Incasso', ?, 'expense', ?)`,
-      args: [id, USER, name, amount, new Date().toISOString()],
+            VALUES (?, ?, 'acc-h', '2026-05-01', ?, ?, ?, 'expense', ?)`,
+      args: [id, USER, name, description, amount, new Date().toISOString()],
     });
   }
   const linkOf = async (id: string) =>
@@ -288,5 +288,32 @@ describe("recurring plans link their own history", () => {
 
     const cleared = await put({ id: "rec-h", matchPattern: null });
     expect(await cleared.json()).toEqual({ success: true, linked: 0 });
+  });
+
+  it("a description condition narrows the rule to one of the payee's plans", async () => {
+    await makeAccount("acc-h", USER);
+    await makeRecurring("rec-h", USER, "acc-h", -3, "monthly");
+    await bankRow("t-icloud", "J. de Vries", -3, "Apple ICloud+ abonnement");
+    await bankRow("t-spotify", "J. de Vries", -3, "Spotify Duo");
+
+    const tooLong = await put({ id: "rec-h", matchPattern: "Inge", matchDescriptionPattern: "x".repeat(201) });
+    expect(tooLong.status).toBe(400);
+
+    const res = await put({
+      id: "rec-h",
+      matchPattern: "J. de Vries",
+      matchField: "name",
+      matchDescriptionPattern: "icloud",
+    });
+    expect(await res.json()).toEqual({ success: true, linked: 1 });
+    expect(await linkOf("t-icloud")).toBe("rec-h");
+    expect(await linkOf("t-spotify")).toBeNull();
+
+    // Clearing the rule takes its description condition with it.
+    await put({ id: "rec-h", matchPattern: null });
+    const stored = await testDb.client.execute(
+      "SELECT match_pattern AS p, match_description_pattern AS d FROM recurring_transactions WHERE id = 'rec-h'",
+    );
+    expect(stored.rows[0]).toMatchObject({ p: null, d: null });
   });
 });

@@ -11,10 +11,11 @@ import { MAX_PATTERN_LENGTH } from "@/lib/validation";
  *
  * Two signals, strongest first:
  *
- * 1. The plan's own rule (`matchPattern` / `matchField`) — learned from the
- *    first row linked by hand, or set on the plan's detail page. It ignores
- *    the amount on purpose: HBO Max going from 4.50 to 5.99 is still HBO Max,
- *    and the price history is exactly what the detail page shows.
+ * 1. The plan's own rule (`matchPattern` / `matchField`, optionally ANDed
+ *    with `matchDescriptionPattern`) — learned from the first row linked by
+ *    hand, or set on the plan's detail page. It ignores the amount on
+ *    purpose: HBO Max going from 4.50 to 5.99 is still HBO Max, and the price
+ *    history is exactly what the detail page shows.
  * 2. The description + amount guess (`findMatchingRecurring`) every plan has
  *    always had, for plans nobody has taught yet.
  *
@@ -32,6 +33,8 @@ export interface MatchablePlan {
   isActive: boolean;
   matchPattern: string | null;
   matchField: string;
+  /** Second condition on the description; absent or null = none. */
+  matchDescriptionPattern?: string | null;
 }
 
 export interface MatchableRow {
@@ -43,17 +46,24 @@ export interface MatchableRow {
   recurringExcludedPlanId?: string | null;
 }
 
-/** True when the plan has a rule and the row's text satisfies it. */
+/**
+ * True when the plan has a rule and the row's text satisfies all of it: the
+ * pattern on its field, and the description pattern too when there is one.
+ * A nameless row has no memo apart from its title (see ruleMatchTarget), so
+ * it never satisfies a description pattern.
+ */
 export function matchesPlanRule(
-  plan: Pick<MatchablePlan, "matchPattern" | "matchField">,
+  plan: Pick<MatchablePlan, "matchPattern" | "matchField" | "matchDescriptionPattern">,
   name: string | null,
   description: string,
 ): boolean {
   if (!plan.matchPattern) return false;
-  return matchesRule(
-    ruleMatchTarget(name, description, plan.matchField),
-    plan.matchPattern,
-    "contains",
+  if (!matchesRule(ruleMatchTarget(name, description, plan.matchField), plan.matchPattern, "contains")) {
+    return false;
+  }
+  return (
+    !plan.matchDescriptionPattern ||
+    matchesRule(ruleMatchTarget(name, description, "description"), plan.matchDescriptionPattern, "contains")
   );
 }
 
@@ -137,7 +147,9 @@ export function rowMatchesPlan(plan: MatchablePlan, row: MatchableRow): boolean 
 
 /**
  * The active plan a new row belongs to, or null. A plan's rule outranks every
- * guess; between several rules (or several guesses) the closest amount wins.
+ * guess, and a rule with a description condition outranks one without — the
+ * plan told apart from its payee's other payments is the more specific claim.
+ * Between equally specific rules (or several guesses) the closest amount wins.
  */
 export function findRecurringForRow(
   row: MatchableRow,
@@ -147,12 +159,15 @@ export function findRecurringForRow(
   if (row.recurringExcludedPlanId) {
     plans = plans.filter((plan) => plan.id !== row.recurringExcludedPlanId);
   }
-  let best: { id: string; diff: number } | null = null;
+  let best: { id: string; specific: boolean; diff: number } | null = null;
   for (const plan of plans) {
     if (!plan.isActive || plan.accountId !== row.accountId || plan.type !== direction) continue;
     if (!matchesPlanRule(plan, row.name, row.description)) continue;
+    const specific = !!plan.matchDescriptionPattern;
     const diff = Math.abs(Math.abs(plan.amount) - Math.abs(row.amount));
-    if (!best || diff < best.diff) best = { id: plan.id, diff };
+    if (!best || (specific && !best.specific) || (specific === best.specific && diff < best.diff)) {
+      best = { id: plan.id, specific, diff };
+    }
   }
   if (best) return best.id;
   return findMatchingRecurring(row.accountId, row.amount, row.description, row.name, plans);

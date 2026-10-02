@@ -1,0 +1,1 @@
+ALTER TABLE `recurring_transactions` ADD `match_description_pattern` text;

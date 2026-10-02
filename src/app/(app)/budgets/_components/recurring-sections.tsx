@@ -89,6 +89,7 @@ function draftTx(
     nextOccurrence: getNextOccurrence(frequency, startDate, dayOfWeek, dayOfMonth, null),
     matchPattern: null,
     matchField: "name",
+    matchDescriptionPattern: null,
     logoUrl: null,
     logoSource: null,
     logoPending: false,

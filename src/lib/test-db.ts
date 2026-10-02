@@ -187,6 +187,7 @@ export async function setupTestDb(name: string): Promise<TestDb> {
       is_active INTEGER NOT NULL DEFAULT 1,
       match_pattern TEXT,
       match_field TEXT NOT NULL DEFAULT 'name',
+      match_description_pattern TEXT,
       logo_key TEXT, logo_source TEXT, logo_checked_at TEXT,
       created_at TEXT NOT NULL
     )`,
