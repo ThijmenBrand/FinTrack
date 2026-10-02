@@ -2,6 +2,7 @@ import { createClient, type Client } from "@libsql/client";
 import { readMigrationFiles } from "drizzle-orm/migrator";
 import path from "path";
 import { initializeDatabase } from "./migrate";
+import { enableWal } from "./pragmas";
 
 const MIGRATIONS_FOLDER = "drizzle";
 
@@ -80,6 +81,9 @@ export async function runMigrations() {
 
   // Seed admin/categories, repair column-level drift, one-shot data backfills.
   await initializeDatabase();
+
+  // The bank-sync worker shares a local database file with the web app.
+  await enableWal();
 
   client.close();
 }

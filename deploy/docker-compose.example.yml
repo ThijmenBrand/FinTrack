@@ -1,0 +1,67 @@
+# Production topology with bank sync: the existing web container plus a worker
+# container from the SAME image. The worker is the only service that can read
+# the bank-sync master key; the web service must not mount it (the web app
+# refuses to start in production if it can see the key).
+#
+# One-time on the host:
+#   install -d -m 700 /srv/fintrack/secrets
+#   openssl rand -base64 32 > /srv/fintrack/secrets/bank_kek
+#   chown 1000:1000 /srv/fintrack/secrets/bank_kek && chmod 400 /srv/fintrack/secrets/bank_kek
+#   # Back it up OFFLINE, separately from database backups. Losing it means
+#   # every user has to set bank sync up again; leaking it alongside a database
+#   # backup exposes their keys.
+#
+# The deploy script must start and roll back BOTH services on the same image
+# digest: `IMAGE=ghcr.io/…@sha256:… docker compose up -d web worker`.
+
+services:
+  web:
+    image: ${IMAGE}
+    env_file: app.env            # must NOT contain BANK_SYNC_KEK_FILE / BANK_KEK
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - /srv/fintrack/data:/app/data
+    restart: unless-stopped
+    # no secrets: — on purpose
+
+  worker:
+    image: ${IMAGE}
+    command: ["node", "dist/worker.mjs"]
+    # Same app.env for the database, BETTER_AUTH_URL (redirect URL and mail
+    # links), RESEND_* and Sentry. The worker never needs BETTER_AUTH_SECRET.
+    env_file: app.env
+    environment:
+      BANK_SYNC_KEK_FILE: /run/secrets/bank_kek
+    # Bind-mounted read-only at /run/secrets/bank_kek. Plain compose ignores
+    # uid/mode options, so the host file's own owner (1000) and mode (0400)
+    # are what protect it.
+    secrets:
+      - bank_kek
+    volumes:
+      - /srv/fintrack/data:/app/data  # the shared SQLite file (WAL mode)
+    # No ports: the worker only talks to the database and Enable Banking.
+    user: "1000:1000"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    cpus: 1.0
+    stop_grace_period: 30s           # the worker finishes in-flight jobs within 25 s
+    healthcheck:
+      # Heartbeat file touched every 30 s; stale after 90 s means stuck.
+      test: ["CMD", "node", "-e", "const s=require('fs').statSync('/tmp/worker-alive');process.exit(Date.now()-s.mtimeMs<90000?0:1)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    restart: unless-stopped
+    depends_on:
+      - web
+
+secrets:
+  bank_kek:
+    file: /srv/fintrack/secrets/bank_kek

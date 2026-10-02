@@ -24,6 +24,13 @@ const TENANT_TABLES = [
   "transaction_groups",
   "stat_resets",
   "audit_log",
+  "jobs",
+  "bank_credentials",
+  "bank_connections",
+  "bank_auth_states",
+  "bank_account_links",
+  "step_up_grants",
+  "step_up_challenges",
 ];
 
 const TENANT_RE = new RegExp(`\\b(${TENANT_TABLES.join("|")})\\b`, "i");
@@ -98,9 +105,14 @@ function getClient(): Client {
       ? {
           url: tursoUrl!,
           authToken: process.env.TURSO_AUTH_TOKEN,
+          timeout: 5_000,
         }
       : {
           url: `file:${path.join(process.cwd(), "data", "finance.db")}`,
+          // The web app and the bank-sync worker share this file: wait out
+          // the other process's write lock instead of failing with BUSY.
+          // (Only local files use it; ignored for a remote Turso URL.)
+          timeout: 5_000,
         },
   );
   return _client;
@@ -128,6 +140,9 @@ const lazyClient = new Proxy({} as Client, {
 // proxy and would open the database at import time.
 /** Tenant-guarded handle: refuses DML on user-owned tables without user_id. */
 export const db = drizzle({ client: guarded(lazyClient), schema });
+
+/** The handle `db.transaction` passes its callback: same queries, one transaction. */
+export type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /**
  * Unguarded handle for code that legitimately crosses users: backoffice

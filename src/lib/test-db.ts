@@ -23,12 +23,22 @@ export interface TestDb {
 }
 
 const TABLES = [
+  "step_up_challenges",
+  "step_up_grants",
+  "bank_aspsp_cache",
+  "bank_account_links",
+  "bank_auth_states",
+  "bank_connections",
+  "bank_credentials",
+  "jobs",
+  "worker_heartbeat",
   "transaction_attachments",
   "reimbursement_links",
   "account_members",
   "split_rule_lines",
   "split_rules",
   "transactions",
+  "import_batches",
   "transaction_groups",
   "budget_month_targets",
   "budget_sub_lines",
@@ -42,6 +52,19 @@ const TABLES = [
   "accounts",
   '"user"',
 ];
+
+function bankSyncDdl(): string[] {
+  const dir = path.join(process.cwd(), "drizzle");
+  const file = fs.readdirSync(dir).find((f) => /^\d+_bank_sync\.sql$/.test(f));
+  if (!file) throw new Error("bank_sync migration not found");
+  return fs
+    .readFileSync(path.join(dir, file), "utf8")
+    .split("--> statement-breakpoint")
+    .map((s) => s.trim())
+    .filter((s) => /^CREATE (UNIQUE )?(TABLE|INDEX)/.test(s))
+    // The transactions index is created with the hand-written table above.
+    .filter((s) => !s.includes("idx_transactions_account_external"));
+}
 
 export async function setupTestDb(name: string): Promise<TestDb> {
   const dbPath = path.join(
@@ -151,8 +174,11 @@ export async function setupTestDb(name: string): Promise<TestDb> {
       recurring_excluded_plan_id TEXT,
       parent_transaction_id TEXT,
       is_split_parent INTEGER NOT NULL DEFAULT 0,
+      external_id TEXT,
       created_at TEXT NOT NULL
     )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_account_external
+      ON transactions (account_id, external_id) WHERE external_id IS NOT NULL`,
     `CREATE TABLE IF NOT EXISTS split_rules (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -225,6 +251,15 @@ export async function setupTestDb(name: string): Promise<TestDb> {
       uploaded_by TEXT,
       created_at TEXT NOT NULL
     )`,
+    `CREATE TABLE IF NOT EXISTS import_batches (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      account_id TEXT NOT NULL,
+      file_name TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'csv',
+      transaction_count INTEGER NOT NULL,
+      imported_at TEXT NOT NULL
+    )`,
     `CREATE TABLE IF NOT EXISTS reimbursement_links (
       id TEXT PRIMARY KEY,
       reimbursement_id TEXT NOT NULL,
@@ -294,6 +329,10 @@ export async function setupTestDb(name: string): Promise<TestDb> {
     )`,
   ];
   for (const stmt of ddl) await client.execute(stmt);
+  // The bank-sync tables are taken straight from their migration rather than
+  // restated here: CREATE statements only (the ALTERs it also carries are
+  // already part of the hand-written tables above).
+  for (const stmt of bankSyncDdl()) await client.execute(stmt);
 
   return {
     client,

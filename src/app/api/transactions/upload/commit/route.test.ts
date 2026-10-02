@@ -21,18 +21,6 @@ let testDb: TestDb;
 
 beforeAll(async () => {
   testDb = await setupTestDb("upload-commit-route");
-  // import_batches isn't part of the shared test schema; the commit route
-  // records one per import, so give it somewhere to land.
-  await testDb.client.execute(
-    `CREATE TABLE IF NOT EXISTS import_batches (
-       id TEXT PRIMARY KEY,
-       user_id TEXT NOT NULL,
-       account_id TEXT NOT NULL,
-       file_name TEXT NOT NULL,
-       transaction_count INTEGER NOT NULL,
-       imported_at TEXT NOT NULL
-     )`,
-  );
 });
 afterAll(async () => {
   await testDb.cleanup();

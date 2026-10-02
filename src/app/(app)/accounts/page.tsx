@@ -63,7 +63,12 @@ import {
   Star,
   StarOff,
   Users,
+  RefreshCw,
+  TriangleAlert,
 } from "lucide-react";
+import Link from "next/link";
+import { useBankSyncStatus, syncedAgo, BANK_SYNC_KEY, type BankLinkView } from "@/hooks/use-bank-sync";
+import { apiFetch } from "@/lib/api";
 import { BANKS, bankHasSeparateFeeColumn } from "@/lib/banks";
 import { useI18n } from "@/lib/i18n/client";
 import type { MessageKey } from "@/lib/i18n/translate";
@@ -125,8 +130,13 @@ function SortableAccountCard({
   onLeaveRequest,
   onToggleDefault,
   onOpen,
+  bankLink,
+  onSyncNow,
 }: {
   account: Account;
+  /** Set when a bank feeds this account (owner only). */
+  bankLink?: BankLinkView;
+  onSyncNow: (link: BankLinkView) => void;
   isDefault: boolean;
   onEdit: (account: Account) => void;
   onShareRequest: (account: Account) => void;
@@ -135,7 +145,8 @@ function SortableAccountCard({
   onToggleDefault: (id: string, makeDefault: boolean) => void;
   onOpen: (account: Account) => void;
 }) {
-  const { t, formatCurrency } = useI18n();
+  const i18n = useI18n();
+  const { t, formatCurrency } = i18n;
   const isOwner = account.role === "owner";
   const {
     attributes,
@@ -235,6 +246,12 @@ function SortableAccountCard({
                   {t("accounts.editAccount")}
                 </DropdownMenuItem>
               )}
+              {bankLink && (
+                <DropdownMenuItem onClick={() => onSyncNow(bankLink)} disabled={bankLink.syncing}>
+                  <RefreshCw className="h-4 w-4" />
+                  {t("accounts.syncNow")}
+                </DropdownMenuItem>
+              )}
               {isOwner && (
                 <DropdownMenuItem onClick={() => onShareRequest(account)}>
                   <Users className="h-4 w-4" />
@@ -315,6 +332,30 @@ function SortableAccountCard({
           >
             {t(typeLabelKey(account.type))}
           </span>
+          {bankLink && (
+            // Amber only when sync needs the user; otherwise a quiet fact.
+            <Link
+              href="/settings/bank-connections"
+              onClick={(e) => e.stopPropagation()}
+              className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+                bankLink.lastErrorCode
+                  ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                  : "text-muted-foreground"
+              }`}
+            >
+              {bankLink.lastErrorCode ? (
+                <>
+                  <TriangleAlert className="h-2.5 w-2.5" />
+                  {t("accounts.bankSyncAttention")}
+                </>
+              ) : (
+                <>
+                  <RefreshCw className={`h-2.5 w-2.5 ${bankLink.syncing ? "animate-spin" : ""}`} />
+                  {t("accounts.bankSynced", { when: syncedAgo(i18n, bankLink.lastSyncedAt) })}
+                </>
+              )}
+            </Link>
+          )}
           {isDefault && (
             <span
               className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary"
@@ -383,6 +424,21 @@ function AccountsPageInner() {
   const deleteAccount = useDeleteAccount();
   const reorderAccounts = useReorderAccounts();
   const queryClient = useQueryClient();
+  // Which accounts a bank feeds. Only owners have links, so for everyone
+  // else this is simply empty.
+  const { data: bankSync } = useBankSyncStatus();
+  const linkByAccount = new Map(
+    (bankSync?.connections ?? []).flatMap((c) => c.links.map((l) => [l.accountId, l] as const)),
+  );
+  const syncNow = async (link: BankLinkView) => {
+    try {
+      await apiFetch(`/api/bank-sync/links/${link.id}/sync`, { method: "POST" });
+    } catch {
+      // Rate-limited or paused: the badge already says where to look.
+    } finally {
+      queryClient.invalidateQueries({ queryKey: BANK_SYNC_KEY });
+    }
+  };
 
   const [localAccounts, setLocalAccounts] = useState<Account[]>([]);
   // ?new= opens the create dialog straight away (e.g. from the dashboard empty state).
@@ -750,6 +806,8 @@ function AccountsPageInner() {
                   onLeaveRequest={setLeaveTarget}
                   onToggleDefault={handleToggleDefault}
                   onOpen={setDetailAccount}
+                  bankLink={linkByAccount.get(account.id)}
+                  onSyncNow={syncNow}
                 />
               ))}
             </div>

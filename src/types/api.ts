@@ -835,6 +835,8 @@ export interface ImportBatch {
   id: string;
   accountName: string;
   fileName: string;
+  /** "bank_sync" for a batch a bank sync wrote, "csv" for an upload. */
+  source: "csv" | "bank_sync";
   transactionCount: number;
   importedAt: string;
 }

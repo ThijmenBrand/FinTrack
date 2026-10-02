@@ -276,6 +276,47 @@ export function withUser(
   return runWithAuth(getUserId, handler, errorMessage);
 }
 
+/** The signed-in user plus the id of the session making this request. */
+export interface SessionIds {
+  userId: string;
+  sessionId: string;
+}
+
+async function getSessionIds(): Promise<SessionIds> {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session?.user?.id || !session.session?.id) {
+    throw await apiError("api.unauthorized", 401);
+  }
+  return { userId: session.user.id, sessionId: session.session.id };
+}
+
+/**
+ * Like withUser, but also hands over the session id — for state that must be
+ * bound to one session (step-up grants, a bank authorisation in progress).
+ */
+export function withSession(
+  handler: (ids: SessionIds) => Promise<Response> | Response,
+  errorMessage: string,
+): Promise<Response> {
+  return runWithAuth(getSessionIds, handler, errorMessage);
+}
+
+/** Admin variant of withSession (the backoffice's sensitive actions). */
+export function withAdminSession(
+  handler: (ids: SessionIds) => Promise<Response> | Response,
+  errorMessage: string,
+): Promise<Response> {
+  return runWithAuth(
+    async () => {
+      const admin = await requireAdmin();
+      const ids = await getSessionIds();
+      return { ...ids, userId: admin.userId };
+    },
+    handler,
+    errorMessage,
+  );
+}
+
 /** Wrap an API handler that requires admin privileges. */
 export function withAdmin(
   handler: (session: SessionData) => Promise<Response> | Response,
