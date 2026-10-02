@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { Tags, Sparkles, SlidersHorizontal } from "lucide-react";
+import { Tags, Sparkles, SlidersHorizontal, Landmark } from "lucide-react";
 import { useI18n } from "@/lib/i18n/client";
 import type { MessageKey } from "@/lib/i18n/translate";
 
@@ -11,6 +11,7 @@ const tabs: { labelKey: MessageKey; href: string; icon: typeof Tags }[] = [
   { labelKey: "settings.tabs.general", href: "/settings/general", icon: SlidersHorizontal },
   { labelKey: "settings.tabs.categories", href: "/settings/categories", icon: Tags },
   { labelKey: "settings.tabs.automation", href: "/settings/automation", icon: Sparkles },
+  { labelKey: "settings.tabs.bankConnections", href: "/settings/bank-connections", icon: Landmark },
 ];
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {

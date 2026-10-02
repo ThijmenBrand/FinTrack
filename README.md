@@ -99,6 +99,7 @@ Turso, otherwise the local SQLite file. Same switch drives `drizzle.config.ts`.
 | Command | Does |
 |---|---|
 | `pnpm run dev` | Dev server |
+| `pnpm worker:dev` | Bank-sync worker (reads `.env` + `.env.worker`) |
 | `pnpm run build` | Prod build, then applies migrations |
 | `pnpm start` | Serve the production build |
 | `pnpm test` | Run Vitest once (`test:watch` for watch mode) |
@@ -164,6 +165,45 @@ Repository settings it needs:
 | `DEPLOY_KNOWN_HOSTS` | secret | the server's host key line (printed by `setup-deploy.sh`) |
 | `SENTRY_AUTH_TOKEN` | secret | optional, source-map upload |
 | `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT` | variables | optional |
+
+### Bank sync (Enable Banking)
+
+Users can connect their bank directly (PSD2) instead of uploading CSVs. Each
+user brings their **own** free Enable Banking application ("restricted mode"),
+so FinTrack is never a party to the consent and needs no PSD2 licence or
+broker contract. Restricted mode is for personal, non-commercial use.
+
+It runs as a **second container from the same image** — the bank-sync worker
+(`node dist/worker.mjs`), the only process that holds the master key which
+encrypts users' private keys. The web app only enqueues jobs in the `jobs`
+table and polls their results; it can't decrypt anything, and refuses to start
+in production if it can see the key. See `deploy/docker-compose.example.yml`
+for the service definition, the Docker secret, and hardening. The VPS deploy
+script must start and roll back `web` and `worker` on the same image digest.
+
+- **Setup per user** (Settings → Bank connections): FinTrack generates an RSA
+  key and self-signed certificate; the user registers the certificate and the
+  redirect URL `${BETTER_AUTH_URL}/settings/bank-connections/callback` in their
+  Enable Banking application, links their accounts there, and pastes the
+  application ID back. The worker verifies it.
+- **Step-up:** creating/deleting credentials, setting the application ID,
+  connecting/reconnecting/disconnecting a bank and unlinking an account need a
+  fresh second factor (TOTP, backup code or passkey) from the last 5 minutes
+  in the same session. Users without 2FA or a passkey can't use bank sync.
+  Each such action is also emailed to the user.
+- **Sync:** every ~6 h per account (PSD2 banks allow ~4 unattended reads a
+  day), or "Sync now". Rows go through the same classification and commit as
+  a CSV import (`src/lib/import/`), deduplicated by the bank's own reference.
+- **Queue:** failed jobs retry with backoff; rate limits reschedule without
+  using an attempt; problems only the user can fix (expired consent, rejected
+  key) show up in the UI and by email; everything else lands in the
+  dead-letter queue at `/backoffice/jobs`.
+- **Master key rotation:** `node dist/worker.mjs rotate-kek` (see
+  `src/worker/rotate-kek.ts`).
+
+Local development: put worker-only settings in `.env.worker` (see
+`.env.example`), run `pnpm worker:dev` next to `pnpm dev`, and use an Enable
+Banking **sandbox** application with `BANK_SYNC_ALLOW_SANDBOX=1`.
 
 ## How it works
 

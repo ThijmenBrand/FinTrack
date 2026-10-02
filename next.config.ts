@@ -52,6 +52,14 @@ const nextConfig: NextConfig = {
           { key: "Content-Security-Policy", value: `${csp}'self'` },
         ],
       },
+      {
+        // The bank sends the user back here with a one-time code and state in
+        // the URL. The page wipes them at once; no-referrer makes sure they
+        // never leave in a Referer header meanwhile either. Last, because for
+        // the same header key the last matching rule wins.
+        source: "/settings/bank-connections/callback",
+        headers: [{ key: "Referrer-Policy", value: "no-referrer" }],
+      },
     ];
   },
 };

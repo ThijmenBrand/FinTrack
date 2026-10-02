@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { apiError } from "@/lib/api-errors";
 import { db } from "@/db";
-import { accounts, transactions } from "@/db/schema";
+import { accounts, bankAccountLinks, transactions } from "@/db/schema";
 import { eq, sum, count, and } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
@@ -251,6 +251,13 @@ export async function DELETE(request: NextRequest) {
 
     // Deleting the account is "manage" — owner-only, even for editors.
     await requireAccountAccess(userId, id, "manage");
+
+    // A bank feeding this account stops feeding it. Explicit, like
+    // budget_sub_lines elsewhere: libsql may not enforce the FK cascade, and
+    // an orphaned link would keep the scheduler queueing syncs for nothing.
+    await db
+      .delete(bankAccountLinks)
+      .where(and(eq(bankAccountLinks.accountId, id), eq(bankAccountLinks.userId, userId)));
 
     // The account's plans go with it, and their logo files after them.
     await discardLogosAfter({ userId, accountId: id }, () =>

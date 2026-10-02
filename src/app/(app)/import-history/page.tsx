@@ -18,7 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { History, Undo2, Loader2, FileSpreadsheet } from "lucide-react";
+import { History, Undo2, Loader2, FileSpreadsheet, Landmark } from "lucide-react";
 import type { ImportBatch } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
 
@@ -72,7 +72,11 @@ export default function ImportHistoryPage() {
                   key={batch.id}
                   className="group flex items-start gap-3 rounded-lg border p-4 hover:bg-muted/50 transition-colors"
                 >
-                  <FileSpreadsheet className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
+                  {batch.source === "bank_sync" ? (
+                    <Landmark className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
+                  ) : (
+                    <FileSpreadsheet className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
+                  )}
                   <div className="min-w-0 flex-1">
                     <p className="font-medium truncate">{batch.fileName}</p>
                     <p className="mt-0.5 text-sm text-muted-foreground truncate">

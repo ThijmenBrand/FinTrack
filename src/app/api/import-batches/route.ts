@@ -16,6 +16,7 @@ export async function GET() {
       .select({
         id: importBatches.id,
         fileName: importBatches.fileName,
+        source: importBatches.source,
         transactionCount: importBatches.transactionCount,
         importedAt: importBatches.importedAt,
         accountName: accounts.name,

@@ -7,6 +7,8 @@ import { validatePassword, validateName, validateEmail } from "@/lib/validation"
 import { logAudit, getRequestMeta } from "@/lib/audit";
 import { headers } from "next/headers";
 import { discardLogosAfter } from "@/lib/recurring-logo";
+import { enqueueJob } from "@/lib/jobs/enqueue";
+import { JOB_PRIORITY } from "@/lib/jobs/types";
 
 async function logAdminAction(
   adminId: string,
@@ -218,6 +220,19 @@ export async function DELETE(request: NextRequest) {
       return apiError("api.cannotDeleteSelf", 400);
     }
 
+    // Bank sync first: their consents must be ended at the bank while the
+    // key that can do so still exists. That is the worker's job, so hand it
+    // over and have the admin come back once it is done.
+    const bank = await db.run(sql`SELECT id FROM bank_credentials WHERE user_id = ${id}`);
+    const credentialId = (bank.rows[0] as Record<string, unknown> | undefined)?.id as string | undefined;
+    if (credentialId) {
+      await enqueueJob(id, "bank.delete_credential", { credentialId }, {
+        priority: JOB_PRIORITY.interactive,
+        dedupeKey: `credential-delete:${id}`,
+      });
+      return apiError("api.userBankSyncRemoving", 409);
+    }
+
     // Look up the target user's name before deletion for the audit log
     const targetUser = await db.run(sql`SELECT name FROM "user" WHERE id = ${id}`);
     const targetName = (targetUser.rows[0] as Record<string, unknown>)?.name as string | undefined;
@@ -230,6 +245,19 @@ export async function DELETE(request: NextRequest) {
     // never fire and would leave the account's sub-line names and amounts
     // behind. Every write path that removes a parent row does the same.
     await db.run(sql`DELETE FROM budget_sub_lines WHERE user_id = ${id}`);
+    // Same for what bank sync leaves behind (credentials are gone by now —
+    // see above). Children before parents, in case FKs ARE enforced.
+    for (const table of [
+      "bank_account_links",
+      "bank_connections",
+      "bank_auth_states",
+      "bank_credentials",
+      "step_up_grants",
+      "step_up_challenges",
+      "jobs",
+    ]) {
+      await db.run(sql`DELETE FROM ${sql.identifier(table)} WHERE user_id = ${id}`);
+    }
 
     // Delete user (cascade will handle related data), then the logo files of
     // the recurring plans that went with them.

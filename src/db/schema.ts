@@ -222,6 +222,11 @@ export const transactions = sqliteTable("transactions", {
   // that plan again; linking it by hand clears this. No FK: an id left behind
   // by a deleted plan matches nothing.
   recurringExcludedPlanId: text("recurring_excluded_plan_id"),
+  // The bank's own id for this payment, set only by bank sync (PSD2
+  // entry_reference, or a content hash when the bank sends none). Unique per
+  // account, so a re-delivered or re-fetched row can never be inserted twice;
+  // CSV and hand-entered rows leave it null.
+  externalId: text("external_id"),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
@@ -232,6 +237,9 @@ export const transactions = sqliteTable("transactions", {
   index("idx_transactions_user_group").on(table.userId, table.groupId),
   index("idx_transactions_recurring").on(table.recurringTransactionId),
   index("idx_transactions_parent").on(table.parentTransactionId),
+  uniqueIndex("idx_transactions_account_external")
+    .on(table.accountId, table.externalId)
+    .where(sql`external_id IS NOT NULL`),
 ]);
 
 // ─── Categories ──────────────────────────────────────────────────────────────
@@ -514,7 +522,9 @@ export const importBatches = sqliteTable("import_batches", {
   accountId: text("account_id")
     .notNull()
     .references(() => accounts.id, { onDelete: "cascade" }),
+  // The CSV file name, or a label like "Bank sync · ING" for a sync run.
   fileName: text("file_name").notNull(),
+  source: text("source", { enum: ["csv", "bank_sync"] }).notNull().default("csv"),
   transactionCount: integer("transaction_count").notNull(),
   importedAt: text("imported_at")
     .notNull()
@@ -873,6 +883,260 @@ export const accountMembersRelations = relations(accountMembers, ({ one }) => ({
   }),
 }));
 
+// ─── Background jobs ─────────────────────────────────────────────────────
+// The work queue between the web app and the bank-sync worker (a separate
+// container). The web app only ever INSERTS jobs and reads their results; the
+// worker claims, runs and finishes them. A job carries ids only — never a key,
+// a bank session or bank data — and its payload is wiped once it finishes.
+//
+// Lifecycle: queued → running → succeeded | failed | dead | cancelled.
+// A failed attempt that may succeed later goes back to queued with a later
+// run_at. "failed" is final and expected: the USER has to act (consent
+// expired, key rejected) and the connection or credential says so — retrying
+// can't help and it isn't a bug. "dead" is the dead-letter queue: retries ran
+// out or something unexpected broke, and an admin should look.
+export const JOB_TYPES = [
+  "bank.generate_credential",
+  "bank.verify_credential",
+  "bank.list_aspsps",
+  "bank.start_auth",
+  "bank.complete_auth",
+  "bank.sync_link",
+  "bank.revoke_session",
+  "bank.delete_credential",
+] as const;
+export const JOB_STATUSES = ["queued", "running", "succeeded", "failed", "dead", "cancelled"] as const;
+
+export const jobs = sqliteTable("jobs", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  type: text("type", { enum: JOB_TYPES }).notNull(),
+  // JSON, ids only. Emptied ("{}") when the job finishes.
+  payload: text("payload").notNull().default("{}"),
+  // Lower runs first: 0 for a person waiting on the screen, 10 for background.
+  priority: integer("priority").notNull().default(10),
+  // At most one queued-or-running job per key (partial unique index below):
+  // the scheduler can enqueue "sync link X" every tick without piling up.
+  dedupeKey: text("dedupe_key"),
+  status: text("status", { enum: JOB_STATUSES }).notNull().default("queued"),
+  runAt: text("run_at").notNull(),
+  attempts: integer("attempts").notNull().default(0),
+  maxAttempts: integer("max_attempts").notNull().default(5),
+  // The lease: which worker holds the job and until when. A worker that dies
+  // mid-job lets it lapse, and the reaper hands the job back to the queue.
+  lockedBy: text("locked_by"),
+  lockedUntil: text("locked_until"),
+  // A stable code from the worker's error classes, and a scrubbed, truncated
+  // message — never a raw provider response.
+  lastErrorCode: text("last_error_code"),
+  lastError: text("last_error"),
+  // JSON the web app polls for (interactive jobs only).
+  result: text("result"),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+  finishedAt: text("finished_at"),
+}, (table) => [
+  index("idx_jobs_claim").on(table.status, table.priority, table.runAt),
+  index("idx_jobs_user").on(table.userId, table.createdAt),
+  uniqueIndex("idx_jobs_dedupe_active")
+    .on(table.dedupeKey)
+    .where(sql`status IN ('queued', 'running') AND dedupe_key IS NOT NULL`),
+]);
+
+// One row per worker process, refreshed every 30 s. The web app reads it to
+// tell the user bank sync is down instead of leaving jobs to sit silently.
+export const workerHeartbeat = sqliteTable("worker_heartbeat", {
+  workerId: text("worker_id").primaryKey(),
+  startedAt: text("started_at").notNull(),
+  seenAt: text("seen_at").notNull(),
+});
+
+// ─── Bank sync (Enable Banking, one application per user) ───────────────
+// Each user brings their own Enable Banking application. The worker generates
+// the RSA key and its self-signed certificate; the user pastes the certificate
+// into Enable Banking and the application id back here. The private key is
+// only ever stored encrypted with a key that exists in the worker container
+// alone — the web app can read this row but cannot use it.
+export const bankCredentials = sqliteTable("bank_credentials", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id")
+    .notNull()
+    .unique()
+    .references(() => user.id, { onDelete: "cascade" }),
+  // Enable Banking application id (the JWT `kid`). Not secret. Null until the
+  // user has created the application and pasted it back.
+  appId: text("app_id"),
+  // Public: shown to the user to paste into Enable Banking.
+  certificatePem: text("certificate_pem").notNull(),
+  certificateFingerprint: text("certificate_fingerprint").notNull(),
+  certificateNotAfter: text("certificate_not_after").notNull(),
+  // AES-256-GCM ciphertext ("v1:…"), bound to this row's id and user.
+  privateKeyEnc: text("private_key_enc").notNull(),
+  status: text("status", {
+    enum: ["pending_app_id", "verifying", "verified", "invalid"],
+  }).notNull().default("pending_app_id"),
+  lastErrorCode: text("last_error_code"),
+  verifiedAt: text("verified_at"),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
+// One consent at one bank. The Enable Banking session id is encrypted like the
+// key (useless without it, but cheap to protect).
+export const bankConnections = sqliteTable("bank_connections", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  credentialId: text("credential_id")
+    .notNull()
+    .references(() => bankCredentials.id, { onDelete: "cascade" }),
+  aspspName: text("aspsp_name").notNull(),
+  aspspCountry: text("aspsp_country").notNull(),
+  sessionIdEnc: text("session_id_enc"),
+  // Consent end as the bank granted it (at most ~180 days).
+  validUntil: text("valid_until"),
+  status: text("status", {
+    enum: ["active", "expired", "revoked", "error"],
+  }).notNull().default("active"),
+  // JSON: the accounts the consent covers ({uid, iban, name, currency}[]),
+  // shown on the mapping screen and used to re-bind links on reconnect.
+  availableAccounts: text("available_accounts").notNull().default("[]"),
+  lastErrorCode: text("last_error_code"),
+  // When the expiry warning mail went out, so it goes out once.
+  expiryNotifiedAt: text("expiry_notified_at"),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_bank_connections_user").on(table.userId),
+]);
+
+// The OAuth `state` of one trip to the bank. Only its SHA-256 is stored (the
+// raw value exists in the redirect URL alone), it is single-use, bound to the
+// user AND the session that started the trip, and short-lived.
+export const bankAuthStates = sqliteTable("bank_auth_states", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  sessionId: text("session_id").notNull(),
+  stateHash: text("state_hash").notNull().unique(),
+  purpose: text("purpose", { enum: ["connect", "reconnect"] }).notNull(),
+  aspspName: text("aspsp_name").notNull(),
+  aspspCountry: text("aspsp_country").notNull(),
+  // The connection a reconnect renews; for a new connection, the one the
+  // callback created (the mapping screen is only open for that one).
+  connectionId: text("connection_id"),
+  expiresAt: text("expires_at").notNull(),
+  // Callback consumed the state (single use).
+  usedAt: text("used_at"),
+  // Mapping saved: the state can no longer authorise anything.
+  completedAt: text("completed_at"),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_bank_auth_states_user").on(table.userId),
+]);
+
+// A FinTrack account fed by one bank account of a connection.
+export const bankAccountLinks = sqliteTable("bank_account_links", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  accountId: text("account_id")
+    .notNull()
+    .unique()
+    .references(() => accounts.id, { onDelete: "cascade" }),
+  connectionId: text("connection_id")
+    .notNull()
+    .references(() => bankConnections.id, { onDelete: "cascade" }),
+  // Enable Banking's account uid within the session. Changes on reconnect;
+  // the IBAN is what re-binds it.
+  externalUid: text("external_uid").notNull(),
+  iban: text("iban"),
+  // First day to import. Defaults to the day after the newest row already in
+  // the account, so a sync never re-imports CSV history.
+  syncFrom: text("sync_from").notNull(),
+  // Newest booking date seen; each sync re-reads a few days before it.
+  lastBookedDate: text("last_booked_date"),
+  lastSyncedAt: text("last_synced_at"),
+  // Balance as the bank reports it, for the "does FinTrack agree" check.
+  bankBalance: real("bank_balance"),
+  bankBalanceAt: text("bank_balance_at"),
+  lastErrorCode: text("last_error_code"),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_bank_account_links_user").on(table.userId),
+  index("idx_bank_account_links_connection").on(table.connectionId),
+]);
+
+// The ASPSP (bank) list per country, as Enable Banking publishes it. Public
+// data, cached so the bank picker doesn't cost a provider call per visit.
+export const bankAspspCache = sqliteTable("bank_aspsp_cache", {
+  country: text("country").primaryKey(),
+  data: text("data").notNull(),
+  fetchedAt: text("fetched_at").notNull(),
+});
+
+// ─── Step-up (re-authentication for sensitive actions) ──────────────────
+// "Confirm it's you": a fresh second factor (TOTP, backup code or passkey)
+// unlocks sensitive actions for five minutes — for this session only.
+export const stepUpGrants = sqliteTable("step_up_grants", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  sessionId: text("session_id").notNull(),
+  method: text("method", { enum: ["totp", "backup_code", "passkey"] }).notNull(),
+  expiresAt: text("expires_at").notNull(),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_step_up_grants_session").on(table.userId, table.sessionId),
+]);
+
+// WebAuthn challenges for a passkey step-up: single use, two minutes, bound to
+// the session that asked for one.
+export const stepUpChallenges = sqliteTable("step_up_challenges", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  sessionId: text("session_id").notNull(),
+  challenge: text("challenge").notNull(),
+  expiresAt: text("expires_at").notNull(),
+  usedAt: text("used_at"),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_step_up_challenges_session").on(table.userId, table.sessionId),
+]);
+
 // ─── Type Exports ────────────────────────────────────────────────────────────
 export type User = typeof user.$inferSelect;
 export type NewUser = typeof user.$inferInsert;
@@ -907,3 +1171,9 @@ export type StatReset = typeof statResets.$inferSelect;
 export type NewStatReset = typeof statResets.$inferInsert;
 export type AccountMember = typeof accountMembers.$inferSelect;
 export type NewAccountMember = typeof accountMembers.$inferInsert;
+export type Job = typeof jobs.$inferSelect;
+export type JobType = (typeof JOB_TYPES)[number];
+export type BankCredential = typeof bankCredentials.$inferSelect;
+export type BankConnection = typeof bankConnections.$inferSelect;
+export type BankAuthState = typeof bankAuthStates.$inferSelect;
+export type BankAccountLink = typeof bankAccountLinks.$inferSelect;

@@ -1,13 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { apiError } from "@/lib/api-errors";
-import { db } from "@/db";
-import { categoryRules, accounts, recurringTransactions, transactions as transactionsTable } from "@/db/schema";
-import { eq, and, isNull } from "drizzle-orm";
-import {
-  loadTransferCategories,
-  sharedMoneyIbans,
-  transferRuledOut,
-} from "@/lib/detect-transfers";
 import { withUser } from "@/lib/auth";
 import { requireAccountAccess } from "@/lib/account-access";
 import { bankHasSeparateFeeColumn } from "@/lib/banks";
@@ -15,18 +7,12 @@ import Papa from "papaparse";
 import {
   parseAmount,
   parseDate,
-  ruleCategoryFor,
-  extractPattern,
   splitNameAndDescription,
-  splitDuplicates,
   isUnsettledRow,
   applyFee,
-  normalizeIban,
   type ColumnMapping,
-  type PreviewTransaction,
 } from "@/lib/csv-utils";
-import { loadSplitRules, proposeSplitForRow } from "@/lib/split-rules";
-import { findRecurringForRow } from "@/lib/recurring-match";
+import { classifyRows, dropExistingRows, type NormalizedRow } from "@/lib/import/classify";
 
 interface CsvRow {
   [key: string]: string;
@@ -52,11 +38,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Write access to the target account — 404 if the caller can't see it,
-    // 403 if they're a viewer. Rules, existing rows and recurring plans below
-    // all read from the ACCOUNT OWNER's space, same as commit will write to.
+    // 403 if they're a viewer. Rules, existing rows and recurring plans
+    // (classifyRows) all read from the ACCOUNT OWNER's space, same as commit
+    // will write to.
     const access = await requireAccountAccess(userId, accountId, "write");
     const ownedAccount = access.account;
-    const ownerId = ownedAccount.userId;
 
     const mapping: ColumnMapping = JSON.parse(mappingJson);
 
@@ -92,63 +78,8 @@ export async function POST(request: NextRequest) {
       return apiError("api.csvNoData", 400, undefined, { details: parsed.errors.slice(0, 5) });
     }
 
-    // Fetch active category rules for auto-categorization
-    const rules = await db
-      .select()
-      .from(categoryRules)
-      .where(and(eq(categoryRules.isActive, true), eq(categoryRules.userId, ownerId)));
-
-    // Active split rules — propose splits on the rows they match (below).
-    const splitRules = await loadSplitRules(ownerId);
-
-    // Build IBAN → account lookup for internal transfer detection. Accounts
-    // whose money is no longer purely the owner's (a joint household account)
-    // stay out: a contribution to one is a real expense here and a real income
-    // there, not a transfer. Same for the whole map when the account being
-    // imported is itself one of those.
-    const allAccounts = await db.select().from(accounts).where(eq(accounts.userId, ownerId));
-    const ibanToAccount = new Map<string, { id: string; name: string }>();
-    if (ownedAccount.internalTransfers) {
-      for (const acc of allAccounts) {
-        const iban = normalizeIban(acc.iban);
-        if (iban && acc.internalTransfers) {
-          ibanToAccount.set(iban, { id: acc.id, name: acc.name });
-        }
-      }
-    }
-
-    // The "Internal Transfer" category, plus every transfer bucket: rules can
-    // point at one too, and those are held back on rows the account policy
-    // says can't be a transfer (see transferRuledOut).
-    const { primary: transferCategory, ids: transferCategories } =
-      await loadTransferCategories(db, ownerId);
-    const sharedIbans = sharedMoneyIbans(allAccounts);
-
-    // Active recurring plans — used to auto-link rows that look like a
-    // recurring bill so they don't double-count in Free to Spend.
-    const recurringPlans = await db
-      .select({
-        id: recurringTransactions.id,
-        accountId: recurringTransactions.accountId,
-        description: recurringTransactions.description,
-        amount: recurringTransactions.amount,
-        type: recurringTransactions.type,
-        isActive: recurringTransactions.isActive,
-        matchPattern: recurringTransactions.matchPattern,
-        matchField: recurringTransactions.matchField,
-        matchDescriptionPattern: recurringTransactions.matchDescriptionPattern,
-      })
-      .from(recurringTransactions)
-      .where(
-        and(
-          eq(recurringTransactions.userId, ownerId),
-          eq(recurringTransactions.isActive, true),
-        )
-      );
-    const recurringById = new Map(recurringPlans.map((p) => [p.id, p]));
-
     const allColumns = (parsed.meta.fields || []).filter((c) => c.length > 0);
-    const transactions: PreviewTransaction[] = [];
+    const rows: NormalizedRow[] = [];
     let skipped = 0;
     let pending = 0;
     let feesApplied = 0;
@@ -221,107 +152,24 @@ export async function POST(request: NextRequest) {
       }
 
       const balance = balanceRaw ? parseAmount(balanceRaw) : null;
-      let type: "income" | "expense" | "internal_transfer" =
-        amount >= 0 ? "income" : "expense";
 
-      // Check for internal transfer via counterparty IBAN
-      let targetAccountId: string | undefined;
-      let targetAccountName: string | undefined;
-      let counterpartyIban: string | undefined;
-      if (mapping.counterpartyIban) {
-        const rawIban = row[mapping.counterpartyIban]?.trim();
-        const normalizedIban = normalizeIban(rawIban);
-        if (normalizedIban) {
-          // Stored normalized so post-import detection can compare it to an
-          // account's IBAN without re-guessing the bank's spacing.
-          counterpartyIban = normalizedIban;
-          const matchedAccount = ibanToAccount.get(normalizedIban);
-          if (matchedAccount && matchedAccount.id !== accountId) {
-            type = "internal_transfer";
-            targetAccountId = matchedAccount.id;
-            targetAccountName = matchedAccount.name;
-          }
-        }
-      }
-
-      // Auto-categorize using rules (skip if already detected as transfer).
-      // Each rule matches the text its matchField names.
-      let categoryId: string | null;
-      if (type === "internal_transfer" && transferCategory) {
-        categoryId = transferCategory.id;
-      } else {
-        const noTransfer = transferRuledOut(ownedAccount, counterpartyIban, sharedIbans);
-        categoryId = ruleCategoryFor(
-          rules,
-          name,
-          description,
-          noTransfer ? transferCategories : undefined,
-        );
-      }
-
-      // Try to match this row to an active recurring plan (skip transfers —
-      // those flows aren't tracked as fixed costs).
-      let recurringTransactionId: string | null = null;
-      let recurringDescription: string | null = null;
-      if (type === "income" || type === "expense") {
-        recurringTransactionId = findRecurringForRow(
-          { accountId, amount, name, description },
-          recurringPlans,
-        );
-        if (recurringTransactionId) {
-          recurringDescription =
-            recurringById.get(recurringTransactionId)?.description ?? null;
-        }
-      }
-
-      // A matching split rule takes over the row's categorization: the parts
-      // carry the categories, the row itself stays uncategorized.
-      const proposal = splitRules.length
-        ? proposeSplitForRow(splitRules, {
-            type,
-            amount,
-            name,
-            description,
-            targetAccountId,
-          })
-        : null;
-
-      transactions.push({
-        tempId: crypto.randomUUID(),
+      rows.push({
         date,
         name,
         description,
         amount,
-        balance: balance !== null && isNaN(balance) ? null : balance,
-        type,
-        categoryId: proposal ? null : categoryId,
-        splits: proposal?.splits ?? null,
-        splitRuleId: proposal?.splitRuleId ?? null,
-        suggestedPattern: extractPattern(description),
-        counterpartyIban,
-        targetAccountId,
-        targetAccountName,
-        recurringTransactionId,
-        recurringDescription,
+        balance,
+        counterpartyIban: mapping.counterpartyIban
+          ? row[mapping.counterpartyIban]?.trim()
+          : undefined,
       });
     }
 
+    const classified = await classifyRows(ownedAccount, rows);
+
     // Drop rows already in this account so the user doesn't waste time
-    // categorizing transactions that the commit would skip anyway. Same match
-    // logic (date, amount, balance/description) used at commit time.
-    const existingRows = await db
-      .select({
-        date: transactionsTable.date,
-        amount: transactionsTable.amount,
-        balance: transactionsTable.balance,
-        description: transactionsTable.description,
-      })
-      .from(transactionsTable)
-      // Split children share their parent's date and (by default) description
-      // with a fractional amount — without the parent filter they manufacture
-      // dedup keys that swallow genuine new rows from balance-less exports.
-      .where(and(eq(transactionsTable.accountId, accountId), eq(transactionsTable.userId, ownerId), isNull(transactionsTable.parentTransactionId)));
-    const { unique, duplicates } = splitDuplicates(existingRows, transactions);
+    // categorizing transactions that the commit would skip anyway.
+    const { unique, duplicates } = await dropExistingRows(ownedAccount, classified);
 
     return NextResponse.json({
       transactions: unique,

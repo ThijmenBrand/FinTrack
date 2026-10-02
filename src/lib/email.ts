@@ -316,3 +316,44 @@ export function sendPasswordResetEmail(
     locale,
   );
 }
+
+/** Bank-sync events a user is told about: everything that changes who can read their bank. */
+export type BankSecurityEvent =
+  | "credentialGenerated"
+  | "appIdChanged"
+  | "bankConnected"
+  | "bankDisconnected"
+  | "credentialsDeleted"
+  | "consentExpiring";
+
+/**
+ * A heads-up after every sensitive bank-sync action. If the user didn't do it,
+ * this mail is how they find out someone else is in their account — so it
+ * goes out for every such action, in their own language, with a link to the
+ * page where it can be undone.
+ */
+export function sendBankSecurityEmail(
+  to: string,
+  event: BankSecurityEvent,
+  url: string,
+  vars: { bank?: string; date?: string } = {},
+  locale: Locale = DEFAULT_LOCALE,
+): Promise<void> {
+  const { t } = getI18nFor(locale);
+  const bank = vars.bank ? escapeHtml(vars.bank) : "";
+  const date = vars.date ? escapeHtml(vars.date) : "";
+  const strong = (v: string) => `<strong style="color:#0f1729">${v}</strong>`;
+  return send(
+    to,
+    t(`email.bank.${event}.subject`, { bank: vars.bank ?? "" }),
+    {
+      preheader: t(`email.bank.${event}.heading`),
+      heading: t(`email.bank.${event}.heading`),
+      body: t(`email.bank.${event}.body`, { bank: strong(bank), date: strong(date) }),
+      url,
+      cta: t("email.bank.cta"),
+      note: t(event === "consentExpiring" ? "email.bank.noteExpiring" : "email.bank.noteNotYou"),
+    },
+    locale,
+  );
+}
