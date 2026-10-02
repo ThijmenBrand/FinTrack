@@ -80,6 +80,13 @@ function getPresetRange(preset: PresetKey, startDay: number): { from: string; to
   }
 }
 
+function sameRange(
+  a: { from: string; to: string },
+  b: { from: string; to: string },
+): boolean {
+  return a.from === b.from && a.to === b.to;
+}
+
 // The preceding range of equal length, for vs-previous deltas. Null when there
 // is no meaningful previous period (All Time, incomplete custom range).
 function getPreviousRange(
@@ -333,8 +340,17 @@ export default function InsightsPage() {
   // when the range is a single financial month (matches the Budgets page) so
   // the budget total isn't pro-rated below its monthly value. On Overall the
   // per-category budget view is hidden, so nothing is fetched.
+  // A custom range counts when it is exactly one financial month — which is
+  // what a month clicked on the vs-actual chart becomes.
   const isSingleFinancialMonth =
-    preset === "this_month" || preset === "last_month";
+    preset === "this_month" ||
+    preset === "last_month" ||
+    (preset === "custom" &&
+      !!dateFrom &&
+      sameRange(
+        getFinancialMonthRange(new Date(dateFrom + "T00:00:00"), startDay),
+        { from: dateFrom, to: dateTo },
+      ));
   const { data: budgetData } = useBudgets({
     dateFrom: dateFrom || undefined,
     dateTo: dateTo || undefined,
@@ -416,6 +432,37 @@ export default function InsightsPage() {
     }
     setPreset(key);
   };
+
+  // A bar on the vs-actual chart is a calendar month, so that's the range it
+  // opens — as the this/last-month preset when that names the same days, a
+  // custom range otherwise. Back to the top: the chart sits near the bottom,
+  // and the numbers that just changed are above it.
+  const selectMonth = (month: string) => {
+    const [y, m] = month.split("-").map(Number);
+    const range = {
+      from: toIsoDate(new Date(y, m - 1, 1)),
+      to: toIsoDate(new Date(y, m, 0)),
+    };
+    const shortcut = (["this_month", "last_month"] as const).find((p) =>
+      sameRange(getPresetRange(p, startDay), range),
+    );
+    if (shortcut) {
+      setPreset(shortcut);
+    } else {
+      setCustomDateFrom(range.from);
+      setCustomDateTo(range.to);
+      setPreset("custom");
+    }
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+  // The chart month the page is showing, when the range is exactly one.
+  const activeMonth = (() => {
+    if (!dateFrom) return null;
+    const [y, m, d] = dateFrom.split("-").map(Number);
+    return d === 1 && dateTo === toIsoDate(new Date(y, m, 0))
+      ? dateFrom.slice(0, 7)
+      : null;
+  })();
 
   const navigateToTransactions = (extra: Record<string, string> = {}) => {
     const params = new URLSearchParams();
@@ -609,6 +656,8 @@ export default function InsightsPage() {
               budgetId={chartPlan?.id}
               monthlyBudget={planMonthlyData?.totalBudget ?? 0}
               allowanceByMonth={allowanceByMonth}
+              onSelectMonth={selectMonth}
+              activeMonth={activeMonth}
             />
           }
         />
@@ -699,6 +748,8 @@ export default function InsightsPage() {
               budgetId={selectedPlan.id}
               monthlyBudget={planMonthlyData?.totalBudget ?? 0}
               allowanceByMonth={allowanceByMonth}
+              onSelectMonth={selectMonth}
+              activeMonth={activeMonth}
             />
           )}
 

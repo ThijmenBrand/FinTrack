@@ -1069,6 +1069,7 @@ export const nl: Record<MessageKey, string> = {
   "insights.vsActual.budgetLine": "budget",
   "insights.vsActual.over": "{amount} te veel",
   "insights.vsActual.under": "{amount} onder",
+  "insights.vsActual.viewMonth": "Inzichten voor {label} tonen",
   "insights.flow.title": "Geldstroom",
   "insights.flow.hint": "inkomsten → rekeningen → uitgaven · klik op een balk of lint voor de transacties",
   "insights.flow.loading": "Het geld volgen…",

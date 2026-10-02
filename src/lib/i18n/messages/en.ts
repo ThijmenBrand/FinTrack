@@ -1085,6 +1085,7 @@ export const en = {
   "insights.vsActual.budgetLine": "budget",
   "insights.vsActual.over": "{amount} over",
   "insights.vsActual.under": "{amount} under",
+  "insights.vsActual.viewMonth": "Show insights for {label}",
   "insights.flow.title": "Money flow",
   "insights.flow.hint": "income → accounts → spending · click a bar or ribbon for its transactions",
   "insights.flow.loading": "Following the money…",

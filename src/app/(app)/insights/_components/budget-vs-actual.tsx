@@ -37,6 +37,10 @@ interface BudgetVsActualProps {
    * pot instead of sitting flat across the chart.
    */
   allowanceByMonth?: Record<string, number>;
+  /** Clicking a bar opens that month (`YYYY-MM`) on the page. */
+  onSelectMonth?: (month: string) => void;
+  /** The month the page is showing, if it's exactly one — ringed on the chart. */
+  activeMonth?: string | null;
 }
 
 /**
@@ -49,6 +53,8 @@ export function BudgetVsActual({
   budgetId,
   monthlyBudget,
   allowanceByMonth,
+  onSelectMonth,
+  activeMonth,
 }: BudgetVsActualProps) {
   const i18n = useI18n();
   const { t, formatCurrency } = i18n;
@@ -153,13 +159,25 @@ export function BudgetVsActual({
                       maxValue > 0 ? (Math.max(0, reference) / maxValue) * 100 : 0;
                     const isHovered = hovered === m.month;
                     const isCurrent = m.month === currentMonth;
+                    const isActive = m.month === activeMonth;
                     return (
-                      <div
+                      <button
                         key={m.month}
-                        className="group relative flex-1"
+                        type="button"
+                        disabled={!onSelectMonth}
+                        aria-label={t("insights.vsActual.viewMonth", {
+                          label: monthLabel(i18n, m.month),
+                        })}
+                        aria-pressed={onSelectMonth ? isActive : undefined}
+                        className="group relative flex-1 cursor-pointer rounded-t-[4px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
                         style={{ height: "100%" }}
+                        onClick={() => onSelectMonth?.(m.month)}
                         onMouseEnter={() => setHovered(m.month)}
                         onMouseLeave={() => setHovered(null)}
+                        onFocus={() => setHovered(m.month)}
+                        onBlur={() =>
+                          setHovered((h) => (h === m.month ? null : h))
+                        }
                       >
                         {/* Per-bar allowance marker for a yearly envelope. */}
                         {perMonth && allowanceFor(m.month) !== undefined && (
@@ -180,7 +198,7 @@ export function BudgetVsActual({
                                 : isCurrent
                                   ? "bg-primary/60"
                                   : "bg-primary/80"
-                          }`}
+                          }${isActive ? " ring-2 ring-foreground ring-offset-1 ring-offset-background" : ""}`}
                           style={{ height: `${pct}%` }}
                         />
                         {/* Sits just above the bar, but never above the chart
@@ -217,7 +235,7 @@ export function BudgetVsActual({
                             )}
                           </div>
                         )}
-                      </div>
+                      </button>
                     );
                   })}
                 </div>
@@ -225,7 +243,12 @@ export function BudgetVsActual({
               {/* X labels */}
               <div className="mt-1 flex gap-[2px] text-[10px] text-muted-foreground">
                 {months.map((m) => (
-                  <span key={m.month} className="flex-1 truncate text-center">
+                  <span
+                    key={m.month}
+                    className={`flex-1 truncate text-center${
+                      m.month === activeMonth ? " font-medium text-foreground" : ""
+                    }`}
+                  >
                     {monthLabel(i18n, m.month)}
                   </span>
                 ))}
