@@ -57,7 +57,7 @@ export async function AccountsCard({ userId }: { userId: string }) {
       <CardHeader>
         <div className="flex items-baseline justify-between gap-2">
           <CardTitle>{t("dashboard.accounts.title")}</CardTitle>
-          <span className="text-sm font-semibold tabular-nums">
+          <span className="text-sm font-semibold tabular-nums max-md:text-lg">
             {formatCurrency(totalBalance)}
           </span>
         </div>
@@ -97,12 +97,14 @@ export async function AccountsCard({ userId }: { userId: string }) {
               ariaLabel={t("dashboard.accounts.chartLabel")}
               emptyMessage={t("dashboard.accounts.noHistory")}
             />
-            <div className="space-y-2">
+            {/* Phones: a plain list with hairlines, not a box per account
+                inside the card's own box. */}
+            <div className="space-y-2 max-md:space-y-0">
             {accountBalances.map((account) => (
               <Link
                 key={account.id}
                 href="/accounts"
-                className="flex items-center justify-between rounded-lg border p-3 transition-colors hover:bg-muted/50"
+                className="flex items-center justify-between rounded-lg border p-3 transition-colors hover:bg-muted/50 max-md:rounded-none max-md:border-x-0 max-md:border-t-0 max-md:border-border/60 max-md:px-0 max-md:last:border-b-0 max-md:active:bg-muted/40"
               >
                 <div className="flex min-w-0 items-center gap-3">
                   <span

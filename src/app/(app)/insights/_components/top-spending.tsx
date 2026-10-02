@@ -24,7 +24,8 @@ export function TopSpending({ merchants, totalExpenses }: TopSpendingProps) {
     <Card>
       <CardHeader className="flex flex-row flex-wrap items-baseline justify-between gap-2 space-y-0 pb-3">
         <CardTitle className="text-base">{t("insights.topSpending.title")}</CardTitle>
-        <span className="text-xs text-muted-foreground">
+        {/* "click a row" is pointer talk; a phone just taps. */}
+        <span className="text-xs text-muted-foreground max-sm:hidden">
           {t("insights.topSpending.hint")}
         </span>
       </CardHeader>
@@ -75,7 +76,7 @@ export function TopSpending({ merchants, totalExpenses }: TopSpendingProps) {
                     {/* Bar drops below the name on mobile, where there's no room
                         beside it. Placed only under `sm`, so nothing has to be
                         unset again on wider screens. */}
-                    <div className="h-1 self-center overflow-hidden rounded-full bg-muted max-sm:col-start-2 max-sm:row-start-2">
+                    <div className="h-1 self-center overflow-hidden rounded-full bg-muted max-sm:col-start-2 max-sm:col-end-4 max-sm:row-start-2">
                       <div
                         className="h-full rounded-full bg-primary/70"
                         style={{ width: `${max > 0 ? (m.total / max) * 100 : 0}%` }}

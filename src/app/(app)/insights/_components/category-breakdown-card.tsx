@@ -121,7 +121,9 @@ export function CategoryBreakdownCard({
               return (
                 <div
                   key={catKey(cat.categoryId)}
-                  className={`flex items-center gap-3 rounded-md -mx-2 px-2 py-1.5 ${clickable ? "cursor-pointer hover:bg-muted/60 transition-colors" : ""}`}
+                  // Phones: name and amount on top, the bar full width under
+                  // both — three columns squeezed the bar to a sliver.
+                  className={`flex items-center gap-3 rounded-md -mx-2 px-2 py-1.5 max-sm:grid max-sm:grid-cols-[minmax(0,1fr)_auto] max-sm:gap-y-2 max-sm:py-2.5 ${clickable ? "cursor-pointer hover:bg-muted/60 active:bg-muted/60 transition-colors" : ""}`}
                   onClick={handleClick}
                   role={clickable ? "button" : undefined}
                   tabIndex={clickable ? 0 : undefined}
@@ -137,7 +139,7 @@ export function CategoryBreakdownCard({
                   }
                 >
                   <div
-                    className="flex items-center gap-2 w-32 sm:w-44 shrink-0"
+                    className="flex min-w-0 items-center gap-2 sm:w-44 sm:shrink-0"
                     title={cat.categoryName}
                   >
                     <span
@@ -158,7 +160,7 @@ export function CategoryBreakdownCard({
                         </span>
                       )}
                   </div>
-                  <div className="flex-1 h-5 bg-muted rounded-full overflow-hidden">
+                  <div className="flex-1 h-5 bg-muted rounded-full overflow-hidden max-sm:col-span-2 max-sm:row-start-2 max-sm:h-2">
                     <div
                       className="h-full rounded-full transition-all duration-500"
                       style={{
@@ -169,7 +171,7 @@ export function CategoryBreakdownCard({
                       }}
                     />
                   </div>
-                  <div className="text-right shrink-0 w-36 sm:w-48">
+                  <div className="text-right shrink-0 sm:w-48">
                     <div className="text-sm font-medium tabular-nums">
                       {formatCurrency(cat.total)}
                       {showDelta && (

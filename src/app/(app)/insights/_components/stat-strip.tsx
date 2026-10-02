@@ -34,11 +34,18 @@ function DeltaLine({
         }
       >
         {up ? "▲" : "▼"} {formatCurrency(Math.abs(delta))}
-      </span>{" "}
-      <span className="text-muted-foreground">{label}</span>
+      </span>
+      {/* Phones say what the arrows compare once, under the card. */}
+      <span className="text-muted-foreground max-md:hidden"> {label}</span>
     </>
   );
 }
+
+// Phones lay the strip out as two tiers on a six-column grid: income and
+// expenses large, half the width each, then net, savings rate and pace small
+// in thirds under a rule. Five equal cells left one orphaned on its own row.
+const PRIMARY = "max-md:col-span-3";
+const SECONDARY = "max-md:col-span-2";
 
 function Stat({
   label,
@@ -46,28 +53,35 @@ function Stat({
   valueClass,
   sub,
   onClick,
+  primary = false,
 }: {
   label: string;
   value: string;
   valueClass?: string;
   sub?: React.ReactNode;
   onClick?: () => void;
+  primary?: boolean;
 }) {
   const body = (
     <>
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div className={`text-lg font-semibold tabular-nums ${valueClass ?? ""}`}>
+      <div
+        className={`truncate whitespace-nowrap font-semibold tabular-nums md:text-lg ${
+          primary ? "text-2xl max-md:tracking-tight" : "text-[15px]"
+        } ${valueClass ?? ""}`}
+      >
         {value}
       </div>
       <div className="mt-0.5 text-[11px] leading-tight tabular-nums">{sub}</div>
     </>
   );
-  if (!onClick) return <div className="min-w-0">{body}</div>;
+  const span = primary ? PRIMARY : SECONDARY;
+  if (!onClick) return <div className={`min-w-0 ${span}`}>{body}</div>;
   return (
     <button
       type="button"
       onClick={onClick}
-      className="min-w-0 rounded-md -m-1 p-1 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className={`min-w-0 rounded-md -m-1 p-1 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:bg-muted/60 ${span}`}
     >
       {body}
     </button>
@@ -111,8 +125,9 @@ export function StatStrip({
 
   return (
     <Card>
-      <CardContent className="grid grid-cols-3 gap-x-6 gap-y-4 py-4 md:grid-cols-5">
+      <CardContent className="grid grid-cols-6 items-start gap-x-4 gap-y-3 py-4 md:grid-cols-5 md:gap-x-6 md:gap-y-5">
         <Stat
+          primary
           label={t("insights.stat.income")}
           value={formatCurrency(income)}
           onClick={onIncomeClick}
@@ -137,6 +152,7 @@ export function StatStrip({
           }
         />
         <Stat
+          primary
           label={t("insights.stat.expenses")}
           value={formatCurrency(expenses)}
           onClick={onExpensesClick}
@@ -150,6 +166,7 @@ export function StatStrip({
             )
           }
         />
+        <div className="col-span-6 border-t md:hidden" aria-hidden="true" />
         <Stat
           label={t("insights.stat.net")}
           value={`${net >= 0 ? "+" : ""}${formatCurrency(net)}`}
@@ -184,6 +201,11 @@ export function StatStrip({
           value={perWeek === null ? "—" : formatCurrency(perWeek)}
           sub={<span className="text-muted-foreground">{t("insights.stat.spendingPace")}</span>}
         />
+        {showDeltas && (
+          <p className="col-span-6 -mt-1 text-[11px] text-muted-foreground md:hidden">
+            {t("insights.stat.deltaCaption", { label: deltaLabel })}
+          </p>
+        )}
       </CardContent>
     </Card>
   );

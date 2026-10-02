@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { TransactionsFilterLink } from "@/components/transactions-filter-link";
+import { CategoryIcon } from "@/components/category-icon";
 import { apiFetch } from "@/lib/api";
 import { getFinancialMonthRange } from "@/lib/financial-month";
 import type { BudgetOverview } from "../_lib/dashboard-queries";
@@ -31,11 +32,12 @@ const PERIOD_LABEL_KEYS: Record<string, MessageKey> = {
   yearly: "budgets.period.yearly",
 };
 
-// Mobile stacks each row onto two lines — name · delta, then bar · spent/budget.
-// The trailing columns are fixed widths on desktop so the bars line up instead
-// of being sized by however long each amount happens to be.
+// Mobile is a native list row: the category's icon, then two lines beside it —
+// name · what's left, then bar · spent/budget. The trailing columns are fixed
+// widths on desktop so the bars line up instead of being sized by however long
+// each amount happens to be.
 const ROW =
-  "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 rounded-lg px-4 py-2.5 sm:grid-cols-[minmax(0,13.5rem)_minmax(96px,1fr)_7rem_8.5rem]";
+  "grid grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 px-4 py-3 sm:grid-cols-[minmax(0,13.5rem)_minmax(96px,1fr)_7rem_8.5rem] sm:rounded-lg sm:py-2.5";
 
 interface PlanOption {
   id: string;
@@ -220,11 +222,16 @@ export function BudgetCategoriesCard({
         </div>
         <CardDescription>
           {planLabel && <>{planLabel} &middot; </>}
-          {t("dashboard.budgetCard.paceHint", { pct: pacePct })}
+          <span className="max-sm:hidden">
+            {t("dashboard.budgetCard.paceHint", { pct: pacePct })}
+          </span>
+          <span className="sm:hidden">
+            {t("dashboard.budgetCard.paceHintShort", { pct: pacePct })}
+          </span>
         </CardDescription>
       </CardHeader>
-      <CardContent className="px-2 pb-3">
-        <ul>
+      <CardContent className="px-0 pb-1 sm:px-2 sm:pb-3">
+        <ul className="max-sm:divide-y max-sm:divide-border/60">
           {data.budgetItems.map((item, i) => {
             const over = item.status === "exceeded";
             const barClass = over
@@ -236,7 +243,12 @@ export function BudgetCategoriesCard({
 
             const row = (
               <>
-                <div className="flex min-w-0 items-center gap-2">
+                <CategoryIcon
+                  icon={item.categoryIcon}
+                  color={item.categoryColor}
+                  className="col-start-1 row-span-2 row-start-1 sm:hidden"
+                />
+                <div className="col-start-2 row-start-1 flex min-w-0 items-center gap-2 sm:col-start-1">
                   <span className="truncate text-sm font-medium">
                     {item.categoryName || t("common.uncategorized")}
                   </span>
@@ -250,9 +262,9 @@ export function BudgetCategoriesCard({
                     </span>
                   )}
                 </div>
-                <div className="col-start-1 row-start-2 sm:col-start-2 sm:row-start-1">
+                <div className="col-start-2 row-start-2 sm:row-start-1">
                   <div
-                    className="relative h-1.5 rounded-full bg-muted"
+                    className="relative h-2 rounded-full bg-muted sm:h-1.5"
                     role="progressbar"
                     aria-valuenow={Math.min(item.percentage, 100)}
                     aria-valuemin={0}
@@ -276,7 +288,7 @@ export function BudgetCategoriesCard({
                   </div>
                 </div>
                 <span
-                  className={`col-start-2 row-start-1 text-right text-sm font-semibold tabular-nums sm:col-start-3 ${
+                  className={`col-start-3 row-start-1 text-right text-sm font-semibold tabular-nums ${
                     over
                       ? "text-red-600 dark:text-red-400"
                       : item.status === "warning"
@@ -288,7 +300,7 @@ export function BudgetCategoriesCard({
                     ? t("dashboard.budgetCard.overAmount", { amount: formatCurrency(-left) })
                     : t("dashboard.budgetCard.leftAmount", { amount: formatCurrency(left) })}
                 </span>
-                <span className="col-start-2 row-start-2 text-right text-xs text-muted-foreground tabular-nums sm:col-start-4 sm:row-start-1">
+                <span className="col-start-3 row-start-2 text-right text-xs text-muted-foreground tabular-nums sm:col-start-4 sm:row-start-1">
                   {formatCurrency(item.spent)} / {formatCurrency(item.limit)}
                 </span>
               </>
@@ -300,7 +312,7 @@ export function BudgetCategoriesCard({
                   <TransactionsFilterLink
                     category={item.categoryId}
                     {...filterProps}
-                    className={`${ROW} transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
+                    className={`${ROW} transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:bg-muted/60`}
                   >
                     {row}
                   </TransactionsFilterLink>
@@ -313,7 +325,7 @@ export function BudgetCategoriesCard({
         </ul>
 
         {data.unbudgetedItems.length > 0 && (
-          <div className="mt-3 border-t pt-3">
+          <div className="mt-1 border-t pt-3 pb-3 sm:mt-3 sm:pb-0">
             <div className="flex items-baseline justify-between gap-2 px-4">
               <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 {t("dashboard.budgetCard.notBudgeted")}

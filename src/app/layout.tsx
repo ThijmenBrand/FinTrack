@@ -36,7 +36,13 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   viewportFit: "cover",
-  themeColor: "#1d6ec1",
+  // The status bar takes the page background, so the installed app reads as
+  // one surface instead of a blue strip over a white page. ThemeColorSync
+  // corrects it when the in-app theme differs from the OS one.
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f9fcff" },
+    { media: "(prefers-color-scheme: dark)", color: "#03080f" },
+  ],
 };
 
 export default async function RootLayout({

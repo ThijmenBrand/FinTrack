@@ -43,10 +43,12 @@ export function TransactionBulkBar({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   return (
-    <div className="flex items-center gap-2 flex-wrap rounded-lg border border-primary/20 bg-primary/5 px-3 py-2">
-      <span className="text-sm font-medium">{t("tx.bulk.selected", { count })}</span>
+    // Phones: a floating action bar just above the tab bar, so the actions
+    // stay in reach however far down the list the selection was made.
+    <div className="relative flex items-center gap-2 flex-wrap rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 max-md:fixed max-md:inset-x-3 max-md:bottom-[calc(4.75rem+env(safe-area-inset-bottom))] max-md:z-40 max-md:rounded-2xl max-md:border-border max-md:bg-card/95 max-md:p-3 max-md:shadow-xl max-md:backdrop-blur-xl max-md:animate-in max-md:slide-in-from-bottom-4 max-md:fade-in">
+      <span className="text-sm font-medium max-md:basis-full max-md:py-1.5 max-md:pr-12 max-md:text-[15px] max-md:font-semibold">{t("tx.bulk.selected", { count })}</span>
       <Select value="" onValueChange={onCategorize} disabled={categorizePending}>
-        <SelectTrigger className="h-8 w-48 text-xs">
+        <SelectTrigger className="h-8 w-48 text-xs max-md:order-last max-md:h-10 max-md:w-full max-md:text-sm">
           <span className="text-muted-foreground">
             {categorizePending ? t("tx.bulk.applying") : t("tx.bulk.setCategory")}
           </span>
@@ -67,13 +69,13 @@ export function TransactionBulkBar({
         </SelectContent>
       </Select>
       {canAddToPot && (
-        <Button variant="outline" size="sm" className="h-8" onClick={onAddToPot}>
+        <Button variant="outline" size="sm" className="h-8 max-md:h-10" onClick={onAddToPot}>
           <Package className="mr-1.5 h-3.5 w-3.5" />
           {t("tx.bulk.addToPot")}
         </Button>
       )}
       {canReimburse && (
-        <Button variant="outline" size="sm" className="h-8" onClick={onReimburse}>
+        <Button variant="outline" size="sm" className="h-8 max-md:h-10" onClick={onReimburse}>
           <Receipt className="mr-1.5 h-3.5 w-3.5" />
           {t("tx.bulk.markReimbursement")}
         </Button>
@@ -83,7 +85,7 @@ export function TransactionBulkBar({
           <Button
             variant="destructive"
             size="sm"
-            className="h-8"
+            className="h-8 max-md:h-10"
             disabled={deletePending}
             onClick={async () => {
               await onDelete();
@@ -100,7 +102,7 @@ export function TransactionBulkBar({
           <Button
             variant="outline"
             size="sm"
-            className="h-8"
+            className="h-8 max-md:h-10"
             onClick={() => setConfirmingDelete(false)}
           >
             {t("common.cancel")}
@@ -110,7 +112,7 @@ export function TransactionBulkBar({
         <Button
           variant="outline"
           size="sm"
-          className="h-8 text-destructive hover:text-destructive"
+          className="h-8 max-md:h-10 text-destructive hover:text-destructive"
           onClick={() => setConfirmingDelete(true)}
         >
           <Trash2 className="mr-1.5 h-3.5 w-3.5" />
@@ -120,14 +122,15 @@ export function TransactionBulkBar({
       <Button
         variant="ghost"
         size="sm"
-        className="h-8 ml-auto"
+        // Phones: a close button in the bar's corner instead of a row of its own.
+        className="h-8 ml-auto max-md:absolute max-md:right-2 max-md:top-2 max-md:h-10 max-md:w-10 max-md:rounded-full max-md:p-0"
         onClick={() => {
           onClear();
           setConfirmingDelete(false);
         }}
       >
-        <X className="mr-1 h-3.5 w-3.5" />
-        {t("common.clear")}
+        <X className="mr-1 h-3.5 w-3.5 max-md:mr-0 max-md:h-5 max-md:w-5" />
+        <span className="max-md:sr-only">{t("common.clear")}</span>
       </Button>
     </div>
   );

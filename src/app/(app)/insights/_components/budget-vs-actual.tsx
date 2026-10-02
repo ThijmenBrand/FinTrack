@@ -241,12 +241,18 @@ export function BudgetVsActual({
                 </div>
               </div>
               {/* X labels */}
+              {/* A phone fits twelve bars but not twelve month names: every
+                  other one, counted back from the latest, plus the open month. */}
               <div className="mt-1 flex gap-[2px] text-[10px] text-muted-foreground">
-                {months.map((m) => (
+                {months.map((m, i) => (
                   <span
                     key={m.month}
                     className={`flex-1 truncate text-center${
                       m.month === activeMonth ? " font-medium text-foreground" : ""
+                    }${
+                      (months.length - 1 - i) % 2 === 1 && m.month !== activeMonth
+                        ? " max-sm:invisible"
+                        : ""
                     }`}
                   >
                     {monthLabel(i18n, m.month)}

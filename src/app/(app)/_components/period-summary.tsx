@@ -21,7 +21,7 @@ function BudgetBar({ spent, budgeted, t }: { spent: number; budgeted: number; t:
   return (
     <div className="mt-3">
       <div
-        className="relative h-2 rounded-full bg-muted"
+        className="relative h-2 rounded-full bg-muted max-md:h-2.5"
         role="progressbar"
         aria-valuemin={0}
         aria-valuemax={Math.round(budgeted)}
@@ -77,16 +77,19 @@ function Stat({
   const body = (
     <>
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={`text-base font-semibold tabular-nums sm:text-lg ${valueClass ?? ""}`}>
+      <p className={`truncate text-[15px] font-semibold tabular-nums max-md:tracking-tight sm:text-lg ${valueClass ?? ""}`}>
         {value}
       </p>
     </>
   );
-  if (!href) return <div className="min-w-0 flex-1 lg:flex-none">{body}</div>;
+  // Phones: each figure is its own tinted tile, like a widget, rather than
+  // three loose numbers under a rule.
+  const tile = "max-md:rounded-xl max-md:bg-muted/60 max-md:px-2.5 max-md:py-2.5";
+  if (!href) return <div className={`min-w-0 flex-1 lg:flex-none ${tile}`}>{body}</div>;
   return (
     <Link
       href={href}
-      className="min-w-0 flex-1 rounded hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring lg:flex-none"
+      className={`min-w-0 flex-1 rounded hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring active:opacity-70 lg:flex-none ${tile}`}
     >
       {body}
     </Link>
@@ -137,18 +140,26 @@ export async function PeriodSummary({
         <div className="min-w-0 lg:flex-1">
           {hasBudget ? (
             <>
+              {/* Phones lead with the number alone, large, under a small
+                  label — the one figure the app opens to answer. */}
+              <p className="text-[13px] font-medium text-muted-foreground md:hidden">
+                {over ? t("dashboard.hero.over") : t("dashboard.hero.left")}
+              </p>
               <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                 <span
-                  className={`text-xl font-semibold tabular-nums sm:text-2xl ${
+                  className={`font-semibold tabular-nums max-md:text-[2.5rem] max-md:font-bold max-md:leading-tight max-md:tracking-tight md:text-2xl ${
                     over
                       ? "text-red-600 dark:text-red-400"
-                      : "text-emerald-600 dark:text-emerald-400"
+                      : "md:text-emerald-600 md:dark:text-emerald-400"
                   }`}
                 >
-                  {formatCurrency(Math.abs(left))}{" "}
-                  {over ? t("dashboard.overBudget") : t("dashboard.leftToSpend")}
+                  {formatCurrency(Math.abs(left))}
+                  <span className="max-md:hidden">
+                    {" "}
+                    {over ? t("dashboard.overBudget") : t("dashboard.leftToSpend")}
+                  </span>
                 </span>
-                <span className="text-xs text-muted-foreground tabular-nums">
+                <span className="text-xs text-muted-foreground tabular-nums max-md:text-[13px]">
                   {t("dashboard.spentOfWithPct", {
                     spent: formatCurrency(budget.totalBudgetSpent),
                     total: formatCurrency(budget.totalBudgeted),
@@ -188,7 +199,7 @@ export async function PeriodSummary({
             </>
           ) : (
             <>
-              <p className="text-xl font-semibold tabular-nums sm:text-2xl">
+              <p className="text-xl font-semibold tabular-nums max-md:text-[2.5rem] max-md:font-bold max-md:leading-tight max-md:tracking-tight md:text-2xl">
                 {formatCurrency(summary.monthExpenses)}
               </p>
               <p className="mt-1 text-sm text-muted-foreground">
@@ -204,7 +215,7 @@ export async function PeriodSummary({
 
         {/* Amounts are unbreakable, so the tiles shrink with the viewport
             instead of spilling out of their track. */}
-        <div className="flex gap-4 border-t pt-4 sm:gap-8 lg:shrink-0 lg:border-0 lg:pt-0">
+        <div className="flex gap-4 border-t pt-4 max-md:grid max-md:grid-cols-3 max-md:gap-2 max-md:border-0 max-md:pt-0 md:gap-8 lg:shrink-0 lg:border-0 lg:pt-0">
           <Stat
             label={t("dashboard.earned")}
             value={formatCurrency(summary.monthIncome)}
@@ -236,12 +247,12 @@ export function PeriodSummarySkeleton() {
     <Card>
       <CardContent className="flex flex-col gap-5 p-4 sm:p-6 lg:flex-row lg:items-center lg:gap-10">
         <div className="lg:flex-1">
-          <Skeleton className="h-7 w-64" />
+          <Skeleton className="h-7 w-64 max-md:h-11 max-md:w-48" />
           <Skeleton className="mt-3 h-2 w-full rounded-full" />
         </div>
-        <div className="flex gap-4 border-t pt-4 sm:gap-8 lg:shrink-0 lg:border-0 lg:pt-0">
+        <div className="flex gap-4 border-t pt-4 max-md:grid max-md:grid-cols-3 max-md:gap-2 max-md:border-0 max-md:pt-0 md:gap-8 lg:shrink-0 lg:border-0 lg:pt-0">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="flex-1 lg:flex-none">
+            <div key={i} className="flex-1 max-md:rounded-xl max-md:bg-muted/60 max-md:px-2.5 max-md:py-2.5 lg:flex-none">
               <Skeleton className="mb-1.5 h-3 w-12" />
               <Skeleton className="h-6 w-24" />
             </div>

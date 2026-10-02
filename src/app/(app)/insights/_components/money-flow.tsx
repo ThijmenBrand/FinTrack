@@ -177,7 +177,7 @@ export function MoneyFlow({
         onToggle={(e) => onOpenChange(e.currentTarget.open)}
         className="group"
       >
-        <summary className="flex cursor-pointer list-none flex-row flex-wrap items-baseline gap-2 px-6 py-5 [&::-webkit-details-marker]:hidden">
+        <summary className="flex cursor-pointer list-none flex-row flex-wrap items-baseline gap-2 px-6 py-5 max-md:px-4 max-md:py-4 [&::-webkit-details-marker]:hidden">
           <ChevronRight className="h-4 w-4 shrink-0 self-center text-muted-foreground transition-transform group-[[open]]:rotate-90" />
           <CardTitle className="text-base">{t("insights.flow.title")}</CardTitle>
           <span className="text-xs text-muted-foreground">

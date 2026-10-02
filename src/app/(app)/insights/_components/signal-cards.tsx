@@ -154,24 +154,33 @@ export function SignalCards({
   if (signals.length === 0) return null;
 
   return (
-    <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
+    // Phones swipe through the signals as a row of cards — stacked, four of
+    // them pushed every chart a screen further down. Keyed on the set: signals
+    // arrive as their data does, and a snap row keeps whichever card it was
+    // snapped to, so a late first card left the row scrolled to the end.
+    <div
+      key={signals.map((s) => s.key).join()}
+      className="scrollbar-hide grid gap-2.5 max-sm:-mx-4 max-sm:flex max-sm:snap-x max-sm:snap-mandatory max-sm:scroll-px-4 max-sm:overflow-x-auto max-sm:px-4 sm:grid-cols-2 xl:grid-cols-4"
+    >
       {signals.map((s) => {
         const tone = TONES[s.tone];
         const body = (
           <>
-            <div className={`text-xs font-semibold ${tone.title}`}>{s.title}</div>
-            <div className="mt-0.5 text-xs text-muted-foreground tabular-nums">
+            <div className={`text-xs font-semibold max-sm:text-sm ${tone.title}`}>{s.title}</div>
+            <div className="mt-0.5 text-xs text-muted-foreground tabular-nums max-sm:mt-1 max-sm:text-[13px]">
               {s.detail}
             </div>
           </>
         );
-        const className = `rounded-lg border px-3.5 py-2.5 ${tone.border}`;
+        const className = `rounded-lg border px-3.5 py-2.5 ${tone.border} max-sm:w-[78%] max-sm:shrink-0 max-sm:snap-start max-sm:rounded-2xl max-sm:bg-card max-sm:p-4 max-sm:shadow-sm ${
+          signals.length === 1 ? "max-sm:w-full" : ""
+        }`;
         return s.onClick ? (
           <button
             key={s.key}
             type="button"
             onClick={s.onClick}
-            className={`${className} text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
+            className={`${className} text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:bg-muted/50`}
           >
             {body}
           </button>

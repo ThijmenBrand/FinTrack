@@ -22,7 +22,7 @@ export function SavingTowardList({ spikes }: SavingTowardListProps) {
 
   return (
     <>
-      <div className="space-y-3">
+      <div className="space-y-3 max-md:space-y-0">
         {spikes.map((spike) => {
           const pct =
             spike.targetAmount > 0
@@ -54,7 +54,7 @@ export function SavingTowardList({ spikes }: SavingTowardListProps) {
                   setDetailPotId(spike.id);
                 }
               }}
-              className="rounded-lg border p-3 space-y-2 cursor-pointer transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring outline-none"
+              className="rounded-lg border p-3 space-y-2 cursor-pointer transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring outline-none max-md:rounded-none max-md:border-x-0 max-md:border-t-0 max-md:border-border/60 max-md:px-0 max-md:py-4 max-md:first:pt-1 max-md:last:border-b-0 max-md:last:pb-0"
             >
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
@@ -87,12 +87,19 @@ export function SavingTowardList({ spikes }: SavingTowardListProps) {
                     {formatDate(spike.targetDate)} · {paydaysLabel}
                   </p>
                 </div>
-                <p className="text-sm font-semibold tabular-nums whitespace-nowrap">
-                  {formatCurrency(spike.fundedAmount)}{" "}
-                  <span className="text-muted-foreground font-normal">
+                {/* Phones stack the target under the amount so the name and
+                    date keep the width instead of wrapping. */}
+                <div className="shrink-0 text-right">
+                  <p className="text-sm font-semibold tabular-nums whitespace-nowrap">
+                    {formatCurrency(spike.fundedAmount)}
+                    <span className="text-muted-foreground font-normal max-md:hidden">
+                      {" "}/ {formatCurrency(spike.targetAmount)}
+                    </span>
+                  </p>
+                  <p className="text-xs text-muted-foreground tabular-nums md:hidden">
                     / {formatCurrency(spike.targetAmount)}
-                  </span>
-                </p>
+                  </p>
+                </div>
               </div>
 
               <div
@@ -137,6 +144,13 @@ export function SavingTowardList({ spikes }: SavingTowardListProps) {
                 <Button
                   size="sm"
                   variant={isFullyFunded ? "outline" : "default"}
+                  // Tinted, not solid, on a phone: two filled buttons in one
+                  // card shouted over the goals they belong to.
+                  className={`max-md:h-9 max-md:rounded-full max-md:px-4 ${
+                    isFullyFunded
+                      ? ""
+                      : "max-md:bg-primary/10 max-md:text-primary max-md:shadow-none max-md:hover:bg-primary/15"
+                  }`}
                   onClick={(e) => {
                     e.stopPropagation();
                     setActiveSpike(spike);

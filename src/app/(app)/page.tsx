@@ -59,32 +59,32 @@ function DashboardHeader({
   const { daysLeft, progress } = getPeriodProgress(now, startDay);
 
   return (
-    <div className="flex flex-wrap items-end justify-between gap-2">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">{t("dashboard.title")}</h1>
-        <p className="text-sm text-muted-foreground">
-          {plural(daysLeft, "dashboard.periodLine.one", "dashboard.periodLine.other", {
-            label: formatFinancialMonthLabel(now, startDay, intlLocale),
-            pct: Math.round(progress * 100),
-          })}
+    // Phones put the budgets link beside the large title, where a native app
+    // keeps its one header action; wider screens keep it on the bottom edge.
+    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 md:items-end">
+      <h1 className="text-3xl font-bold tracking-tight md:text-2xl">{t("dashboard.title")}</h1>
+      <p className="col-span-2 row-start-2 text-sm text-muted-foreground md:col-span-1">
+        {plural(daysLeft, "dashboard.periodLine.one", "dashboard.periodLine.other", {
+          label: formatFinancialMonthLabel(now, startDay, intlLocale),
+          pct: Math.round(progress * 100),
+        })}
+      </p>
+      {/* Every number below is a pinned budget's, which the page otherwise
+          never says — and without a way out you'd be stuck on a link. */}
+      {pinnedPlanName && (
+        <p className="col-span-2 row-start-3 mt-1 flex flex-wrap items-center gap-x-2 text-sm md:col-span-1">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-0.5 font-medium">
+            <Wallet className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            {t("dashboard.pinnedToBudget", { name: pinnedPlanName })}
+          </span>
+          <Link href="/" className="rounded text-primary hover:underline focus-visible:ring-2 focus-visible:ring-ring">
+            {t("dashboard.clearPinnedBudget")}
+          </Link>
         </p>
-        {/* Every number below is a pinned budget's, which the page otherwise
-            never says — and without a way out you'd be stuck on a link. */}
-        {pinnedPlanName && (
-          <p className="mt-1 flex flex-wrap items-center gap-x-2 text-sm">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-0.5 font-medium">
-              <Wallet className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              {t("dashboard.pinnedToBudget", { name: pinnedPlanName })}
-            </span>
-            <Link href="/" className="rounded text-primary hover:underline focus-visible:ring-2 focus-visible:ring-ring">
-              {t("dashboard.clearPinnedBudget")}
-            </Link>
-          </p>
-        )}
-      </div>
+      )}
       <Link
         href="/budgets"
-        className="flex shrink-0 items-center gap-0.5 rounded text-sm text-primary hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+        className="col-start-2 row-start-1 flex shrink-0 items-center gap-0.5 rounded text-sm text-primary hover:underline focus-visible:ring-2 focus-visible:ring-ring max-md:h-8 max-md:rounded-full max-md:bg-primary/10 max-md:px-3 max-md:font-medium max-md:hover:no-underline md:row-span-3 md:self-end"
       >
         {t("dashboard.allBudgets")}{" "}
         <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
@@ -170,7 +170,9 @@ export default async function DashboardPage({
 
       {/* Budgets carry the page, so they get the wide column; the side cards
           are all glanceable and keep their fixed width. */}
-      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_21rem]">
+      {/* grid-cols-1 is minmax(0,1fr): the implicit mobile column is `auto`,
+          which let a wide budget row stretch the card past the screen. */}
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_21rem]">
         <div className="space-y-4">
           <Suspense fallback={<BudgetCategoriesSkeleton />}>
             <BudgetCategories userId={userId} startDay={startDay} planId={pinnedPlanId} />

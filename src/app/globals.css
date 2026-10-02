@@ -168,10 +168,33 @@
     @apply border-border;
     -webkit-tap-highlight-color: transparent;
   }
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
   body {
     @apply bg-background text-foreground;
     font-feature-settings: "rlig" 1, "calt" 1;
+    /* The app scrolls inside <main>; without this, dragging past either end
+       rubber-bands the whole window — tab bar included — like a web page. */
+    overscroll-behavior: none;
   }
+  /* No 300ms double-tap-zoom wait on anything tappable. */
+  a,
+  button,
+  [role="button"],
+  label,
+  summary {
+    touch-action: manipulation;
+  }
+}
+
+/* Navigation chrome (tab bar, title bar): a long press must not select its
+   labels or pop the link-preview callout, as it never would in a native app. */
+.app-chrome {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 
 @supports (padding-bottom: env(safe-area-inset-bottom)) {
@@ -279,7 +302,9 @@
   ::view-transition-old(app-sidebar),
   ::view-transition-new(app-sidebar),
   ::view-transition-old(app-bottom-nav),
-  ::view-transition-new(app-bottom-nav) {
+  ::view-transition-new(app-bottom-nav),
+  ::view-transition-old(app-top-bar),
+  ::view-transition-new(app-top-bar) {
     animation: none !important;
   }
 }

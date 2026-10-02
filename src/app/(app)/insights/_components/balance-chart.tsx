@@ -101,8 +101,16 @@ export function BalanceChart({ data, isLoading, accountLabel, resets }: Props) {
     initialEnd: number;
   } | null>(null);
 
+  const points: Point[] = useMemo(() => data?.historical ?? [], [data]);
+
+  const isEmpty = !isLoading && points.length === 0;
+  const showsChart = !isLoading && !isEmpty;
+
+  // The chart container only mounts once data is in — the loading card has no
+  // ref to measure. Measuring on mount alone left the 600px default in place,
+  // and a phone drew a desktop-width chart squeezed to a third of its width.
   useEffect(() => {
-    if (!containerRef.current) return;
+    if (!showsChart || !containerRef.current) return;
     const el = containerRef.current;
     const measure = () => {
       const w = el.clientWidth;
@@ -112,11 +120,7 @@ export function BalanceChart({ data, isLoading, accountLabel, resets }: Props) {
     const ro = new ResizeObserver(() => measure());
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
-
-  const points: Point[] = useMemo(() => data?.historical ?? [], [data]);
-
-  const isEmpty = !isLoading && points.length === 0;
+  }, [showsChart]);
 
   const isMobile = containerWidth < MOBILE_BREAKPOINT;
   const W = containerWidth;
@@ -247,7 +251,12 @@ export function BalanceChart({ data, isLoading, accountLabel, resets }: Props) {
     const stepIdx = Math.max(1, Math.floor(visN / desired));
     const out: number[] = [];
     for (let i = visStart; i <= visEnd; i += stepIdx) out.push(i);
-    if (out[out.length - 1] !== visEnd) out.push(visEnd);
+    if (out[out.length - 1] !== visEnd) {
+      // The last date always gets a label; a regular tick that lands too close
+      // before it gives way rather than printing on top of it.
+      if (out.length > 1 && visEnd - out[out.length - 1] < stepIdx / 2) out.pop();
+      out.push(visEnd);
+    }
     return out;
   })();
 
@@ -448,7 +457,8 @@ export function BalanceChart({ data, isLoading, accountLabel, resets }: Props) {
                   key={`x-${i}`}
                   x={x}
                   y={H - PAD_B + 16}
-                  textAnchor="middle"
+                  // Centred, the last date ran off the right edge.
+                  textAnchor={i === visEnd && xTicks.length > 1 ? "end" : "middle"}
                   className="fill-muted-foreground"
                   fontSize={fontSize}
                 >

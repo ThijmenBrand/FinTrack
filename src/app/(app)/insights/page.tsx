@@ -51,6 +51,16 @@ const PRESET_TO_TX_PERIOD: Partial<Record<PresetKey, string>> = {
   this_year: "this-year",
 };
 
+/** Every preset, in the order a phone shows them as chips. */
+const PRESET_OPTIONS: { key: PresetKey; labelKey: MessageKey }[] = [
+  { key: "this_month", labelKey: "insights.range.thisMonth" },
+  { key: "last_month", labelKey: "insights.range.lastMonth" },
+  { key: "last_3_months", labelKey: "insights.range.last3Months" },
+  { key: "this_year", labelKey: "insights.range.thisYear" },
+  { key: "all", labelKey: "insights.range.allTime" },
+  { key: "custom", labelKey: "insights.range.custom" },
+];
+
 function getPresetRange(preset: PresetKey, startDay: number): { from: string; to: string } {
   const now = new Date();
   const y = now.getFullYear();
@@ -550,7 +560,7 @@ export default function InsightsPage() {
   return (
     // Simple mode is one narrow column of sentences — centre it (header included)
     // so it doesn't sit against the left edge with a page of empty space beside it.
-    <div className={`space-y-6${simple ? " mx-auto max-w-4xl" : ""}`}>
+    <div className={`space-y-4 md:space-y-6${simple ? " mx-auto max-w-4xl" : ""}`}>
       {/* Header */}
       <div className="flex items-end justify-between flex-wrap gap-4">
         <div>
@@ -586,16 +596,22 @@ export default function InsightsPage() {
             )}
           </p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        {/* Phones: the budget switch runs the full width as a segmented
+            control, and the ranges become a row of chips — one tap each,
+            instead of a dropdown to open first. */}
+        <div className="flex items-center gap-2 flex-wrap max-md:w-full max-md:flex-col max-md:items-stretch max-md:gap-3">
           {showBudgetTabs && (
             <Tabs
               value={selectedBudget ?? OVERALL}
               onValueChange={setSelectedBudget}
+              className="max-md:w-full"
             >
-              <TabsList>
-                <TabsTrigger value={OVERALL}>{t("insights.overall")}</TabsTrigger>
+              <TabsList className="scrollbar-hide max-md:flex max-md:w-full max-md:justify-start max-md:overflow-x-auto">
+                <TabsTrigger value={OVERALL} className="max-md:flex-1">
+                  {t("insights.overall")}
+                </TabsTrigger>
                 {plans.map((p) => (
-                  <TabsTrigger key={p.id} value={p.id} className="gap-1.5">
+                  <TabsTrigger key={p.id} value={p.id} className="gap-1.5 max-md:flex-1">
                     {p.isMain && (
                       <Star
                         className="h-3 w-3 fill-current text-amber-500"
@@ -608,37 +624,61 @@ export default function InsightsPage() {
               </TabsList>
             </Tabs>
           )}
+          <div
+            role="radiogroup"
+            aria-label={t("insights.rangeLabel")}
+            className="scrollbar-hide -mx-4 flex gap-2 overflow-x-auto px-4 md:hidden"
+          >
+            {PRESET_OPTIONS.map((o) => {
+              const active = preset === o.key;
+              return (
+                <button
+                  key={o.key}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  onClick={() => handlePresetChange(o.key)}
+                  className={`h-9 shrink-0 rounded-full border px-4 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                    active
+                      ? "border-foreground bg-foreground text-background"
+                      : "bg-card text-foreground/80 active:bg-muted"
+                  }`}
+                >
+                  {t(o.labelKey)}
+                </button>
+              );
+            })}
+          </div>
           <Select value={preset} onValueChange={handlePresetChange}>
             {/* Auto width: fixed 160px clipped longer labels in Dutch. */}
-            <SelectTrigger className="w-auto min-w-[160px]">
+            <SelectTrigger className="w-auto min-w-[160px] max-md:hidden">
               <Calendar className="mr-2 h-4 w-4" />
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">{t("insights.range.allTime")}</SelectItem>
-              <SelectItem value="this_month">{t("insights.range.thisMonth")}</SelectItem>
-              <SelectItem value="last_month">{t("insights.range.lastMonth")}</SelectItem>
-              <SelectItem value="last_3_months">{t("insights.range.last3Months")}</SelectItem>
-              <SelectItem value="this_year">{t("insights.range.thisYear")}</SelectItem>
-              <SelectItem value="custom">{t("insights.range.custom")}</SelectItem>
+              {PRESET_OPTIONS.map((o) => (
+                <SelectItem key={o.key} value={o.key}>
+                  {t(o.labelKey)}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
           {preset === "custom" && (
-            <>
+            <div className="flex items-center gap-2">
               <Input
                 type="date"
                 value={customDateFrom}
                 onChange={(e) => setCustomDateFrom(e.target.value)}
-                className="w-[150px]"
+                className="w-[150px] max-md:w-auto max-md:min-w-0 max-md:flex-1"
               />
               <span className="text-muted-foreground">{t("insights.rangeTo")}</span>
               <Input
                 type="date"
                 value={customDateTo}
                 onChange={(e) => setCustomDateTo(e.target.value)}
-                className="w-[150px]"
+                className="w-[150px] max-md:w-auto max-md:min-w-0 max-md:flex-1"
               />
-            </>
+            </div>
           )}
         </div>
       </div>
@@ -679,7 +719,7 @@ export default function InsightsPage() {
           {/* A comparison that reaches back past the reset would report the reset
               itself as a change in spending, so it's withheld rather than shown. */}
           {data.previousPredatesReset && data.statsCutoff && (
-            <p className="-mt-4 text-xs text-muted-foreground">
+            <p className="-mt-2 text-xs text-muted-foreground md:-mt-4">
               {t("insights.noComparison", {
                 label: deltaLabel ?? t("insights.delta.fallback"),
                 date: formatDate(data.statsCutoff),

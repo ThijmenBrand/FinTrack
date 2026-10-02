@@ -23,10 +23,31 @@ import { TONE_TEXT } from "@/app/(app)/budgets/_components/budget-row";
  */
 const VISIBLE_ROWS = 7;
 
-// Date gutter, name + meta, amount. Mobile drops to two columns — the gutter
-// is hidden and the date moves into the meta line, where it costs no width.
+// Date gutter, name + meta, amount. On a phone the gutter is a calendar tile —
+// day over month — the way a native agenda list marks its rows.
 const ROW =
-  "grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 gap-y-0.5 py-2 sm:grid-cols-[4.75rem_minmax(0,1fr)_auto]";
+  "grid grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 py-2.5 sm:grid-cols-[4.75rem_minmax(0,1fr)_auto] sm:items-baseline sm:py-2";
+
+function DateTile({ event, i18n }: { event: UpcomingMoneyEvent; i18n: I18n }) {
+  const [y, m, d] = event.date.split("-").map(Number);
+  return (
+    <span
+      className={`flex h-10 w-10 flex-col items-center justify-center rounded-xl leading-none sm:hidden ${
+        event.overdue
+          ? "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400"
+          : event.daysUntil <= 1
+            ? "bg-primary/10 text-primary"
+            : "bg-muted text-foreground"
+      }`}
+      aria-hidden="true"
+    >
+      <span className="text-[15px] font-semibold tabular-nums">{d}</span>
+      <span className="mt-0.5 text-[9px] font-medium uppercase tracking-wide opacity-70">
+        {i18n.formatMonthShort(new Date(y, m - 1, d)).replace(".", "")}
+      </span>
+    </span>
+  );
+}
 
 /**
  * The one badge a row may carry. Only the next two days and anything already
@@ -65,6 +86,7 @@ function EventRow({ event, i18n }: { event: UpcomingMoneyEvent; i18n: I18n }) {
 
   return (
     <li className={ROW}>
+      <DateTile event={event} i18n={i18n} />
       <span
         className={`hidden text-xs tabular-nums sm:block ${
           event.overdue
@@ -89,7 +111,7 @@ function EventRow({ event, i18n }: { event: UpcomingMoneyEvent; i18n: I18n }) {
           <span className="truncate text-sm font-medium">{event.description}</span>
           {badge && (
             <span
-              className={`shrink-0 rounded-full border px-1.5 py-0 text-[10px] font-normal ${badge.className}`}
+              className={`shrink-0 rounded-full border px-1.5 py-0 text-[10px] font-normal max-sm:hidden ${badge.className}`}
               title={
                 event.overdue
                   ? t("dashboard.upcoming.overdueHint", { date })
@@ -101,9 +123,22 @@ function EventRow({ event, i18n }: { event: UpcomingMoneyEvent; i18n: I18n }) {
           )}
         </div>
         <p className="truncate text-xs text-muted-foreground">
-          {/* The gutter is gone at this width, so the date rides along here. */}
-          <span className="sm:hidden">{date}</span>
-          {meta && <span className="sm:hidden"> · </span>}
+          {/* The tile carries the date on a phone; screen readers still get it. */}
+          <span className="sr-only sm:hidden">
+            {date}
+            {meta && " · "}
+          </span>
+          {/* Beside the name the badge cut it short; here it costs nothing. */}
+          {badge && (
+            <span
+              className={`font-medium sm:hidden ${
+                event.overdue ? TONE_TEXT.warning : "text-primary"
+              }`}
+            >
+              {badge.label}
+              {meta && " · "}
+            </span>
+          )}
           {meta}
         </p>
       </div>
@@ -201,10 +236,10 @@ export async function UpcomingMoneyCard({
       <CardContent className="pb-4">
         {/* What the rows below add up to, in the same shape the recurring page
             states a month in: the net first, then the two sides of it. */}
-        <div className="mb-3 flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b pb-3">
-          <div className="flex items-baseline gap-2">
+        <div className="mb-1 flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b pb-3 max-sm:grid max-sm:grid-cols-2 sm:mb-3">
+          <div className="flex items-baseline gap-2 max-sm:col-span-2">
             <span
-              className={`text-lg font-semibold tabular-nums ${
+              className={`text-lg font-semibold tabular-nums max-sm:text-2xl max-sm:font-bold max-sm:tracking-tight ${
                 money.net >= 0 ? TONE_TEXT.positive : TONE_TEXT.negative
               }`}
             >
@@ -223,7 +258,7 @@ export async function UpcomingMoneyCard({
           </span>
         </div>
 
-        <ul>
+        <ul className="max-sm:divide-y max-sm:divide-border/60">
           {visible.map((event, i) => (
             <Fragment key={event.key}>
               {showBreak && i === breakIndex && (
