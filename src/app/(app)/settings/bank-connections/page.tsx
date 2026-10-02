@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ShieldCheck, TriangleAlert } from "lucide-react";
 import { SettingsHeader, SettingsPanel } from "@/components/settings/settings-ui";
@@ -26,6 +26,24 @@ export default function BankConnectionsPage() {
   const stepUp = useStepUp();
   const [connectOpen, setConnectOpen] = useState(false);
   const [reconnect, setReconnect] = useState<BankConnectionView | null>(null);
+  // A connection whose unlinked accounts are being linked after its trip to the bank.
+  const [linking, setLinking] = useState<string | null>(null);
+  const linkingRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (linking) linkingRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [linking]);
+
+  const linkedAccountIds = new Set(status?.connections.flatMap((c) => c.links.map((l) => l.accountId)));
+  const hasUnlinked = (c: BankConnectionView) => c.accounts.some((a) => !a.linkedAccountId);
+  // One panel per bank connected in a row, each keyed by its trip, so saving
+  // one never hands its choices to the next.
+  const pending = (status?.pendingMappings ?? []).flatMap((p) => {
+    const connection = status?.connections.find((c) => c.id === p.connectionId);
+    return connection && hasUnlinked(connection) ? [{ ...p, connection }] : [];
+  });
+  const mappingOpen = new Set(pending.map((p) => p.connectionId));
+  const later = status?.connections.find((c) => c.id === linking && hasUnlinked(c) && !mappingOpen.has(c.id));
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: BANK_SYNC_KEY });
@@ -50,15 +68,25 @@ export default function BankConnectionsPage() {
         </SettingsPanel>
       ) : (
         <>
-          {status.pendingMapping && (
-            <MappingPanel mapping={status.pendingMapping} accounts={accounts} onDone={refresh} />
-          )}
+          {pending.map((p) => (
+            <MappingPanel
+              key={p.authStateId}
+              connection={p.connection}
+              authStateId={p.authStateId}
+              accounts={accounts}
+              linkedAccountIds={linkedAccountIds}
+              run={stepUp.run}
+              onDone={refresh}
+            />
+          ))}
           <SetupPanel status={status} run={stepUp.run} onChanged={refresh} />
           <ConnectionsPanel
             status={status}
             accounts={accounts}
             run={stepUp.run}
             onChanged={refresh}
+            canLink={(c) => hasUnlinked(c) && !mappingOpen.has(c.id) && c.id !== later?.id}
+            onLinkAccounts={(c) => setLinking(c.id)}
             onConnect={() => {
               setReconnect(null);
               setConnectOpen(true);
@@ -68,6 +96,22 @@ export default function BankConnectionsPage() {
               setConnectOpen(true);
             }}
           />
+          {later && (
+            <div ref={linkingRef} className="scroll-mt-4">
+              <MappingPanel
+                key={later.id}
+                connection={later}
+                accounts={accounts}
+                linkedAccountIds={linkedAccountIds}
+                run={stepUp.run}
+                onDone={() => {
+                  setLinking(null);
+                  refresh();
+                }}
+                onCancel={() => setLinking(null)}
+              />
+            </div>
+          )}
           <p className="flex items-start gap-2 text-xs leading-relaxed text-muted-foreground">
             <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             {t("bankSync.securityNote")}

@@ -250,6 +250,61 @@ describe("POST /api/bank-sync/links", () => {
   });
 });
 
+describe("POST /api/bank-sync/connections/:id/links", () => {
+  // Two bank accounts at one bank; the trip to it is long over.
+  async function connection(userId = A) {
+    await exec(
+      `INSERT INTO bank_connections (id, user_id, credential_id, aspsp_name, aspsp_country, session_id_enc, status, available_accounts, created_at, updated_at)
+       VALUES ('conn-a', ?, 'cred-a', 'Mock Bank', 'NL', 'v1:x', 'active', ?, ?, ?)`,
+      [userId, JSON.stringify([
+        { uid: "uid-1", iban: "NL01BANK0000000001", name: "Checking", currency: "EUR" },
+        { uid: "uid-2", iban: "NL01BANK0000000002", name: "Savings", currency: "EUR" },
+      ]), now(), now()],
+    );
+  }
+
+  async function link(body: Record<string, unknown>, id = "conn-a") {
+    const { POST } = await import("./connections/[id]/links/route");
+    return POST(req(`/api/bank-sync/connections/${id}/links`, { method: "POST", body: JSON.stringify(body) }), {
+      params: Promise.resolve({ id }),
+    });
+  }
+
+  it("needs a fresh step-up", async () => {
+    await connection();
+    const res = await link({ links: [{ uid: "uid-1", accountId: "acc-a", syncFrom: "2026-09-01" }] });
+    expect(res.status).toBe(403);
+    expect(await rows("SELECT * FROM bank_account_links")).toHaveLength(0);
+  });
+
+  it("links an account the trip didn't, and queues its first sync", async () => {
+    await connection();
+    await grantStepUp();
+    const res = await link({ links: [{ uid: "uid-2", accountId: "acc-a", syncFrom: "2026-09-01" }] });
+    expect(res.status).toBe(201);
+    expect(await rows("SELECT account_id, external_uid FROM bank_account_links")).toEqual([
+      { account_id: "acc-a", external_uid: "uid-2" },
+    ]);
+    expect((await rows("SELECT type FROM jobs"))[0].type).toBe("bank.sync_link");
+  });
+
+  it("won't link a bank account twice", async () => {
+    await connection();
+    await grantStepUp();
+    expect((await link({ links: [{ uid: "uid-1", accountId: "acc-a", syncFrom: "2026-09-01" }] })).status).toBe(201);
+    const res = await link({ links: [{ uid: "uid-1", newAccount: { name: "Again", type: "checking" }, syncFrom: "2026-09-01" }] });
+    expect(res.status).toBe(409);
+    expect(await rows("SELECT * FROM bank_account_links")).toHaveLength(1);
+  });
+
+  it("answers 404 for another user's connection", async () => {
+    await connection(B);
+    await grantStepUp();
+    const res = await link({ links: [{ uid: "uid-1", accountId: "acc-a", syncFrom: "2026-09-01" }] });
+    expect(res.status).toBe(404);
+  });
+});
+
 describe("GET /api/bank-sync/requests/:id", () => {
   it("answers 404 for another user's job", async () => {
     await exec(
@@ -276,5 +331,20 @@ describe("GET /api/bank-sync/status", () => {
     expect(text).not.toContain("KEYSECRET");
     expect(text).not.toContain("SESSIONSECRET");
     expect(JSON.parse(text).connections).toHaveLength(1);
+  });
+
+  it("keeps every bank connected in a row open for mapping, not just the newest", async () => {
+    for (const id of ["conn-1", "conn-2"]) {
+      await exec(
+        `INSERT INTO bank_connections (id, user_id, credential_id, aspsp_name, aspsp_country, session_id_enc, status, available_accounts, created_at, updated_at)
+         VALUES (?, ?, 'cred-a', 'Mock Bank', 'NL', 'v1:x', 'active', ?, ?, ?)`,
+        [id, A, JSON.stringify([{ uid: `${id}-uid`, iban: null, name: null, currency: "EUR" }]), now(), now()],
+      );
+      await authState({ raw: `${RAW}${id}`, usedAt: now(), connectionId: id });
+    }
+    const { GET } = await import("./status/route");
+    const status = await (await GET()).json();
+    expect(status.pendingMappings.map((p: { connectionId: string }) => p.connectionId).sort()).toEqual(["conn-1", "conn-2"]);
+    expect(status.connections[0].accounts[0]).toMatchObject({ uid: "conn-1-uid", linkedAccountId: null });
   });
 });
