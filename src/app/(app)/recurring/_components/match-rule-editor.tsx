@@ -38,6 +38,7 @@ export function MatchRuleEditor({
   const [editing, setEditing] = useState(false);
   const [pattern, setPattern] = useState("");
   const [field, setField] = useState("name");
+  const [descriptionPattern, setDescriptionPattern] = useState("");
   // What the last save did to history — said once, then gone on the next edit.
   const [linked, setLinked] = useState<number | null>(null);
 
@@ -48,6 +49,7 @@ export function MatchRuleEditor({
         plan.description,
     );
     setField(plan.matchField);
+    setDescriptionPattern(plan.matchDescriptionPattern ?? "");
     setLinked(null);
     update.reset();
     setEditing(true);
@@ -55,7 +57,11 @@ export function MatchRuleEditor({
 
   // Nothing awaits the click, so a failure is caught here; `update.isError`
   // is what tells the user.
-  const save = async (next: { matchPattern: string | null; matchField?: string }) => {
+  const save = async (next: {
+    matchPattern: string | null;
+    matchField?: string;
+    matchDescriptionPattern?: string | null;
+  }) => {
     try {
       const res = (await update.mutateAsync({ id: plan.id, ...next })) as { linked?: number };
       setLinked(next.matchPattern ? (res.linked ?? 0) : null);
@@ -77,9 +83,15 @@ export function MatchRuleEditor({
 
           {!editing && (
             <p className="mt-1 text-sm text-muted-foreground">
-              {plan.matchPattern
-                ? t("recurring.rule.active", { field: fieldLabel.toLowerCase(), pattern: plan.matchPattern })
-                : t("recurring.rule.none")}
+              {!plan.matchPattern
+                ? t("recurring.rule.none")
+                : plan.matchDescriptionPattern
+                  ? t("recurring.rule.activeWithDescription", {
+                      field: fieldLabel.toLowerCase(),
+                      pattern: plan.matchPattern,
+                      description: plan.matchDescriptionPattern,
+                    })
+                  : t("recurring.rule.active", { field: fieldLabel.toLowerCase(), pattern: plan.matchPattern })}
             </p>
           )}
           {!editing && linked !== null && (
@@ -92,40 +104,61 @@ export function MatchRuleEditor({
 
           {editing && (
             <form
-              className="mt-3 flex flex-wrap items-center gap-2"
+              className="mt-3 flex flex-col gap-2"
               onSubmit={(e) => {
                 e.preventDefault();
-                if (pattern.trim()) save({ matchPattern: pattern.trim(), matchField: field });
+                if (pattern.trim()) {
+                  save({
+                    matchPattern: pattern.trim(),
+                    matchField: field,
+                    matchDescriptionPattern: descriptionPattern.trim() || null,
+                  });
+                }
               }}
             >
-              <Select value={field} onValueChange={setField}>
-                <SelectTrigger className="w-auto min-w-36" aria-label={t("categories.rule.matchFieldLabel")}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {MATCH_FIELDS.map((f) => (
-                    <SelectItem key={f.value} value={f.value}>
-                      {t(f.labelKey)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <span className="text-sm text-muted-foreground">{t("recurring.rule.contains")}</span>
-              <Input
-                className="min-w-48 flex-1"
-                value={pattern}
-                maxLength={200}
-                onChange={(e) => setPattern(e.target.value)}
-                aria-label={t("categories.rule.patternLabel")}
-                autoFocus
-              />
-              <Button type="submit" size="sm" disabled={!pattern.trim() || update.isPending}>
-                {update.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                {t("common.save")}
-              </Button>
-              <Button type="button" variant="ghost" size="sm" onClick={() => setEditing(false)}>
-                {t("common.cancel")}
-              </Button>
+              <div className="flex flex-wrap items-center gap-2">
+                <Select value={field} onValueChange={setField}>
+                  <SelectTrigger className="w-auto min-w-36" aria-label={t("categories.rule.matchFieldLabel")}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MATCH_FIELDS.map((f) => (
+                      <SelectItem key={f.value} value={f.value}>
+                        {t(f.labelKey)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <span className="text-sm text-muted-foreground">{t("recurring.rule.contains")}</span>
+                <Input
+                  className="min-w-48 flex-1"
+                  value={pattern}
+                  maxLength={200}
+                  onChange={(e) => setPattern(e.target.value)}
+                  aria-label={t("categories.rule.patternLabel")}
+                  autoFocus
+                />
+              </div>
+              {/* The AND: two plans paid to one person ("J. de Vries") differ
+                  only in what the memo says the money is for. */}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm text-muted-foreground">{t("recurring.rule.andDescription")}</span>
+                <Input
+                  className="min-w-48 flex-1"
+                  value={descriptionPattern}
+                  maxLength={200}
+                  placeholder={t("recurring.rule.descriptionOptional")}
+                  onChange={(e) => setDescriptionPattern(e.target.value)}
+                  aria-label={t("recurring.rule.descriptionPatternLabel")}
+                />
+                <Button type="submit" size="sm" disabled={!pattern.trim() || update.isPending}>
+                  {update.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  {t("common.save")}
+                </Button>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setEditing(false)}>
+                  {t("common.cancel")}
+                </Button>
+              </div>
             </form>
           )}
           {update.isError && (

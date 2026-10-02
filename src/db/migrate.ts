@@ -258,14 +258,20 @@ export async function initializeDatabase() {
 
   // The rebuild above copies a fixed column list, so on a database whose table
   // came from the versioned migrations it runs once AFTER them and drops every
-  // column added since — match_pattern/match_field (0032) among them, while the
-  // ledger already says 0032 is done. Re-add them; idempotent once present.
-  await db
-    .run(sql`ALTER TABLE recurring_transactions ADD COLUMN match_pattern TEXT`)
-    .catch(() => {});
-  await db
-    .run(sql`ALTER TABLE recurring_transactions ADD COLUMN match_field TEXT NOT NULL DEFAULT 'name'`)
-    .catch(() => {});
+  // column added since — match_pattern/match_field (0032), the logo columns
+  // (0034) and match_description_pattern (0035) — while the ledger already
+  // says those are done. Re-add them; idempotent once present. A column added
+  // to recurring_transactions by a later migration belongs here too.
+  for (const column of [
+    sql`match_pattern TEXT`,
+    sql`match_field TEXT NOT NULL DEFAULT 'name'`,
+    sql`logo_key TEXT`,
+    sql`logo_source TEXT`,
+    sql`logo_checked_at TEXT`,
+    sql`match_description_pattern TEXT`,
+  ]) {
+    await db.run(sql`ALTER TABLE recurring_transactions ADD COLUMN ${column}`).catch(() => {});
+  }
 
   // The Reserved (set-aside) feature was removed: fold its transactions back
   // into income/expense based on amount sign (same restore rule the feature

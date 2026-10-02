@@ -136,6 +136,7 @@ export async function POST(request: NextRequest) {
         isActive: recurringTransactions.isActive,
         matchPattern: recurringTransactions.matchPattern,
         matchField: recurringTransactions.matchField,
+        matchDescriptionPattern: recurringTransactions.matchDescriptionPattern,
       })
       .from(recurringTransactions)
       .where(

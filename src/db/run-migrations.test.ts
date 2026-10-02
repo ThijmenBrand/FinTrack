@@ -51,7 +51,14 @@ describe("run-migrations pipeline", () => {
     // initializeDatabase rebuilds recurring_transactions from a fixed column
     // list after the migrations ran — columns added since must survive it.
     expect(await columnNames("recurring_transactions")).toEqual(
-      expect.arrayContaining(["match_pattern", "match_field"]),
+      expect.arrayContaining([
+        "match_pattern",
+        "match_field",
+        "match_description_pattern",
+        "logo_key",
+        "logo_source",
+        "logo_checked_at",
+      ]),
     );
     expect(await columnNames("transactions")).toContain("recurring_excluded_plan_id");
 

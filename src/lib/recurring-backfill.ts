@@ -30,6 +30,7 @@ export async function linkMatchingTransactions(planId: string, ownerId: string):
       isActive: recurringTransactions.isActive,
       matchPattern: recurringTransactions.matchPattern,
       matchField: recurringTransactions.matchField,
+      matchDescriptionPattern: recurringTransactions.matchDescriptionPattern,
     })
     .from(recurringTransactions)
     .where(and(eq(recurringTransactions.id, planId), eq(recurringTransactions.userId, ownerId)))

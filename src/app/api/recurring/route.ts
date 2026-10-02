@@ -90,6 +90,7 @@ export async function GET() {
         isActive: recurringTransactions.isActive,
         matchPattern: recurringTransactions.matchPattern,
         matchField: recurringTransactions.matchField,
+        matchDescriptionPattern: recurringTransactions.matchDescriptionPattern,
         userId: recurringTransactions.userId,
         logoKey: recurringTransactions.logoKey,
         logoSource: recurringTransactions.logoSource,
@@ -247,6 +248,20 @@ export async function PUT(request: NextRequest) {
         matchPattern = checked.value;
       }
     }
+    // The rule's optional AND on the description, bounded the same way. A
+    // cleared rule takes it along — it means nothing on its own.
+    let matchDescriptionPattern: string | null | undefined;
+    if (matchPattern === null) {
+      matchDescriptionPattern = null;
+    } else if ("matchDescriptionPattern" in body) {
+      if (body.matchDescriptionPattern == null || body.matchDescriptionPattern === "") {
+        matchDescriptionPattern = null;
+      } else {
+        const checked = validatePattern(body.matchDescriptionPattern);
+        if (!checked.ok) return apiError(checked.error, 400, checked.vars);
+        matchDescriptionPattern = checked.value;
+      }
+    }
 
     // Explicit field allowlist — never spread the client body into `set`
     // (userId/createdAt/id must not be client-settable).
@@ -271,6 +286,9 @@ export async function PUT(request: NextRequest) {
     if ("isActive" in body) updates.isActive = Boolean(body.isActive);
     if (matchPattern !== undefined) updates.matchPattern = matchPattern;
     if ("matchField" in body) updates.matchField = body.matchField;
+    if (matchDescriptionPattern !== undefined) {
+      updates.matchDescriptionPattern = matchDescriptionPattern;
+    }
     if ("amount" in body) {
       // Ensure amount sign matches the (possibly updated) type.
       const effectiveType = (updates.type ?? existing.type) as string;
@@ -321,10 +339,11 @@ export async function PUT(request: NextRequest) {
 
     // A new or edited rule applies to the history already there, the same as
     // the first link that taught it.
+    const ruleChanged =
+      "matchPattern" in updates || "matchField" in updates || "matchDescriptionPattern" in updates;
+    const hasRule = "matchPattern" in updates ? updates.matchPattern : existing.matchPattern;
     const linked =
-      updates.matchPattern || ("matchField" in updates && existing.matchPattern)
-        ? (await linkMatchingTransactions(id, ownerId)).length
-        : 0;
+      ruleChanged && hasRule ? (await linkMatchingTransactions(id, ownerId)).length : 0;
 
     return NextResponse.json({ success: true, linked });
   }, "Failed to update recurring transaction");
