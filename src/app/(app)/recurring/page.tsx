@@ -11,6 +11,7 @@ import {
 } from "@/hooks/use-recurring";
 import { useAccounts } from "@/hooks/use-accounts";
 import { useCategories } from "@/hooks/use-categories";
+import { useBudgetPlans } from "@/hooks/use-budget-plans";
 import type { RecurringTx } from "@/types/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -32,6 +33,7 @@ export default function RecurringPage() {
   const { data: items = [], isLoading: loading } = useRecurring();
   const { data: accounts = [] } = useAccounts();
   const { data: categories = [] } = useCategories();
+  const { data: plansData } = useBudgetPlans();
   const { data: forecast = null } = useRecurringForecast(3);
   const createRecurring = useCreateRecurring();
   const updateRecurring = useUpdateRecurring();
@@ -88,6 +90,17 @@ export default function RecurringPage() {
       setTogglingId(null);
     }
   };
+
+  // A plan belongs to the budget its account does — the same rule the budgets
+  // page scopes its recurring list by. Only plans the caller can open are kept,
+  // so a link never lands on a budget they can't see.
+  const plans = plansData?.plans ?? [];
+  const budgetByAccount = new Map(
+    accounts.flatMap((a) => {
+      const plan = a.budgetId ? plans.find((p) => p.id === a.budgetId) : undefined;
+      return plan ? [[a.id, { id: plan.id, name: plan.name }] as const] : [];
+    }),
+  );
 
   // Only warnings get banner treatment — a projected overdraft is the one piece
   // of advice worth interrupting the list for.
@@ -212,6 +225,7 @@ export default function RecurringPage() {
 
       <RecurringList
         items={items}
+        budgetByAccount={budgetByAccount}
         onAdd={openAdd}
         onEdit={openEdit}
         onDelete={handleDelete}

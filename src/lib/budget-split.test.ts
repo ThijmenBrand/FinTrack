@@ -105,6 +105,7 @@ describe("splitShares", () => {
   const base = {
     accounts: [{ id: "joint", name: "Joint", type: "joint" }],
     ownerName: null as string | null,
+    ownerImage: null as string | null,
     ownerSharePercent: 50,
     sharePercents: {} as Record<string, number>,
     sharePercent: 50,
@@ -248,6 +249,7 @@ describe("splitShares", () => {
             role: "viewer",
             accounts: [{ id: "theirs", name: "Joint", type: "joint" }],
             ownerName: "Thijmen",
+            ownerImage: null,
             ownerSharePercent: 50,
             // Never sent to a member — the other addresses are not theirs to see.
             sharePercents: {},
@@ -274,6 +276,7 @@ describe("splitShares", () => {
             role: "viewer",
             accounts: [{ id: "theirs", name: "Joint", type: "joint" }],
             ownerName: "Thijmen",
+            ownerImage: null,
             ownerSharePercent: 65,
             sharePercents: {},
             sharePercent: 35,
@@ -288,6 +291,54 @@ describe("splitShares", () => {
       ["You", 35],
     ]);
   });
+
+  it("puts each face on its own row, the caller's included", () => {
+    const faces = (shares: { name: string; image?: string | null }[]) =>
+      shares.map((s) => [s.name, s.image ?? null]);
+    const mine = "avatars/me.webp";
+
+    expect(
+      faces(
+        splitShares(
+          owned(50),
+          [
+            {
+              id: "joint",
+              sharedWith: 1,
+              sharedWithUsers: [{ name: "Sam", email: "sam@x.nl", image: "avatars/sam.webp" }],
+            },
+          ],
+          LABELS,
+          1000,
+          mine,
+        ),
+      ),
+    ).toEqual([
+      ["You", mine],
+      ["Sam", "avatars/sam.webp"],
+    ]);
+
+    expect(
+      faces(
+        splitShares(
+          {
+            ...base,
+            role: "viewer",
+            accounts: [{ id: "theirs", name: "Joint", type: "joint" }],
+            ownerName: "Thijmen",
+            ownerImage: "avatars/thijmen.webp",
+          },
+          [],
+          LABELS,
+          1000,
+          mine,
+        ),
+      ),
+    ).toEqual([
+      ["Thijmen", "avatars/thijmen.webp"],
+      ["You", mine],
+    ]);
+  });
 });
 
 describe("splitShares — fixed amounts", () => {
@@ -295,6 +346,7 @@ describe("splitShares — fixed amounts", () => {
   const base = {
     accounts: [{ id: "joint", name: "Joint", type: "joint" }],
     ownerName: null as string | null,
+    ownerImage: null as string | null,
     ownerSharePercent: 50,
     sharePercents: {} as Record<string, number>,
     sharePercent: 50,
@@ -401,6 +453,7 @@ describe("splitShares — fixed amounts", () => {
         role: "viewer" as const,
         accounts: [{ id: "theirs", name: "Joint", type: "joint" }],
         ownerName: "Thijmen",
+        ownerImage: null,
         ownerShareAmount: 900,
         shareAmount: null,
         others: { fixedAmount: 100, restCount: 0 },
@@ -425,6 +478,7 @@ describe("splitShares — fixed amounts", () => {
             role: "viewer" as const,
             accounts: [{ id: "theirs", name: "Joint", type: "joint" }],
             ownerName: "Thijmen",
+            ownerImage: null,
             ownerShareAmount: 900,
             shareAmount: null,
           },

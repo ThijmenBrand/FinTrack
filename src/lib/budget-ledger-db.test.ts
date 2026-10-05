@@ -79,6 +79,7 @@ function planFor(periodStartedAt: string | null = null) {
     ownerId: USER,
     role: "owner" as const,
     ownerName: null,
+    ownerImage: null,
   };
 }
 

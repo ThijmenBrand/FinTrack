@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Zap } from "lucide-react";
+import { CategoryPicker } from "@/components/category-picker";
 import { useCreateCategoryRule } from "@/hooks/use-categories";
 import type { CategoryWithDetails } from "@/types/api";
 import { MATCH_TYPES, MATCH_FIELDS } from "@/lib/match-types";
@@ -131,24 +132,12 @@ export function RuleDialog({ categories }: RuleDialogProps) {
           </div>
           <div className="grid gap-2">
             <Label>{t("categories.rule.categoryLabel")}</Label>
-            <Select value={categoryId} onValueChange={setCategoryId}>
-              <SelectTrigger>
-                <SelectValue placeholder={t("categories.rule.categoryPlaceholder")} />
-              </SelectTrigger>
-              <SelectContent>
-                {categories.map((cat) => (
-                  <SelectItem key={cat.id} value={cat.id}>
-                    <span className="flex items-center gap-2">
-                      <span
-                        className="h-2 w-2 rounded-full"
-                        style={{ backgroundColor: cat.color || "#94a3b8" }}
-                      />
-                      {cat.name}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <CategoryPicker
+              categories={categories}
+              value={categoryId || null}
+              onChange={setCategoryId}
+              emptyLabel={t("categories.rule.categoryPlaceholder")}
+            />
           </div>
           {result && <div className="rounded-md bg-muted p-3 text-sm">{result}</div>}
         </div>

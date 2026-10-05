@@ -245,6 +245,66 @@ export function getNextOccurrence(
   }
 }
 
+/** The fields of a plan that decide when it falls due. */
+export interface Schedule {
+  dayOfWeek: number | null;
+  dayOfMonth: number | null;
+  monthOfYear: number | null;
+  startDate: string;
+}
+
+/**
+ * The schedule that makes `next` the plan's next payment — `getNextOccurrence`
+ * run backwards, for a form that asks "when is the next one?" instead of for a
+ * day of the month and a start date.
+ *
+ * The start date stays where it is whenever the cadence alone can land on
+ * `next`: moving it forward would erase every occurrence before it, and with
+ * them what the months already behind us expected. Only when it can't — the
+ * date is more than one period out, or before the plan began — does the plan
+ * start on `next` instead.
+ */
+export function scheduleForNext(
+  frequency: string,
+  next: string,
+  startDate: string,
+  refDate: Date = new Date(),
+): Schedule {
+  const [y, m, d] = next.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  const fields = {
+    dayOfWeek: frequency === "weekly" ? date.getDay() : null,
+    dayOfMonth: frequency === "monthly" || frequency === "yearly" ? date.getDate() : null,
+    monthOfYear: frequency === "yearly" ? date.getMonth() + 1 : null,
+  };
+
+  let kept = startDate;
+  if (frequency === "biweekly") {
+    // Biweekly has no day field: its phase IS the start date. Step back from
+    // `next` in whole fortnights to the first one on or after the old start,
+    // so the phase moves without the plan losing its history.
+    const [sy, sm, sd] = startDate.split("-").map(Number);
+    const days = Math.round((date.getTime() - new Date(sy, sm - 1, sd).getTime()) / 86_400_000);
+    if (days > 0) {
+      const anchor = new Date(date);
+      anchor.setDate(anchor.getDate() - 14 * Math.floor(days / 14));
+      kept = toIsoDate(anchor);
+    }
+  }
+
+  const candidate = { ...fields, startDate: kept };
+  const lands =
+    getNextOccurrence(
+      frequency,
+      candidate.startDate,
+      candidate.dayOfWeek,
+      candidate.dayOfMonth,
+      candidate.monthOfYear,
+      refDate,
+    ) === next;
+  return lands ? candidate : { ...fields, startDate: next };
+}
+
 /** Nominal length of one cycle, used to decide which occurrence a payment settles. */
 const PERIOD_DAYS: Record<string, number> = {
   weekly: 7,

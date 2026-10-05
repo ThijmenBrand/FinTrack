@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { BankLogo } from "@/components/bank-logo";
+import { CategoryPicker, usePlanCategoryIds } from "@/components/category-picker";
 import {
   Dialog,
   DialogContent,
@@ -183,6 +184,7 @@ function RecurringFormBody({
     seed?.startDate ?? toIsoDate(new Date())
   );
   const [submitting, setSubmitting] = useState(false);
+  const planCategoryIds = usePlanCategoryIds(fAccountId || undefined);
 
   const handleSubmit = async () => {
     const amount = parseFloat(fAmount);
@@ -292,30 +294,17 @@ function RecurringFormBody({
                 <FieldInfo note={t("recurring.form.categoryLockedNote")} />
               )}
             </Label>
-            <Select
-              value={fCategoryId}
-              onValueChange={setFCategoryId}
+            {/* No accountId: `categories` is the caller's own list, so a
+                category created here must land there too. The account still
+                decides which plan's lines band to the top. */}
+            <CategoryPicker
+              categories={categories}
+              budgetCategoryIds={planCategoryIds}
+              value={fCategoryId || null}
+              onChange={setFCategoryId}
               disabled={Boolean(lockedCategoryId)}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder={t("recurring.form.categoryPlaceholder")} />
-              </SelectTrigger>
-              <SelectContent>
-                {categories.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    <span className="flex items-center gap-2">
-                      <span
-                        className="h-2 w-2 rounded-full"
-                        style={{
-                          backgroundColor: c.color || "#94a3b8",
-                        }}
-                      />
-                      {c.name}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              emptyLabel={t("recurring.form.categoryPlaceholder")}
+            />
           </div>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

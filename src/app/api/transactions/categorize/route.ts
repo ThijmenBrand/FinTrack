@@ -64,36 +64,39 @@ export async function PUT(request: NextRequest) {
     // Scoped by writableTransactions, the same gate the update below uses: a
     // wrapper the caller could not have categorized anyway is not their
     // problem, and the tenant guard requires the statement to name user_id.
-    const [splitParent] = await db
-      .select({ id: transactions.id })
-      .from(transactions)
-      .where(
-        and(
-          inArray(transactions.id, ids),
-          eq(transactions.isSplitParent, true),
-          writableTransactions(userId),
-        ),
-      )
-      .limit(1);
-    if (splitParent) {
-      return apiError("api.splitParentAction", 400);
-    }
-
+    //
     // A category reference must live in its ROW's owner space — on a shared
     // account that's the account owner, not necessarily the caller. So a
     // category id resolves to an owner (categoryOwnerId), and only rows that
     // owner actually owns may be set to it in this same batch.
-    let categoryOwnerId: string | null = null;
-    if (categoryId) {
-      const [targetCategory] = await db
-        .select({ id: categories.id, userId: categories.userId })
-        .from(categories)
-        .where(eq(categories.id, categoryId));
-      if (!targetCategory) {
-        return apiError("api.categoryNotFound", 404);
-      }
-      categoryOwnerId = targetCategory.userId;
+    //
+    // The two reads don't depend on each other, so they share one round trip.
+    const [[splitParent], [targetCategory]] = await Promise.all([
+      db
+        .select({ id: transactions.id })
+        .from(transactions)
+        .where(
+          and(
+            inArray(transactions.id, ids),
+            eq(transactions.isSplitParent, true),
+            writableTransactions(userId),
+          ),
+        )
+        .limit(1),
+      categoryId
+        ? db
+            .select({ id: categories.id, userId: categories.userId })
+            .from(categories)
+            .where(eq(categories.id, categoryId))
+        : Promise.resolve([]),
+    ]);
+    if (splitParent) {
+      return apiError("api.splitParentAction", 400);
     }
+    if (categoryId && !targetCategory) {
+      return apiError("api.categoryNotFound", 404);
+    }
+    const categoryOwnerId: string | null = targetCategory?.userId ?? null;
 
     // A sub-line only ever narrows the category being set, so it has to plan
     // for exactly that category in exactly that owner's space. Anything else —

@@ -7,7 +7,8 @@ import {
 } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { announceLearnedRule } from "@/lib/learned-rule-notice";
-import type { Transaction, Pagination, Category, PotRangeTotal, SubCategoryOption } from "@/types/api";
+import { cachedCategory } from "@/hooks/use-budgets";
+import type { Transaction, Pagination, PotRangeTotal, SubCategoryOption } from "@/types/api";
 
 interface TransactionFilters {
   page?: number;
@@ -188,10 +189,7 @@ export function useCategorizeTransaction() {
 
       const previous = qc.getQueriesData<TransactionsResponse>({ queryKey: ["transactions"] });
 
-      const categories = qc.getQueryData<Category[]>(["categories"]) ?? [];
-      const target = payload.categoryId
-        ? categories.find((c) => c.id === payload.categoryId) ?? null
-        : null;
+      const target = payload.categoryId ? cachedCategory(qc, payload.categoryId) ?? null : null;
       // The name behind the chosen sub-category — a line, or a plan picked as
       // one — from whichever account's list the picker was filled from, so the
       // row reads right before the refetch.

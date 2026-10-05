@@ -3,6 +3,7 @@ import {
   generateOccurrences,
   getNextOccurrence,
   isOccurrencePaid,
+  scheduleForNext,
   toMonthly,
   fromMonthly,
 } from "./recurring";
@@ -157,6 +158,45 @@ describe("getNextOccurrence", () => {
     expect(getNextOccurrence("yearly", "2024-10-14", null, 14, 10, d(2026, 8, 5))).toBe(
       "2026-10-14"
     );
+  });
+});
+
+describe("scheduleForNext", () => {
+  const today = d(2026, 10, 5);
+  const next = (freq: string, s: ReturnType<typeof scheduleForNext>) =>
+    getNextOccurrence(freq, s.startDate, s.dayOfWeek, s.dayOfMonth, s.monthOfYear, today);
+
+  it("moves a monthly plan's day and keeps its start", () => {
+    const s = scheduleForNext("monthly", "2026-10-20", "2024-01-02", today);
+    expect(s).toEqual({ dayOfWeek: null, dayOfMonth: 20, monthOfYear: null, startDate: "2024-01-02" });
+    expect(next("monthly", s)).toBe("2026-10-20");
+  });
+
+  it("starts the plan on the date when the cadence alone can't reach it", () => {
+    // Two months out: a day-of-month of 15 would fall due on 15 Oct first.
+    const s = scheduleForNext("monthly", "2026-12-15", "2024-01-02", today);
+    expect(s.startDate).toBe("2026-12-15");
+    expect(next("monthly", s)).toBe("2026-12-15");
+  });
+
+  it("sets the weekday for a weekly plan", () => {
+    // 8 Oct 2026 is a Thursday.
+    const s = scheduleForNext("weekly", "2026-10-08", "2025-01-01", today);
+    expect(s.dayOfWeek).toBe(4);
+    expect(s.startDate).toBe("2025-01-01");
+    expect(next("weekly", s)).toBe("2026-10-08");
+  });
+
+  it("re-phases a biweekly plan without moving its start much", () => {
+    const s = scheduleForNext("biweekly", "2026-10-09", "2026-01-01", today);
+    expect(s.startDate >= "2026-01-01" && s.startDate < "2026-01-15").toBe(true);
+    expect(next("biweekly", s)).toBe("2026-10-09");
+  });
+
+  it("pins a yearly plan's month as well as its day", () => {
+    const s = scheduleForNext("yearly", "2027-03-14", "2020-06-01", today);
+    expect(s).toMatchObject({ dayOfMonth: 14, monthOfYear: 3, startDate: "2020-06-01" });
+    expect(next("yearly", s)).toBe("2027-03-14");
   });
 });
 

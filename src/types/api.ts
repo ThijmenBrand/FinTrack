@@ -714,6 +714,8 @@ export interface BudgetPlanData {
   role: AccountRole;
   /** Display name of the sharing owner; null for the user's own plans. */
   ownerName: string | null;
+  /** Profile picture of the sharing owner; null for the user's own plans. */
+  ownerImage: string | null;
 }
 
 export interface UserPreferencesData {

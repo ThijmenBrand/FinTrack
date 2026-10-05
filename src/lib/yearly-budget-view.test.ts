@@ -32,6 +32,7 @@ const PLAN = {
   ownerId: USER,
   role: "owner" as const,
   ownerName: null,
+  ownerImage: null,
 };
 
 async function expense(date: string, amount: number, categoryId = "c-food") {

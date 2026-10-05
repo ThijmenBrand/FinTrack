@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef } from "react";
 import Papa from "papaparse";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -29,10 +29,9 @@ import {
 } from "@/components/ui/table";
 import { Upload, FileText, CheckCircle2, AlertCircle } from "lucide-react";
 import { ImportReviewStep } from "@/components/import-review-step";
-import { planCategoryIds } from "@/components/category-picker";
 import { detectAccountByIban, toCommitRow, type PreviewTransaction } from "@/lib/csv-utils";
 import { useCategories } from "@/hooks/use-categories";
-import { useBudgets, useSubCategories } from "@/hooks/use-budgets";
+import { useSubCategories } from "@/hooks/use-budgets";
 import { usePots } from "@/hooks/use-pots";
 import { usePreviewUpload, useCommitUpload } from "@/hooks/use-csv-upload";
 import { bankHasSeparateFeeColumn } from "@/lib/banks";
@@ -107,23 +106,9 @@ export function CsvUploadDialog({
   // owner's space, so only the owner's categories are valid ids.
   const { data: categories = [] } = useCategories(selectedAccountId || undefined);
 
-  // An account inside a budget plan mostly books onto that plan's lines —
-  // spending and income alike — so the pickers below band those to the top.
-  // Everything else — transfers, the unplanned purchase every real statement
-  // carries — sits below the rule, one scroll away rather than missing.
-  const budgetId =
-    accounts.find((a) => a.id === selectedAccountId)?.budgetId ?? null;
-  const { data: budget } = useBudgets({
-    budgetId: budgetId ?? undefined,
-    noScale: true,
-    enabled: !!budgetId,
-  });
-  const budgetCategoryIds = useMemo(
-    () => (budgetId ? planCategoryIds(budget) : null),
-    [budgetId, budget],
-  );
-  // Sub-categories come from the same plan the categories were narrowed to,
-  // and stay empty for an account outside one.
+  // The pickers band the account's budget plan to the top themselves (see
+  // CategoryPicker); its sub-lines come from that same plan, and stay empty
+  // for an account outside one.
   const { data: subCategories = [] } = useSubCategories(selectedAccountId || undefined);
   const { data: pots = [] } = usePots();
   const preview = usePreviewUpload();
@@ -674,7 +659,6 @@ export function CsvUploadDialog({
             <ImportReviewStep
               transactions={previewData}
               categories={categories}
-              budgetCategoryIds={budgetCategoryIds}
               subCategories={subCategories}
               pots={pots}
               accountId={selectedAccountId}

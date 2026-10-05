@@ -187,6 +187,7 @@ async function listPlans(userId: string) {
     createdAt: p.createdAt,
     role: "owner" as "owner" | "viewer",
     ownerName: null as string | null,
+    ownerImage: null as string | null,
     accounts: memberAccounts
       .filter((a) => a.budgetId === p.id)
       .map(({ id, name, type }) => ({ id, name: name as string | null, type })),
@@ -196,7 +197,7 @@ async function listPlans(userId: string) {
   // plan's other accounts appear by EXISTENCE only: their names are nulled
   // unless that account itself is shared with the user.
   const sharedRows = await db
-    .selectDistinct({ plan: budgetPlans, ownerName: user.name })
+    .selectDistinct({ plan: budgetPlans, ownerName: user.name, ownerImage: user.image })
     .from(accountMembers)
     .innerJoin(accounts, eq(accounts.id, accountMembers.accountId))
     .innerJoin(budgetPlans, eq(budgetPlans.id, accounts.budgetId))
@@ -209,7 +210,7 @@ async function listPlans(userId: string) {
       .where(activeMembership(userId))).map((r) => r.id),
   );
   const shared = await Promise.all(
-    sharedRows.map(async ({ plan, ownerName }) => {
+    sharedRows.map(async ({ plan, ownerName, ownerImage }) => {
       const planAccounts = await db
         .select({ id: accounts.id, name: accounts.name, type: accounts.type })
         .from(accounts)
@@ -266,6 +267,7 @@ async function listPlans(userId: string) {
         createdAt: plan.createdAt,
         role: "viewer" as const,
         ownerName,
+        ownerImage,
         accounts: planAccounts.map(({ id, name, type }) => ({
           id,
           name: accessibleIds.has(id) ? name : null,

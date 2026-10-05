@@ -454,10 +454,10 @@ function TransactionsPage() {
     );
   };
 
-  const handleBulkCategorize = async (value: string) => {
+  const handleBulkCategorize = async (categoryId: string | null) => {
     await bulkCategorize.mutateAsync({
       transactionIds: selectedOnPage.map((t) => t.id),
-      categoryId: value === "none" ? null : value,
+      categoryId,
     });
     clearSelection();
   };
@@ -484,6 +484,10 @@ function TransactionsPage() {
     );
     return categories.filter((c) => owners.has(c.userId));
   }, [selectedOnPage, accounts, categories]);
+  // A selection on one account bands that account's budget plan to the top;
+  // across accounts there is no one plan to put first.
+  const bulkAccountIds = new Set(selectedOnPage.map((t) => t.accountId));
+  const bulkAccountId = bulkAccountIds.size === 1 ? [...bulkAccountIds][0] : undefined;
 
   // One pot/transaction row for a given layout — used by both the desktop
   // table and the mobile card list.
@@ -800,6 +804,7 @@ function TransactionsPage() {
         <TransactionBulkBar
           count={selectedOnPage.length}
           categories={bulkCategories}
+          accountId={bulkAccountId}
           canAddToPot={pots.length > 0 && selectedOnPage.some((t) => !t.groupId)}
           canReimburse={selectedOnPage.some((t) => t.type === "income")}
           categorizePending={bulkCategorize.isPending}

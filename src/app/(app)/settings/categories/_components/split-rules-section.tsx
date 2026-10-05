@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
+import { CategoryPicker } from "@/components/category-picker";
 import { Pencil, Plus, Minus, Split } from "lucide-react";
 import { useSplitRules, useUpdateSplitRule, useDeleteSplitRule } from "@/hooks/use-categories";
 import { useCreateSplitRule, type SplitRuleLineInput } from "@/hooks/use-transactions";
@@ -215,27 +216,13 @@ function SplitRuleDialog({
               const isRemainder = mode === "fixed" && i === lines.length - 1;
               return (
                 <div key={line.key} className="flex items-center gap-2">
-                  <Select
-                    value={line.categoryId}
-                    onValueChange={(v) => updateLine(line.key, { categoryId: v })}
-                  >
-                    <SelectTrigger className="h-8 flex-1 text-sm">
-                      <SelectValue placeholder={t("categories.rule.categoryPlaceholder")} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {categories.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          <span className="flex items-center gap-2">
-                            <span
-                              className="h-2 w-2 rounded-full"
-                              style={{ backgroundColor: c.color || "#94a3b8" }}
-                            />
-                            {c.name}
-                          </span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <CategoryPicker
+                    categories={categories}
+                    value={line.categoryId || null}
+                    onChange={(v) => updateLine(line.key, { categoryId: v })}
+                    emptyLabel={t("categories.rule.categoryPlaceholder")}
+                    className="h-8 min-w-0 flex-1 text-sm"
+                  />
                   {isRemainder ? (
                     <span className="w-24 shrink-0 text-xs text-muted-foreground">
                       {t("splitRules.remainder")}

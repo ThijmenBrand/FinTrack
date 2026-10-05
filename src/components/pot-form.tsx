@@ -4,18 +4,9 @@ import type { ReactNode } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { CategoryPicker } from "@/components/category-picker";
 import type { Category } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
-
-/** Sentinel value for the edit dialog's explicit "No category" option. */
-export const NO_CATEGORY = "__none__";
 
 export function isPotTargetValid(
   hasTarget: boolean,
@@ -34,16 +25,14 @@ interface PotFormProps {
   categories: Category[];
   name: string;
   onNameChange: (v: string) => void;
-  categoryId: string;
-  onCategoryChange: (v: string) => void;
+  categoryId: string | null;
+  onCategoryChange: (v: string | null) => void;
   hasTarget: boolean;
   onHasTargetChange: (v: boolean) => void;
   targetAmount: string;
   onTargetAmountChange: (v: string) => void;
   targetDate: string;
   onTargetDateChange: (v: string) => void;
-  /** Optional extra option rendered atop the category list (e.g. edit's "No category"). */
-  noCategoryOption?: ReactNode;
   /** Helper text under the "Plan for a spike" checkbox. */
   spikeHint: ReactNode;
   /** Submit handler for Enter in the name field when there's no target grid to tab into. */
@@ -64,7 +53,6 @@ export function PotForm({
   onTargetAmountChange,
   targetDate,
   onTargetDateChange,
-  noCategoryOption,
   spikeHint,
   onEnterSubmit,
 }: PotFormProps) {
@@ -87,27 +75,14 @@ export function PotForm({
 
       <div className="space-y-2">
         <Label>{t("common.category")}</Label>
-        <Select value={categoryId} onValueChange={onCategoryChange}>
-          <SelectTrigger>
-            <SelectValue placeholder={t("pots.form.categoryPlaceholder")} />
-          </SelectTrigger>
-          <SelectContent>
-            {noCategoryOption}
-            {categories.map((cat) => (
-              <SelectItem key={cat.id} value={cat.id}>
-                <span className="flex items-center gap-2">
-                  {cat.color && (
-                    <span
-                      className="h-2 w-2 rounded-full shrink-0"
-                      style={{ backgroundColor: cat.color }}
-                    />
-                  )}
-                  {cat.name}
-                </span>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {/* Pots are never shared, so no account: they live in the caller's own space. */}
+        <CategoryPicker
+          categories={categories}
+          value={categoryId}
+          onChange={onCategoryChange}
+          onClear={() => onCategoryChange(null)}
+          emptyLabel={t("pots.form.categoryPlaceholder")}
+        />
       </div>
 
       <div className="flex items-start gap-3 pt-1">

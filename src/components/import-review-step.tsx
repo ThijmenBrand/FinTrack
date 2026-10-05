@@ -42,12 +42,6 @@ interface PendingRule {
 interface ImportReviewStepProps {
   transactions: PreviewTransaction[];
   categories: Category[];
-  /**
-   * When the target account sits in a budget plan: the ids that plan covers.
-   * Every picker here bands those to the top — the plan is what you meant to
-   * spend on, and real statements always carry something you did not plan.
-   */
-  budgetCategoryIds?: Set<string> | null;
   /** That plan's sub-lines, offered under their category in every picker here. */
   subCategories: SubCategoryOption[];
   pots: ImportPot[];
@@ -133,7 +127,6 @@ interface BatchApplyBanner {
 export function ImportReviewStep({
   transactions: initialTransactions,
   categories,
-  budgetCategoryIds,
   subCategories,
   pots,
   accountId,
@@ -492,7 +485,6 @@ export function ImportReviewStep({
               <ImportTransactionRow
                 tx={tx}
                 categories={categories}
-                budgetCategoryIds={budgetCategoryIds}
                 subCategories={subCategories}
                 pots={pots}
                 accountId={accountId}
@@ -513,7 +505,6 @@ export function ImportReviewStep({
                   <SplitPartsEditor
                     totalCents={Math.round(Math.abs(tx.amount) * 100)}
                     categories={categories}
-                    budgetCategoryIds={budgetCategoryIds}
                     accountId={accountId}
                     showDescriptions={false}
                     initialRows={
@@ -686,7 +677,6 @@ export function ImportReviewStep({
           <div className="w-52">
             <CategoryPicker
               categories={categories}
-              budgetCategoryIds={budgetCategoryIds}
               subCategories={subCategories}
               value={null}
               onChange={handleBulkCategory}

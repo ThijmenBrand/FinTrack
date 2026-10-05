@@ -23,9 +23,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { BankLogo } from "@/components/bank-logo";
-import { CategoryPicker, planCategoryIds } from "@/components/category-picker";
+import { CategoryPicker } from "@/components/category-picker";
 import { useCategories } from "@/hooks/use-categories";
-import { useBudgets, useSubCategories } from "@/hooks/use-budgets";
+import { useSubCategories } from "@/hooks/use-budgets";
 import { useCreateTransaction } from "@/hooks/use-transactions";
 import { ApiError } from "@/lib/api";
 import { parseAmount } from "@/lib/csv-utils";
@@ -85,16 +85,6 @@ function Form({
   // Categories live in the account OWNER's space — a member's own ids are
   // rejected on a shared account — so the list follows the account.
   const { data: categories = [] } = useCategories(accountId || undefined);
-  const budgetId = account?.budgetId ?? null;
-  const { data: budget } = useBudgets({
-    budgetId: budgetId ?? undefined,
-    noScale: true,
-    enabled: !!budgetId,
-  });
-  // Only an account in a plan is narrowed: without one the query is disabled,
-  // and whatever it still holds isn't this account's plan.
-  const planIds = useMemo(() => planCategoryIds(budget), [budget]);
-  const budgetCategoryIds = budgetId ? planIds : null;
   // The plan's sub-lines, so a cash cost can land on "Groceries › Veg" rather
   // than the category alone; empty for an account outside a plan.
   const { data: subCategories = [] } = useSubCategories(accountId || undefined);
@@ -267,7 +257,6 @@ function Form({
           key={accountId}
           categories={categories}
           subCategories={subCategories}
-          budgetCategoryIds={budgetCategoryIds}
           value={categoryId}
           subLineId={subLineId}
           recurringTransactionId={planId}

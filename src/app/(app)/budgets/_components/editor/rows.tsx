@@ -271,6 +271,9 @@ export function AddCategoryRow({
           value={categoryId || null}
           onChange={setCategoryId}
           accountId={accountId}
+          // The list is already "not in this plan yet" — banding it by the
+          // plan would only ever find nothing to put on top.
+          budgetCategoryIds={null}
         />
       </span>
       <span className="ml-3 flex items-center gap-1.5">

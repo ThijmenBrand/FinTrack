@@ -1,7 +1,12 @@
 import type { Allocation, BudgetSubLine, RecurringTx } from "@/types/api";
 import { addLine, removeLine, rollUp, updateLine } from "@/lib/budget-cache";
 import { toMonthly } from "@/lib/recurring";
-import { toChildInput, type DraftLine, type FiledPlan } from "../sub-line-list/draft";
+import {
+  toChildInput,
+  type DraftLine,
+  type FiledPlan,
+  type PlanEdit,
+} from "../sub-line-list/draft";
 import type { BudgetChildInput } from "@/hooks/use-budgets";
 
 /**
@@ -41,6 +46,16 @@ export interface Draft {
    * closed would move the figures under a Save button that stayed greyed out.
    */
   recurring: RecurringTx[];
+  /**
+   * Saved recurring payments rescheduled from the line that stands for them,
+   * by plan id — the latest edit wins. A plan drafted in this session is
+   * edited in `recurring` instead: it has no row on the server to update yet.
+   *
+   * Drafted rather than written on the spot because the same form renames the
+   * line, and a rename waits for Save; half an edit landing early would be a
+   * Save bar that no longer describes what Save is going to do.
+   */
+  plans: Record<string, PlanEdit>;
   /**
    * Generated suggestions answered in this session, by suggestion id. An
    * accept is ALSO an ordinary edit — an amount typed over a row, or a new
@@ -95,7 +110,17 @@ export type SubLineOp =
        */
       recurring?: FiledPlan;
     }
-  | { kind: "update"; allocationId: string; id: string; name: string; amount: number }
+  | {
+      kind: "update";
+      allocationId: string;
+      id: string;
+      name: string;
+      /**
+       * Absent on a recurring line: its money is the plan's, edited in
+       * `plans`, and a figure here would be written back over it.
+       */
+      amount?: number;
+    }
   | { kind: "remove"; allocationId: string; id: string };
 
 export const EMPTY_DRAFT: Draft = {
@@ -104,6 +129,7 @@ export const EMPTY_DRAFT: Draft = {
   added: [],
   ops: [],
   recurring: [],
+  plans: {},
   decided: {},
 };
 
@@ -143,10 +169,16 @@ export interface EditorRow extends Allocation {
  */
 export function overlay(allocations: Allocation[], draft: Draft): EditorRow[] {
   const removed = new Set(draft.removed);
+  const plans = planEdits(draft);
   const saved = allocations.map((alloc) => {
-    const subLines = applyOps(
-      alloc.subLines,
-      draft.ops.filter((op) => op.allocationId === alloc.id),
+    const subLines = rollUp(
+      withPlans(
+        applyOps(
+          alloc.subLines,
+          draft.ops.filter((op) => op.allocationId === alloc.id),
+        ),
+        plans,
+      ),
     );
     return {
       ...alloc,
@@ -163,27 +195,79 @@ export function overlay(allocations: Allocation[], draft: Draft): EditorRow[] {
     };
   });
 
-  const fresh = draft.added.map<EditorRow>((row) => ({
-    id: row.key,
-    categoryId: row.categoryId,
-    categoryName: row.categoryName,
-    categoryColor: row.categoryColor,
-    amount: row.lines.length > 0 ? sumDraft(row.lines) : row.amount,
-    // Nothing has been spent against a line that does not exist yet, and
-    // claiming otherwise would put a progress figure on an empty plan.
-    spent: 0,
-    remaining: 0,
-    percentage: 0,
-    status: "ok",
-    avgMonthly: 0,
-    avgMonths: 0,
-    subLines: [],
-    removed: removed.has(row.key),
-    isNew: true,
-    lines: row.lines,
-  }));
+  const fresh = draft.added.map<EditorRow>((row) => {
+    const lines = withPlans(row.lines, plans);
+    return {
+      id: row.key,
+      categoryId: row.categoryId,
+      categoryName: row.categoryName,
+      categoryColor: row.categoryColor,
+      amount: lines.length > 0 ? sumDraft(lines) : row.amount,
+      // Nothing has been spent against a line that does not exist yet, and
+      // claiming otherwise would put a progress figure on an empty plan.
+      spent: 0,
+      remaining: 0,
+      percentage: 0,
+      status: "ok",
+      avgMonthly: 0,
+      avgMonths: 0,
+      subLines: [],
+      removed: removed.has(row.key),
+      isNew: true,
+      lines,
+    };
+  });
 
   return [...saved, ...fresh];
+}
+
+/**
+ * Every plan whose schedule this session changed, as the lines standing for
+ * them should now read it: the saved ones rescheduled, and the drafted ones as
+ * they currently are — a line filed under a drafted plan carries a copy taken
+ * when it was filed, which an edit since would otherwise leave behind.
+ */
+function planEdits(draft: Draft): Map<string, PlanEdit> {
+  const out = new Map(Object.entries(draft.plans));
+  for (const tx of draft.recurring) {
+    out.set(tx.id, {
+      amount: Math.abs(tx.amount),
+      frequency: tx.frequency as PlanEdit["frequency"],
+      dayOfWeek: tx.dayOfWeek,
+      dayOfMonth: tx.dayOfMonth,
+      monthOfYear: tx.monthOfYear,
+      startDate: tx.startDate,
+    });
+  }
+  return out;
+}
+
+/**
+ * A tree with each recurring line brought in line with its plan's edit: the
+ * cadence and due date it shows, and the monthly figure it adds to the cap.
+ * Containers are left to the caller's roll-up.
+ */
+function withPlans<T extends { amount: number; recurring?: FiledPlan; children: T[] }>(
+  lines: readonly T[],
+  plans: ReadonlyMap<string, PlanEdit>,
+): T[] {
+  if (plans.size === 0) return lines as T[];
+  return lines.map((line) => {
+    const children = withPlans(line.children, plans);
+    const edit = line.recurring && plans.get(line.recurring.id);
+    if (!line.recurring || !edit) return { ...line, children };
+    return {
+      ...line,
+      children,
+      amount: toMonthly(edit.amount, edit.frequency),
+      recurring: {
+        ...line.recurring,
+        ...edit,
+        // Stored signed, like the plan; the edit is the bare figure.
+        amount: line.recurring.amount < 0 ? -edit.amount : edit.amount,
+      },
+    };
+  });
 }
 
 /** A draft tree's total, with containers resolved the way the server resolves them. */
@@ -214,7 +298,11 @@ export function applyOps(
         ...(op.recurring ? { recurring: op.recurring } : {}),
       });
     } else if (op.kind === "update") {
-      out = updateLine(out, op.id, { name: op.name, amount: op.amount });
+      out = updateLine(
+        out,
+        op.id,
+        op.amount === undefined ? { name: op.name } : { name: op.name, amount: op.amount },
+      );
     } else {
       out = removeLine(out, op.id);
     }
@@ -369,6 +457,25 @@ export function unfilePlan(draft: Draft, planId: string): Draft {
   };
 }
 
+/**
+ * Reschedule the plan a line stands for. A drafted plan is changed where it
+ * lives, so the payment Save creates is already the edited one; a saved plan
+ * gets an entry in `plans`.
+ */
+export function editPlan(draft: Draft, planId: string, edit: PlanEdit): Draft {
+  if (draft.recurring.some((tx) => tx.id === planId)) {
+    return {
+      ...draft,
+      recurring: draft.recurring.map((tx) =>
+        tx.id === planId
+          ? { ...tx, ...edit, amount: tx.type === "income" ? edit.amount : -edit.amount }
+          : tx,
+      ),
+    };
+  }
+  return { ...draft, plans: { ...draft.plans, [planId]: edit } };
+}
+
 // ─── Saving ──────────────────────────────────────────────────────────────────
 
 /**
@@ -388,6 +495,8 @@ export type Step =
     }
   | { kind: "op"; op: SubLineOp }
   | { kind: "recurring"; tx: RecurringTx }
+  /** A saved plan rescheduled from its line. */
+  | { kind: "plan"; id: string; edit: PlanEdit }
   /** Clear answered suggestions off the server, accepted or declined alike. */
   | { kind: "dismiss"; ids: string[] };
 
@@ -403,7 +512,9 @@ export type Step =
  * 2. Amounts, before the sub-line ops that may re-derive them upward.
  * 3. Recurring payments, before anything that could stand for one: a line
  *    filed under a plan names it by id, and a plan drafted in this same
- *    session has no real id until its own call returns.
+ *    session has no real id until its own call returns. Rescheduled plans go
+ *    with them, so a create that adopts one derives its amount from the new
+ *    figure rather than the old.
  * 4. Creates, which carry their own breakdown in the same call.
  * 5. Sub-line ops, in the order they were made: a line added at step 5 can be
  *    the parent of the line added at step 6.
@@ -440,6 +551,7 @@ export function toSteps(draft: Draft): Step[] {
       .filter(([id]) => !removed.has(id))
       .map<Step>(([id, amount]) => ({ kind: "amount", id, amount })),
     ...draft.recurring.map<Step>((tx) => ({ kind: "recurring", tx })),
+    ...Object.entries(draft.plans).map<Step>(([id, edit]) => ({ kind: "plan", id, edit })),
     ...draft.added
       .filter((row) => !removed.has(row.key))
       .map<Step>((row) => ({
@@ -491,6 +603,7 @@ export function afterSave(
   const doneRecurring = new Set(
     landed.flatMap((s) => (s.kind === "recurring" ? [s.tx.id] : [])),
   );
+  const donePlans = new Set(landed.flatMap((s) => (s.kind === "plan" ? [s.id] : [])));
   const dismissed = landed.some((s) => s.kind === "dismiss");
   const removed = new Set(draft.removed);
   const gone = new Set(
@@ -529,6 +642,9 @@ export function afterSave(
           : { ...op, id: map(op.id) },
       ),
     recurring: draft.recurring.filter((tx) => !doneRecurring.has(tx.id)),
+    plans: Object.fromEntries(
+      Object.entries(draft.plans).filter(([id]) => !donePlans.has(id)),
+    ),
     // The edits an accept made stay above until their own steps land; only
     // the record of the answer goes, since the suggestion it answered has.
     decided: dismissed ? {} : draft.decided,

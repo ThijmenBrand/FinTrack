@@ -63,6 +63,7 @@ const SECTIONS: Record<
  */
 export function RecurringList({
   items,
+  budgetByAccount,
   onAdd,
   onEdit,
   onDelete,
@@ -71,6 +72,8 @@ export function RecurringList({
   togglingId,
 }: {
   items: RecurringTx[];
+  /** The budget each account counts toward; an account in none is absent. */
+  budgetByAccount?: Map<string, { id: string; name: string }>;
   onAdd: (type: "income" | "expense") => void;
   onEdit: (item: RecurringTx) => void;
   onDelete: (id: string) => void;
@@ -208,6 +211,7 @@ export function RecurringList({
                     item={item}
                     kind={type}
                     showAccount={showAccount}
+                    budget={budgetByAccount?.get(item.accountId) ?? null}
                     expanded={expanded === item.id}
                     onExpand={() => setExpanded((id) => (id === item.id ? null : item.id))}
                     onEdit={onEdit}

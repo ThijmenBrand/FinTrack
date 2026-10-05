@@ -22,6 +22,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { CategoryIcon } from "@/components/category-icon";
+import { CategoryPicker } from "@/components/category-picker";
 import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
 import {
   useUpdateCategoryRule,
@@ -293,24 +294,12 @@ export function CategoryRow({
                             ))}
                           </SelectContent>
                         </Select>
-                        <Select value={editCategoryId} onValueChange={setEditCategoryId}>
-                          <SelectTrigger className="h-7 text-xs w-full sm:w-[160px]">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {categories.map((c) => (
-                              <SelectItem key={c.id} value={c.id}>
-                                <span className="flex items-center gap-1.5">
-                                  <span
-                                    className="h-2 w-2 rounded-full"
-                                    style={{ backgroundColor: c.color || "#94a3b8" }}
-                                  />
-                                  {c.name}
-                                </span>
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <CategoryPicker
+                          categories={categories}
+                          value={editCategoryId || null}
+                          onChange={setEditCategoryId}
+                          className="h-7 text-xs w-full sm:w-[160px]"
+                        />
                         <div className="flex gap-1 shrink-0">
                           <Button
                             variant="ghost"
