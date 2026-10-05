@@ -4,6 +4,8 @@ import { useMemo } from "react";
 import { ChevronDown, ChevronRight, Repeat, Tag } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCreateCategory } from "@/hooks/use-categories";
+import { useAccounts } from "@/hooks/use-accounts";
+import { useBudgets } from "@/hooks/use-budgets";
 import { useI18n } from "@/lib/i18n/client";
 import { SearchCreatePicker } from "@/components/search-create-picker";
 import type { BudgetData, SubCategoryOption } from "@/types/api";
@@ -55,6 +57,28 @@ export function planCategoryIds(
     ...budget.incomeLines.map((l) => l.categoryId),
   ];
   return planned.length === 0 ? null : new Set(planned);
+}
+
+/**
+ * The categories the account's budget plan covers — null for an account
+ * outside a plan, or none given. Every picker on a page asks with the same
+ * keys, so a list of rows fetches each plan once, and only once a picker for
+ * it is mounted.
+ */
+export function usePlanCategoryIds(
+  accountId: string | undefined,
+  { enabled = true }: { enabled?: boolean } = {},
+): Set<string> | null {
+  const { data: accounts } = useAccounts();
+  const budgetId = (accountId && accounts?.find((a) => a.id === accountId)?.budgetId) || null;
+  const { data: budget } = useBudgets({
+    budgetId: budgetId ?? undefined,
+    noScale: true,
+    enabled: enabled && !!budgetId,
+  });
+  // Without a plan the query is disabled, and whatever it still holds isn't
+  // this account's plan.
+  return useMemo(() => (budgetId ? planCategoryIds(budget) : null), [budgetId, budget]);
 }
 
 /**
@@ -118,17 +142,25 @@ function Swatch({ color, sub, plan }: { color: string | null; sub?: boolean; pla
   );
 }
 
-/** Searchable category picker with create-on-the-fly. */
+/**
+ * Searchable category picker with create-on-the-fly — the one control for
+ * choosing a category anywhere in the app. Given an account, it bands that
+ * account's budget plan to the top on its own.
+ */
 export function CategoryPicker({
   categories,
   subCategories,
-  budgetCategoryIds,
+  budgetCategoryIds: budgetCategoryIdsProp,
   value,
   subLineId,
   recurringTransactionId,
   onChange,
+  onClear,
+  allowCreate = true,
+  disabled = false,
   className,
   placeholder,
+  emptyLabel,
   trailing,
   accountId,
 }: {
@@ -139,9 +171,10 @@ export function CategoryPicker({
    */
   subCategories?: SubCategoryOption[];
   /**
-   * The categories the account's budget plan covers. Given, the list is banded:
-   * the plan's lines first, then everything else under a heading. Nothing is
-   * hidden — a plan says what you meant to spend on, not what you can.
+   * The categories to band to the top: the plan's lines first, then everything
+   * else under a heading. Nothing is hidden — a plan says what you meant to
+   * spend on, not what you can. Left out, it is `accountId`'s budget plan;
+   * null keeps the list flat (e.g. while editing the plan itself).
    */
   budgetCategoryIds?: Set<string> | null;
   value: string | null;
@@ -157,9 +190,19 @@ export function CategoryPicker({
    * itself, or the one a sub-line stands for — and null for anything else.
    */
   onChange: (categoryId: string, subLineId: string | null, planId: string | null) => void;
+  /** Adds a "No category" row — shown even with nothing selected when `placeholder` is set. */
+  onClear?: () => void;
+  /**
+   * Off where a pick is written straight away: the new category's id comes
+   * back before its POST lands, and a write racing it would point at nothing.
+   */
+  allowCreate?: boolean;
+  disabled?: boolean;
   className?: string;
   /** Shown instead of the selected category — set for a "set category" style trigger. */
   placeholder?: string;
+  /** Shown while nothing is selected, e.g. to say the field is optional. */
+  emptyLabel?: string;
   /** Extra trigger content, e.g. the auto-match badge. */
   trailing?: React.ReactNode;
   /** Account these rows belong to — created categories land in its owner's space. */
@@ -167,6 +210,11 @@ export function CategoryPicker({
 }) {
   const { t } = useI18n();
   const createCategory = useCreateCategory(accountId);
+  const accountPlanIds = usePlanCategoryIds(accountId, {
+    enabled: budgetCategoryIdsProp === undefined,
+  });
+  const budgetCategoryIds =
+    budgetCategoryIdsProp === undefined ? accountPlanIds : budgetCategoryIdsProp;
 
   // One flat list, each category followed by its own sub-lines in plan order.
   // The picker indents them; nothing here is a tree.
@@ -205,7 +253,7 @@ export function CategoryPicker({
     ? selectedSub
       ? `${selected.name} › ${selectedSub.name}`
       : selected.name
-    : placeholder ?? t("categorySelect.placeholder");
+    : placeholder ?? emptyLabel ?? t("categorySelect.placeholder");
 
   return (
     <SearchCreatePicker
@@ -245,8 +293,12 @@ export function CategoryPicker({
         const keep = !subCategories?.length && categoryId === value;
         onChange(categoryId, keep ? subLineId ?? null : null, null);
       }}
+      onClear={onClear}
+      // An action-style trigger ("set category") never shows a selection, so
+      // "No category" is one more thing it can set, not an undo.
+      clearWhenEmpty={!!placeholder}
       creating={createCategory.isPending}
-      onCreate={(name) => {
+      onCreate={allowCreate ? (name) => {
         // The id is ours, so the picker can close on the new category right
         // away; the hook drops the row from the list again if the POST fails,
         // which leaves anything holding this id back on "no category".
@@ -257,11 +309,12 @@ export function CategoryPicker({
           { onError: (err) => console.error("Failed to create category:", err) },
         );
         return CATEGORY + id;
-      }}
+      } : undefined}
       labels={{
         search: "categoryPicker.search",
         empty: "categoryPicker.empty",
         create: "categoryPicker.create",
+        clear: "categorySelect.none",
       }}
       renderLeading={(row) => <Swatch color={row.color} sub={row.sub} plan={row.plan} />}
       trigger={
@@ -269,9 +322,10 @@ export function CategoryPicker({
           type="button"
           aria-haspopup="listbox"
           aria-label={label}
+          disabled={disabled}
           title={selectedSub ? label : undefined}
           className={cn(
-            "flex h-9 w-full items-center justify-between gap-2 rounded-md border bg-transparent px-3 py-1 text-sm shadow-xs outline-none hover:bg-accent/50 focus-visible:ring-[3px] focus-visible:ring-ring/50",
+            "flex h-9 w-full items-center justify-between gap-2 rounded-md border bg-transparent px-3 py-1 text-sm shadow-xs outline-none hover:bg-accent/50 focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent",
             className,
           )}
         >
@@ -297,7 +351,7 @@ export function CategoryPicker({
             <span className="flex items-center gap-1.5 truncate text-muted-foreground">
               <Tag className="h-3 w-3 shrink-0" />
               <span className="truncate">
-                {placeholder ?? t("categorySelect.placeholder")}
+                {placeholder ?? emptyLabel ?? t("categorySelect.placeholder")}
               </span>
             </span>
           )}

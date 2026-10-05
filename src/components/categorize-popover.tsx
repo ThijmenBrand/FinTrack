@@ -18,12 +18,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tag, Check, Zap, SlidersHorizontal, ArrowUpRight } from "lucide-react";
+import { Tag, Check, Zap, SlidersHorizontal, ArrowUpRight, Loader2 } from "lucide-react";
 import { extractPattern, findMatchingRule } from "@/lib/csv-utils";
 import { MATCH_TYPES, MATCH_FIELDS } from "@/lib/match-types";
 import { CategoryIcon } from "@/components/category-icon";
 import { CategoryPicker, selectedSubCategory } from "@/components/category-picker";
-import { useCategorizeTransaction } from "@/hooks/use-transactions";
+import { useCategorizeTransaction, useIsCategorizing } from "@/hooks/use-transactions";
 import { useCategoryRules } from "@/hooks/use-categories";
 import { useSubCategories } from "@/hooks/use-budgets";
 import type { Category, SubCategoryOption } from "@/types/api";
@@ -95,6 +95,9 @@ export function CategorizePopover({
   const [ruleMatchType, setRuleMatchType] = useState("contains");
   const [ruleMatchField, setRuleMatchField] = useState("both");
   const categorize = useCategorizeTransaction();
+  // Any save for this row, from this popover or another copy of it (the list
+  // row and the detail dialog each render one).
+  const saving = useIsCategorizing(transactionId);
 
   // Fetched only while the popover is open — a long list would otherwise have
   // every row subscribe — and only where the rules are ours: on someone else's
@@ -178,6 +181,7 @@ export function CategorizePopover({
       <PopoverTrigger asChild>
         <button
           data-tour="tx-category"
+          aria-busy={saving}
           className="flex min-w-0 items-center gap-1.5 text-sm rounded-md px-2 py-1 hover:bg-accent transition-colors text-left"
         >
           {currentCategoryName ? (
@@ -201,6 +205,14 @@ export function CategorizePopover({
               <Tag className="h-3 w-3" />
               {t("categorize.trigger")}
             </span>
+          )}
+          {/* The new category is already shown; this says the server hasn't
+              confirmed it yet. */}
+          {saving && (
+            <Loader2
+              className="h-3 w-3 shrink-0 animate-spin text-muted-foreground"
+              aria-label={t("categorize.saving")}
+            />
           )}
         </button>
       </PopoverTrigger>
@@ -337,10 +349,10 @@ export function CategorizePopover({
             <Button
               size="sm"
               onClick={handleSave}
-              disabled={categorize.isPending || !selectedCategoryId}
+              disabled={saving || !selectedCategoryId}
             >
-              {categorize.isPending ? t("categorize.saving") : t("common.save")}
-              {!categorize.isPending && <Check className="ml-1 h-3 w-3" />}
+              {saving ? t("categorize.saving") : t("common.save")}
+              {!saving && <Check className="ml-1 h-3 w-3" />}
             </Button>
           </div>
         </div>

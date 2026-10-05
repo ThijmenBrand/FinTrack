@@ -9,11 +9,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { SelectItem } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Loader2 } from "lucide-react";
 import { useUpdatePot } from "@/hooks/use-pots";
-import { PotForm, isPotTargetValid, NO_CATEGORY } from "@/components/pot-form";
+import { PotForm, isPotTargetValid } from "@/components/pot-form";
 import type { Category, Pot } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
 import { useResetOnChange } from "@/hooks/use-reset-on-change";
@@ -35,7 +34,7 @@ export function EditPotDialog({
 }: EditPotDialogProps) {
   const { t, formatCurrency } = useI18n();
   const [name, setName] = useState("");
-  const [categoryId, setCategoryId] = useState<string>(NO_CATEGORY);
+  const [categoryId, setCategoryId] = useState<string | null>(null);
   const [hasTarget, setHasTarget] = useState(false);
   const [targetAmount, setTargetAmount] = useState("");
   const [targetDate, setTargetDate] = useState("");
@@ -44,7 +43,7 @@ export function EditPotDialog({
   useResetOnChange(pot, () => {
     if (!pot) return;
     setName(pot.name);
-    setCategoryId(pot.categoryId ?? NO_CATEGORY);
+    setCategoryId(pot.categoryId ?? null);
     setHasTarget(pot.targetAmount != null && pot.targetDate != null);
     setTargetAmount(pot.targetAmount != null ? String(pot.targetAmount) : "");
     setTargetDate(pot.targetDate ?? "");
@@ -58,7 +57,7 @@ export function EditPotDialog({
       await updatePot.mutateAsync({
         id: pot.id,
         name: name.trim(),
-        categoryId: categoryId === NO_CATEGORY ? null : categoryId,
+        categoryId,
         targetAmount: hasTarget ? Number(targetAmount) : null,
         targetDate: hasTarget ? targetDate : null,
       });
@@ -72,8 +71,7 @@ export function EditPotDialog({
   const isDirty =
     !!pot &&
     (name.trim() !== pot.name ||
-      (categoryId === NO_CATEGORY ? null : categoryId) !==
-        (pot.categoryId ?? null) ||
+      categoryId !== (pot.categoryId ?? null) ||
       hasTarget !== (pot.targetAmount != null && pot.targetDate != null) ||
       (hasTarget &&
         (Number(targetAmount) !== (pot.targetAmount ?? 0) ||
@@ -100,11 +98,6 @@ export function EditPotDialog({
           onTargetAmountChange={setTargetAmount}
           targetDate={targetDate}
           onTargetDateChange={setTargetDate}
-          noCategoryOption={
-            <SelectItem value={NO_CATEGORY}>
-              <span className="text-muted-foreground">{t("pots.edit.noCategory")}</span>
-            </SelectItem>
-          }
           spikeHint={t("pots.edit.spikeHint")}
           onEnterSubmit={handleSave}
         />

@@ -31,7 +31,7 @@ export function CreatePotDialog({
 }: CreatePotDialogProps) {
   const { t } = useI18n();
   const [name, setName] = useState("");
-  const [categoryId, setCategoryId] = useState("");
+  const [categoryId, setCategoryId] = useState<string | null>(null);
   const [hasTarget, setHasTarget] = useState(false);
   const [targetAmount, setTargetAmount] = useState("");
   const [targetDate, setTargetDate] = useState("");
@@ -39,7 +39,7 @@ export function CreatePotDialog({
 
   const reset = () => {
     setName("");
-    setCategoryId("");
+    setCategoryId(null);
     setHasTarget(false);
     setTargetAmount("");
     setTargetDate("");
@@ -52,7 +52,7 @@ export function CreatePotDialog({
     try {
       await createPot.mutateAsync({
         name: name.trim(),
-        categoryId: categoryId || null,
+        categoryId,
         targetAmount: hasTarget ? Number(targetAmount) : null,
         targetDate: hasTarget ? targetDate : null,
       });

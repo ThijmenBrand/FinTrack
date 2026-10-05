@@ -9,7 +9,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Tag, Check } from "lucide-react";
-import { CategorySelect, NO_CATEGORY_VALUE } from "@/components/category-select";
+import { CategoryPicker } from "@/components/category-picker";
 import { useUpdatePot } from "@/hooks/use-pots";
 import type { Category } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
@@ -33,14 +33,12 @@ export function PotCategoryPopover({
 }: PotCategoryPopoverProps) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string>(
-    currentCategoryId ?? NO_CATEGORY_VALUE,
-  );
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(currentCategoryId);
   const updatePot = useUpdatePot();
 
   const handleOpenChange = (next: boolean) => {
     if (next) {
-      setSelectedCategoryId(currentCategoryId ?? NO_CATEGORY_VALUE);
+      setSelectedCategoryId(currentCategoryId);
     }
     setOpen(next);
   };
@@ -49,7 +47,7 @@ export function PotCategoryPopover({
     try {
       await updatePot.mutateAsync({
         id: potId,
-        categoryId: selectedCategoryId === NO_CATEGORY_VALUE ? null : selectedCategoryId,
+        categoryId: selectedCategoryId,
       });
       setOpen(false);
     } catch (err) {
@@ -57,9 +55,7 @@ export function PotCategoryPopover({
     }
   };
 
-  const isDirty =
-    (selectedCategoryId === NO_CATEGORY_VALUE ? null : selectedCategoryId) !==
-    (currentCategoryId ?? null);
+  const isDirty = selectedCategoryId !== (currentCategoryId ?? null);
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
@@ -92,11 +88,13 @@ export function PotCategoryPopover({
 
           <div className="space-y-2">
             <Label className="text-xs">{t("common.category")}</Label>
-            <CategorySelect
+            {/* Pots are never shared, so no account: they live in the caller's own space. */}
+            <CategoryPicker
               value={selectedCategoryId}
-              onValueChange={setSelectedCategoryId}
+              onChange={setSelectedCategoryId}
+              onClear={() => setSelectedCategoryId(null)}
               categories={categories}
-              allowNone
+              className="h-8 text-sm"
             />
           </div>
 

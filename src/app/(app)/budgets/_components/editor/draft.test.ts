@@ -3,6 +3,7 @@ import {
   afterSave,
   applyOps,
   changeCount,
+  editPlan,
   filePlan,
   filedIds,
   linkable,
@@ -20,6 +21,7 @@ const EMPTY: Draft = {
   added: [],
   ops: [],
   recurring: [],
+  plans: {},
   decided: {},
 };
 
@@ -152,6 +154,7 @@ describe("toSteps", () => {
       added: [],
       ops: [{ kind: "remove", allocationId: "a", id: "l1" }],
       recurring: [],
+      plans: {},
       decided: {},
     });
     expect(steps).toEqual([{ kind: "remove", id: "a" }]);
@@ -214,6 +217,7 @@ describe("afterSave", () => {
     added: [],
     ops: [],
     recurring: [],
+    plans: {},
     decided: {},
   };
 
@@ -424,5 +428,65 @@ describe("filing a plan under a category budgeted in this same session", () => {
     expect(toSteps(left)[0]).toMatchObject({
       children: [{ adoptRecurringId: "rec-9" }],
     });
+  });
+});
+
+describe("rescheduling the plan behind a line", () => {
+  const plan = {
+    id: "p1",
+    amount: -899,
+    frequency: "monthly" as const,
+    dayOfWeek: null,
+    dayOfMonth: 2,
+    monthOfYear: null,
+    startDate: "2024-01-02",
+    isActive: true,
+  };
+  const rent: BudgetSubLine = { ...line("rent", 899), recurring: plan };
+  const saved = [alloc("a", 959, [rent, line("gas", 60)])];
+  const edit = {
+    amount: 1200,
+    frequency: "yearly" as const,
+    dayOfWeek: null,
+    dayOfMonth: 15,
+    monthOfYear: 3,
+    startDate: "2024-01-02",
+  };
+
+  it("shows the new schedule and its monthly figure before Save", () => {
+    const [row] = overlay(saved, editPlan(EMPTY, "p1", edit));
+    const shown = row.subLines[0];
+    expect(shown.amount).toBe(100);
+    expect(shown.recurring).toMatchObject({ amount: -1200, frequency: "yearly", dayOfMonth: 15 });
+    // The cap is its breakdown, so it moves with the line.
+    expect(row.amount).toBe(160);
+  });
+
+  it("writes the plan before the rename, which carries no amount", () => {
+    const draft = editPlan(
+      { ...EMPTY, ops: [{ kind: "update", allocationId: "a", id: "rent", name: "Huur" }] },
+      "p1",
+      edit,
+    );
+    expect(toSteps(draft)).toEqual([
+      { kind: "plan", id: "p1", edit },
+      { kind: "op", op: { kind: "update", allocationId: "a", id: "rent", name: "Huur" } },
+    ]);
+    expect(changeCount(draft)).toBe(2);
+    expect(overlay(saved, draft)[0].subLines[0].name).toBe("Huur");
+  });
+
+  it("edits a plan drafted in this session where it lives", () => {
+    const tx = { ...plan, id: "draft:1", type: "expense" } as unknown as RecurringTx;
+    const draft = editPlan({ ...EMPTY, recurring: [tx] }, "draft:1", edit);
+    expect(draft.plans).toEqual({});
+    expect(draft.recurring[0]).toMatchObject({ amount: -1200, frequency: "yearly", monthOfYear: 3 });
+  });
+
+  it("is dropped once written", () => {
+    const draft = editPlan(EMPTY, "p1", edit);
+    const steps = toSteps(draft);
+    expect(afterSave(draft, steps, steps.length, {}).plans).toEqual({});
+    expect(afterSave(draft, steps, 0, {}).plans).toEqual({ p1: edit });
   });
 });

@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubTrigger,
@@ -34,6 +35,7 @@ import {
   Wallet,
 } from "lucide-react";
 import { useCategorizeTransaction, useUpdateTransactionNotes } from "@/hooks/use-transactions";
+import { bandByPlan, usePlanCategoryIds } from "@/components/category-picker";
 import { MAX_NOTE_LENGTH, sanitizeNote } from "@/lib/validation";
 import type { Transaction, Category } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
@@ -94,6 +96,11 @@ export function TransactionContextMenu({
   const { t } = useI18n();
   const categorize = useCategorizeTransaction();
   const tx = menu?.tx;
+  // Same order as CategoryPicker: the row account's budget plan first. A menu
+  // rather than the picker itself — a right-click is for the quick pick, and
+  // the row's own category control is one click away for search and create.
+  const planIds = usePlanCategoryIds(tx?.accountId, { enabled: !!tx });
+  const { inPlan, rest, banded } = bandByPlan(categories, planIds);
 
   return (
     <DropdownMenu open={!!menu} onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -135,19 +142,34 @@ export function TransactionContextMenu({
                   {t("tx.menu.changeCategory")}
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent className="max-h-72 overflow-y-auto">
-                  {categories.map((c) => (
-                    <DropdownMenuItem
-                      key={c.id}
-                      onSelect={() => categorize.mutate({ transactionId: tx.id, categoryId: c.id })}
-                    >
-                      <span
-                        className="h-2.5 w-2.5 rounded-full shrink-0"
-                        style={{ backgroundColor: c.color ?? undefined }}
-                      />
-                      <span className="truncate">{c.name}</span>
-                      {tx.categoryId === c.id && <Check className="ml-auto" />}
-                    </DropdownMenuItem>
-                  ))}
+                  {[
+                    { key: "in", label: t("categoryPicker.inBudget"), list: inPlan },
+                    { key: "rest", label: t("categoryPicker.outsideBudget"), list: rest },
+                  ].map(({ key, label, list }) =>
+                    list.length === 0 ? null : (
+                      <Fragment key={key}>
+                        {banded && (
+                          <>
+                            {key === "rest" && <DropdownMenuSeparator />}
+                            <DropdownMenuLabel>{label}</DropdownMenuLabel>
+                          </>
+                        )}
+                        {list.map((c) => (
+                          <DropdownMenuItem
+                            key={c.id}
+                            onSelect={() => categorize.mutate({ transactionId: tx.id, categoryId: c.id })}
+                          >
+                            <span
+                              className="h-2.5 w-2.5 rounded-full shrink-0"
+                              style={{ backgroundColor: c.color ?? undefined }}
+                            />
+                            <span className="truncate">{c.name}</span>
+                            {tx.categoryId === c.id && <Check className="ml-auto" />}
+                          </DropdownMenuItem>
+                        ))}
+                      </Fragment>
+                    ),
+                  )}
                   {tx.categoryId && (
                     <>
                       <DropdownMenuSeparator />

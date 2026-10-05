@@ -8,6 +8,9 @@ import { sumLines } from "@/lib/budget-cache";
  * carries more than this; a drafted one carries less. Both satisfy it.
  */
 export interface LinkedPlan {
+  id: string;
+  /** Per occurrence, signed the way the plan stores it. */
+  amount: number;
   frequency: string;
   dayOfWeek: number | null;
   dayOfMonth: number | null;
@@ -41,6 +44,16 @@ export interface LineNode {
  * so a drafted line satisfies both.
  */
 export type FiledPlan = NonNullable<BudgetSubLine["recurring"]>;
+
+/**
+ * A recurring line's plan as its editor rewrites it: what the bank takes and
+ * when. `amount` is per occurrence and positive — the line's monthly figure is
+ * derived from it, never typed beside it.
+ */
+export type PlanEdit = Pick<
+  FiledPlan,
+  "frequency" | "dayOfWeek" | "dayOfMonth" | "monthOfYear" | "startDate"
+> & { amount: number };
 
 /**
  * A line in the add dialog, before anything has been written. Its money is in

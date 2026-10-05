@@ -145,6 +145,7 @@ export function splitShares(
     | "role"
     | "accounts"
     | "ownerName"
+    | "ownerImage"
     | "ownerSharePercent"
     | "sharePercents"
     | "sharePercent"
@@ -158,6 +159,8 @@ export function splitShares(
   labels: { you: string; others: string },
   /** What the period on screen costs in total — what the key is applied to. */
   total: number,
+  /** The caller's own profile picture, for their "You" row. */
+  youImage?: string | null,
 ): SplitShare[] {
   if (!planIsShared(plan, accounts)) return [];
   const byAmount = plan.splitMode === "amount";
@@ -175,8 +178,8 @@ export function splitShares(
       ];
       const [owner, mine, others] = shareOut(parts, total);
       return [
-        row(ownerName, owner, total, plan.ownerShareAmount == null, false),
-        row(labels.you, mine, total, plan.shareAmount == null, true),
+        row(ownerName, owner, total, plan.ownerShareAmount == null, false, plan.ownerImage),
+        row(labels.you, mine, total, plan.shareAmount == null, true, youImage),
         // The people behind this row carry nothing at all on a two-party plan,
         // and a zero row would read as a third person who pays nothing.
         ...(others > 0
@@ -186,8 +189,8 @@ export function splitShares(
     }
     const restPct = 100 - plan.ownerSharePercent - plan.sharePercent;
     return [
-      pctRow(ownerName, plan.ownerSharePercent, total, false),
-      pctRow(labels.you, plan.sharePercent, total, true),
+      pctRow(ownerName, plan.ownerSharePercent, total, false, plan.ownerImage),
+      pctRow(labels.you, plan.sharePercent, total, true, youImage),
       ...(restPct > 0 ? [pctRow(labels.others, restPct, total, false)] : []),
     ];
   }
@@ -219,7 +222,7 @@ export function splitShares(
       total,
     );
     return [
-      row(labels.you, amounts[0], total, plan.ownerShareAmount == null, true),
+      row(labels.you, amounts[0], total, plan.ownerShareAmount == null, true, youImage),
       ...people.map((p, i) =>
         row(
           nameOf(p),
@@ -239,7 +242,7 @@ export function splitShares(
     plan.sharePercents,
   );
   return [
-    pctRow(labels.you, plan.ownerSharePercent, total, true),
+    pctRow(labels.you, plan.ownerSharePercent, total, true, youImage),
     ...people.map((p) =>
       pctRow(nameOf(p), resolved[p.email as string] ?? 0, total, false, p.image),
     ),

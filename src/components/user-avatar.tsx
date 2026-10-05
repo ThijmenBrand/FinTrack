@@ -1,3 +1,4 @@
+import { AvatarImage } from "@/components/avatar-image";
 import { avatarSrc } from "@/lib/avatar";
 import { cn } from "@/lib/utils";
 
@@ -37,22 +38,9 @@ export function UserAvatar({
           everywhere else the name is already in adjacent text. */}
       <span aria-hidden="true">{initial(name)}</span>
       {alt && <span className="sr-only">{alt}</span>}
-      {src && (
-        // Layered over the initial rather than swapped in: if the fetch 404s or
-        // comes back 401 on an expired session, the img just doesn't paint and
-        // the initial shows through, so the fallback needs no onError handler
-        // and this stays a server component.
-        //
-        // ponytail: plain <img>, not next/image — the source is already a 256px
-        // webp from our own pipeline, and the optimizer refetches server-side
-        // without the session cookie, which a private avatar needs.
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={src}
-          alt=""
-          className="absolute inset-0 h-full w-full object-cover"
-        />
-      )}
+      {/* Layered over the initial rather than swapped in, so whatever the
+          picture does while loading or failing, a face is always showing. */}
+      {src && <AvatarImage key={src} src={src} />}
     </span>
   );
 }

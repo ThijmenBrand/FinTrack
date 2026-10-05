@@ -36,6 +36,7 @@ export function RecurringItem({
   item,
   kind,
   showAccount,
+  budget,
   expanded,
   onExpand,
   onEdit,
@@ -49,6 +50,8 @@ export function RecurringItem({
   kind: SectionKey;
   /** Off when every plan is on the same account — the column says nothing then. */
   showAccount: boolean;
+  /** The budget this plan counts toward, through its account; null = none. */
+  budget?: { id: string; name: string } | null;
   expanded: boolean;
   onExpand: () => void;
   onEdit: (item: RecurringTx) => void;
@@ -166,6 +169,21 @@ export function RecurringItem({
               <dt className={DT}>{t("common.category")}</dt>
               <dd className="truncate text-[13px]">
                 {item.categoryName || t("categorySelect.none")}
+              </dd>
+            </div>
+            <div>
+              <dt className={DT}>{t("recurring.budget")}</dt>
+              <dd className="truncate text-[13px]">
+                {budget ? (
+                  <Link
+                    href={`/budgets?plan=${encodeURIComponent(budget.id)}`}
+                    className="text-primary hover:underline"
+                  >
+                    {budget.name}
+                  </Link>
+                ) : (
+                  t("recurring.noBudget")
+                )}
               </dd>
             </div>
           </dl>

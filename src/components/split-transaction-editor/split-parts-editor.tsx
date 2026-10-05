@@ -19,7 +19,6 @@ type PickerCategory = Pick<Category, "id" | "name" | "color">;
 export function SplitPartsEditor({
   totalCents,
   categories,
-  budgetCategoryIds,
   accountId,
   initialRows,
   showDescriptions = true,
@@ -31,8 +30,6 @@ export function SplitPartsEditor({
   /** Magnitude of the parent amount in cents — the parts must add up to it. */
   totalCents: number;
   categories: PickerCategory[];
-  /** Plan categories, banded to the top of each part's picker. Null outside a plan. */
-  budgetCategoryIds?: Set<string> | null;
   accountId: string;
   initialRows: SplitRow[];
   showDescriptions?: boolean;
@@ -78,7 +75,6 @@ export function SplitPartsEditor({
                 value={row.categoryId}
                 onChange={(id) => updateRow(row.key, { categoryId: id })}
                 categories={categories}
-                budgetCategoryIds={budgetCategoryIds}
                 accountId={accountId}
                 className="h-8 flex-1 text-sm"
               />

@@ -1,6 +1,6 @@
 import type { MessageKey } from "@/lib/i18n/translate";
 import { SUB_LINE_ERROR } from "@/lib/budget-sub-lines";
-import type { LineNode } from "./draft";
+import type { LineNode, PlanEdit } from "./draft";
 
 export { MAX_SUB_LINE_DEPTH } from "@/lib/budget-sub-lines";
 
@@ -17,6 +17,12 @@ export interface TreeActions {
   /** `parentId` null adds a line directly under the allocation. */
   add(parentId: string | null, name: string, amount: number): Promise<unknown> | void;
   update(id: string, name: string, amount: number): Promise<unknown> | void;
+  /**
+   * Rename a recurring line and reschedule the plan it stands for, in one go.
+   * Absent where plans can't be written: such a line falls back to the plain
+   * name-and-amount editor.
+   */
+  updatePlan?(line: LineNode, name: string, plan: PlanEdit): Promise<unknown> | void;
   remove(line: LineNode): Promise<unknown> | void;
 }
 

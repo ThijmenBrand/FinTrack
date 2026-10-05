@@ -77,8 +77,11 @@ function optimistic(qc: QueryClient) {
   };
 }
 
-/** The category behind a new allocation, for the row shown before the refetch. */
-function cachedCategory(qc: QueryClient, categoryId: string) {
+/**
+ * A category from whichever cached list holds it — lists are keyed per account
+ * scope, so an exact-key lookup would miss. For rows shown before the refetch.
+ */
+export function cachedCategory(qc: QueryClient, categoryId: string) {
   for (const [, list] of qc.getQueriesData<CategoryWithDetails[]>({
     queryKey: ["categories"],
   })) {

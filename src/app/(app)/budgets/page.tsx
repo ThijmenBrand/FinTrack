@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useBudgets } from "@/hooks/use-budgets";
 import { useBudgetPlans } from "@/hooks/use-budget-plans";
 import { useAccounts } from "@/hooks/use-accounts";
+import { useSessionUser } from "@/components/nav-shared";
 import { BUDGETABLE_ACCOUNT_TYPES } from "@/lib/account-scope";
 import { useCategories } from "@/hooks/use-categories";
 import { usePreferences } from "@/hooks/use-preferences";
@@ -115,6 +116,7 @@ function BudgetsPageInner() {
   const activePlanId = activePlan?.id;
 
   const { data: accountsData, isLoading: accountsLoading } = useAccounts();
+  const { user: sessionUser } = useSessionUser();
   const [planDialogOpen, setPlanDialogOpen] = useState(false);
   const [editingPlan, setEditingPlan] = useState<BudgetPlanData | null>(null);
   // Bumped on every open so the dialog remounts with fields fresh off the
@@ -470,6 +472,7 @@ function BudgetsPageInner() {
         // The period on screen, so the euros in the summary and the euros on
         // the rows are slices of the same budget.
         headlineLimit,
+        sessionUser?.imageUrl,
       )
     : [];
 

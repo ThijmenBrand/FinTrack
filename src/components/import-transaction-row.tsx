@@ -30,7 +30,6 @@ export interface ImportPot {
 export const ImportTransactionRow = memo(function ImportTransactionRow({
   tx,
   categories,
-  budgetCategoryIds,
   subCategories,
   pots,
   accountId,
@@ -47,8 +46,6 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
 }: {
   tx: PreviewTransaction;
   categories: ImportCategory[];
-  /** Plan categories, banded to the top of every picker here. Null outside a plan. */
-  budgetCategoryIds?: Set<string> | null;
   /** Sub-lines of the account's budget plan — the rows nested under a category. */
   subCategories: SubCategoryOption[];
   pots: ImportPot[];
@@ -106,7 +103,6 @@ export const ImportTransactionRow = memo(function ImportTransactionRow({
   ) : (
     <CategoryPicker
       categories={categories}
-      budgetCategoryIds={budgetCategoryIds}
       subCategories={subCategories}
       value={tx.categoryId || null}
       subLineId={tx.subLineId ?? null}

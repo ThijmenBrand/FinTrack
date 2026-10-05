@@ -51,6 +51,7 @@ import {
 import {
   EMPTY_DRAFT,
   changeCount,
+  editPlan,
   filePlan,
   filedIds,
   linkable,
@@ -299,6 +300,18 @@ function BudgetEditPageInner() {
         ...d,
         ops: [...d.ops, { kind: "remove", allocationId, id: line.id }],
       })),
+    // The rename is the line's, the money and the schedule are the plan's —
+    // so the op carries no amount, or it would be written back over the plan.
+    updatePlan: (line, name, plan) =>
+      setDraft((d) =>
+        editPlan(
+          name === line.name
+            ? d
+            : { ...d, ops: [...d.ops, { kind: "update", allocationId, id: line.id, name }] },
+          line.recurring!.id,
+          plan,
+        ),
+      ),
   });
 
   /**
@@ -326,6 +339,19 @@ function BudgetEditPageInner() {
         ),
       update: (id, name, amount) => patch((lines) => updateLine(lines, id, { name, amount })),
       remove: (line) => patch((lines) => removeLine(lines, line.id)),
+      updatePlan: (line, name, plan) =>
+        setDraft((d) =>
+          editPlan(
+            {
+              ...d,
+              added: d.added.map((row) =>
+                row.key === key ? { ...row, lines: updateLine(row.lines, line.id, { name }) } : row,
+              ),
+            },
+            line.recurring!.id,
+            plan,
+          ),
+        ),
     };
   };
 

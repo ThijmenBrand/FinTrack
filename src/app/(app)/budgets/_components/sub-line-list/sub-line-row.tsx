@@ -8,6 +8,7 @@ import { getNextOccurrence } from "@/lib/recurring";
 import { Loader2, Pencil, Trash2 } from "lucide-react";
 import { PausedBadge, PlanMeta, SubRow } from "../sub-row";
 import { Row } from "./row";
+import { RecurringLineForm } from "./recurring-line-form";
 import { SubLineForm } from "./sub-line-form";
 import { UnlinkConfirm } from "./unlink-confirm";
 import { useSubLineError } from "./use-sub-line-error";
@@ -35,6 +36,32 @@ export function SubLineRow({
   const lockedHint = line.children.length > 0 ? t("budgets.subLines.derivedTotal") : undefined;
   const hint = line.recurring ? t("budgets.subLines.recurringSyncs") : undefined;
 
+  const stopEditing = () => {
+    setError(null);
+    setEditing(false);
+  };
+
+  // A payment is more than a name and a figure — it has a cadence and a due
+  // date, and those are what drift. Where the caller can write the plan, its
+  // line gets the editor that asks for all of it.
+  if (editing && actions?.updatePlan && line.recurring) {
+    const updatePlan = actions.updatePlan;
+    return (
+      <RecurringLineForm
+        ctx={ctx}
+        depth={depth}
+        line={{ ...line, recurring: line.recurring }}
+        pending={pending}
+        error={error}
+        onCancel={stopEditing}
+        onSubmit={async (name, plan) => {
+          const ok = await guard(() => updatePlan(line, name, plan));
+          if (ok) setEditing(false);
+        }}
+      />
+    );
+  }
+
   if (editing && actions) {
     return (
       <SubLineForm
@@ -46,10 +73,7 @@ export function SubLineRow({
         hint={hint}
         pending={pending}
         error={error}
-        onCancel={() => {
-          setError(null);
-          setEditing(false);
-        }}
+        onCancel={stopEditing}
         onSubmit={async (name, displayAmount) => {
           const ok = await guard(() =>
             actions.update(

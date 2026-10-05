@@ -123,6 +123,13 @@ async function run(
     return;
   }
 
+  if (step.kind === "plan") {
+    // The route mirrors the new figure into the line linked to the plan, so
+    // the line's monthly amount follows without a write of its own.
+    await post("/api/recurring", "PUT", { id: step.id, ...step.edit });
+    return;
+  }
+
   const { op } = step;
   if (op.kind === "add") {
     // The id the server hands back is what every later op in this run means
@@ -143,7 +150,7 @@ async function run(
     await post("/api/budgets/sub-lines", "PUT", {
       id: realId(op.id),
       name: op.name,
-      amount: op.amount,
+      ...(op.amount !== undefined ? { amount: op.amount } : {}),
     });
     return;
   }

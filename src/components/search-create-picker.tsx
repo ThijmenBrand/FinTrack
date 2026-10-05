@@ -50,6 +50,9 @@ interface SearchCreatePickerProps<T extends PickerItem> {
   creating?: boolean;
   /** Omit to drop the "clear selection" row. */
   onClear?: () => void;
+  /** Offer the clear row with nothing selected too — for an action-style
+   *  trigger ("set category") where clearing is a choice, not an undo. */
+  clearWhenEmpty?: boolean;
   /** The closed state — rendered inside the trigger. */
   trigger: ReactNode;
   labels: {
@@ -81,6 +84,7 @@ export function SearchCreatePicker<T extends PickerItem>({
   onCreate,
   creating = false,
   onClear,
+  clearWhenEmpty = false,
   trigger,
   labels,
   renderLeading,
@@ -177,7 +181,7 @@ export function SearchCreatePicker<T extends PickerItem>({
           },
         ]
       : []),
-    ...(onClear && value && labels.clear
+    ...(onClear && (value || clearWhenEmpty) && labels.clear
       ? [
           {
             key: "__clear__",
