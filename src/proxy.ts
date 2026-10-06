@@ -2,6 +2,8 @@ import { auth } from "@/lib/auth";
 import { getSessionCookie } from "better-auth/cookies";
 import { NextRequest, NextResponse } from "next/server";
 import { validateCsrfOrigin } from "@/lib/csrf";
+import { isLockExempt, readLockState, touchSession } from "@/lib/session-lock";
+import { SESSION_LOCKED_CODE, unlockPath } from "@/lib/unlock-path";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
@@ -27,10 +29,10 @@ const publicPaths = [
 type Session = NonNullable<Awaited<ReturnType<typeof auth.api.getSession>>>;
 
 /**
- * The session is a sliding 1h window, and better-auth slides it by re-issuing
+ * The session is a sliding window, and better-auth slides it by re-issuing
  * the session cookie. Read it `asResponse` so we can hand that refreshed
- * cookie to the browser — without it the cookie would expire an hour after
- * login no matter how active the user is.
+ * cookie to the browser — without it the cookie would expire a fixed time
+ * after login no matter how active the user is.
  */
 async function getValidSession(
   request: NextRequest,
@@ -82,6 +84,33 @@ function unauthorizedResponse(request: NextRequest): NextResponse {
   return NextResponse.redirect(new URL("/login", request.url));
 }
 
+async function sessionLock(session: Session) {
+  try {
+    return await readLockState(session.session.id);
+  } catch {
+    // Can't tell whether it is locked — then it is.
+    return { locked: true, touch: false };
+  }
+}
+
+/** API callers get a 401 they can recognise; pages go to the lock screen. */
+function lockedResponse(request: NextRequest): NextResponse {
+  const { pathname } = request.nextUrl;
+  if (pathname.startsWith("/api/")) {
+    return NextResponse.json(
+      { error: "Session locked", code: SESSION_LOCKED_CODE },
+      { status: 401 },
+    );
+  }
+  // A client-side navigation carries the router's cache-buster; the page
+  // the user returns to after unlocking shouldn't.
+  const params = new URLSearchParams(request.nextUrl.search);
+  params.delete("_rsc");
+  const query = params.toString();
+  const returnTo = query ? `${pathname}?${query}` : pathname;
+  return NextResponse.redirect(new URL(unlockPath(returnTo), request.url));
+}
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -130,8 +159,13 @@ export async function proxy(request: NextRequest) {
     if (csrfError) return csrfError;
   }
 
-  // Allow public paths through regardless of auth state
-  if (publicPaths.some((p) => pathname.startsWith(p))) {
+  // Public paths need no session — but one that comes with a cookie still
+  // goes past the idle lock below, or a locked session could reach
+  // better-auth's account endpoints (add a passkey, list sessions) through
+  // the /api/auth/ exemption.
+  const isPublic = publicPaths.some((p) => pathname.startsWith(p));
+  const lockExempt = isLockExempt(pathname, request.method);
+  if (isPublic && (!sessionToken || lockExempt)) {
     return NextResponse.next();
   }
 
@@ -141,7 +175,27 @@ export async function proxy(request: NextRequest) {
 
   const { session, setCookies } = await getValidSession(request);
   if (!session) {
-    return clearAuthCookies(unauthorizedResponse(request));
+    return isPublic
+      ? NextResponse.next()
+      : clearAuthCookies(unauthorizedResponse(request));
+  }
+
+  if (!lockExempt) {
+    const lock = await sessionLock(session);
+    if (lock.locked) {
+      return withCookies(lockedResponse(request), setCookies);
+    }
+    if (lock.touch) {
+      // Losing one activity write only brings the lock a minute closer;
+      // it is no reason to fail the request.
+      await touchSession(session.session.id, session.user.id).catch(() => {});
+    }
+  }
+
+  // The lock screen sorts out where to go next itself — the role routing
+  // below would bounce a locked admin from /unlock to /backoffice and back.
+  if (isPublic || lockExempt) {
+    return withCookies(NextResponse.next(), setCookies);
   }
 
   // Role-based page routing: admins live in /backoffice, regular users in the

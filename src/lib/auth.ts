@@ -97,12 +97,13 @@ export const auth = betterAuth({
     },
   },
   session: {
-    // Idle timeout: the session dies an hour after the last request. There is
-    // no cookie cache (dropped on main), so every request reaches the database
-    // and `updateAge: 0` slides that hour forward on all of them — an active
-    // user is never logged out mid-use, an abandoned tab dies in an hour.
-    expiresIn: 60 * 60,
-    updateAge: 0,
+    // The device stays signed in for 30 days after its last use (re-issued at
+    // most daily). That is only safe because of the idle lock: an hour
+    // without a request and the session locks until a passkey or the password
+    // unlocks it (src/lib/session-lock.ts, enforced in src/proxy.ts). No
+    // cookie cache: it would keep a deleted session working until it expired.
+    expiresIn: 30 * 24 * 60 * 60,
+    updateAge: 24 * 60 * 60,
   },
   databaseHooks: {
     user: {

@@ -10,16 +10,15 @@ vi.mock("@/lib/email", () => ({
   sendOtpEmail: vi.fn(),
 }));
 
-describe("session idle timeout", () => {
-  it("dies after 1h of inactivity and slides on every request", async () => {
+describe("session lifetime", () => {
+  it("keeps the device signed in for 30 days, refreshed at most daily", async () => {
     const { auth } = await import("@/lib/auth");
     const session = auth.options.session;
-    expect(session?.expiresIn).toBe(60 * 60);
-    // updateAge 0 = re-issue the expiry on every request that hits the db,
-    // so an active user is never logged out mid-use.
-    expect(session?.updateAge).toBe(0);
-    // A cookie cache would serve requests without touching the db, and those
-    // requests would not slide the window. Keep it off.
+    expect(session?.expiresIn).toBe(30 * 24 * 60 * 60);
+    expect(session?.updateAge).toBe(24 * 60 * 60);
+    // A cookie cache would keep a deleted session working until the cache ran
+    // out — including the one the lock screen signs out after too many wrong
+    // passwords. Keep every request going to the database.
     expect("cookieCache" in (session ?? {})).toBe(false);
   });
 });
