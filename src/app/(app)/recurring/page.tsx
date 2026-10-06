@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   useRecurring,
   useRecurringForecast,
@@ -12,12 +13,12 @@ import {
 import { useAccounts } from "@/hooks/use-accounts";
 import { useCategories } from "@/hooks/use-categories";
 import { useBudgetPlans } from "@/hooks/use-budget-plans";
-import type { RecurringTx } from "@/types/api";
+import type { Account, RecurringTx } from "@/types/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertTriangle, Plus, RefreshCcw } from "lucide-react";
-import { RecurringFormDialog } from "./_components/recurring-form-dialog";
+import { RecurringFormDialog, type RecurringPrefill } from "./_components/recurring-form-dialog";
 import { RecurringList } from "./_components/recurring-list";
 import { UpcomingPayments } from "./_components/upcoming-payments";
 import { useI18n } from "@/lib/i18n/client";
@@ -28,8 +29,46 @@ import { TONE_TEXT } from "@/app/(app)/budgets/_components/budget-row";
 // name it belongs to.
 const PAGE = "mx-auto max-w-4xl";
 
+/**
+ * A "new subscription spotted" notification links here with the plan spelled
+ * out in the query (see subscription.detected in src/lib/notifications). Null
+ * unless it names one of the user's accounts and a usable amount.
+ */
+function suggestedPlan(params: URLSearchParams, accounts: Account[]): RecurringPrefill | null {
+  if (params.get("add") !== "expense") return null;
+  const accountId = params.get("accountId");
+  const amount = Number(params.get("amount"));
+  const description = params.get("description")?.trim().slice(0, 200);
+  if (!accountId || !accounts.some((a) => a.id === accountId) || !(amount > 0) || !description) return null;
+  const frequency = params.get("frequency") === "weekly" ? "weekly" : "monthly";
+  const startDate = /^\d{4}-\d{2}-\d{2}$/.test(params.get("startDate") ?? "") ? params.get("startDate")! : undefined;
+  const start = startDate ? new Date(`${startDate}T00:00:00`) : null;
+  return {
+    id: `suggested:${accountId}:${description}`,
+    accountId,
+    description,
+    amount: -amount,
+    categoryId: params.get("categoryId") || null,
+    frequency,
+    dayOfMonth: start ? start.getDate() : undefined,
+    dayOfWeek: start ? start.getDay() : undefined,
+    startDate,
+  };
+}
+
 export default function RecurringPage() {
+  // useSearchParams needs a Suspense boundary above it.
+  return (
+    <Suspense>
+      <RecurringPageContent />
+    </Suspense>
+  );
+}
+
+function RecurringPageContent() {
   const { t, formatCurrency } = useI18n();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { data: items = [], isLoading: loading } = useRecurring();
   const { data: accounts = [] } = useAccounts();
   const { data: categories = [] } = useCategories();
@@ -58,11 +97,18 @@ export default function RecurringPage() {
     setDialogOpen(true);
   };
 
+  // Open while its link is in the URL; closing or saving drops it from the URL.
+  const suggestion = suggestedPlan(searchParams, accounts);
+  const clearSuggestion = () => {
+    if (suggestion) router.replace("/recurring", { scroll: false });
+  };
+
   const handleDialogOpenChange = (open: boolean) => {
     setDialogOpen(open);
     if (!open) {
       setEditing(null);
       setAddType(undefined);
+      clearSuggestion();
     }
   };
 
@@ -72,6 +118,7 @@ export default function RecurringPage() {
       : createRecurring.mutateAsync(payload));
     setDialogOpen(false);
     setEditing(null);
+    clearSuggestion();
   };
 
   const handleDelete = async (id: string) => {
@@ -119,10 +166,11 @@ export default function RecurringPage() {
         </p>
       </div>
       <RecurringFormDialog
-        open={dialogOpen}
+        open={dialogOpen || !!suggestion}
         onOpenChange={handleDialogOpenChange}
         editing={editing}
-        defaultType={addType}
+        prefill={editing ? null : suggestion}
+        defaultType={suggestion && !editing ? "expense" : addType}
         accounts={accounts}
         categories={categories}
         onSubmit={handleFormSubmit}

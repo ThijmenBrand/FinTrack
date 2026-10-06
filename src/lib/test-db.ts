@@ -23,6 +23,9 @@ export interface TestDb {
 }
 
 const TABLES = [
+  "notifications",
+  "notification_preferences",
+  "push_subscriptions",
   "step_up_challenges",
   "step_up_grants",
   "bank_aspsp_cache",
@@ -53,10 +56,10 @@ const TABLES = [
   '"user"',
 ];
 
-function bankSyncDdl(): string[] {
+function migrationDdl(tag: string): string[] {
   const dir = path.join(process.cwd(), "drizzle");
-  const file = fs.readdirSync(dir).find((f) => /^\d+_bank_sync\.sql$/.test(f));
-  if (!file) throw new Error("bank_sync migration not found");
+  const file = fs.readdirSync(dir).find((f) => f.endsWith(`_${tag}.sql`) && /^\d+_/.test(f));
+  if (!file) throw new Error(`${tag} migration not found`);
   return fs
     .readFileSync(path.join(dir, file), "utf8")
     .split("--> statement-breakpoint")
@@ -329,10 +332,11 @@ export async function setupTestDb(name: string): Promise<TestDb> {
     )`,
   ];
   for (const stmt of ddl) await client.execute(stmt);
-  // The bank-sync tables are taken straight from their migration rather than
-  // restated here: CREATE statements only (the ALTERs it also carries are
-  // already part of the hand-written tables above).
-  for (const stmt of bankSyncDdl()) await client.execute(stmt);
+  // The bank-sync and notification tables are taken straight from their
+  // migrations rather than restated here: CREATE statements only (the ALTERs
+  // bank_sync also carries are already part of the hand-written tables above).
+  for (const stmt of migrationDdl("bank_sync")) await client.execute(stmt);
+  for (const stmt of migrationDdl("notifications")) await client.execute(stmt);
 
   return {
     client,

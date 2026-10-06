@@ -10,6 +10,7 @@ import { classifyRows } from "@/lib/import/classify";
 import { commitImport, type CommitTransaction } from "@/lib/import/commit";
 import { SYNC_OVERLAP_DAYS } from "@/lib/bank-sync/config";
 import { logDataEvent } from "@/lib/audit";
+import { queueNotificationEvaluation } from "@/lib/notifications/queue";
 import { clientFor, loadConnection, loadCredential } from "../bank-sync/context";
 import { normalizeTransactions, pickBalance } from "../bank-sync/normalize";
 import { JobError } from "../errors";
@@ -163,6 +164,7 @@ export const syncLinkHandler: Handler<"bank.sync_link"> = async (payload, ctx) =
         attended: !!psu,
       },
     });
+    if (result.imported > 0) await queueNotificationEvaluation(ctx.userId, "sync");
     return { imported: result.imported, duplicates: result.duplicatesSkipped };
   } catch (err) {
     await recordFailure(ctx.userId, connection.id, connection.credentialId, err, markLink);

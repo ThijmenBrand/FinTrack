@@ -29,7 +29,8 @@ services:
     image: ${IMAGE}
     command: ["node", "dist/worker.mjs"]
     # Same app.env for the database, BETTER_AUTH_URL (redirect URL and mail
-    # links), RESEND_* and Sentry. The worker never needs BETTER_AUTH_SECRET.
+    # links), RESEND_*, VAPID_* (push notifications) and Sentry. The worker
+    # never needs BETTER_AUTH_SECRET.
     env_file: app.env
     environment:
       BANK_SYNC_KEK_FILE: /run/secrets/bank_kek

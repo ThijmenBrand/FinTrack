@@ -10,6 +10,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { logAuthEvent } from "@/lib/audit";
 import { sendVerificationEmail, sendPasswordResetEmail } from "@/lib/email";
+import { notifyAccountChange, notifySignIn } from "@/lib/notifications/security";
 import { MIN_PASSWORD_LENGTH } from "@/lib/validation";
 import { seedCategoriesForUser } from "@/db/migrate";
 import { apiError } from "@/lib/api-errors";
@@ -120,12 +121,15 @@ export const auth = betterAuth({
       create: {
         after: async (session) => {
           // Log successful login
+          const userAgent = (session as Record<string, unknown>).userAgent as string || null;
           logAuthEvent({
             userId: session.userId,
             action: "login_success",
             ipAddress: (session as Record<string, unknown>).ipAddress as string || null,
-            userAgent: (session as Record<string, unknown>).userAgent as string || null,
+            userAgent,
           });
+          // Not awaited: a sign-in never waits on a push service.
+          void notifySignIn(session.userId, userAgent);
         },
       },
     },
@@ -146,6 +150,9 @@ export const auth = betterAuth({
     minPasswordLength: MIN_PASSWORD_LENGTH,
     sendResetPassword: async ({ user, url }) => {
       await sendPasswordResetEmail(user.email, url, await emailLocale(user.id));
+    },
+    onPasswordReset: async ({ user }) => {
+      void notifyAccountChange(user.id, "passwordChanged");
     },
     password: {
       hash: async (password: string) => hashPassword(password),

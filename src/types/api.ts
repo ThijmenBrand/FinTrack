@@ -313,6 +313,8 @@ export interface UpcomingMoneyEvent {
   type: "income" | "expense";
   categoryName: string | null;
   categoryColor: string | null;
+  /** The account the plan pays from / into. */
+  accountId: string;
   accountName: string | null;
   /** Due date passed and no payment has landed against it — see getUpcomingMoney. */
   overdue: boolean;

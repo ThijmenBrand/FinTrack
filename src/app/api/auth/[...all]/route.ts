@@ -1,7 +1,7 @@
 import { auth, verifyPassword } from "@/lib/auth";
 import { apiError } from "@/lib/api-errors";
 import { toNextJsHandler } from "better-auth/next-js";
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { db } from "@/db/index";
 import { account } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
@@ -10,6 +10,7 @@ import { logAuthEvent, getRequestMeta } from "@/lib/audit";
 import { getSignupsEnabled } from "@/lib/app-settings";
 import { validateEmail, validatePassword, validateName } from "@/lib/validation";
 import { routePath, twoFactorEscapeHatch } from "@/lib/auth-route-guards";
+import { notifyAccountChange, twoFactorEnabled } from "@/lib/notifications/security";
 
 const { GET: _GET, POST: _POST } = toNextJsHandler(auth);
 
@@ -116,7 +117,37 @@ async function handleDeletePasskey(req: NextRequest) {
     body: JSON.stringify({ id }),
   });
 
-  return _POST(forwardReq);
+  const response = await _POST(forwardReq);
+  const userId = session.user.id;
+  if (response.ok) after(() => notifyAccountChange(userId, "passkeyRemoved"));
+  return response;
+}
+
+/**
+ * The signed-in user, captured before an endpoint that can change their
+ * second factors runs — so the change can be told to them afterwards. Null
+ * for every other endpoint, and for the second half of a login (no session
+ * yet, and nothing changes).
+ */
+async function watchSecurityChange(path: string) {
+  const twoFactor = path.includes("/two-factor/");
+  if (!twoFactor && !path.endsWith("/passkey/verify-registration")) return null;
+  const session = await auth.api.getSession({ headers: await headers() });
+  const userId = session?.user?.id;
+  if (!userId) return null;
+  return { userId, twoFactorBefore: twoFactor ? await twoFactorEnabled(userId) : null };
+}
+
+async function reportSecurityChange(watch: { userId: string; twoFactorBefore: boolean | null }, path: string) {
+  if (path.endsWith("/passkey/verify-registration")) {
+    await notifyAccountChange(watch.userId, "passkeyAdded");
+    return;
+  }
+  if (watch.twoFactorBefore === null) return;
+  const now = await twoFactorEnabled(watch.userId);
+  if (now !== watch.twoFactorBefore) {
+    await notifyAccountChange(watch.userId, now ? "twoFactorEnabled" : "twoFactorDisabled");
+  }
 }
 
 export function GET(req: NextRequest) {
@@ -124,11 +155,18 @@ export function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const path = routePath(req.url);
+  const watch = await watchSecurityChange(path);
+  const response = await handlePost(req, path);
+  if (watch && response.ok) after(() => reportSecurityChange(watch, path).catch(() => {}));
+  return response;
+}
+
+async function handlePost(req: NextRequest, path: string): Promise<Response> {
   if (isSignupPath(req)) {
     return handleSignUp(req);
   }
 
-  const path = routePath(req.url);
   if (path.endsWith("/passkey/delete-passkey")) {
     return handleDeletePasskey(req);
   }
