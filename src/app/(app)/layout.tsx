@@ -6,6 +6,7 @@ import { OnboardingTour } from "@/components/onboarding-tour";
 import { PwaInstallPrompt } from "@/components/pwa-install-prompt";
 import { LearnedRuleNotice } from "@/components/learned-rule-notice";
 import { ViewTransitions } from "@/components/view-transitions";
+import { SessionLockWatcher } from "@/components/session-lock-watcher";
 import { requireAuth } from "@/lib/auth";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -32,6 +33,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <OnboardingTour />
       <PwaInstallPrompt />
       <LearnedRuleNotice />
+      <SessionLockWatcher />
     </div>
   );
 }

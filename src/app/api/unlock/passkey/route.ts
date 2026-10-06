@@ -3,17 +3,17 @@ import { withSession } from "@/lib/auth";
 import { apiError } from "@/lib/api-errors";
 import { getRequestMeta, logAuthEvent } from "@/lib/audit";
 import { parseAssertion, verifyPasskeyAssertion } from "@/lib/passkey-assertion";
-import { allowStepUpAttempt, grantStepUp } from "@/lib/step-up";
+import { allowUnlockAttempt, unlockSession } from "@/lib/session-lock";
 
 /**
- * POST /api/step-up/passkey/verify  { response }
- * Check the passkey assertion against the challenge this session was given:
- * right origin and RP, user verified, a passkey of THIS user, counter moved.
+ * POST /api/unlock/passkey  { response }
+ * Unlock an idle-locked session with one of the user's own passkeys, user
+ * verification required — the Face ID / Touch ID tap.
  */
 export async function POST(request: NextRequest) {
   return withSession(async (ids) => {
     const meta = getRequestMeta(request.headers);
-    if (!allowStepUpAttempt(ids.userId)) return apiError("api.stepUpTooManyAttempts", 429);
+    if (!allowUnlockAttempt(ids.userId)) return apiError("api.stepUpTooManyAttempts", 429);
 
     const response = parseAssertion(await request.json().catch(() => null));
     if (!response) return apiError("api.stepUpPasskeyFailed", 400);
@@ -21,13 +21,13 @@ export async function POST(request: NextRequest) {
     const outcome = await verifyPasskeyAssertion(ids, response);
     if (outcome !== "verified") {
       if (outcome === "rejected") {
-        logAuthEvent({ userId: ids.userId, action: "step_up_failed", details: { method: "passkey" }, ...meta });
+        logAuthEvent({ userId: ids.userId, action: "unlock_failed", details: { method: "passkey" }, ...meta });
       }
       return apiError("api.stepUpPasskeyFailed", 400);
     }
 
-    const expiresAt = await grantStepUp(ids, "passkey");
-    logAuthEvent({ userId: ids.userId, action: "step_up_success", details: { method: "passkey" }, ...meta });
-    return NextResponse.json({ activeUntil: expiresAt });
-  }, "Failed to verify passkey");
+    await unlockSession(ids.sessionId, ids.userId);
+    logAuthEvent({ userId: ids.userId, action: "unlock_success", details: { method: "passkey" }, ...meta });
+    return NextResponse.json({ unlocked: true });
+  }, "Failed to unlock with passkey");
 }

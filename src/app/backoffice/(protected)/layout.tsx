@@ -4,6 +4,7 @@ import { requireBackofficeAdmin } from "@/lib/auth";
 import { getI18n, getLocale } from "@/lib/i18n/server";
 import { BackofficeSignOut } from "./_components/sign-out-button";
 import { BackofficeLocaleSelect } from "./_components/locale-select";
+import { SessionLockWatcher } from "@/components/session-lock-watcher";
 
 export default async function BackofficeLayout({
   children,
@@ -60,6 +61,7 @@ export default async function BackofficeLayout({
         </div>
       </header>
       <main className="mx-auto max-w-6xl p-4 md:p-6">{children}</main>
+      <SessionLockWatcher />
     </div>
   );
 }

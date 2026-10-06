@@ -1137,6 +1137,19 @@ export const stepUpChallenges = sqliteTable("step_up_challenges", {
   index("idx_step_up_challenges_session").on(table.userId, table.sessionId),
 ]);
 
+// When a session was last used, for the idle lock (src/lib/session-lock.ts).
+// Kept out of better-auth's own session table so `auth:generate` can't drop
+// it; the row dies with its session. No row = never touched since sign-in.
+export const sessionActivity = sqliteTable("session_activity", {
+  sessionId: text("session_id")
+    .primaryKey()
+    .references(() => session.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  lastActiveAt: integer("last_active_at", { mode: "timestamp_ms" }).notNull(),
+  // Wrong passwords on the lock screen since the last unlock.
+  unlockFailures: integer("unlock_failures").notNull().default(0),
+});
+
 // ─── Type Exports ────────────────────────────────────────────────────────────
 export type User = typeof user.$inferSelect;
 export type NewUser = typeof user.$inferInsert;
