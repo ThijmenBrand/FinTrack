@@ -904,6 +904,7 @@ export const JOB_TYPES = [
   "bank.sync_link",
   "bank.revoke_session",
   "bank.delete_credential",
+  "notifications.evaluate",
 ] as const;
 export const JOB_STATUSES = ["queued", "running", "succeeded", "failed", "dead", "cancelled"] as const;
 
@@ -1150,6 +1151,70 @@ export const sessionActivity = sqliteTable("session_activity", {
   unlockFailures: integer("unlock_failures").notNull().default(0),
 });
 
+// ─── Notifications ──────────────────────────────────────────────────────
+// One browser (or installed PWA) that may receive Web Push for this user. The
+// endpoint is the push service's URL for that browser — validated against the
+// known push services before it is stored, because the server POSTs to it.
+export const pushSubscriptions = sqliteTable("push_subscriptions", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  endpoint: text("endpoint").notNull().unique(),
+  p256dh: text("p256dh").notNull(),
+  auth: text("auth").notNull(),
+  // "Safari on iPhone" — derived from the user agent, for the device list.
+  label: text("label"),
+  // Consecutive failed sends that weren't a clear "gone" (404/410); the row is
+  // dropped once this runs out.
+  failureCount: integer("failure_count").notNull().default(0),
+  lastSuccessAt: text("last_success_at"),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_push_subscriptions_user").on(table.userId),
+]);
+
+// The user's deviations from a notification type's defaults. Only overrides
+// are stored: the defaults live in the registry (src/lib/notifications), so a
+// new type needs no backfill.
+export const notificationPreferences = sqliteTable("notification_preferences", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  type: text("type").notNull(),
+  channel: text("channel", { enum: ["push", "email"] }).notNull(),
+  enabled: integer("enabled", { mode: "boolean" }).notNull(),
+  updatedAt: text("updated_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  uniqueIndex("idx_notification_preferences_user_type_channel").on(table.userId, table.type, table.channel),
+]);
+
+// Every notification that was raised, once. The (user, dedupe key) pair is
+// what keeps "Groceries is over budget" to one message per month — a second
+// raise of the same key is a no-op. `data` is what the renderer needs.
+export const notifications = sqliteTable("notifications", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  type: text("type").notNull(),
+  dedupeKey: text("dedupe_key").notNull(),
+  data: text("data").notNull().default("{}"),
+  pushedAt: text("pushed_at"),
+  emailedAt: text("emailed_at"),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  uniqueIndex("idx_notifications_user_dedupe").on(table.userId, table.dedupeKey),
+  index("idx_notifications_created").on(table.createdAt),
+]);
+
 // ─── Type Exports ────────────────────────────────────────────────────────────
 export type User = typeof user.$inferSelect;
 export type NewUser = typeof user.$inferInsert;
@@ -1190,3 +1255,6 @@ export type BankCredential = typeof bankCredentials.$inferSelect;
 export type BankConnection = typeof bankConnections.$inferSelect;
 export type BankAuthState = typeof bankAuthStates.$inferSelect;
 export type BankAccountLink = typeof bankAccountLinks.$inferSelect;
+export type PushSubscription = typeof pushSubscriptions.$inferSelect;
+export type NotificationPreference = typeof notificationPreferences.$inferSelect;
+export type Notification = typeof notifications.$inferSelect;

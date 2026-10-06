@@ -37,6 +37,8 @@ export interface JobPayloads {
   "bank.sync_link": { linkId: string; psu?: PsuHeaders };
   "bank.revoke_session": { connectionId: string };
   "bank.delete_credential": { credentialId: string };
+  /** Look at the user's data for notifications (budgets, bills, subscriptions). */
+  "notifications.evaluate": { reason: "sync" | "daily" };
 }
 
 /**

@@ -1,15 +1,20 @@
 import { and, asc, desc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { adminDb } from "./index";
 import {
+  appSettings,
   bankAccountLinks,
   bankConnections,
   bankCredentials,
   jobs,
+  notifications,
+  pushSubscriptions,
   workerHeartbeat,
   type Job,
   type JobType,
 } from "./schema";
 import { scrubPayload } from "@/lib/jobs/types";
+import { evaluateDedupeKey } from "@/lib/notifications/queue";
+import { DAILY_RUN_SETTING, appTimeZone, dailyRunDue } from "@/lib/notifications/schedule";
 
 /**
  * The job queue's cross-user operations. A worker serves every user, so
@@ -266,6 +271,55 @@ export async function cleanupFinishedJobs(now = Date.now()): Promise<void> {
         and(eq(jobs.status, "dead"), lt(jobs.finishedAt, iso(now - 90 * 86_400_000))),
       ),
     );
+}
+
+/**
+ * The morning notification run: once per local day, queue an evaluation for
+ * every user with a device that can receive push (evaluated notifications are
+ * push-only, so nobody else has anything to gain). Returns how many were queued.
+ */
+export async function enqueueDailyNotificationEvaluations(now = Date.now()): Promise<number> {
+  const [setting] = await adminDb
+    .select({ value: appSettings.value })
+    .from(appSettings)
+    .where(eq(appSettings.key, DAILY_RUN_SETTING))
+    .limit(1);
+  const today = dailyRunDue(new Date(now), setting?.value ?? null, appTimeZone());
+  if (!today) return 0;
+
+  const users = await adminDb.selectDistinct({ userId: pushSubscriptions.userId }).from(pushSubscriptions);
+  let queued = 0;
+  for (const { userId } of users) {
+    const rows = await adminDb
+      .insert(jobs)
+      .values({
+        userId,
+        type: "notifications.evaluate",
+        payload: JSON.stringify({ reason: "daily" }),
+        priority: 10,
+        dedupeKey: evaluateDedupeKey(userId),
+        maxAttempts: 2,
+        runAt: iso(now),
+        createdAt: iso(now),
+        updatedAt: iso(now),
+      })
+      .onConflictDoNothing()
+      .returning({ id: jobs.id });
+    queued += rows.length;
+  }
+  await adminDb
+    .insert(appSettings)
+    .values({ key: DAILY_RUN_SETTING, value: today, updatedAt: iso(now) })
+    .onConflictDoUpdate({ target: appSettings.key, set: { value: today, updatedAt: iso(now) } });
+  return queued;
+}
+
+/**
+ * The notification ledger is a dedupe memory, not an archive: a bit over a
+ * year keeps "already told you about this subscription" for a full cycle.
+ */
+export async function cleanupOldNotifications(now = Date.now()): Promise<void> {
+  await adminDb.delete(notifications).where(lt(notifications.createdAt, iso(now - 400 * 86_400_000)));
 }
 
 export async function beat(workerId: string, startedAt: string): Promise<void> {

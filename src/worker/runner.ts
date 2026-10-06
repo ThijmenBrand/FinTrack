@@ -17,6 +17,7 @@ import {
   startAuthHandler,
 } from "./handlers/connect";
 import { syncLinkHandler } from "./handlers/sync";
+import { evaluateNotificationsHandler } from "./handlers/notifications";
 import type { Handler, JobContext } from "./handlers/types";
 
 type Handlers = { [K in keyof JobPayloads]: Handler<K> };
@@ -30,6 +31,7 @@ export const handlers: Handlers = {
   "bank.sync_link": syncLinkHandler,
   "bank.revoke_session": revokeSessionHandler,
   "bank.delete_credential": deleteCredentialHandler,
+  "notifications.evaluate": evaluateNotificationsHandler,
 };
 
 export interface RunnerHooks {

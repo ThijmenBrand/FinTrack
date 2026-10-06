@@ -205,6 +205,29 @@ Local development: put worker-only settings in `.env.worker` (see
 `.env.example`), run `pnpm worker:dev` next to `pnpm dev`, and use an Enable
 Banking **sandbox** application with `BANK_SYNC_ALLOW_SANDBOX=1`.
 
+### Notifications
+
+Users choose what they're told about in **Settings → Notifications**: a switch
+per notification type and channel (push, and email where a type has one).
+
+| Type | When | Raised by |
+|------|------|-----------|
+| Over budget / spending too fast | a category in the main budget goes over, or is on pace to end the month 20%+ over | worker, after a sync and every morning |
+| Low balance before a bill | an account won't cover the recurring bills due in the next 3 days | worker, after a sync and every morning |
+| New subscription spotted | 3+ weekly/monthly charges of about the same amount from a merchant no recurring plan covers | worker, after a sync and every morning |
+| Bank consent ending | 14 days before a bank connection must be renewed (push + email) | worker scheduler |
+| Bank connection changes | the bank-sync security events (email is mandatory) | web app / worker |
+| Sign-ins and account security | sign-in from a new kind of device; password, 2FA or passkey changes | web app |
+
+Push is standard Web Push (VAPID), so it needs `VAPID_PUBLIC_KEY`,
+`VAPID_PRIVATE_KEY` and `VAPID_SUBJECT` in `app.env` for **both** containers
+(see `.env.example`). On iPhone/iPad it works only for the app added to the
+Home Screen (iOS 16.4+). Every notification is recorded once per dedupe key in
+the `notifications` table, so "Groceries is over budget" arrives once a month,
+not every sync. Adding a type: an entry in `src/lib/notifications/registry.ts`,
+its strings in `en.ts`/`nl.ts`, and either a `notify()` call where the event
+happens or an evaluator in `src/lib/notifications/evaluators/`.
+
 ## How it works
 
 ```

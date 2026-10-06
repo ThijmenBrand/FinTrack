@@ -31,6 +31,9 @@ const TENANT_TABLES = [
   "bank_account_links",
   "step_up_grants",
   "step_up_challenges",
+  "push_subscriptions",
+  "notification_preferences",
+  "notifications",
 ];
 
 const TENANT_RE = new RegExp(`\\b(${TENANT_TABLES.join("|")})\\b`, "i");

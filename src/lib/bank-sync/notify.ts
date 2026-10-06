@@ -1,39 +1,20 @@
-import { eq } from "drizzle-orm";
-import { db } from "@/db";
-import { user, userPreferences } from "@/db/schema";
-import { sendBankSecurityEmail, type BankSecurityEvent } from "@/lib/email";
-import { DEFAULT_LOCALE, isLocale } from "@/lib/i18n";
-
-function appUrl(): string {
-  return (process.env.BETTER_AUTH_URL || "http://localhost:3000").replace(/\/+$/, "");
-}
+import type { BankSecurityEvent } from "@/lib/email";
+import { notify } from "@/lib/notifications/dispatch";
 
 /**
- * Mail the user about a bank-sync event, in their language. Never throws: a
- * mail that can't be sent must not undo or block the action it reports.
+ * Tell the user about a sensitive bank-sync action: always by email (it can't
+ * be turned off), and by push on the devices they turned that on for. Never
+ * throws: a notification that can't be sent must not undo or block the action
+ * it reports.
+ *
+ * The consent-expiry warning has its own notification type (it is a reminder,
+ * not a security event) and is raised by the worker's scheduler.
  */
 export async function notifyBankEvent(
   userId: string,
-  event: BankSecurityEvent,
-  vars: { bank?: string; date?: string } = {},
+  event: Exclude<BankSecurityEvent, "consentExpiring">,
+  vars: { bank?: string } = {},
 ): Promise<void> {
-  try {
-    const [row] = await db
-      .select({ email: user.email })
-      .from(user)
-      .where(eq(user.id, userId))
-      .limit(1);
-    if (!row?.email) return;
-    const [prefs] = await db
-      .select({ locale: userPreferences.locale })
-      .from(userPreferences)
-      .where(eq(userPreferences.userId, userId))
-      .limit(1);
-    const locale = isLocale(prefs?.locale) ? prefs.locale : DEFAULT_LOCALE;
-    await sendBankSecurityEmail(row.email, event, `${appUrl()}/settings/bank-connections`, vars, locale);
-  } catch (err) {
-    // The error of a mail provider can echo the address; report the event only.
-    // (console.error reaches Sentry through its console integration.)
-    console.error(`[bank-sync] notification mail failed (${event}):`, err instanceof Error ? err.name : "error");
-  }
+  // Every occurrence is news, so every one gets its own key.
+  await notify(userId, "security.bank", { event, bank: vars.bank }, `security.bank:${event}:${crypto.randomUUID()}`);
 }

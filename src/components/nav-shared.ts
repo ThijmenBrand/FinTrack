@@ -4,6 +4,7 @@ import type { LucideIcon } from "lucide-react";
 import { LayoutDashboard, ReceiptText, PieChart, Wallet, PiggyBank, RefreshCcw, Landmark } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useSession, signOut } from "@/lib/auth-client";
+import { unsubscribeThisDevice } from "@/lib/push-client";
 import { usePreferences } from "@/hooks/use-preferences";
 import type { MessageKey } from "@/lib/i18n/translate";
 
@@ -70,6 +71,8 @@ export function useSessionUser() {
     : null;
 
   const logout = async () => {
+    // Before signOut: forgetting this device on the server needs the session.
+    await unsubscribeThisDevice();
     await signOut();
     router.push("/login");
     router.refresh();
