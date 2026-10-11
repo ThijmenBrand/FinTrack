@@ -333,7 +333,7 @@ export function TransactionRow({
             </div>
           )}
         </TableCell>
-        <TableCell className="text-sm text-muted-foreground whitespace-nowrap hidden sm:table-cell">
+        <TableCell className="text-sm text-muted-foreground whitespace-nowrap hidden 2xl:table-cell">
           <span className={isInPot ? "line-through" : ""}>{tx.accountName || "—"}</span>
         </TableCell>
         <TableCell onClick={(e) => e.stopPropagation()}>
@@ -357,7 +357,7 @@ export function TransactionRow({
             />
           )}
         </TableCell>
-        <TableCell className="hidden sm:table-cell">
+        <TableCell className="hidden 2xl:table-cell">
           <div className="flex items-center gap-1">
             <Badge variant={typeInfo.variant} className="text-xs">
               {isTransfer && tx.linkedTransactionId
@@ -590,7 +590,7 @@ export function PotRow({
           )}
         </div>
       </TableCell>
-      <TableCell className="hidden sm:table-cell">
+      <TableCell className="hidden 2xl:table-cell">
       </TableCell>
       <TableCell onClick={(e) => e.stopPropagation()}>
         <PotCategoryPopover
@@ -602,7 +602,7 @@ export function PotRow({
           categories={categories}
         />
       </TableCell>
-      <TableCell className="hidden sm:table-cell">
+      <TableCell className="hidden 2xl:table-cell">
         <Badge variant="outline" className="text-xs">
           {t("tx.row.potBadge")}
         </Badge>

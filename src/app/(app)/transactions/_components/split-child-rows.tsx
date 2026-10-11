@@ -78,11 +78,11 @@ export function SplitChildTableRows({
               )}
             </div>
           </TableCell>
-          <TableCell className="hidden sm:table-cell" />
+          <TableCell className="hidden 2xl:table-cell" />
           <TableCell>
             <CategoryLabel tx={child} />
           </TableCell>
-          <TableCell className="hidden sm:table-cell" />
+          <TableCell className="hidden 2xl:table-cell" />
           <TableCell className="text-right whitespace-nowrap">
             <Amount tx={child} />
           </TableCell>

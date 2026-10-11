@@ -653,8 +653,10 @@ function TransactionsPage() {
     <div className="space-y-6">
       <PullToRefresh />
       {/* Header */}
-      <div className="flex items-center justify-between gap-4">
-        <div className="min-w-0">
+      {/* flex-wrap: in a narrow desktop window the five labeled actions drop
+          below the title instead of crushing the subtitle. */}
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="min-w-0 flex-1 md:min-w-64">
           <h1 className="text-3xl font-bold tracking-tight">{t("tx.title")}</h1>
           <p className="hidden text-muted-foreground md:block">{t("tx.subtitle")}</p>
         </div>
@@ -706,7 +708,7 @@ function TransactionsPage() {
             <Upload className="h-5 w-5" />
           </Button>
         </div>
-        <div className="hidden items-center gap-2 md:flex">
+        <div className="hidden flex-wrap items-center gap-2 md:flex">
           <Button variant="outline" size="sm" onClick={() => setCreatePotOpen(true)}>
             <Plus className="sm:mr-2 h-4 w-4" />
             <span className="hidden sm:inline">{t("tx.createPot")}</span>

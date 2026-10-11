@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { useTheme } from "next-themes";
-import { useIsHydrated } from "@/hooks/use-browser";
+import { useIsHydrated, useMediaQuery } from "@/hooks/use-browser";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -39,7 +39,11 @@ export function Sidebar() {
     items: navigation.filter((i) => i.section === section),
   })).filter((g) => g.items.length > 0);
   const pathname = usePathname();
-  const [collapsed, setCollapsed] = useState(false);
+  // Below xl the full sidebar eats too much of the page, so it starts as the
+  // icon rail there; a manual toggle wins until the page is reloaded.
+  const narrow = useMediaQuery("(max-width: 1279.98px)");
+  const [override, setOverride] = useState<boolean | null>(null);
+  const collapsed = override ?? narrow;
   const mounted = useIsHydrated();
   const { theme, setTheme } = useTheme();
   const { user, logout } = useSessionUser();
@@ -198,7 +202,7 @@ export function Sidebar() {
 
       {/* Collapse toggle */}
       <button
-        onClick={() => setCollapsed(!collapsed)}
+        onClick={() => setOverride(!collapsed)}
         aria-label={collapsed ? t("nav.expandSidebar") : t("nav.collapseSidebar")}
         className="absolute -right-3 top-20 flex h-6 w-6 items-center justify-center rounded-full border bg-background text-muted-foreground shadow-sm hover:text-foreground"
       >

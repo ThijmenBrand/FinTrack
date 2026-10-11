@@ -48,13 +48,13 @@ export function TransactionRowsSkeleton({
           <TableCell>
             <Skeleton className={`h-4 max-w-full ${WIDTHS[i % WIDTHS.length]}`} />
           </TableCell>
-          <TableCell className="hidden sm:table-cell">
+          <TableCell className="hidden 2xl:table-cell">
             <Skeleton className="h-4 w-16" />
           </TableCell>
           <TableCell>
             <Skeleton className="h-8 w-28 rounded-md" />
           </TableCell>
-          <TableCell className="hidden sm:table-cell">
+          <TableCell className="hidden 2xl:table-cell">
             <Skeleton className="h-5 w-16 rounded-full" />
           </TableCell>
           <TableCell className="text-right">
@@ -165,9 +165,9 @@ export function TransactionsPageSkeleton() {
                 </TableHead>
                 <TableHead className="whitespace-nowrap">{t("common.date")}</TableHead>
                 <TableHead>{t("common.description")}</TableHead>
-                <TableHead className="hidden sm:table-cell">{t("common.account")}</TableHead>
+                <TableHead className="hidden 2xl:table-cell">{t("common.account")}</TableHead>
                 <TableHead>{t("common.category")}</TableHead>
-                <TableHead className="hidden sm:table-cell">{t("common.type")}</TableHead>
+                <TableHead className="hidden 2xl:table-cell">{t("common.type")}</TableHead>
                 <TableHead className="text-right whitespace-nowrap">{t("common.amount")}</TableHead>
                 <TableHead className="w-[50px]" />
               </TableRow>

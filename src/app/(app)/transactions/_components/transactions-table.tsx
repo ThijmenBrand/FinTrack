@@ -255,7 +255,7 @@ export function TransactionsTable({
                         <SortArrow active={sortBy === "description"} order={sortOrder} />
                       </span>
                     </TableHead>
-                    <TableHead className="select-none hidden sm:table-cell">
+                    <TableHead className="select-none hidden 2xl:table-cell">
                       <HeaderFilterDropdown
                         label={t("common.account")}
                         allLabel={t("tx.table.allAccounts")}
@@ -273,7 +273,7 @@ export function TransactionsTable({
                         onChange={onCategoryChange}
                       />
                     </TableHead>
-                    <TableHead className="select-none hidden sm:table-cell">
+                    <TableHead className="select-none hidden 2xl:table-cell">
                       <HeaderFilterDropdown
                         label={t("common.type")}
                         allLabel={t("tx.table.allTypes")}
