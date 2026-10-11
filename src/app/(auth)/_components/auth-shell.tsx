@@ -55,7 +55,8 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
         </div>
 
         <div className="flex flex-1 items-center py-8 sm:py-14">
-          <div className="w-full max-w-md">{children}</div>
+          {/* Centered once the hero is gone; beside the hero it hugs the left. */}
+          <div className="mx-auto w-full max-w-md lg:mx-0">{children}</div>
         </div>
       </div>
 
