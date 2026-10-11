@@ -144,8 +144,10 @@ Self-signup is off by default (`app_settings.signups_enabled`, toggled from the
 backoffice). Set `RESEND_API_KEY` + `EMAIL_FROM` before enabling it, or
 verification emails will fail.
 
-Security headers (HSTS, CSP, X-Frame-Options, etc.) are set in
-`next.config.ts` and apply to all routes.
+Security headers (HSTS, CSP, etc.) are set in `next.config.ts` and apply to
+all routes. The app is meant to be embedded in an iframe on thijmenbrand.nl, so
+there is no `X-Frame-Options` header — `frame-ancestors` in the CSP is the
+allowlist, edit it there to add an embedder.
 
 ### Self-hosted (Docker on a VPS)
 

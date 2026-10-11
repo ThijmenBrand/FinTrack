@@ -27,29 +27,34 @@ const nextConfig: NextConfig = {
     const csp =
       "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors ";
 
+    // The app is embedded in an iframe on thijmenbrand.nl (and its Vite dev
+    // server). X-Frame-Options can't express a cross-origin allowlist, so it
+    // is gone entirely — frame-ancestors is what every current browser reads,
+    // and leaving DENY/SAMEORIGIN behind would just blank the frame.
+    // ponytail: hard-coded origins; move to an env var when a second embedder
+    // shows up.
+    const frameAncestors = "'self' https://thijmenbrand.nl http://localhost:5173";
+
     return [
       {
-        // Everything but the attachment bytes: never framable, by anyone.
         source: "/((?!api/attachments/).*)",
         headers: [
           ...base,
-          { key: "X-Frame-Options", value: "DENY" },
-          { key: "Content-Security-Policy", value: `${csp}'none'` },
+          { key: "Content-Security-Policy", value: `${csp}${frameAncestors}` },
         ],
       },
       {
-        // A stored receipt is framed by our own viewer dialog, so this one path
-        // allows same-origin framing. The bytes are served with a sniffed
-        // Content-Type and `nosniff`, and there is no session to click-jack
-        // inside a PDF.
+        // A stored receipt is framed by our own viewer dialog. Inside the
+        // embed its ancestor chain is app + embedder, and frame-ancestors
+        // checks the whole chain, so this needs the same list — 'self' alone
+        // would blank the receipt viewer when the app is embedded.
         // `:path+`, not `:path*`: `*` would also match the bare
         // /api/attachments collection route, which the negative lookahead
         // above does NOT exclude — that one path would get both header sets.
         source: "/api/attachments/:path+",
         headers: [
           ...base,
-          { key: "X-Frame-Options", value: "SAMEORIGIN" },
-          { key: "Content-Security-Policy", value: `${csp}'self'` },
+          { key: "Content-Security-Policy", value: `${csp}${frameAncestors}` },
         ],
       },
       {

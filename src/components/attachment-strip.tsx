@@ -106,9 +106,9 @@ function AttachmentViewer({
           />
         ) : (
           // ponytail: the browser's own PDF viewer in an iframe — no pdf.js.
-          // Only /api/attachments/* is framable (next.config.ts); the rest of
-          // the app still sends X-Frame-Options DENY. Mobile Safari renders
-          // just the first page in a frame, which is what the button is for.
+          // Framing is allowed for us and the embedders listed in
+          // next.config.ts. Mobile Safari renders just the first page in a
+          // frame, which is what the button is for.
           <iframe
             // Chrome/Firefox honour the fragment: fit the page to the frame's
             // width and skip the thumbnail rail, which a one-page receipt
