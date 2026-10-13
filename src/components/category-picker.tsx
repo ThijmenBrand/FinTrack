@@ -8,12 +8,14 @@ import { useAccounts } from "@/hooks/use-accounts";
 import { useBudgets } from "@/hooks/use-budgets";
 import { useI18n } from "@/lib/i18n/client";
 import { SearchCreatePicker } from "@/components/search-create-picker";
+import { CategoryIcon } from "@/components/category-icon";
 import type { BudgetData, SubCategoryOption } from "@/types/api";
 
 interface PickerCategory {
   id: string;
   name: string;
   color: string | null;
+  icon?: string | null;
 }
 
 const DEFAULT_COLOR = "#94a3b8";
@@ -33,6 +35,7 @@ interface Row {
   depth?: number;
   group?: { id: string; name: string };
   color: string | null;
+  icon?: string | null;
   /** A sub-category: same colour as its category, a smaller dot. */
   sub: boolean;
   /** A recurring plan as sub-category — marked with the repeat icon instead of a dot. */
@@ -163,6 +166,7 @@ export function CategoryPicker({
   emptyLabel,
   trailing,
   accountId,
+  inline = false,
 }: {
   categories: PickerCategory[];
   /**
@@ -207,6 +211,8 @@ export function CategoryPicker({
   trailing?: React.ReactNode;
   /** Account these rows belong to — created categories land in its owner's space. */
   accountId?: string;
+  /** The list itself in place of a trigger — see SearchCreatePicker. */
+  inline?: boolean;
 }) {
   const { t } = useI18n();
   const createCategory = useCreateCategory(accountId);
@@ -226,7 +232,7 @@ export function CategoryPicker({
       else byCategory.set(sub.categoryId, [sub]);
     }
     const rowsFor = (cat: PickerCategory, section?: string): Row[] => [
-      { id: CATEGORY + cat.id, name: cat.name, color: cat.color, sub: false, section },
+      { id: CATEGORY + cat.id, name: cat.name, color: cat.color, icon: cat.icon, sub: false, section },
       ...(byCategory.get(cat.id) ?? []).map((line) => ({
         id: (line.kind === "plan" ? PLAN : SUB) + line.id,
         name: line.name,
@@ -257,6 +263,7 @@ export function CategoryPicker({
 
   return (
     <SearchCreatePicker
+      inline={inline}
       items={rows}
       value={
         selectedSub
@@ -316,7 +323,15 @@ export function CategoryPicker({
         create: "categoryPicker.create",
         clear: "categorySelect.none",
       }}
-      renderLeading={(row) => <Swatch color={row.color} sub={row.sub} plan={row.plan} />}
+      renderLeading={(row) =>
+        // A finger-sized list has room for the icon the transaction rows show,
+        // which is what the eye goes looking for; the dot stays for sub-lines.
+        inline && !row.sub ? (
+          <CategoryIcon icon={row.icon ?? null} color={row.color} size="sm" className="h-7 w-7" />
+        ) : (
+          <Swatch color={row.color} sub={row.sub} plan={row.plan} />
+        )
+      }
       trigger={
         <button
           type="button"

@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { BANK_SYNC_KEY, syncDueBankLinks } from "@/hooks/use-bank-sync";
 
 const THRESHOLD = 70;
 const RESISTANCE = 0.5;
@@ -13,6 +14,7 @@ const RESISTANCE = 0.5;
  * Pull down at the top of the page to refetch everything on screen. The app's
  * scroll lives in <main>, not the document, so the browser's own
  * pull-to-refresh never fires — in a standalone PWA there is no reload at all.
+ * Also pulls fresh transactions from linked banks (see syncDueBankLinks).
  * Touch only; nothing here binds on desktop.
  */
 export function PullToRefresh() {
@@ -85,12 +87,17 @@ export function PullToRefresh() {
       offset(THRESHOLD, true);
       // ponytail: refetch whatever this page currently renders, rather than a
       // hand-maintained key list that drifts every time a hook is added.
-      qc.refetchQueries({ type: "active" }).finally(() => {
-        busy = false;
-        setRefreshing(false);
-        setPull(0);
-        offset(0, true);
-      });
+      syncDueBankLinks()
+        .then((synced) => {
+          if (synced) qc.invalidateQueries({ queryKey: BANK_SYNC_KEY });
+          return qc.refetchQueries({ type: "active" });
+        })
+        .finally(() => {
+          busy = false;
+          setRefreshing(false);
+          setPull(0);
+          offset(0, true);
+        });
     };
 
     scroller.addEventListener("touchstart", onStart, { passive: true });

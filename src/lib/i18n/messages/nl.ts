@@ -608,6 +608,7 @@ export const nl: Record<MessageKey, string> = {
 
   // ─── Transactions — rows & context menu ────────────────────────────────────
   "tx.row.selectTransaction": "Transactie selecteren",
+  "tx.row.changeCategory": "Categorie wijzigen ({category})",
   "tx.row.hasNote": "Heeft notitie",
   "tx.row.viewPot": "Potje bekijken: {name}",
   "tx.row.reimburses": "Vergoedt: {description}",
