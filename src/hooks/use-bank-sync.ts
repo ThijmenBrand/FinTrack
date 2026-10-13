@@ -55,6 +55,33 @@ export async function waitForRequest<T = unknown>(requestId: string, timeoutMs =
   return { ok: false, result: null, errorCode: "timeout" };
 }
 
+// A pull asks the bank again only for accounts not synced this recently.
+const PULL_SYNC_COOLDOWN_MS = 15 * 60_000;
+const PULL_SYNC_WAIT_MS = 20_000;
+
+/**
+ * Queue a sync for every bank-fed account that hasn't synced within the
+ * cooldown and wait for the jobs to land. Best effort: a 429/409 or a failed
+ * job just means "not now" — the bank-connections page shows the reason.
+ */
+export async function syncDueBankLinks() {
+  const status = await apiFetch<BankSyncStatus>("/api/bank-sync/status").catch(() => null);
+  const cutoff = Date.now() - PULL_SYNC_COOLDOWN_MS;
+  const due = (status?.connections ?? [])
+    .filter((c) => c.status === "active")
+    .flatMap((c) => c.links)
+    .filter((l) => !l.syncing && (!l.lastSyncedAt || Date.parse(l.lastSyncedAt) < cutoff));
+  if (due.length === 0) return false;
+  await Promise.all(
+    due.map((l) =>
+      apiFetch<{ requestId: string }>(`/api/bank-sync/links/${encodeURIComponent(l.id)}/sync`, { method: "POST" })
+        .then(({ requestId }) => waitForRequest(requestId, PULL_SYNC_WAIT_MS))
+        .catch(() => null),
+    ),
+  );
+  return true;
+}
+
 /** A stored error code as a sentence the user can act on. */
 export function bankErrorText(t: I18n["t"], code: string | null | undefined): string {
   if (!code) return "";

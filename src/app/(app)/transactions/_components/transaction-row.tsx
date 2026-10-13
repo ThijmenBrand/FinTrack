@@ -26,6 +26,7 @@ import {
   StickyNote,
   Filter,
   Split,
+  Tag,
 } from "lucide-react";
 import { SplitBadge } from "@/components/split-badge";
 import type { Transaction, Category, Pot, PotRangeTotal } from "@/types/api";
@@ -199,13 +200,64 @@ export function TransactionRow({
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted">
               <Split className="h-[18px] w-[18px] text-muted-foreground" />
             </div>
-          ) : (
+          ) : selecting ? (
             <CategoryIcon
               icon={tx.categoryIcon}
               color={tx.categoryColor}
               size="md"
               className="h-10 w-10"
             />
+          ) : (
+            // The icon is the category, so tapping it changes the category —
+            // two taps from the list instead of a trip through the detail
+            // sheet. The span keeps those taps (and the sheet's, which bubble
+            // through the portal) away from the row's open and long-press.
+            <span
+              className="shrink-0"
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              onContextMenu={(e) => e.stopPropagation()}
+            >
+              <CategorizePopover
+                transactionId={tx.id}
+                transactionDescription={tx.name || tx.description}
+                transactionText={{ name: tx.name, description: tx.description }}
+                currentCategoryId={tx.categoryId}
+                currentCategoryName={tx.categoryName}
+                currentCategoryColor={tx.categoryColor}
+                currentCategoryIcon={tx.categoryIcon}
+                currentSubLineId={tx.subLineId}
+                currentSubLineName={tx.subLineName}
+                currentRecurringId={tx.recurringTransactionId}
+                categories={categories}
+                accountId={tx.accountId}
+                canCreateRule={canCreateRule}
+                trigger={
+                  <button
+                    type="button"
+                    aria-label={tx.categoryName
+                      ? t("tx.row.changeCategory", { category: tx.categoryName })
+                      : t("categorize.trigger")}
+                    className="flex rounded-full transition-transform active:scale-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {needsCategory ? (
+                      // Amber, dashed: the slot is empty and waiting — the
+                      // same attention state the "Uncategorized" label uses.
+                      <span className="flex h-10 w-10 items-center justify-center rounded-full border-[1.5px] border-dashed border-amber-500/70 bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                        <Tag className="h-[18px] w-[18px]" />
+                      </span>
+                    ) : (
+                      <CategoryIcon
+                        icon={tx.categoryIcon}
+                        color={tx.categoryColor}
+                        size="md"
+                        className="h-10 w-10"
+                      />
+                    )}
+                  </button>
+                }
+              />
+            </span>
           )}
 
           <div className="flex-1 min-w-0">

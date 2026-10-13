@@ -7,7 +7,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Plus } from "lucide-react";
+import { Check, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/client";
 import type { MessageKey } from "@/lib/i18n/translate";
@@ -53,8 +53,12 @@ interface SearchCreatePickerProps<T extends PickerItem> {
   /** Offer the clear row with nothing selected too — for an action-style
    *  trigger ("set category") where clearing is a choice, not an undo. */
   clearWhenEmpty?: boolean;
-  /** The closed state — rendered inside the trigger. */
-  trigger: ReactNode;
+  /** The closed state — rendered inside the trigger. Unused when `inline`. */
+  trigger?: ReactNode;
+  /** Render the search and list in place, no popover — for a bottom sheet,
+   *  where a popover over a phone keyboard has nowhere to go. Rows grow to
+   *  finger size and the search doesn't grab focus (and the keyboard). */
+  inline?: boolean;
   labels: {
     search: MessageKey;
     empty: MessageKey;
@@ -89,12 +93,15 @@ export function SearchCreatePicker<T extends PickerItem>({
   labels,
   renderLeading,
   align = "start",
+  inline = false,
 }: SearchCreatePickerProps<T>) {
   const { t } = useI18n();
   const listId = useId();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [active, setActive] = useState(0);
+  // null until arrow keys, typing or a hover move it: then the list starts on
+  // the current answer (see `active` below).
+  const [picked, setActive] = useState<number | null>(null);
 
   const name = query.trim();
   const q = name.toLowerCase();
@@ -121,7 +128,7 @@ export function SearchCreatePicker<T extends PickerItem>({
   const close = () => {
     setOpen(false);
     setQuery("");
-    setActive(0);
+    setActive(null);
   };
 
   const handleCreate = async () => {
@@ -158,7 +165,9 @@ export function SearchCreatePicker<T extends PickerItem>({
           )}
         </>
       ),
-      indent: item.depth ? 8 + item.depth * 14 : undefined,
+      // Inline, depth 1 lands the dot under its category's name, past the
+      // 28px icon and the row's gap.
+      indent: item.depth ? (inline ? 12 + item.depth * 40 : 8 + item.depth * 14) : undefined,
       section: item.section,
       selected: item.id === value,
       onSelect: () => {
@@ -211,10 +220,141 @@ export function SearchCreatePicker<T extends PickerItem>({
   const sectioned = bands.filter((band) => band.section);
   if (sectioned.length === 1) sectioned[0].section = undefined;
 
+  // Start on the current answer: with every category listed, the selected one
+  // is often below the fold. Derived, not stored on open, so rows that load
+  // after it (an inline sheet's sub-lines) can't shift it onto a neighbour.
+  const active = picked ?? Math.max(0, options.findIndex((option) => option.selected));
+
   const move = (delta: number) => {
     if (options.length === 0) return;
-    setActive((i) => (i + delta + options.length) % options.length);
+    setActive((active + delta + options.length) % options.length);
   };
+
+  const search = (
+    <Input
+      role="combobox"
+      aria-expanded
+      aria-controls={listId}
+      aria-activedescendant={options[active] ? `${listId}-${options[active].key}` : undefined}
+      value={query}
+      onChange={(e) => {
+        setQuery(e.target.value);
+        setActive(0);
+      }}
+      placeholder={t(labels.search)}
+      autoFocus={!inline}
+      // 16px inline: iOS zooms the page into any smaller focused input.
+      className={inline ? "h-11 text-base" : "h-8 text-xs"}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          // The popover closes itself; stop the key reaching a dialog behind it.
+          e.stopPropagation();
+          return;
+        }
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          move(1);
+        } else if (e.key === "ArrowUp") {
+          e.preventDefault();
+          move(-1);
+        } else if (e.key === "Enter") {
+          e.preventDefault();
+          const option = options[active];
+          if (option && !option.disabled) option.onSelect();
+        }
+      }}
+    />
+  );
+
+  const list = (
+    <div
+      id={listId}
+      role="listbox"
+      className={cn("mt-1 overflow-y-auto overscroll-contain", inline ? "max-h-[50dvh]" : "max-h-64")}
+    >
+      {bands.map((band, b) => (
+        <div
+          key={band.key}
+          // `presentation` when unlabelled: a listbox owns its options
+          // directly, and a plain div between the two hides them from it.
+          role={band.section ? "group" : "presentation"}
+          aria-label={band.section}
+        >
+          {band.section && (
+            // A rule, not a ribbon: the hairline only appears where two
+            // bands meet, so the first heading sits flush with the search
+            // box instead of under a line that separates nothing.
+            <p
+              className={cn(
+                "px-2 pb-1 text-[11px] font-medium text-muted-foreground",
+                inline && "px-3 text-xs",
+                b === 0 ? "pt-1.5" : "mt-1 border-t pt-2",
+              )}
+            >
+              {band.section}
+            </p>
+          )}
+          {band.options.map((option, j) => {
+            const i = band.from + j;
+            return (
+              <button
+                key={option.key}
+                id={`${listId}-${option.key}`}
+                type="button"
+                role="option"
+                aria-selected={!!option.selected}
+                disabled={option.disabled}
+                onClick={option.onSelect}
+                onMouseEnter={() => setActive(i)}
+                // Keyboard travel now crosses a list longer than the box.
+                // Landing on the first row of a band scrolls its heading in
+                // too, so you can always see which half you are looking at;
+                // "nearest" is a no-op while the target is already on screen.
+                ref={
+                  i === active
+                    ? (el) => {
+                        const head = j === 0 && band.section ? el?.previousElementSibling : el;
+                        head?.scrollIntoView({ block: "nearest" });
+                      }
+                    : null
+                }
+                style={option.indent ? { paddingLeft: option.indent } : undefined}
+                className={cn(
+                  "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm disabled:opacity-50",
+                  inline && "min-h-11 gap-3 rounded-md px-3 text-[15px] active:bg-accent",
+                  // On a phone a tap fires mouseenter too, so the highlight
+                  // would only ever trail the finger; the check says it instead.
+                  i === active && !inline && "bg-accent",
+                  option.selected && "font-medium",
+                  option.muted && "text-muted-foreground",
+                )}
+              >
+                {option.label}
+                {inline && option.selected && (
+                  <Check className="ml-auto h-4 w-4 shrink-0 text-primary" aria-hidden />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      ))}
+
+      {options.length === 0 && (
+        <p className="px-2 py-1.5 text-xs text-muted-foreground">
+          {t(labels.empty)}
+        </p>
+      )}
+    </div>
+  );
+
+  if (inline) {
+    return (
+      <div className="flex min-h-0 flex-col gap-2">
+        {search}
+        {list}
+      </div>
+    );
+  }
 
   return (
     <Popover
@@ -226,9 +366,7 @@ export function SearchCreatePicker<T extends PickerItem>({
       onOpenChange={(next) => {
         if (next) {
           setQuery("");
-          // Start on the current answer: with every category listed, the
-          // selected one is often below the fold when the list opens.
-          setActive(Math.max(0, items.findIndex((item) => item.id === value)));
+          setActive(null);
           setOpen(true);
         } else {
           close();
@@ -240,105 +378,8 @@ export function SearchCreatePicker<T extends PickerItem>({
         className="w-(--radix-popover-trigger-width) min-w-64 p-1"
         align={align}
       >
-        <Input
-          role="combobox"
-          aria-expanded
-          aria-controls={listId}
-          aria-activedescendant={options[active] ? `${listId}-${options[active].key}` : undefined}
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setActive(0);
-          }}
-          placeholder={t(labels.search)}
-          autoFocus
-          className="h-8 text-xs"
-          onKeyDown={(e) => {
-            if (e.key === "Escape") {
-              // The popover closes itself; stop the key reaching a dialog behind it.
-              e.stopPropagation();
-              return;
-            }
-            if (e.key === "ArrowDown") {
-              e.preventDefault();
-              move(1);
-            } else if (e.key === "ArrowUp") {
-              e.preventDefault();
-              move(-1);
-            } else if (e.key === "Enter") {
-              e.preventDefault();
-              const option = options[active];
-              if (option && !option.disabled) option.onSelect();
-            }
-          }}
-        />
-        <div id={listId} role="listbox" className="mt-1 max-h-64 overflow-y-auto">
-          {bands.map((band, b) => (
-            <div
-              key={band.key}
-              // `presentation` when unlabelled: a listbox owns its options
-              // directly, and a plain div between the two hides them from it.
-              role={band.section ? "group" : "presentation"}
-              aria-label={band.section}
-            >
-              {band.section && (
-                // A rule, not a ribbon: the hairline only appears where two
-                // bands meet, so the first heading sits flush with the search
-                // box instead of under a line that separates nothing.
-                <p
-                  className={cn(
-                    "px-2 pb-1 text-[11px] font-medium text-muted-foreground",
-                    b === 0 ? "pt-1.5" : "mt-1 border-t pt-2",
-                  )}
-                >
-                  {band.section}
-                </p>
-              )}
-              {band.options.map((option, j) => {
-                const i = band.from + j;
-                return (
-                  <button
-                    key={option.key}
-                    id={`${listId}-${option.key}`}
-                    type="button"
-                    role="option"
-                    aria-selected={!!option.selected}
-                    disabled={option.disabled}
-                    onClick={option.onSelect}
-                    onMouseEnter={() => setActive(i)}
-                    // Keyboard travel now crosses a list longer than the box.
-                    // Landing on the first row of a band scrolls its heading in
-                    // too, so you can always see which half you are looking at;
-                    // "nearest" is a no-op while the target is already on screen.
-                    ref={
-                      i === active
-                        ? (el) => {
-                            const head = j === 0 && band.section ? el?.previousElementSibling : el;
-                            head?.scrollIntoView({ block: "nearest" });
-                          }
-                        : null
-                    }
-                    style={option.indent ? { paddingLeft: option.indent } : undefined}
-                    className={cn(
-                      "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm disabled:opacity-50",
-                      i === active && "bg-accent",
-                      option.selected && "font-medium",
-                      option.muted && "text-muted-foreground",
-                    )}
-                  >
-                    {option.label}
-                  </button>
-                );
-              })}
-            </div>
-          ))}
-
-          {options.length === 0 && (
-            <p className="px-2 py-1.5 text-xs text-muted-foreground">
-              {t(labels.empty)}
-            </p>
-          )}
-        </div>
+        {search}
+        {list}
       </PopoverContent>
     </Popover>
   );

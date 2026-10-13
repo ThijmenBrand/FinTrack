@@ -620,6 +620,7 @@ export const en = {
 
   // ─── Transactions — rows & context menu ────────────────────────────────────
   "tx.row.selectTransaction": "Select transaction",
+  "tx.row.changeCategory": "Change category ({category})",
   "tx.row.hasNote": "Has note",
   "tx.row.viewPot": "View pot: {name}",
   "tx.row.reimburses": "Reimburses: {description}",

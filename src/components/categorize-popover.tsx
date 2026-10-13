@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactElement } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,14 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -28,7 +36,9 @@ import { useCategoryRules } from "@/hooks/use-categories";
 import { useSubCategories } from "@/hooks/use-budgets";
 import type { Category, SubCategoryOption } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
+import { cn } from "@/lib/utils";
 import { useResetOnChange } from "@/hooks/use-reset-on-change";
+import { useMediaQuery } from "@/hooks/use-browser";
 
 interface CategorizePopoverProps {
   transactionId: string;
@@ -58,6 +68,8 @@ interface CategorizePopoverProps {
    *  server drops rule creation from anyone else (see the categorize route). */
   canCreateRule?: boolean;
   onCategorized?: (categoryId?: string | null) => void;
+  /** Replaces the default category-name button, e.g. the phone row's icon. */
+  trigger?: ReactElement;
 }
 
 export function CategorizePopover({
@@ -76,8 +88,13 @@ export function CategorizePopover({
   accountId,
   canCreateRule = true,
   onCategorized,
+  trigger,
 }: CategorizePopoverProps) {
   const { t } = useI18n();
+  // Phones (the card list's breakpoint) get a bottom sheet with the list laid
+  // out in it, where one tap files the row: a popover holding a dropdown and a
+  // Save button is three targets too many for a thumb.
+  const sheet = useMediaQuery("(max-width: 767px)");
   const [open, setOpen] = useState(false);
   const [selectedCategoryId, setSelectedCategoryId] = useState(
     currentCategoryId || ""
@@ -132,7 +149,11 @@ export function CategorizePopover({
     }
   });
 
-  const handleSave = () => {
+  const handleSave = (
+    categoryId: string,
+    subLineId: string | null,
+    planId: string | null | undefined,
+  ) => {
     // The link changes only when the plan shown as the sub-category does. A
     // link to a plan of some other category isn't shown here, so picking a
     // plain category leaves it alone; picking away from the plan the row
@@ -141,14 +162,14 @@ export function CategorizePopover({
       selectedSubCategory(pickerSubCategories, currentCategoryId, currentSubLineId, currentRecurringId)
         ?.recurringTransactionId ?? null;
     const recurringTransactionId =
-      selectedPlanId === undefined || selectedPlanId === shownPlanId ? undefined : selectedPlanId;
+      planId === undefined || planId === shownPlanId ? undefined : planId;
     setOpen(false);
-    onCategorized?.(selectedCategoryId || null);
+    onCategorized?.(categoryId || null);
     categorize.mutate(
       {
         transactionId,
-        categoryId: selectedCategoryId || null,
-        subLineId: selectedSubLineId,
+        categoryId: categoryId || null,
+        subLineId,
         recurringTransactionId,
         createRule,
         rulePattern: createRule ? rulePattern : undefined,
@@ -163,59 +184,191 @@ export function CategorizePopover({
     );
   };
 
-  return (
-    <Popover
-      open={open}
-      onOpenChange={(next) => {
-        // Every opening starts from the row as it is now: a pick left over
-        // from a cancelled edit, or from before a refetch, would otherwise be
-        // saved as if it were this one's.
-        if (next) {
-          setSelectedCategoryId(currentCategoryId || "");
-          setSelectedSubLineId(currentSubLineId ?? null);
-          setSelectedPlanId(undefined);
-        }
-        setOpen(next);
-      }}
+  const handleOpenChange = (next: boolean) => {
+    // Every opening starts from the row as it is now: a pick left over
+    // from a cancelled edit, or from before a refetch, would otherwise be
+    // saved as if it were this one's.
+    if (next) {
+      setSelectedCategoryId(currentCategoryId || "");
+      setSelectedSubLineId(currentSubLineId ?? null);
+      setSelectedPlanId(undefined);
+    }
+    setOpen(next);
+  };
+
+  const triggerElement = trigger ?? (
+    <button
+      data-tour="tx-category"
+      aria-busy={saving}
+      className="flex min-w-0 items-center gap-1.5 text-sm rounded-md px-2 py-1 hover:bg-accent transition-colors text-left"
     >
-      <PopoverTrigger asChild>
-        <button
-          data-tour="tx-category"
-          aria-busy={saving}
-          className="flex min-w-0 items-center gap-1.5 text-sm rounded-md px-2 py-1 hover:bg-accent transition-colors text-left"
-        >
-          {currentCategoryName ? (
-            // The sub-line hangs under its category the way a split part hangs
-            // under its row — same rule, same look.
-            <span className="flex min-w-0 flex-col items-start gap-0.5">
-              <span className="flex min-w-0 items-center gap-1.5">
-                <CategoryIcon icon={currentCategoryIcon ?? null} color={currentCategoryColor} size="sm" />
-                <span className="truncate">{currentCategoryName}</span>
-              </span>
-              {currentSubLineName && (
-                // ml-4 + the rule + pl-3 lands the name exactly under the
-                // category's own text, past its icon.
-                <span className="ml-4 truncate border-l-2 border-muted-foreground/20 pl-3 text-xs text-muted-foreground">
-                  {currentSubLineName}
-                </span>
-              )}
-            </span>
-          ) : (
-            <span className="text-muted-foreground flex items-center gap-1">
-              <Tag className="h-3 w-3" />
-              {t("categorize.trigger")}
+      {currentCategoryName ? (
+        // The sub-line hangs under its category the way a split part hangs
+        // under its row — same rule, same look.
+        <span className="flex min-w-0 flex-col items-start gap-0.5">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <CategoryIcon icon={currentCategoryIcon ?? null} color={currentCategoryColor} size="sm" />
+            <span className="truncate">{currentCategoryName}</span>
+          </span>
+          {currentSubLineName && (
+            // ml-4 + the rule + pl-3 lands the name exactly under the
+            // category's own text, past its icon.
+            <span className="ml-4 truncate border-l-2 border-muted-foreground/20 pl-3 text-xs text-muted-foreground">
+              {currentSubLineName}
             </span>
           )}
-          {/* The new category is already shown; this says the server hasn't
-              confirmed it yet. */}
-          {saving && (
-            <Loader2
-              className="h-3 w-3 shrink-0 animate-spin text-muted-foreground"
-              aria-label={t("categorize.saving")}
+        </span>
+      ) : (
+        <span className="text-muted-foreground flex items-center gap-1">
+          <Tag className="h-3 w-3" />
+          {t("categorize.trigger")}
+        </span>
+      )}
+      {/* The new category is already shown; this says the server hasn't
+          confirmed it yet. */}
+      {saving && (
+        <Loader2
+          className="h-3 w-3 shrink-0 animate-spin text-muted-foreground"
+          aria-label={t("categorize.saving")}
+        />
+      )}
+    </button>
+  );
+
+  // Why this row is where it is — and the way out to the rule that decides it.
+  const ruleLink = canCreateRule && settingsCategoryId && (
+    <Link
+      href={settingsHref}
+      onClick={() => setOpen(false)}
+      className={cn(
+        "group/rule-link flex w-full items-center gap-2 rounded-md border border-dashed px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-solid hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        sheet && "min-h-11 px-3 text-sm",
+      )}
+    >
+      {matchedRule ? (
+        <Zap className="h-3 w-3 shrink-0 text-primary" />
+      ) : (
+        <SlidersHorizontal className="h-3 w-3 shrink-0" />
+      )}
+      <span className="min-w-0 flex-1 truncate">
+        {matchedRule
+          ? t("categorize.matchedRule", { pattern: matchedRule.pattern })
+          : t("categorize.manageRules")}
+      </span>
+      <ArrowUpRight className="h-3 w-3 shrink-0 opacity-60 transition-transform group-hover/rule-link:-translate-y-px group-hover/rule-link:translate-x-px" />
+    </Link>
+  );
+
+  const ruleOptions = canCreateRule && (
+    <div className="rounded-md border p-3 space-y-3">
+      <div className="flex items-start gap-2">
+        <Checkbox
+          id={`create-rule-${transactionId}`}
+          checked={createRule}
+          onCheckedChange={(checked) =>
+            setCreateRule(checked === true)
+          }
+          className="mt-0.5"
+        />
+        <div>
+          <Label htmlFor={`create-rule-${transactionId}`} className="text-sm font-medium cursor-pointer">
+            {t("categorize.applyToAll")}
+          </Label>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {t("categorize.applyToAllHint")}
+          </p>
+        </div>
+      </div>
+
+      {createRule && (
+        <div className="space-y-2 pl-6">
+          <div className="space-y-1">
+            <Label className="text-xs">{t("categorize.matchPattern")}</Label>
+            <Input
+              value={rulePattern}
+              onChange={(e) => setRulePattern(e.target.value)}
+              placeholder={t("categorize.patternPlaceholder")}
+              className={sheet ? "h-10 text-base" : "h-8 text-sm"}
             />
-          )}
-        </button>
-      </PopoverTrigger>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">{t("categorize.matchField")}</Label>
+            <Select value={ruleMatchField} onValueChange={setRuleMatchField}>
+              <SelectTrigger className={sheet ? "h-10" : "h-8 text-sm"}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {MATCH_FIELDS.map((f) => (
+                  <SelectItem key={f.value} value={f.value}>
+                    {t(f.labelKey)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">{t("categorize.matchType")}</Label>
+            <Select
+              value={ruleMatchType}
+              onValueChange={setRuleMatchType}
+            >
+              <SelectTrigger className={sheet ? "h-10" : "h-8 text-sm"}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {MATCH_TYPES.map((m) => (
+                  <SelectItem key={m.value} value={m.value}>
+                    {t(m.labelKey)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  if (sheet) {
+    return (
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+        <DialogTrigger asChild>{triggerElement}</DialogTrigger>
+        <DialogContent>
+          <DialogHeader className="text-left">
+            <DialogTitle>{t("categorize.title")}</DialogTitle>
+            <DialogDescription className="break-words">
+              {transactionDescription}
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Above the list, not under it: a tap there files the row, so the
+              rule has to be set up before it. */}
+          {ruleOptions}
+
+          <CategoryPicker
+            inline
+            value={selectedCategoryId || null}
+            subLineId={selectedSubLineId}
+            recurringTransactionId={currentRecurringId}
+            onChange={handleSave}
+            categories={categories}
+            subCategories={pickerSubCategories}
+            accountId={accountId}
+            // ponytail: no create-on-the-fly here — the pick is saved at once,
+            // and a save racing the new category's POST points at nothing.
+            // Create one from the desktop picker or settings.
+            allowCreate={false}
+          />
+
+          {ruleLink}
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  return (
+    <Popover open={open} onOpenChange={handleOpenChange}>
+      <PopoverTrigger asChild>{triggerElement}</PopoverTrigger>
       <PopoverContent className="w-80" align="start">
         <div className="space-y-4">
           <div>
@@ -243,100 +396,10 @@ export function CategorizePopover({
               accountId={accountId}
               className="h-8 text-sm"
             />
-
-            {/* Why this row is where it is — and the way out to the rule that
-                decides it. Sits under the picker because it annotates it. */}
-            {canCreateRule && settingsCategoryId && (
-              <Link
-                href={settingsHref}
-                onClick={() => setOpen(false)}
-                className="group/rule-link flex w-full items-center gap-2 rounded-md border border-dashed px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-solid hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                {matchedRule ? (
-                  <Zap className="h-3 w-3 shrink-0 text-primary" />
-                ) : (
-                  <SlidersHorizontal className="h-3 w-3 shrink-0" />
-                )}
-                <span className="min-w-0 flex-1 truncate">
-                  {matchedRule
-                    ? t("categorize.matchedRule", { pattern: matchedRule.pattern })
-                    : t("categorize.manageRules")}
-                </span>
-                <ArrowUpRight className="h-3 w-3 shrink-0 opacity-60 transition-transform group-hover/rule-link:-translate-y-px group-hover/rule-link:translate-x-px" />
-              </Link>
-            )}
+            {ruleLink}
           </div>
 
-          {/* Create Rule Checkbox */}
-          {canCreateRule && (
-            <div className="rounded-md border p-3 space-y-3">
-              <div className="flex items-start gap-2">
-                <Checkbox
-                  id="create-rule"
-                  checked={createRule}
-                  onCheckedChange={(checked) =>
-                    setCreateRule(checked === true)
-                  }
-                  className="mt-0.5"
-                />
-                <div>
-                  <Label htmlFor="create-rule" className="text-sm font-medium cursor-pointer">
-                    {t("categorize.applyToAll")}
-                  </Label>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    {t("categorize.applyToAllHint")}
-                  </p>
-                </div>
-              </div>
-
-              {createRule && (
-                <div className="space-y-2 pl-6">
-                  <div className="space-y-1">
-                    <Label className="text-xs">{t("categorize.matchPattern")}</Label>
-                    <Input
-                      value={rulePattern}
-                      onChange={(e) => setRulePattern(e.target.value)}
-                      placeholder={t("categorize.patternPlaceholder")}
-                      className="h-8 text-sm"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">{t("categorize.matchField")}</Label>
-                    <Select value={ruleMatchField} onValueChange={setRuleMatchField}>
-                      <SelectTrigger className="h-8 text-sm">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {MATCH_FIELDS.map((f) => (
-                          <SelectItem key={f.value} value={f.value}>
-                            {t(f.labelKey)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">{t("categorize.matchType")}</Label>
-                    <Select
-                      value={ruleMatchType}
-                      onValueChange={setRuleMatchType}
-                    >
-                      <SelectTrigger className="h-8 text-sm">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {MATCH_TYPES.map((m) => (
-                          <SelectItem key={m.value} value={m.value}>
-                            {t(m.labelKey)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
+          {ruleOptions}
 
           <div className="flex justify-end gap-2">
             <Button
@@ -348,7 +411,7 @@ export function CategorizePopover({
             </Button>
             <Button
               size="sm"
-              onClick={handleSave}
+              onClick={() => handleSave(selectedCategoryId, selectedSubLineId, selectedPlanId)}
               disabled={saving || !selectedCategoryId}
             >
               {saving ? t("categorize.saving") : t("common.save")}
