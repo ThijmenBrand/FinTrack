@@ -4,11 +4,16 @@ allowBuilds:
   esbuild: true
   sharp: true
 
-# All three fix advisories in transitive build-time dependencies that have no
-# released fix upstream yet. The esbuild one is scoped to the deprecated
-# @esbuild-kit path drizzle-kit still pulls in; everything else already uses a
-# patched esbuild, and a blanket override would drag Vite's back to 0.25.
+# All of these fix advisories in transitive dependencies whose parents don't
+# yet allow (or resolve to) the patched release. The esbuild one is scoped to
+# the deprecated @esbuild-kit path drizzle-kit still pulls in; everything else
+# already uses a patched esbuild, and a blanket override would drag Vite's back
+# to 0.25. zod is pinned exactly to 4.1.11 by @vercel/cli-config (via
+# @vercel/blob) and to an older 4.x floor by @better-auth/core; vite comes in
+# through vitest, whose wide range keeps the lockfile on an older 8.x.
 overrides:
   "@esbuild-kit/core-utils>esbuild": "^0.25.12"
   browserslist: "^4.28.9"
-  fast-uri: "^3.1.6"
+  fast-uri: "^3.1.9"
+  vite: "^8.1.6"
+  zod: "^4.6.7"
