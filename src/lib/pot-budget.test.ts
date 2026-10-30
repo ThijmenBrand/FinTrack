@@ -36,7 +36,17 @@ describe("validatePotBudget", () => {
   it("accepts a total without lines, and no budget at all", () => {
     expect(ok({ total: 2000, lines: [] })).toEqual({ total: 2000, lines: [] });
     expect(ok({ total: null, lines: [] })).toEqual({ total: null, lines: [] });
-    expect(ok({})).toEqual({ total: null, lines: [] });
+  });
+
+  it("requires the lines, so a total-only body can't wipe them", () => {
+    expect(err({ total: 50 }).error).toBe(POT_BUDGET_ERROR.invalid);
+    expect(err({}).error).toBe(POT_BUDGET_ERROR.invalid);
+  });
+
+  it("caps amounts far below where cents stop being exact", () => {
+    expect(err({ total: 1e308, lines: [line("A", 1e308)] }).error).toBe(POT_BUDGET_ERROR.totalInvalid);
+    expect(err({ total: 10, lines: [line("A", 1e10)] }).error).toBe(POT_BUDGET_ERROR.lineAmount);
+    expect(ok({ total: 1e9, lines: [line("A", 1e9)] }).total).toBe(1e9);
   });
 
   it("accepts lines that sum to the total, normalising names and cents", () => {

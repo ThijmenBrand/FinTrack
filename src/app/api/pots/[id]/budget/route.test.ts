@@ -208,9 +208,58 @@ describe("PUT /api/pots/[id]/budget", () => {
     expect(rows[0]).toMatchObject({ target_amount: 150, funded_amount: 40 });
   });
 
+  describe("target date", () => {
+    const row = async () =>
+      (await testDb.client.execute(`SELECT target_amount, target_date, funded_amount FROM transaction_groups`)).rows[0];
+
+    it("sets the date with the total in the same save", async () => {
+      await pot("pot-1");
+      expect((await put("pot-1", { ...VACATION, targetDate: "2027-07-12" })).status).toBe(200);
+      expect(await row()).toMatchObject({ target_amount: 2000, target_date: "2027-07-12" });
+    });
+
+    it("leaves the date alone when the body doesn't mention it", async () => {
+      await pot("pot-1", { targetAmount: 100, targetDate: "2027-07-12", funded: 30 });
+      await put("pot-1", { total: 120, lines: [] });
+      expect(await row()).toMatchObject({ target_amount: 120, target_date: "2027-07-12", funded_amount: 30 });
+    });
+
+    it("moving the date keeps what was set aside; clearing it resets it", async () => {
+      await pot("pot-1", { targetAmount: 100, targetDate: "2027-07-12", funded: 30 });
+      await put("pot-1", { total: 100, lines: [], targetDate: "2027-08-01" });
+      expect(await row()).toMatchObject({ target_date: "2027-08-01", funded_amount: 30 });
+
+      await put("pot-1", { total: 100, lines: [], targetDate: null });
+      expect(await row()).toMatchObject({ target_amount: 100, target_date: null, funded_amount: 0 });
+    });
+
+    it("clears date and total together", async () => {
+      await pot("pot-1", { targetAmount: 100, targetDate: "2027-07-12", funded: 30 });
+      expect((await put("pot-1", { total: null, lines: [], targetDate: "" })).status).toBe(200);
+      expect(await row()).toMatchObject({ target_amount: null, target_date: null, funded_amount: 0 });
+    });
+
+    it("refuses a date without a total, and a date that isn't one", async () => {
+      await pot("pot-1");
+      const noTotal = await put("pot-1", { total: null, lines: [], targetDate: "2027-07-12" });
+      expect((await noTotal.json()).code).toBe("pots.budget.err.totalRequiredByDate");
+      const bad = await put("pot-1", { total: 10, lines: [], targetDate: "2027-02-30" });
+      expect(bad.status).toBe(400);
+      expect((await bad.json()).code).toBe("pots.budget.err.dateInvalid");
+      expect(await row()).toMatchObject({ target_amount: null, target_date: null });
+    });
+  });
+
   it("rejects a body that isn't a budget", async () => {
     await pot("pot-1");
     expect((await put("pot-1", "nope")).status).toBe(400);
+  });
+
+  it("won't take a total without the lines — that would wipe them", async () => {
+    await pot("pot-1");
+    await put("pot-1", VACATION);
+    expect((await put("pot-1", { total: 2000 })).status).toBe(400);
+    expect((await (await get("pot-1")).json()).lines).toHaveLength(3);
   });
 });
 

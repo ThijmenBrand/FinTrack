@@ -273,6 +273,20 @@ export interface PotBudgetView {
   worstLine: { id: string; name: string; parentName: string | null; overBy: number } | null;
 }
 
+/** A pot on the dashboard's "Pot budgets" card. */
+export interface DashboardPotBudget {
+  id: string;
+  name: string;
+  categoryColor: string | null;
+  total: number;
+  spent: number;
+  pct: number;
+  status: PotSpendStatus;
+  /** Set for a dated pot past its date — undated pots are always spending. */
+  targetDate: string | null;
+  worstLine: PotBudgetView["worstLine"];
+}
+
 // A pot's net over the currently filtered range, as opposed to `Pot.netAmount`
 // which is lifetime. `isPartial` means the range excludes some pot members.
 export interface PotRangeTotal {

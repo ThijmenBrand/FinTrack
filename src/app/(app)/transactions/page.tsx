@@ -20,8 +20,7 @@ import { AddTransactionDialog } from "@/components/add-transaction-dialog";
 import { PullToRefresh } from "@/components/pull-to-refresh";
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog";
 import { ReimbursementPicker } from "@/components/reimbursement-picker";
-import { CreatePotDialog } from "@/components/create-pot-dialog";
-import { EditPotDialog } from "@/components/edit-pot-dialog";
+import { CreatePotDialog, PotDialog } from "@/components/pot-dialog";
 import { PotTransactionPicker } from "@/components/pot-transaction-picker";
 import {
   Upload,
@@ -973,12 +972,11 @@ function TransactionsPage() {
         categories={ownCategories}
       />
 
-      {/* Edit Pot Dialog */}
-      <EditPotDialog
-        open={!!editPot}
+      {/* Edit Pot: the pot dialog, opened on its settings */}
+      <PotDialog
+        potId={editPot?.id ?? null}
         onOpenChange={(open) => { if (!open) setEditPot(null); }}
-        categories={ownCategories}
-        pot={editPot}
+        initialTab="settings"
       />
 
       {/* Add Transaction to Pot Dialog */}

@@ -4,7 +4,7 @@ import { db } from "@/db";
 import { transactionGroups, transactions, categories } from "@/db/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
-import { toCents, validatePotBudget } from "@/lib/pot-budget";
+import { MAX_POT_AMOUNT, toCents, validatePotBudget } from "@/lib/pot-budget";
 import {
   budgetCategoryIds,
   deletePotBudgetLines,
@@ -51,9 +51,13 @@ export async function GET() {
       .where(eq(transactionGroups.userId, userId))
       .orderBy(sql`${transactionGroups.createdAt} DESC`);
 
-    return NextResponse.json(pots);
+    // Cents, like the details view: a float sum shouldn't read as a mismatch.
+    return NextResponse.json(pots.map((p) => ({ ...p, spentAmount: toCents(Number(p.spentAmount)) / 100 })));
   }, "Failed to fetch pots");
 }
+
+/** A target amount as stored: rounded to the cent, like every budget amount. */
+const toAmount = (v: unknown) => toCents(Number(v)) / 100;
 
 // Validate a target. The amount is the pot's budget total and can stand alone;
 // a date makes it a savings target ("spike"), which needs an amount to save to.
@@ -64,8 +68,10 @@ function validateTarget(targetAmount: unknown, targetDate: unknown): string | nu
     return "targetDate requires a targetAmount";
   }
   if (hasAmount) {
-    const n = Number(targetAmount);
-    if (!Number.isFinite(n) || n <= 0) return "targetAmount must be a positive number";
+    const n = toAmount(targetAmount);
+    if (!Number.isFinite(n) || n <= 0 || n > MAX_POT_AMOUNT) {
+      return "targetAmount must be a positive number";
+    }
   }
   if (hasDate && !/^\d{4}-\d{2}-\d{2}$/.test(String(targetDate))) {
     return "targetDate must be a YYYY-MM-DD string";
@@ -102,7 +108,7 @@ export async function POST(request: NextRequest) {
     let budget = null;
     if (lines !== undefined) {
       const result = validatePotBudget(
-        { total: targetAmount != null ? Number(targetAmount) : null, lines },
+        { total: targetAmount != null ? toAmount(targetAmount) : null, lines },
         { hasTargetDate: !!targetDate },
       );
       if (!result.ok) return apiError(result.error, 400, undefined, { code: result.error });
@@ -118,7 +124,7 @@ export async function POST(request: NextRequest) {
         id,
         name,
         categoryId: categoryId || null,
-        targetAmount: targetAmount != null ? Number(targetAmount) : null,
+        targetAmount: targetAmount != null ? toAmount(targetAmount) : null,
         targetDate: targetDate || null,
         fundedAmount: 0,
         userId,
@@ -142,44 +148,11 @@ export async function PUT(request: NextRequest) {
       return apiError("api.categoryNotFound", 404);
     }
 
-    // If either target field is being touched, validate the pair.
-    if (targetAmount !== undefined || targetDate !== undefined) {
-      // Read existing values to validate the resulting pair, since the client
-      // may only send one half of the change.
-      const existing = await db
-        .select({
-          targetAmount: transactionGroups.targetAmount,
-          targetDate: transactionGroups.targetDate,
-        })
-        .from(transactionGroups)
-        .where(and(eq(transactionGroups.id, id), eq(transactionGroups.userId, userId)))
-        .get();
-      if (!existing) {
-        return apiError("api.potNotFound", 404);
-      }
-      const nextAmount = targetAmount === undefined ? existing.targetAmount : targetAmount;
-      const nextDate = targetDate === undefined ? existing.targetDate : targetDate;
-      const targetError = validateTarget(nextAmount, nextDate);
-      if (targetError) {
-        return NextResponse.json({ error: targetError }, { status: 400 });
-      }
-      // The amount is also the budget total: with lines planned, it can only
-      // change together with them (PUT /api/pots/[id]/budget).
-      if (targetAmount !== undefined) {
-        const planned = await topLevelPlannedCents(db, userId, id);
-        if (planned !== null && (targetAmount === null || toCents(Number(targetAmount)) !== planned)) {
-          return apiError("pots.budget.err.sumMismatch", 409, undefined, {
-            code: "pots.budget.err.sumMismatch",
-          });
-        }
-      }
-    }
-
     const updates: Record<string, unknown> = {};
     if (name !== undefined) updates.name = name;
     if (categoryId !== undefined) updates.categoryId = categoryId;
     if (targetAmount !== undefined) {
-      updates.targetAmount = targetAmount === null ? null : Number(targetAmount);
+      updates.targetAmount = targetAmount === null ? null : toAmount(targetAmount);
     }
     if (targetDate !== undefined) {
       updates.targetDate = targetDate === null || targetDate === "" ? null : targetDate;
@@ -195,9 +168,48 @@ export async function PUT(request: NextRequest) {
       updates.fundedAmount = 0;
     }
 
-    if (Object.keys(updates).length > 0) {
-      await db.update(transactionGroups).set(updates).where(and(eq(transactionGroups.id, id), eq(transactionGroups.userId, userId)));
-    }
+    // Check and write in one transaction, so a budget saved in between can't
+    // leave the total out of step with its lines.
+    const rejected = await db.transaction(async (tx) => {
+      // If either target field is being touched, validate the pair.
+      if (targetAmount !== undefined || targetDate !== undefined) {
+        // Read existing values to validate the resulting pair, since the client
+        // may only send one half of the change.
+        const existing = await tx
+          .select({
+            targetAmount: transactionGroups.targetAmount,
+            targetDate: transactionGroups.targetDate,
+          })
+          .from(transactionGroups)
+          .where(and(eq(transactionGroups.id, id), eq(transactionGroups.userId, userId)))
+          .get();
+        if (!existing) {
+          return apiError("api.potNotFound", 404);
+        }
+        const nextAmount = targetAmount === undefined ? existing.targetAmount : targetAmount;
+        const nextDate = targetDate === undefined ? existing.targetDate : targetDate;
+        const targetError = validateTarget(nextAmount, nextDate);
+        if (targetError) {
+          return NextResponse.json({ error: targetError }, { status: 400 });
+        }
+        // The amount is also the budget total: with lines planned, it can only
+        // change together with them (PUT /api/pots/[id]/budget).
+        if (targetAmount !== undefined) {
+          const planned = await topLevelPlannedCents(tx, userId, id);
+          if (planned !== null && (targetAmount === null || toCents(Number(targetAmount)) !== planned)) {
+            return apiError("pots.budget.err.sumMismatch", 409, undefined, {
+              code: "pots.budget.err.sumMismatch",
+            });
+          }
+        }
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await tx.update(transactionGroups).set(updates).where(and(eq(transactionGroups.id, id), eq(transactionGroups.userId, userId)));
+      }
+      return null;
+    });
+    if (rejected) return rejected;
 
     return NextResponse.json({ success: true });
   }, "Failed to update pot");

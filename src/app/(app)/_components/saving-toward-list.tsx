@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AllocateToPotDialog } from "@/components/allocate-to-pot-dialog";
-import { PotDetailDialog } from "@/components/pot-detail-dialog";
+import { PotDialog } from "@/components/pot-dialog";
 import { ON_TRACK_LABEL_KEYS, ON_TRACK_STYLES } from "@/components/spike-progress";
 import type { SavingTowardSpike } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
@@ -179,11 +179,12 @@ export function SavingTowardList({ spikes }: SavingTowardListProps) {
         />
       )}
 
-      <PotDetailDialog
+      <PotDialog
         potId={detailPotId}
         onOpenChange={(open) => {
           if (!open) setDetailPotId(null);
         }}
+        onSaved={() => router.refresh()}
       />
     </>
   );

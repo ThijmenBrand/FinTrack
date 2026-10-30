@@ -21,7 +21,7 @@ import {
   accountMembers,
   user,
 } from "@/db/schema";
-import { eq, and, or, asc, gte, lte, sql, sum, inArray, isNotNull } from "drizzle-orm";
+import { eq, and, or, asc, gte, lte, sql, sum, inArray, isNotNull, isNull } from "drizzle-orm";
 import { activeMembership, memberAccountIds, visibleTransactions } from "@/lib/account-access";
 import { getPaySchedule, paydaysBetween, type PaySchedule } from "@/lib/pay-schedule";
 import { getMonthMoneyMath } from "@/lib/month-money";
@@ -29,7 +29,9 @@ import { classifyOnTrack } from "@/lib/on-track";
 import { formatCurrency, toIsoDate } from "@/lib/utils";
 import { effectiveExpenseAmount, potSpentAmount } from "@/lib/reimbursement-sql";
 import { excludeSplitChildren, excludeSplitParents } from "@/lib/split-sql";
+import { loadPotBudgetViews } from "@/lib/pot-budget-db";
 import type {
+  DashboardPotBudget,
   MonthMoneyView,
   SavingTowardSpike,
   SpikeImpactStatus,
@@ -520,6 +522,55 @@ export async function getSavingTowardSpikes(
  * per-budget split (via the transaction's account) so a shared category shows
  * which budget the money actually left.
  */
+/**
+ * Pots being spent against a budget: a total and either no date, or a date
+ * that has arrived (before it, the pot is in Saving toward instead). Archived
+ * pots are done. Over-budget pots first, then the closest to it.
+ */
+export async function getPotBudgets(
+  userId: string,
+  todayIso: string = toIsoDate(new Date()),
+): Promise<DashboardPotBudget[]> {
+  const rows = await db
+    .select({
+      id: transactionGroups.id,
+      name: transactionGroups.name,
+      categoryColor: categories.color,
+      targetAmount: transactionGroups.targetAmount,
+      targetDate: transactionGroups.targetDate,
+    })
+    .from(transactionGroups)
+    .leftJoin(categories, eq(transactionGroups.categoryId, categories.id))
+    .where(
+      and(
+        eq(transactionGroups.userId, userId),
+        isNull(transactionGroups.archivedAt),
+        isNotNull(transactionGroups.targetAmount),
+        or(isNull(transactionGroups.targetDate), lte(transactionGroups.targetDate, todayIso)),
+      ),
+    );
+  if (rows.length === 0) return [];
+
+  const views = await loadPotBudgetViews(db, userId, rows);
+  const rank = { exceeded: 0, warning: 1, ok: 2 } as const;
+  return rows
+    .map((r) => {
+      const v = views.get(r.id)!;
+      return {
+        id: r.id,
+        name: r.name,
+        categoryColor: r.categoryColor,
+        total: r.targetAmount!,
+        spent: v.spent,
+        pct: v.pct,
+        status: v.status,
+        targetDate: r.targetDate,
+        worstLine: v.worstLine,
+      };
+    })
+    .sort((a, b) => rank[a.status] - rank[b.status] || b.pct - a.pct);
+}
+
 export async function getTopCategories(userId: string, startDay: number = 1) {
   const { monthStart, monthEnd } = getDateRanges(startDay);
 

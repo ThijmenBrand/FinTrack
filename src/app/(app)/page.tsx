@@ -37,6 +37,10 @@ import {
   SavingTowardCardSkeleton,
 } from "./_components/saving-toward-card";
 import {
+  PotBudgetsCard,
+  PotBudgetsCardSkeleton,
+} from "./_components/pot-budgets-card";
+import {
   UpcomingMoneyCard,
   UpcomingMoneyCardSkeleton,
 } from "./_components/upcoming-money-card";
@@ -211,6 +215,10 @@ export default async function DashboardPage({
               </Suspense>
               <Suspense fallback={<SavingTowardCardSkeleton />}>
                 <SavingTowardCard userId={userId} startDay={startDay} />
+              </Suspense>
+              {/* After Saving toward: the same pots, once their date has come. */}
+              <Suspense fallback={<PotBudgetsCardSkeleton />}>
+                <PotBudgetsCard userId={userId} />
               </Suspense>
             </>
           )}

@@ -301,7 +301,11 @@ describe("DELETE /api/categories", () => {
       args: [USER, USER],
     });
 
-    const res = await deleteCategories(["cat-food"]);
+    // Without FKs, as on hosted libsql: the cleanup has to be explicit.
+    const { db } = await import("@/db");
+    const { sql } = await import("drizzle-orm");
+    await db.run(sql`PRAGMA foreign_keys = OFF`);
+    const res = await deleteCategories(["cat-food"]).finally(() => db.run(sql`PRAGMA foreign_keys = ON`));
     expect(res.status).toBe(200);
 
     const links = (await testDb.client.execute(`SELECT category_id FROM pot_budget_line_categories`)).rows;

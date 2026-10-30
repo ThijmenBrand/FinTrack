@@ -17,13 +17,12 @@ export function usePotDetails(id: string | null) {
   });
 }
 
-/** A pot's budget as written — the "copy lines from…" source. */
-export function usePotBudget(id: string | null) {
-  return useQuery({
+/** A pot's budget as written — fetched on demand by "copy lines from…". */
+export function potBudgetQuery(id: string) {
+  return {
     queryKey: ["pots", id, "budget"],
     queryFn: () => apiFetch<PotBudgetTree>(`/api/pots/${id}/budget`),
-    enabled: !!id,
-  });
+  };
 }
 
 interface PotMutationPayload {
@@ -67,7 +66,7 @@ export function useUpdatePot() {
 export function useSavePotBudget() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...budget }: { id: string } & PotBudgetTree) =>
+    mutationFn: ({ id, ...budget }: { id: string; targetDate?: string | null } & PotBudgetTree) =>
       apiFetch(`/api/pots/${id}/budget`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },

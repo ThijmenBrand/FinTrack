@@ -5,8 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Plus, PiggyBank, Loader2, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PotCard } from "@/components/pot-card";
-import { PotDetailDialog } from "@/components/pot-detail-dialog";
-import { CreatePotDialog } from "@/components/create-pot-dialog";
+import { CreatePotDialog, PotDialog } from "@/components/pot-dialog";
 import { AllocateToPotDialog } from "@/components/allocate-to-pot-dialog";
 import { usePots } from "@/hooks/use-pots";
 import { useCategories } from "@/hooks/use-categories";
@@ -37,7 +36,7 @@ function PotsPageInner() {
   const [showPast, setShowPast] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
 
-  const { activeSpikes, pastSpikes, plain, archived } = useMemo(() => {
+  const { activeSpikes, pastSpikes, budgeted, plain, archived } = useMemo(() => {
     // "Past" = target date strictly more than a calendar month ago.
     const cutoff = new Date();
     cutoff.setHours(0, 0, 0, 0);
@@ -46,6 +45,7 @@ function PotsPageInner() {
 
     const activeSpikes: Pot[] = [];
     const pastSpikes: Pot[] = [];
+    const budgeted: Pot[] = [];
     const plain: Pot[] = [];
     const archived: Pot[] = [];
     for (const p of pots) {
@@ -54,6 +54,9 @@ function PotsPageInner() {
       } else if (p.targetAmount != null && p.targetDate) {
         if (p.targetDate < cutoffIso) pastSpikes.push(p);
         else activeSpikes.push(p);
+      } else if (p.targetAmount != null) {
+        // A budget total with no date: spent against, never saved toward.
+        budgeted.push(p);
       } else {
         plain.push(p);
       }
@@ -65,9 +68,10 @@ function PotsPageInner() {
     pastSpikes.sort((a, b) =>
       (b.targetDate ?? "").localeCompare(a.targetDate ?? "")
     );
+    budgeted.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     plain.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     archived.sort((a, b) => (b.archivedAt ?? "").localeCompare(a.archivedAt ?? ""));
-    return { activeSpikes, pastSpikes, plain, archived };
+    return { activeSpikes, pastSpikes, budgeted, plain, archived };
   }, [pots]);
 
   const totalFunded = activeSpikes.reduce((s, p) => s + p.fundedAmount, 0);
@@ -123,6 +127,24 @@ function PotsPageInner() {
                     pot={pot}
                     onClick={() => setActivePotId(pot.id)}
                     onAllocate={() => setQuickAllocate(pot)}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {budgeted.length > 0 && (
+            <section className="space-y-3">
+              <SectionHeader
+                title={t("pots.sectionBudgets")}
+                subtitle={t("pots.sectionBudgetsSub")}
+              />
+              <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+                {budgeted.map((pot) => (
+                  <PotCard
+                    key={pot.id}
+                    pot={pot}
+                    onClick={() => setActivePotId(pot.id)}
                   />
                 ))}
               </div>
@@ -224,9 +246,10 @@ function PotsPageInner() {
         open={createOpen}
         onOpenChange={setCreateOpen}
         categories={categories}
+        onCreated={setActivePotId}
       />
 
-      <PotDetailDialog
+      <PotDialog
         potId={activePotId}
         onOpenChange={(open) => {
           if (!open) setActivePotId(null);

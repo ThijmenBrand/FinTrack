@@ -152,14 +152,16 @@ export async function deletePotBudgetLines(writer: Writer, userId: string, potId
 
 /**
  * Swap a pot's whole budget for `value` (already validated) and set the total
- * on the pot. Clearing the total resets funding, the same as clearing a
- * target through the pot form does.
+ * on the pot — and the target date, when `opts.targetDate` is given (null
+ * clears it). Clearing the total, or `opts.resetFunding`, zeroes what has been
+ * set aside, the same as clearing a target through the pot form does.
  */
 export async function replacePotBudget(
   writer: Writer,
   userId: string,
   potId: string,
   value: PotBudgetTree,
+  opts: { targetDate?: string | null; resetFunding?: boolean } = {},
 ): Promise<void> {
   await deletePotBudgetLines(writer, userId, potId);
 
@@ -189,7 +191,11 @@ export async function replacePotBudget(
 
   await writer
     .update(transactionGroups)
-    .set(value.total === null ? { targetAmount: null, fundedAmount: 0 } : { targetAmount: value.total })
+    .set({
+      targetAmount: value.total,
+      ...(opts.targetDate !== undefined ? { targetDate: opts.targetDate } : {}),
+      ...(value.total === null || opts.resetFunding ? { fundedAmount: 0 } : {}),
+    })
     .where(and(eq(transactionGroups.id, potId), eq(transactionGroups.userId, userId)));
 }
 

@@ -20,6 +20,11 @@ import type {
 export const MAX_POT_BUDGET_LINES = 100;
 export const MAX_POT_LINE_CATEGORIES = 30;
 export const MAX_POT_LINE_NAME = 50;
+/**
+ * Largest amount accepted anywhere in a pot budget. Far past any real pot, and
+ * well inside the range where a float still holds every cent exactly.
+ */
+export const MAX_POT_AMOUNT = 1_000_000_000;
 /** Same threshold the monthly budget rows turn amber at. */
 export const POT_BUDGET_WARN_PCT = 80;
 
@@ -74,10 +79,12 @@ export function validatePotBudget(
       return fail(POT_BUDGET_ERROR.totalInvalid);
     }
     total = round2(raw.total);
-    if (total <= 0) return fail(POT_BUDGET_ERROR.totalInvalid);
+    if (total <= 0 || total > MAX_POT_AMOUNT) return fail(POT_BUDGET_ERROR.totalInvalid);
   }
 
-  const rawLines = raw.lines ?? [];
+  // Required, even empty: a budget sent without its lines would replace them
+  // all with nothing.
+  const rawLines = raw.lines;
   if (!Array.isArray(rawLines)) return fail(POT_BUDGET_ERROR.invalid);
 
   const seen = new Set<string>();
@@ -119,7 +126,12 @@ export function validatePotBudget(
     if (children.length > 0) {
       amount = children.reduce((s, c) => s + toCents(c.amount), 0) / 100;
     } else {
-      if (typeof v.amount !== "number" || !Number.isFinite(v.amount) || v.amount < 0) {
+      if (
+        typeof v.amount !== "number" ||
+        !Number.isFinite(v.amount) ||
+        v.amount < 0 ||
+        v.amount > MAX_POT_AMOUNT
+      ) {
         return fail(POT_BUDGET_ERROR.lineAmount);
       }
       amount = round2(v.amount);

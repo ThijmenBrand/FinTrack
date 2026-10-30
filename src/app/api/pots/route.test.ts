@@ -301,6 +301,12 @@ describe("POST /api/pots", () => {
     expect(await potRow(id)).toMatchObject({ target_amount: 800, target_date: null });
   });
 
+  it("refuses a total that rounds to nothing, or one past any real pot", async () => {
+    expect((await create({ name: "Dust", targetAmount: 0.001 })).status).toBe(400);
+    expect((await create({ name: "Huge", targetAmount: 1e12 })).status).toBe(400);
+    expect(await list()).toEqual([]);
+  });
+
   it("refuses a target date without an amount", async () => {
     const res = await create({ name: "Trip", targetDate: "2026-07-01" });
     expect(res.status).toBe(400);
@@ -370,6 +376,15 @@ describe("PUT /api/pots", () => {
     expect((await update({ id: "pot-1", name: "Renamed", targetAmount: 100 })).status).toBe(200);
   });
 
+  it("stores the total to the cent, so it can't drift from the lines", async () => {
+    await pot("pot-1", { targetAmount: 100 });
+    await seedLines("pot-1", [{ id: "a", amount: 100 }]);
+
+    expect((await update({ id: "pot-1", targetAmount: 100.004 })).status).toBe(200);
+    expect((await potRow("pot-1")).target_amount).toBe(100);
+    expect((await update({ id: "pot-1", targetAmount: 100.01 })).status).toBe(409);
+  });
+
   it("changes the total freely while there are no lines", async () => {
     await pot("pot-1", { targetAmount: 100 });
     expect((await update({ id: "pot-1", targetAmount: 150 })).status).toBe(200);
@@ -390,8 +405,24 @@ describe("PUT /api/pots", () => {
   });
 });
 
+/**
+ * Hosted libsql doesn't promise `foreign_keys=ON`, so the cleanup has to be
+ * explicit — and only a connection without FKs can tell explicit cleanup from
+ * the cascades doing it. Off for the app's connection while `run` runs.
+ */
+async function withoutForeignKeys(run: () => Promise<void>) {
+  const { db } = await import("@/db");
+  const { sql } = await import("drizzle-orm");
+  await db.run(sql`PRAGMA foreign_keys = OFF`);
+  try {
+    await run();
+  } finally {
+    await db.run(sql`PRAGMA foreign_keys = ON`);
+  }
+}
+
 describe("DELETE /api/pots", () => {
-  it("removes the pot's budget lines and categories with it", async () => {
+  it("removes the pot's budget lines and categories with it, FKs or not", () => withoutForeignKeys(async () => {
     await pot("pot-1", { targetAmount: 100 });
     await pot("pot-2", { targetAmount: 50 });
     await seedLines("pot-1", [{ id: "a", amount: 100 }]);
@@ -415,5 +446,5 @@ describe("DELETE /api/pots", () => {
     expect(cats).toEqual([]);
     const { rows: members } = await testDb.client.execute(`SELECT group_id FROM transactions WHERE id = 'member'`);
     expect(members[0].group_id).toBeNull();
-  });
+  }));
 });
