@@ -22,6 +22,8 @@ const TENANT_TABLES = [
   "recurring_transactions",
   "import_batches",
   "transaction_groups",
+  "pot_budget_lines",
+  "pot_budget_line_categories",
   "stat_resets",
   "audit_log",
   "jobs",

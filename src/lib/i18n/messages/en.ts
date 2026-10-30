@@ -1249,6 +1249,19 @@ export const en = {
   "pots.picker.createNamed": "Create \"{name}\"",
   "pots.picker.newPot": "New pot",
 
+  // Pot budgets
+  "pots.budget.err.invalid": "That budget couldn't be read. Reload and try again.",
+  "pots.budget.err.totalInvalid": "The total must be more than zero.",
+  "pots.budget.err.totalRequired": "Set a total before adding lines.",
+  "pots.budget.err.totalRequiredByDate": "A pot with a target date needs a total. Clear the date first.",
+  "pots.budget.err.sumMismatch": "The lines must add up to the total.",
+  "pots.budget.err.lineName": "Every line needs a name (up to 50 characters).",
+  "pots.budget.err.lineAmount": "Line amounts can't be negative.",
+  "pots.budget.err.tooDeep": "Sub-lines can't have sub-lines of their own.",
+  "pots.budget.err.tooMany": "A pot budget can hold at most 100 lines.",
+  "pots.budget.err.tooManyCategories": "A line can collect at most 30 categories.",
+  "pots.budget.err.duplicateCategory": "A category can only be on one line.",
+
   // ─── Auth ──────────────────────────────────────────────────────────────────
   "auth.signInToAccount": "Sign in to your account",
   "auth.signInSubtitle": "Welcome back. Your money is where you left it.",

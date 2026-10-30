@@ -1233,6 +1233,19 @@ export const nl: Record<MessageKey, string> = {
   "pots.picker.createNamed": "\"{name}\" aanmaken",
   "pots.picker.newPot": "Nieuw potje",
 
+  // Pot budgets
+  "pots.budget.err.invalid": "Dit budget kon niet worden gelezen. Herlaad en probeer het opnieuw.",
+  "pots.budget.err.totalInvalid": "Het totaal moet meer dan nul zijn.",
+  "pots.budget.err.totalRequired": "Stel eerst een totaal in voordat je regels toevoegt.",
+  "pots.budget.err.totalRequiredByDate": "Een potje met een streefdatum heeft een totaal nodig. Wis eerst de datum.",
+  "pots.budget.err.sumMismatch": "De regels moeten optellen tot het totaal.",
+  "pots.budget.err.lineName": "Elke regel heeft een naam nodig (maximaal 50 tekens).",
+  "pots.budget.err.lineAmount": "Bedragen van regels kunnen niet negatief zijn.",
+  "pots.budget.err.tooDeep": "Subregels kunnen geen eigen subregels hebben.",
+  "pots.budget.err.tooMany": "Een potjesbudget kan maximaal 100 regels bevatten.",
+  "pots.budget.err.tooManyCategories": "Een regel kan maximaal 30 categorieën verzamelen.",
+  "pots.budget.err.duplicateCategory": "Een categorie kan maar op één regel staan.",
+
   // ─── Auth ──────────────────────────────────────────────────────────────────
   "auth.signInToAccount": "Log in op je account",
   "auth.signInSubtitle": "Welkom terug. Je geld staat waar je het liet.",

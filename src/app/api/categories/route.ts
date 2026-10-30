@@ -7,6 +7,7 @@ import {
   budgetSubLines,
   categories,
   categoryRules,
+  potBudgetLineCategories,
   recurringTransactions,
   transactionGroups,
   transactions,
@@ -277,6 +278,17 @@ export async function DELETE(request: NextRequest) {
           and(
             inArray(transactionGroups.categoryId, doomedIds),
             eq(transactionGroups.userId, userId)
+          )
+        );
+
+      // A pot budget line keeps its name and amount; it just stops collecting
+      // the deleted category.
+      await db
+        .delete(potBudgetLineCategories)
+        .where(
+          and(
+            inArray(potBudgetLineCategories.categoryId, doomedIds),
+            eq(potBudgetLineCategories.userId, userId)
           )
         );
 

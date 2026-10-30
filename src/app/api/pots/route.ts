@@ -4,6 +4,14 @@ import { db } from "@/db";
 import { transactionGroups, transactions, categories } from "@/db/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
+import { toCents, validatePotBudget } from "@/lib/pot-budget";
+import {
+  budgetCategoryIds,
+  deletePotBudgetLines,
+  replacePotBudget,
+  topLevelPlannedCents,
+  userOwnsCategories,
+} from "@/lib/pot-budget-db";
 
 // GET /api/pots — list all pots with net amount, transaction count, category info
 export async function GET() {
@@ -26,6 +34,17 @@ export async function GET() {
         transactionCount: sql<number>`(
           SELECT COUNT(*) FROM transactions t WHERE t.group_id = ${transactionGroups.id} AND t.user_id = ${userId}
         )`,
+        // Spending as budgets count it (see pot-budget-db.loadPotCategoryNets):
+        // unlike netAmount, the transfers that fund the pot aren't spending.
+        spentAmount: sql<number>`MAX(-COALESCE((
+          SELECT SUM(t.amount) FROM transactions t
+          WHERE t.group_id = ${transactionGroups.id} AND t.user_id = ${userId}
+            AND t.type != 'internal_transfer' AND t.is_split_parent = 0
+        ), 0), 0)`,
+        lineCount: sql<number>`(
+          SELECT COUNT(*) FROM pot_budget_lines l
+          WHERE l.pot_id = ${transactionGroups.id} AND l.user_id = ${userId} AND l.parent_id IS NULL
+        )`,
       })
       .from(transactionGroups)
       .leftJoin(categories, eq(transactionGroups.categoryId, categories.id))
@@ -36,12 +55,13 @@ export async function GET() {
   }, "Failed to fetch pots");
 }
 
-// Validate that a target, if provided, has both amount > 0 and a date.
+// Validate a target. The amount is the pot's budget total and can stand alone;
+// a date makes it a savings target ("spike"), which needs an amount to save to.
 function validateTarget(targetAmount: unknown, targetDate: unknown): string | null {
   const hasAmount = targetAmount !== undefined && targetAmount !== null;
   const hasDate = targetDate !== undefined && targetDate !== null && targetDate !== "";
-  if (hasAmount !== hasDate) {
-    return "targetAmount and targetDate must be set together";
+  if (hasDate && !hasAmount) {
+    return "targetDate requires a targetAmount";
   }
   if (hasAmount) {
     const n = Number(targetAmount);
@@ -65,7 +85,7 @@ async function userOwnsCategory(userId: string, categoryId: string): Promise<boo
 // POST /api/pots — create a pot
 export async function POST(request: NextRequest) {
   return withUser(async (userId) => {
-    const { name, categoryId, targetAmount, targetDate } = await request.json();
+    const { name, categoryId, targetAmount, targetDate, lines } = await request.json();
     if (!name) {
       return NextResponse.json({ error: "name is required" }, { status: 400 });
     }
@@ -77,16 +97,34 @@ export async function POST(request: NextRequest) {
       return apiError("api.categoryNotFound", 404);
     }
 
+    // Optional budget lines, so the create dialog can save pot and budget in
+    // one request — a pot without its budget is never left behind.
+    let budget = null;
+    if (lines !== undefined) {
+      const result = validatePotBudget(
+        { total: targetAmount != null ? Number(targetAmount) : null, lines },
+        { hasTargetDate: !!targetDate },
+      );
+      if (!result.ok) return apiError(result.error, 400, undefined, { code: result.error });
+      if (!(await userOwnsCategories(db, userId, budgetCategoryIds(result.value)))) {
+        return apiError("api.categoryNotFound", 404);
+      }
+      budget = result.value;
+    }
+
     const id = crypto.randomUUID();
-    await db.insert(transactionGroups).values({
-      id,
-      name,
-      categoryId: categoryId || null,
-      targetAmount: targetAmount != null ? Number(targetAmount) : null,
-      targetDate: targetDate || null,
-      fundedAmount: 0,
-      userId,
-      createdAt: new Date().toISOString(),
+    await db.transaction(async (tx) => {
+      await tx.insert(transactionGroups).values({
+        id,
+        name,
+        categoryId: categoryId || null,
+        targetAmount: targetAmount != null ? Number(targetAmount) : null,
+        targetDate: targetDate || null,
+        fundedAmount: 0,
+        userId,
+        createdAt: new Date().toISOString(),
+      });
+      if (budget) await replacePotBudget(tx, userId, id, budget);
     });
 
     return NextResponse.json({ success: true, id }, { status: 201 });
@@ -124,6 +162,16 @@ export async function PUT(request: NextRequest) {
       const targetError = validateTarget(nextAmount, nextDate);
       if (targetError) {
         return NextResponse.json({ error: targetError }, { status: 400 });
+      }
+      // The amount is also the budget total: with lines planned, it can only
+      // change together with them (PUT /api/pots/[id]/budget).
+      if (targetAmount !== undefined) {
+        const planned = await topLevelPlannedCents(db, userId, id);
+        if (planned !== null && (targetAmount === null || toCents(Number(targetAmount)) !== planned)) {
+          return apiError("pots.budget.err.sumMismatch", 409, undefined, {
+            code: "pots.budget.err.sumMismatch",
+          });
+        }
       }
     }
 
@@ -164,14 +212,19 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "id is required" }, { status: 400 });
     }
 
-    // Clear group_id on member transactions
-    await db
-      .update(transactions)
-      .set({ groupId: null })
-      .where(and(eq(transactions.groupId, id), eq(transactions.userId, userId)));
+    await db.transaction(async (tx) => {
+      // Budget lines first: FK cascades aren't guaranteed on hosted libsql.
+      await deletePotBudgetLines(tx, userId, id);
 
-    // Delete the pot
-    await db.delete(transactionGroups).where(and(eq(transactionGroups.id, id), eq(transactionGroups.userId, userId)));
+      // Clear group_id on member transactions
+      await tx
+        .update(transactions)
+        .set({ groupId: null })
+        .where(and(eq(transactions.groupId, id), eq(transactions.userId, userId)));
+
+      // Delete the pot
+      await tx.delete(transactionGroups).where(and(eq(transactionGroups.id, id), eq(transactionGroups.userId, userId)));
+    });
 
     return NextResponse.json({ success: true });
   }, "Failed to delete pot");

@@ -212,3 +212,208 @@ describe("GET /api/pots", () => {
     expect(await list()).toEqual([]);
   });
 });
+
+const json = (body: unknown, method = "POST") =>
+  new Request("http://test/api/pots", {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }) as unknown as import("next/server").NextRequest;
+
+async function potRow(id: string) {
+  const { rows } = await testDb.client.execute({
+    sql: `SELECT target_amount, target_date, funded_amount FROM transaction_groups WHERE id = ?`,
+    args: [id],
+  });
+  return rows[0];
+}
+
+async function lineRows(potId: string) {
+  const { rows } = await testDb.client.execute({
+    sql: `SELECT name, amount, parent_id FROM pot_budget_lines WHERE pot_id = ? ORDER BY sort_order`,
+    args: [potId],
+  });
+  return rows;
+}
+
+const seedLines = async (potId: string, lines: { id: string; amount: number; parentId?: string }[]) => {
+  for (const [i, l] of lines.entries()) {
+    await testDb.client.execute({
+      sql: `INSERT INTO pot_budget_lines (id, user_id, pot_id, parent_id, name, amount, sort_order, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [l.id, USER, potId, l.parentId ?? null, l.id, l.amount, i, NOW],
+    });
+  }
+};
+
+describe("GET /api/pots — budget figures", () => {
+  it("reports spending without the funding transfers, floored at zero", async () => {
+    await pot("pot-1");
+    await tx(500, "pot-1", { type: "internal_transfer" });
+    await tx(-120, "pot-1");
+    await tx(20, "pot-1"); // a refund
+    await pot("pot-2");
+    await tx(300, "pot-2");
+
+    const rows = await list();
+    const byId = Object.fromEntries(rows.map((r) => [r.id, r as PotRow & { spentAmount: number }]));
+
+    expect(byId["pot-1"].spentAmount).toBe(100);
+    expect(byId["pot-2"].spentAmount).toBe(0);
+  });
+
+  it("leaves split parents out of spending — their children carry the money", async () => {
+    await pot("pot-1");
+    await tx(-100, "pot-1", { isSplitParent: true, id: "parent" });
+    await tx(-60, "pot-1", { parentTransactionId: "parent" });
+
+    const [row] = (await list()) as (PotRow & { spentAmount: number })[];
+
+    expect(row.spentAmount).toBe(60);
+  });
+
+  it("counts top-level budget lines only", async () => {
+    await pot("pot-1", { targetAmount: 100 });
+    await seedLines("pot-1", [
+      { id: "a", amount: 60 },
+      { id: "b", amount: 40 },
+      { id: "b1", amount: 40, parentId: "b" },
+    ]);
+    await pot("pot-2");
+
+    const rows = (await list()) as (PotRow & { lineCount: number })[];
+
+    expect(rows.find((r) => r.id === "pot-1")!.lineCount).toBe(2);
+    expect(rows.find((r) => r.id === "pot-2")!.lineCount).toBe(0);
+  });
+});
+
+describe("POST /api/pots", () => {
+  const create = async (body: unknown) => {
+    const { POST } = await import("./route");
+    return POST(json(body));
+  };
+
+  it("creates a budget total without a target date", async () => {
+    const res = await create({ name: "Kitchen", categoryId: null, targetAmount: 800 });
+    expect(res.status).toBe(201);
+    const { id } = await res.json();
+    expect(await potRow(id)).toMatchObject({ target_amount: 800, target_date: null });
+  });
+
+  it("refuses a target date without an amount", async () => {
+    const res = await create({ name: "Trip", targetDate: "2026-07-01" });
+    expect(res.status).toBe(400);
+  });
+
+  it("saves the pot and its lines together", async () => {
+    const res = await create({
+      name: "Vacation",
+      targetAmount: 1000,
+      targetDate: "2027-07-01",
+      lines: [
+        { name: "Flights", amount: 400, categoryIds: ["cat-1"], children: [] },
+        { name: "Hotel", amount: 600, categoryIds: [], children: [] },
+      ],
+    });
+    expect(res.status).toBe(201);
+    const { id } = await res.json();
+    expect((await lineRows(id)).map((r) => [r.name, r.amount])).toEqual([
+      ["Flights", 400],
+      ["Hotel", 600],
+    ]);
+  });
+
+  it("creates nothing when the lines don't add up", async () => {
+    const res = await create({
+      name: "Vacation",
+      targetAmount: 1000,
+      lines: [{ name: "Flights", amount: 400, categoryIds: [], children: [] }],
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("pots.budget.err.sumMismatch");
+    expect(await list()).toEqual([]);
+  });
+
+  it("refuses another user's category on a line", async () => {
+    await testDb.client.execute({
+      sql: `INSERT INTO categories (id, user_id, name, created_at) VALUES ('cat-x', ?, 'Theirs', ?)`,
+      args: [OTHER, NOW],
+    });
+    const res = await create({
+      name: "Vacation",
+      targetAmount: 10,
+      lines: [{ name: "A", amount: 10, categoryIds: ["cat-x"], children: [] }],
+    });
+    expect(res.status).toBe(404);
+    expect(await list()).toEqual([]);
+  });
+});
+
+describe("PUT /api/pots", () => {
+  const update = async (body: unknown) => {
+    const { PUT } = await import("./route");
+    return PUT(json(body, "PUT"));
+  };
+
+  it("won't move the total away from its planned lines", async () => {
+    await pot("pot-1", { targetAmount: 100 });
+    await seedLines("pot-1", [{ id: "a", amount: 60 }, { id: "b", amount: 40 }]);
+
+    const res = await update({ id: "pot-1", targetAmount: 120 });
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe("pots.budget.err.sumMismatch");
+    expect((await update({ id: "pot-1", targetAmount: null })).status).toBe(409);
+    expect((await potRow("pot-1")).target_amount).toBe(100);
+
+    // Re-sending the same total (e.g. a rename alongside it) is fine.
+    expect((await update({ id: "pot-1", name: "Renamed", targetAmount: 100 })).status).toBe(200);
+  });
+
+  it("changes the total freely while there are no lines", async () => {
+    await pot("pot-1", { targetAmount: 100 });
+    expect((await update({ id: "pot-1", targetAmount: 150 })).status).toBe(200);
+    expect((await potRow("pot-1")).target_amount).toBe(150);
+  });
+
+  it("clearing the date keeps the total but resets funding", async () => {
+    await pot("pot-1", { targetAmount: 500, targetDate: "2027-01-01", fundedAmount: 200 });
+
+    expect((await update({ id: "pot-1", targetDate: null })).status).toBe(200);
+
+    expect(await potRow("pot-1")).toMatchObject({ target_amount: 500, target_date: null, funded_amount: 0 });
+  });
+
+  it("refuses a date on a pot without a total", async () => {
+    await pot("pot-1");
+    expect((await update({ id: "pot-1", targetDate: "2027-01-01" })).status).toBe(400);
+  });
+});
+
+describe("DELETE /api/pots", () => {
+  it("removes the pot's budget lines and categories with it", async () => {
+    await pot("pot-1", { targetAmount: 100 });
+    await pot("pot-2", { targetAmount: 50 });
+    await seedLines("pot-1", [{ id: "a", amount: 100 }]);
+    await seedLines("pot-2", [{ id: "z", amount: 50 }]);
+    await testDb.client.execute({
+      sql: `INSERT INTO pot_budget_line_categories (id, user_id, pot_id, line_id, category_id)
+            VALUES ('lc-1', ?, 'pot-1', 'a', 'cat-1')`,
+      args: [USER],
+    });
+    await tx(-10, "pot-1", { id: "member" });
+
+    const { DELETE } = await import("./route");
+    const res = await DELETE(
+      new Request("http://test/api/pots?id=pot-1", { method: "DELETE" }) as unknown as import("next/server").NextRequest,
+    );
+    expect(res.status).toBe(200);
+
+    expect(await lineRows("pot-1")).toEqual([]);
+    expect(await lineRows("pot-2")).toHaveLength(1);
+    const { rows: cats } = await testDb.client.execute(`SELECT id FROM pot_budget_line_categories`);
+    expect(cats).toEqual([]);
+    const { rows: members } = await testDb.client.execute(`SELECT group_id FROM transactions WHERE id = 'member'`);
+    expect(members[0].group_id).toBeNull();
+  });
+});

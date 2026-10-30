@@ -11,6 +11,7 @@ import { eq, and, asc, desc } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { getPaySchedule, paydaysBetween } from "@/lib/pay-schedule";
 import { classifyOnTrack } from "@/lib/on-track";
+import { loadPotBudgetViews } from "@/lib/pot-budget-db";
 
 // GET /api/pots/[id]/details — bundle of pot info + spike stats +
 // allocation history (from audit log) + linked transactions.
@@ -31,6 +32,7 @@ export async function GET(
         targetAmount: transactionGroups.targetAmount,
         targetDate: transactionGroups.targetDate,
         fundedAmount: transactionGroups.fundedAmount,
+        archivedAt: transactionGroups.archivedAt,
         createdAt: transactionGroups.createdAt,
       })
       .from(transactionGroups)
@@ -158,6 +160,7 @@ export async function GET(
         description: transactions.description,
         amount: transactions.amount,
         type: transactions.type,
+        categoryId: transactions.categoryId,
         categoryName: categories.name,
         categoryColor: categories.color,
       })
@@ -172,6 +175,7 @@ export async function GET(
       .orderBy(desc(transactions.date));
 
     const netAmount = linkedTransactions.reduce((s, t) => s + t.amount, 0);
+    const budget = (await loadPotBudgetViews(db, userId, [pot])).get(pot.id)!;
 
     return NextResponse.json({
       pot: {
@@ -185,11 +189,15 @@ export async function GET(
         fundedAmount: pot.fundedAmount,
         netAmount,
         transactionCount: linkedTransactions.length,
+        archivedAt: pot.archivedAt,
         createdAt: pot.createdAt,
+        spentAmount: budget.spent,
+        lineCount: budget.lines.length,
       },
       spike,
       allocations,
       transactions: linkedTransactions,
+      budget,
     });
   }, "Failed to fetch pot details");
 }

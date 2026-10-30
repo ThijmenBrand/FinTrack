@@ -210,6 +210,67 @@ export interface Pot {
   fundedAmount: number;
   archivedAt: string | null;
   createdAt: string;
+  /**
+   * Lifetime spending, the way budgets count it: internal transfers (funding
+   * the pot) left out, refunds netted, floored at 0. Not `-netAmount`.
+   */
+  spentAmount: number;
+  /** Top-level budget lines; 0 = no breakdown. */
+  lineCount: number;
+}
+
+/**
+ * A pot budget as written and read back: lines with optional sub-lines, the
+ * top level summing to `total` (the pot's targetAmount). A parent's `amount`
+ * is the sum of its children.
+ */
+export interface PotBudgetLineInput {
+  name: string;
+  amount: number;
+  categoryIds: string[];
+  children: PotBudgetLineInput[];
+}
+
+export interface PotBudgetTree {
+  total: number | null;
+  lines: PotBudgetLineInput[];
+}
+
+export type PotSpendStatus = "ok" | "warning" | "exceeded";
+
+export interface PotLineView {
+  id: string;
+  name: string;
+  planned: number;
+  /** Net spend on the line's categories (sub-lines included), floored at 0. */
+  spent: number;
+  remaining: number;
+  pct: number;
+  status: PotSpendStatus;
+  categoryIds: string[];
+  children: PotLineView[];
+}
+
+/** Pot spend whose category no line claims; `categoryId` null = uncategorized. */
+export interface PotUnplannedGroup {
+  categoryId: string | null;
+  /** Signed: negative when refunds outweigh spending in this category. */
+  spent: number;
+}
+
+export interface PotBudgetView {
+  /** The pot's targetAmount; null when the pot has no budget. */
+  total: number | null;
+  /** Lifetime pot spend (same figure as `Pot.spentAmount`). */
+  spent: number;
+  /** total − spent; null without a total. */
+  remaining: number | null;
+  pct: number;
+  status: PotSpendStatus;
+  lines: PotLineView[];
+  unplanned: { spent: number; groups: PotUnplannedGroup[] };
+  /** The line furthest over its plan, if any is. */
+  worstLine: { id: string; name: string; parentName: string | null; overBy: number } | null;
 }
 
 // A pot's net over the currently filtered range, as opposed to `Pot.netAmount`
@@ -264,6 +325,7 @@ export interface PotLinkedTransaction {
   description: string;
   amount: number;
   type: "income" | "expense" | "internal_transfer" | "reimbursement";
+  categoryId: string | null;
   categoryName: string | null;
   categoryColor: string | null;
 }
@@ -282,6 +344,7 @@ export interface PotDetails {
   spike: PotSpikeStats | null;
   allocations: PotAllocationEvent[];
   transactions: PotLinkedTransaction[];
+  budget: PotBudgetView;
 }
 
 export interface MonthMoneyView {

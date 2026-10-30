@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
-import type { Pot, PotDetails } from "@/types/api";
+import type { Pot, PotBudgetLineInput, PotBudgetTree, PotDetails } from "@/types/api";
 
 export function usePots() {
   return useQuery({
@@ -17,19 +17,30 @@ export function usePotDetails(id: string | null) {
   });
 }
 
+/** A pot's budget as written — the "copy lines from…" source. */
+export function usePotBudget(id: string | null) {
+  return useQuery({
+    queryKey: ["pots", id, "budget"],
+    queryFn: () => apiFetch<PotBudgetTree>(`/api/pots/${id}/budget`),
+    enabled: !!id,
+  });
+}
+
 interface PotMutationPayload {
   name: string;
   categoryId: string | null;
   targetAmount?: number | null;
   targetDate?: string | null;
   archived?: boolean;
+  /** Create only: budget lines saved with the pot. */
+  lines?: PotBudgetLineInput[];
 }
 
 export function useCreatePot() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (payload: PotMutationPayload) =>
-      apiFetch("/api/pots", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
+      apiFetch<{ success: boolean; id: string }>("/api/pots", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["pots"] });
       qc.invalidateQueries({ queryKey: ["recurring-forecast"] });
@@ -44,6 +55,26 @@ export function useUpdatePot() {
     mutationFn: (payload: { id: string } & Partial<PotMutationPayload>) =>
       apiFetch("/api/pots", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
     onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["pots"] });
+      qc.invalidateQueries({ queryKey: ["transactions"] });
+      qc.invalidateQueries({ queryKey: ["recurring-forecast"] });
+      qc.invalidateQueries({ queryKey: ["insights-balance"] });
+    },
+  });
+}
+
+/** Replace a pot's whole budget; the total is its targetAmount. */
+export function useSavePotBudget() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...budget }: { id: string } & PotBudgetTree) =>
+      apiFetch(`/api/pots/${id}/budget`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(budget),
+      }),
+    onSuccess: () => {
+      // ["pots"] prefix-matches the details and budget queries too.
       qc.invalidateQueries({ queryKey: ["pots"] });
       qc.invalidateQueries({ queryKey: ["transactions"] });
       qc.invalidateQueries({ queryKey: ["recurring-forecast"] });

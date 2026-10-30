@@ -632,7 +632,9 @@ export function PotRow({
               </Badge>
             )}
           </div>
-          {pot.targetAmount != null && pot.targetAmount > 0 && (
+          {/* Funding progress is a savings-target thing; a budget total with no
+              date isn't being saved toward. */}
+          {pot.targetAmount != null && pot.targetAmount > 0 && pot.targetDate && (
             <div className="h-1 w-40 bg-muted rounded-full overflow-hidden">
               <div
                 className="h-full rounded-full bg-primary transition-all duration-500"
