@@ -2,8 +2,11 @@
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Package, PiggyBank } from "lucide-react";
+import { Package, PiggyBank, Wallet } from "lucide-react";
 import { SpikeProgress, type OnTrack } from "@/components/spike-progress";
+import { SpendProgress } from "@/components/spend-progress";
+import { potPhase, spendStatus } from "@/lib/pot-budget";
+import { toIsoDate } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/client";
 import type { I18n } from "@/lib/i18n/translate";
 import { PlainAmount } from "@/components/plain-amount";
@@ -47,8 +50,10 @@ export function PotCard({
 }: PotCardProps) {
   const i18n = useI18n();
   const { t, plural, formatCurrency: fc } = i18n;
-  const isSpike = pot.targetAmount != null && pot.targetDate != null;
+  // Saving toward the date, then spending the budget from that day on.
+  const phase = potPhase(pot, toIsoDate(new Date()));
   const isFullyFunded = pot.targetAmount != null && pot.fundedAmount >= pot.targetAmount;
+  const PhaseIcon = phase === "saving" ? PiggyBank : phase === "spending" ? Wallet : Package;
 
   return (
     <Card
@@ -82,14 +87,10 @@ export function PotCard({
               </p>
             )}
           </div>
-          {isSpike ? (
-            <PiggyBank className="h-4 w-4 text-muted-foreground shrink-0" />
-          ) : (
-            <Package className="h-4 w-4 text-muted-foreground shrink-0" />
-          )}
+          <PhaseIcon className="h-4 w-4 text-muted-foreground shrink-0" />
         </div>
 
-        {isSpike && pot.targetAmount != null && pot.targetDate ? (
+        {phase === "saving" && pot.targetAmount != null && pot.targetDate ? (
           <SpikeProgress
             funded={pot.fundedAmount}
             target={pot.targetAmount}
@@ -129,6 +130,21 @@ export function PotCard({
                   {isFullyFunded ? t("pots.card.adjustAllocation") : t("dashboard.allocate")}
                 </Button>
               )
+            }
+          />
+        ) : phase === "spending" && pot.targetAmount != null ? (
+          <SpendProgress
+            spent={pot.spentAmount}
+            total={pot.targetAmount}
+            status={spendStatus(pot.spentAmount, pot.targetAmount)}
+            categoryColor={pot.categoryColor}
+            size="card"
+            meta={
+              <p className="text-xs text-muted-foreground">
+                {pot.lineCount > 0
+                  ? plural(pot.lineCount, "pots.card.lines.one", "pots.card.lines.other")
+                  : plural(pot.transactionCount, "pots.plainCount.one", "pots.plainCount.other")}
+              </p>
             }
           />
         ) : (

@@ -42,6 +42,8 @@ const TABLES = [
   "split_rules",
   "transactions",
   "import_batches",
+  "pot_budget_line_categories",
+  "pot_budget_lines",
   "transaction_groups",
   "budget_month_targets",
   "budget_sub_lines",
@@ -332,11 +334,12 @@ export async function setupTestDb(name: string): Promise<TestDb> {
     )`,
   ];
   for (const stmt of ddl) await client.execute(stmt);
-  // The bank-sync and notification tables are taken straight from their
+  // The bank-sync, notification and pot-budget tables are taken straight from their
   // migrations rather than restated here: CREATE statements only (the ALTERs
   // bank_sync also carries are already part of the hand-written tables above).
   for (const stmt of migrationDdl("bank_sync")) await client.execute(stmt);
   for (const stmt of migrationDdl("notifications")) await client.execute(stmt);
+  for (const stmt of migrationDdl("pot_budgets")) await client.execute(stmt);
 
   return {
     client,

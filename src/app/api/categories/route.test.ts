@@ -278,6 +278,42 @@ describe("DELETE /api/categories", () => {
     expect(bmtRows).toHaveLength(0);
   });
 
+  it("unlinks a deleted category from pot budget lines but keeps the lines", async () => {
+    const now = new Date().toISOString();
+    await testDb.client.execute({
+      sql: `INSERT INTO categories (id, user_id, name, created_at) VALUES
+            ('cat-food', ?, 'Restaurants', ?), ('cat-keep', ?, 'Hotel', ?)`,
+      args: [USER, now, USER, now],
+    });
+    await testDb.client.execute({
+      sql: `INSERT INTO transaction_groups (id, user_id, name, target_amount, created_at)
+            VALUES ('pot-1', ?, 'Vacation', 100, ?)`,
+      args: [USER, now],
+    });
+    await testDb.client.execute({
+      sql: `INSERT INTO pot_budget_lines (id, user_id, pot_id, name, amount, sort_order, created_at)
+            VALUES ('line-1', ?, 'pot-1', 'Food', 100, 0, ?)`,
+      args: [USER, now],
+    });
+    await testDb.client.execute({
+      sql: `INSERT INTO pot_budget_line_categories (id, user_id, pot_id, line_id, category_id) VALUES
+            ('lc-1', ?, 'pot-1', 'line-1', 'cat-food'), ('lc-2', ?, 'pot-1', 'line-1', 'cat-keep')`,
+      args: [USER, USER],
+    });
+
+    // Without FKs, as on hosted libsql: the cleanup has to be explicit.
+    const { db } = await import("@/db");
+    const { sql } = await import("drizzle-orm");
+    await db.run(sql`PRAGMA foreign_keys = OFF`);
+    const res = await deleteCategories(["cat-food"]).finally(() => db.run(sql`PRAGMA foreign_keys = ON`));
+    expect(res.status).toBe(200);
+
+    const links = (await testDb.client.execute(`SELECT category_id FROM pot_budget_line_categories`)).rows;
+    expect(links.map((r) => r.category_id)).toEqual(["cat-keep"]);
+    const lines = (await testDb.client.execute(`SELECT id FROM pot_budget_lines`)).rows;
+    expect(lines).toHaveLength(1);
+  });
+
   it("returns 400 when no category id is provided", async () => {
     const res = await deleteCategories([]);
     expect(res.status).toBe(400);

@@ -553,6 +553,55 @@ export const transactionGroups = sqliteTable("transaction_groups", {
     .$defaultFn(() => new Date().toISOString()),
 });
 
+// ─── Pot Budget Lines ───────────────────────────────────────────────────────
+// A pot's spending plan (e.g. Vacation → Flights, Hotel, Food). Top-level
+// lines sum to the pot's targetAmount, which doubles as the budget total; a
+// line may have one level of sub-lines, and then its amount is their sum.
+// Cascades are declared but not relied on (hosted libsql doesn't guarantee
+// `foreign_keys=ON`): pot, category and user deletes clean these up in code.
+export const potBudgetLines = sqliteTable("pot_budget_lines", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  potId: text("pot_id")
+    .notNull()
+    .references(() => transactionGroups.id, { onDelete: "cascade" }),
+  // null = top-level line
+  parentId: text("parent_id").references((): AnySQLiteColumn => potBudgetLines.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  amount: real("amount").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_pot_budget_lines_pot").on(table.userId, table.potId),
+]);
+
+// Which categories a pot budget line collects. A pot transaction counts toward
+// the line holding its own category; the unique index keeps that unambiguous
+// (one line per category within a pot). potId is denormalised for that index.
+export const potBudgetLineCategories = sqliteTable("pot_budget_line_categories", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  potId: text("pot_id")
+    .notNull()
+    .references(() => transactionGroups.id, { onDelete: "cascade" }),
+  lineId: text("line_id")
+    .notNull()
+    .references(() => potBudgetLines.id, { onDelete: "cascade" }),
+  categoryId: text("category_id")
+    .notNull()
+    .references(() => categories.id, { onDelete: "cascade" }),
+}, (table) => [
+  uniqueIndex("idx_pot_budget_line_categories_pot_category").on(table.potId, table.categoryId),
+  index("idx_pot_budget_line_categories_line").on(table.lineId),
+  index("idx_pot_budget_line_categories_category").on(table.userId, table.categoryId),
+]);
+
 // ─── Reimbursement Links ────────────────────────────────────────────────────
 // Junction table: links reimbursement transactions to the expenses they reimburse (many-to-many)
 export const reimbursementLinks = sqliteTable("reimbursement_links", {

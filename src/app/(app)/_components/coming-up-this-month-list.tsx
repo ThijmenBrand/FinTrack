@@ -6,7 +6,7 @@ import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AllocateToPotDialog } from "@/components/allocate-to-pot-dialog";
-import { PotDetailDialog } from "@/components/pot-detail-dialog";
+import { PotDialog } from "@/components/pot-dialog";
 import type { ThisMonthSpike } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
 import type { I18n } from "@/lib/i18n/translate";
@@ -161,11 +161,12 @@ export function ComingUpThisMonthList({
         />
       )}
 
-      <PotDetailDialog
+      <PotDialog
         potId={detailPotId}
         onOpenChange={(open) => {
           if (!open) setDetailPotId(null);
         }}
+        onSaved={() => router.refresh()}
       />
     </>
   );

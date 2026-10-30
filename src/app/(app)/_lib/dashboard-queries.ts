@@ -21,7 +21,7 @@ import {
   accountMembers,
   user,
 } from "@/db/schema";
-import { eq, and, or, asc, gte, lte, sql, sum, inArray, isNotNull } from "drizzle-orm";
+import { eq, and, or, asc, gte, lte, sql, sum, inArray, isNotNull, isNull } from "drizzle-orm";
 import { activeMembership, memberAccountIds, visibleTransactions } from "@/lib/account-access";
 import { getPaySchedule, paydaysBetween, type PaySchedule } from "@/lib/pay-schedule";
 import { getMonthMoneyMath } from "@/lib/month-money";
@@ -29,7 +29,9 @@ import { classifyOnTrack } from "@/lib/on-track";
 import { formatCurrency, toIsoDate } from "@/lib/utils";
 import { effectiveExpenseAmount, potSpentAmount } from "@/lib/reimbursement-sql";
 import { excludeSplitChildren, excludeSplitParents } from "@/lib/split-sql";
+import { loadPotBudgetViews } from "@/lib/pot-budget-db";
 import type {
+  DashboardPotBudget,
   MonthMoneyView,
   SavingTowardSpike,
   SpikeImpactStatus,
@@ -513,6 +515,67 @@ export async function getSavingTowardSpikes(
       onTrack,
     };
   });
+}
+
+/**
+ * Pots being spent against a budget: a total and either no date, or a date
+ * that has arrived (before it, the pot is in Saving toward instead) within the
+ * last month — the same cutoff after which the Pots page files a dated pot
+ * under "past". Archived pots are done. Over-budget pots first, then the
+ * closest to it.
+ */
+/** The same calendar day a month earlier (YYYY-MM-DD). */
+function monthBefore(iso: string): string {
+  const d = new Date(`${iso}T00:00:00`);
+  d.setMonth(d.getMonth() - 1);
+  return toIsoDate(d);
+}
+
+export async function getPotBudgets(
+  userId: string,
+  todayIso: string = toIsoDate(new Date()),
+): Promise<DashboardPotBudget[]> {
+  const rows = await db
+    .select({
+      id: transactionGroups.id,
+      name: transactionGroups.name,
+      categoryColor: categories.color,
+      targetAmount: transactionGroups.targetAmount,
+      targetDate: transactionGroups.targetDate,
+    })
+    .from(transactionGroups)
+    .leftJoin(categories, eq(transactionGroups.categoryId, categories.id))
+    .where(
+      and(
+        eq(transactionGroups.userId, userId),
+        isNull(transactionGroups.archivedAt),
+        isNotNull(transactionGroups.targetAmount),
+        or(
+          isNull(transactionGroups.targetDate),
+          and(lte(transactionGroups.targetDate, todayIso), gte(transactionGroups.targetDate, monthBefore(todayIso))),
+        ),
+      ),
+    );
+  if (rows.length === 0) return [];
+
+  const views = await loadPotBudgetViews(db, userId, rows);
+  const rank = { exceeded: 0, warning: 1, ok: 2 } as const;
+  return rows
+    .map((r) => {
+      const v = views.get(r.id)!;
+      return {
+        id: r.id,
+        name: r.name,
+        categoryColor: r.categoryColor,
+        total: r.targetAmount!,
+        spent: v.spent,
+        pct: v.pct,
+        status: v.status,
+        targetDate: r.targetDate,
+        worstLine: v.worstLine,
+      };
+    })
+    .sort((a, b) => rank[a.status] - rank[b.status] || b.pct - a.pct);
 }
 
 /**
