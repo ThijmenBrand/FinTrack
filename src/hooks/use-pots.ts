@@ -53,12 +53,13 @@ export function useUpdatePot() {
   return useMutation({
     mutationFn: (payload: { id: string } & Partial<PotMutationPayload>) =>
       apiFetch("/api/pots", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["pots"] });
-      qc.invalidateQueries({ queryKey: ["transactions"] });
-      qc.invalidateQueries({ queryKey: ["recurring-forecast"] });
-      qc.invalidateQueries({ queryKey: ["insights-balance"] });
-    },
+    onSuccess: () =>
+      Promise.all([
+        qc.invalidateQueries({ queryKey: ["pots"] }),
+        qc.invalidateQueries({ queryKey: ["transactions"] }),
+        qc.invalidateQueries({ queryKey: ["recurring-forecast"] }),
+        qc.invalidateQueries({ queryKey: ["insights-balance"] }),
+      ]),
   });
 }
 
@@ -72,13 +73,15 @@ export function useSavePotBudget() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(budget),
       }),
-    onSuccess: () => {
-      // ["pots"] prefix-matches the details and budget queries too.
-      qc.invalidateQueries({ queryKey: ["pots"] });
-      qc.invalidateQueries({ queryKey: ["transactions"] });
-      qc.invalidateQueries({ queryKey: ["recurring-forecast"] });
-      qc.invalidateQueries({ queryKey: ["insights-balance"] });
-    },
+    // Awaited, so the editor closes onto the saved budget, not the old one.
+    onSuccess: () =>
+      Promise.all([
+        // ["pots"] prefix-matches the details and budget queries too.
+        qc.invalidateQueries({ queryKey: ["pots"] }),
+        qc.invalidateQueries({ queryKey: ["transactions"] }),
+        qc.invalidateQueries({ queryKey: ["recurring-forecast"] }),
+        qc.invalidateQueries({ queryKey: ["insights-balance"] }),
+      ]),
   });
 }
 

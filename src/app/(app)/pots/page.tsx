@@ -10,6 +10,7 @@ import { AllocateToPotDialog } from "@/components/allocate-to-pot-dialog";
 import { usePots } from "@/hooks/use-pots";
 import { useCategories } from "@/hooks/use-categories";
 import { toIsoDate } from "@/lib/utils";
+import { potPhase } from "@/lib/pot-budget";
 import type { Pot } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
 
@@ -42,6 +43,7 @@ function PotsPageInner() {
     cutoff.setHours(0, 0, 0, 0);
     cutoff.setMonth(cutoff.getMonth() - 1);
     const cutoffIso = toIsoDate(cutoff);
+    const todayIso = toIsoDate(new Date());
 
     const activeSpikes: Pot[] = [];
     const pastSpikes: Pot[] = [];
@@ -51,11 +53,12 @@ function PotsPageInner() {
     for (const p of pots) {
       if (p.archivedAt) {
         archived.push(p);
-      } else if (p.targetAmount != null && p.targetDate) {
-        if (p.targetDate < cutoffIso) pastSpikes.push(p);
-        else activeSpikes.push(p);
+      } else if (p.targetAmount != null && p.targetDate && p.targetDate < cutoffIso) {
+        pastSpikes.push(p);
+      } else if (potPhase(p, todayIso) === "saving") {
+        activeSpikes.push(p);
       } else if (p.targetAmount != null) {
-        // A budget total with no date: spent against, never saved toward.
+        // Being spent against its budget: no date, or the date has come.
         budgeted.push(p);
       } else {
         plain.push(p);

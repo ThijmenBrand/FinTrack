@@ -13,7 +13,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { cn } from "@/lib/utils";
+import { cn, toIsoDate } from "@/lib/utils";
 import { potBudgetQuery } from "@/hooks/use-pots";
 import { useI18n } from "@/lib/i18n/client";
 import { CategoryChips, type CategoryInfo } from "./category-chips";
@@ -100,7 +100,9 @@ export function BudgetEditor({ draft, onChange, categories, copySources, fundedA
       </div>
       <p className="text-xs text-muted-foreground">
         {draft.targetDate
-          ? t("pots.budget.dateHint", { date: formatDate(draft.targetDate) })
+          ? t(draft.targetDate > toIsoDate(new Date()) ? "pots.budget.dateHint" : "pots.budget.datePastHint", {
+              date: formatDate(draft.targetDate),
+            })
           : fundedAmount > 0
             ? t("pots.budget.dateClearedHint", { amount: fc(fundedAmount) })
             : t("pots.budget.noDateHint")}

@@ -19,6 +19,8 @@ interface SettingsTabProps {
   archiving: boolean;
   onDelete: () => void | Promise<void>;
   deleting: boolean;
+  /** After a rename or recategorisation lands. */
+  onSaved?: () => void;
 }
 
 /**
@@ -26,12 +28,22 @@ interface SettingsTabProps {
  * with the budget they belong to; this tab never sends them, so saving a
  * rename can't touch the plan.
  */
-export function SettingsTab({ pot, categories, onArchive, archiving, onDelete, deleting }: SettingsTabProps) {
+export function SettingsTab({ pot, categories, onArchive, archiving, onDelete, deleting, onSaved }: SettingsTabProps) {
   const { t } = useI18n();
   const updatePot = useUpdatePot();
   const [name, setName] = useState(pot.name);
   const [categoryId, setCategoryId] = useState<string | null>(pot.categoryId);
   const [error, setError] = useState(false);
+  const [actionError, setActionError] = useState(false);
+
+  const act = (run: () => void | Promise<void>) => async () => {
+    setActionError(false);
+    try {
+      await run();
+    } catch {
+      setActionError(true);
+    }
+  };
 
   const trimmed = name.trim();
   const dirty = trimmed !== pot.name || categoryId !== pot.categoryId;
@@ -45,6 +57,7 @@ export function SettingsTab({ pot, categories, onArchive, archiving, onDelete, d
         ...(trimmed !== pot.name ? { name: trimmed } : {}),
         ...(categoryId !== pot.categoryId ? { categoryId } : {}),
       });
+      onSaved?.();
     } catch {
       setError(true);
     }
@@ -85,7 +98,7 @@ export function SettingsTab({ pot, categories, onArchive, archiving, onDelete, d
       </form>
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
-        <Button variant="ghost" size="sm" onClick={onArchive} disabled={archiving}>
+        <Button variant="ghost" size="sm" onClick={act(onArchive)} disabled={archiving}>
           {pot.archivedAt ? (
             <>
               <ArchiveRestore className="h-4 w-4" />
@@ -101,10 +114,15 @@ export function SettingsTab({ pot, categories, onArchive, archiving, onDelete, d
         <ConfirmDeleteButton
           variant="text"
           label={t("pots.detail.deletePot")}
-          onConfirm={onDelete}
+          onConfirm={act(onDelete)}
           pending={deleting}
           message={t("pots.detail.deleteConfirm")}
         />
+        {actionError && (
+          <p role="alert" className="w-full text-xs text-red-600 dark:text-red-400">
+            {t("pots.settings.actionFailed")}
+          </p>
+        )}
       </div>
     </div>
   );

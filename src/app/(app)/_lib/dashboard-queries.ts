@@ -518,15 +518,19 @@ export async function getSavingTowardSpikes(
 }
 
 /**
- * Top spending categories across ALL accounts this period, each with a
- * per-budget split (via the transaction's account) so a shared category shows
- * which budget the money actually left.
- */
-/**
  * Pots being spent against a budget: a total and either no date, or a date
- * that has arrived (before it, the pot is in Saving toward instead). Archived
- * pots are done. Over-budget pots first, then the closest to it.
+ * that has arrived (before it, the pot is in Saving toward instead) within the
+ * last month — the same cutoff after which the Pots page files a dated pot
+ * under "past". Archived pots are done. Over-budget pots first, then the
+ * closest to it.
  */
+/** The same calendar day a month earlier (YYYY-MM-DD). */
+function monthBefore(iso: string): string {
+  const d = new Date(`${iso}T00:00:00`);
+  d.setMonth(d.getMonth() - 1);
+  return toIsoDate(d);
+}
+
 export async function getPotBudgets(
   userId: string,
   todayIso: string = toIsoDate(new Date()),
@@ -546,7 +550,10 @@ export async function getPotBudgets(
         eq(transactionGroups.userId, userId),
         isNull(transactionGroups.archivedAt),
         isNotNull(transactionGroups.targetAmount),
-        or(isNull(transactionGroups.targetDate), lte(transactionGroups.targetDate, todayIso)),
+        or(
+          isNull(transactionGroups.targetDate),
+          and(lte(transactionGroups.targetDate, todayIso), gte(transactionGroups.targetDate, monthBefore(todayIso))),
+        ),
       ),
     );
   if (rows.length === 0) return [];
@@ -571,6 +578,11 @@ export async function getPotBudgets(
     .sort((a, b) => rank[a.status] - rank[b.status] || b.pct - a.pct);
 }
 
+/**
+ * Top spending categories across ALL accounts this period, each with a
+ * per-budget split (via the transaction's account) so a shared category shows
+ * which budget the money actually left.
+ */
 export async function getTopCategories(userId: string, startDay: number = 1) {
   const { monthStart, monthEnd } = getDateRanges(startDay);
 

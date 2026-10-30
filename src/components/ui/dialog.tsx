@@ -128,12 +128,21 @@ interface DialogProps {
   children: React.ReactNode;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  /**
+   * False stops a phone sheet from being swiped or tapped away (e.g. while it
+   * holds unsaved edits). Desktop dialogs gate closing in `onOpenChange`.
+   */
+  dismissible?: boolean;
 }
 
-const Dialog = ({ children, ...props }: DialogProps) => {
+const Dialog = ({ children, dismissible, ...props }: DialogProps) => {
   const isMobile = useIsMobile();
   if (isMobile) {
-    return <MobileDrawer {...props}>{children}</MobileDrawer>;
+    return (
+      <MobileDrawer {...props} dismissible={dismissible}>
+        {children}
+      </MobileDrawer>
+    );
   }
   return <DesktopDialog {...props}>{children}</DesktopDialog>;
 };

@@ -46,10 +46,14 @@ interface PotDialogProps {
 export function PotDialog({ potId, onOpenChange, initialTab = "budget", onSaved }: PotDialogProps) {
   // Asked before closing: true keeps the dialog open (unsaved budget edits).
   const holdOpenRef = useRef<() => boolean>(() => false);
+  // A phone sheet can't be held open once a swipe has started, so with
+  // unsaved edits it can't be swiped at all; the footer's Cancel still works.
+  const [dirty, setDirty] = useState(false);
 
   return (
     <Dialog
       open={!!potId}
+      dismissible={!dirty}
       onOpenChange={(open) => {
         if (!open && holdOpenRef.current()) return;
         onOpenChange(open);
@@ -62,6 +66,7 @@ export function PotDialog({ potId, onOpenChange, initialTab = "budget", onSaved 
             potId={potId}
             initialTab={initialTab}
             holdOpenRef={holdOpenRef}
+            onDirtyChange={setDirty}
             close={() => onOpenChange(false)}
             onSaved={onSaved}
           />
@@ -88,12 +93,14 @@ function PotDialogBody({
   potId,
   initialTab,
   holdOpenRef,
+  onDirtyChange,
   close,
   onSaved,
 }: {
   potId: string;
   initialTab: PotTab;
   holdOpenRef: RefObject<() => boolean>;
+  onDirtyChange: (dirty: boolean) => void;
   close: () => void;
   onSaved?: () => void;
 }) {
@@ -124,10 +131,12 @@ function PotDialogBody({
       setConfirmDiscard(true);
       return true;
     };
+    onDirtyChange(dirty);
     return () => {
       holdOpenRef.current = () => false;
+      onDirtyChange(false);
     };
-  }, [dirty, holdOpenRef]);
+  }, [dirty, holdOpenRef, onDirtyChange]);
 
   const categoryInfo = useMemo(
     () => categories.map((c) => ({ id: c.id, name: c.name, color: c.color, icon: c.icon })),
@@ -182,12 +191,16 @@ function PotDialogBody({
     startEditing((d) => addFromUnplanned(d, { id: group.categoryId, name }, group.spent));
   };
 
+  // Both close the dialog, so unsaved budget edits get the same question a
+  // plain close would ask. Failures propagate to the Settings tab to show.
   const handleDelete = async () => {
+    if (holdOpenRef.current()) return;
     await deletePot.mutateAsync(pot.id);
     onSaved?.();
     close();
   };
   const handleArchive = async () => {
+    if (holdOpenRef.current()) return;
     await updatePot.mutateAsync({ id: pot.id, archived: !pot.archivedAt });
     onSaved?.();
     close();
@@ -247,6 +260,7 @@ function PotDialogBody({
                 archiving={updatePot.isPending}
                 onDelete={handleDelete}
                 deleting={deletePot.isPending}
+                onSaved={onSaved}
               />
             </TabsContent>
           </div>

@@ -2,7 +2,7 @@
 
 import { Pencil, Plus, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { cn, toIsoDate } from "@/lib/utils";
 import { TONE } from "@/app/(app)/budgets/_components/budget-row";
 import type { PotBudgetView, PotLineView, PotUnplannedGroup } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
@@ -52,7 +52,9 @@ export function BudgetView({
           <p className="text-sm font-medium">{t("pots.budget.totalPlanned", { amount: fc(budget.total) })}</p>
           <p className="text-xs text-muted-foreground">
             {targetDate
-              ? t("pots.budget.savingBy", { date: formatDate(targetDate) })
+              ? t(targetDate > toIsoDate(new Date()) ? "pots.budget.savingBy" : "pots.budget.spendingSince", {
+                  date: formatDate(targetDate),
+                })
               : t("pots.budget.noDate")}
           </p>
         </div>
@@ -112,9 +114,13 @@ function LineRow({
       <div className="flex items-baseline justify-between gap-3">
         <div className="min-w-0">
           <p className={cn("truncate", sub ? "text-[13px]" : "text-sm font-medium")}>{line.name}</p>
-          <p className="truncate text-xs text-muted-foreground">
-            {names.length > 0 ? names.join(", ") : t("pots.budget.noCategories")}
-          </p>
+          {/* A parent without categories of its own is just its sub-lines,
+              listed right under it — nothing to warn about. */}
+          {(names.length > 0 || line.children.length === 0) && (
+            <p className="truncate text-xs text-muted-foreground">
+              {names.length > 0 ? names.join(", ") : t("pots.budget.noCategories")}
+            </p>
+          )}
         </div>
         <p className="shrink-0 text-right text-sm tabular-nums">
           <span className={line.status === "ok" ? undefined : TONE[line.status].text}>{fc(line.spent)}</span>
@@ -176,7 +182,7 @@ function Unplanned({
               <span className="shrink-0 tabular-nums">
                 {g.spent < 0 ? `+${fc(-g.spent)}` : fc(g.spent)}
               </span>
-              {g.categoryId && cat ? (
+              {g.categoryId && cat && g.spent > 0 ? (
                 <Button
                   size="sm"
                   variant="ghost"

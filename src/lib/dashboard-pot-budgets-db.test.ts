@@ -67,10 +67,11 @@ const spend = (potId: string, amount: number, categoryId: string) =>
   });
 
 describe("getPotBudgets", () => {
-  it("lists undated budgets and dated pots from their date on — not before, not archived", async () => {
+  it("lists undated budgets and dated pots from their date to a month after — not before, not archived", async () => {
     await pot("undated");
     await pot("trip-today", { date: TODAY });
-    await pot("trip-past", { date: "2026-06-01" });
+    await pot("trip-past", { date: "2026-06-20" });
+    await pot("trip-long-ago", { date: "2026-06-01" });
     await pot("trip-future", { date: "2026-08-01" });
     await pot("archived", { archived: true });
     await pot("plain", { total: null });
