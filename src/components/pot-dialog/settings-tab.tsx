@@ -9,12 +9,14 @@ import { CategoryPicker } from "@/components/category-picker";
 import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
 import { useUpdatePot } from "@/hooks/use-pots";
 import { useI18n } from "@/lib/i18n/client";
-import type { Pot } from "@/types/api";
+import type { Pot, PotCategory } from "@/types/api";
 import type { CategoryInfo } from "./category-chips";
+import { PotCategoriesSection } from "./pot-categories-section";
 
 interface SettingsTabProps {
   pot: Pot;
   categories: CategoryInfo[];
+  potCategories: PotCategory[];
   onArchive: () => void | Promise<void>;
   archiving: boolean;
   onDelete: () => void | Promise<void>;
@@ -28,7 +30,16 @@ interface SettingsTabProps {
  * with the budget they belong to; this tab never sends them, so saving a
  * rename can't touch the plan.
  */
-export function SettingsTab({ pot, categories, onArchive, archiving, onDelete, deleting, onSaved }: SettingsTabProps) {
+export function SettingsTab({
+  pot,
+  categories,
+  potCategories,
+  onArchive,
+  archiving,
+  onDelete,
+  deleting,
+  onSaved,
+}: SettingsTabProps) {
   const { t } = useI18n();
   const updatePot = useUpdatePot();
   const [name, setName] = useState(pot.name);
@@ -96,6 +107,8 @@ export function SettingsTab({ pot, categories, onArchive, archiving, onDelete, d
           </Button>
         </div>
       </form>
+
+      <PotCategoriesSection potId={pot.id} potCategories={potCategories} categories={categories} />
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
         <Button variant="ghost" size="sm" onClick={act(onArchive)} disabled={archiving}>

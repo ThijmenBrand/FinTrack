@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactElement } from "react";
+import { useMemo, useState, type ReactElement } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,7 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tag, Check, Zap, SlidersHorizontal, ArrowUpRight, Loader2 } from "lucide-react";
+import { Tag, Check, Zap, SlidersHorizontal, ArrowUpRight, Loader2, Package } from "lucide-react";
 import { extractPattern, findMatchingRule } from "@/lib/csv-utils";
 import { MATCH_TYPES, MATCH_FIELDS } from "@/lib/match-types";
 import { CategoryIcon } from "@/components/category-icon";
@@ -34,6 +34,7 @@ import { CategoryPicker, selectedSubCategory } from "@/components/category-picke
 import { useCategorizeTransaction, useIsCategorizing } from "@/hooks/use-transactions";
 import { useCategoryRules } from "@/hooks/use-categories";
 import { useSubCategories } from "@/hooks/use-budgets";
+import { useCreatePotCategory, usePotCategories } from "@/hooks/use-pots";
 import type { Category, SubCategoryOption } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
 import { cn } from "@/lib/utils";
@@ -56,6 +57,13 @@ interface CategorizePopoverProps {
   currentSubLineName?: string | null;
   /** The recurring plan the row is linked to — a sub-category when it is filed under the row's category. */
   currentRecurringId?: string | null;
+  /**
+   * The pot the row is in. Its own categories (Transport › Flight) are
+   * offered under their parents, and new ones can be added from the search.
+   */
+  pot?: { id: string; name: string } | null;
+  currentPotCategoryId?: string | null;
+  currentPotCategoryName?: string | null;
   categories: Category[];
   /**
    * Sub-lines of the account's budget plan. Omit it and the popover fetches
@@ -72,6 +80,17 @@ interface CategorizePopoverProps {
   trigger?: ReactElement;
 }
 
+/**
+ * The `pot` prop for a row: its pot, when it has one and the caller owns it —
+ * pots, and the categories inside them, are the owner's alone.
+ */
+export function rowPot(
+  tx: { groupId: string | null; groupName: string | null },
+  owner: boolean,
+): { id: string; name: string } | null {
+  return owner && tx.groupId && tx.groupName ? { id: tx.groupId, name: tx.groupName } : null;
+}
+
 export function CategorizePopover({
   transactionId,
   transactionDescription,
@@ -83,6 +102,9 @@ export function CategorizePopover({
   currentSubLineId,
   currentSubLineName,
   currentRecurringId,
+  pot,
+  currentPotCategoryId,
+  currentPotCategoryName,
   categories,
   subCategories,
   accountId,
@@ -107,6 +129,9 @@ export function CategorizePopover({
   // The plan the picked sub-category stands for; undefined until the user
   // picks something, so an untouched save never rewrites the row's link.
   const [selectedPlanId, setSelectedPlanId] = useState<string | null | undefined>(undefined);
+  const [selectedPotCategoryId, setSelectedPotCategoryId] = useState<string | null>(
+    currentPotCategoryId ?? null
+  );
   const [createRule, setCreateRule] = useState(false);
   const [rulePattern, setRulePattern] = useState("");
   const [ruleMatchType, setRuleMatchType] = useState("contains");
@@ -125,7 +150,39 @@ export function CategorizePopover({
   const { data: fetchedSubCategories } = useSubCategories(accountId, {
     enabled: open && !subCategories,
   });
-  const pickerSubCategories = subCategories ?? fetchedSubCategories;
+  // The pot's own categories ride along as sub-categories of their parents —
+  // first under each, since inside a pot they're the answer being looked for.
+  const { data: potCategories } = usePotCategories(pot?.id, { enabled: open });
+  const createPotCategory = useCreatePotCategory();
+  const budgetSubCategories = subCategories ?? fetchedSubCategories;
+  const pickerSubCategories = useMemo<SubCategoryOption[] | undefined>(() => {
+    if (!potCategories?.length) return budgetSubCategories;
+    return [
+      ...potCategories.map((c) => ({
+        id: c.id,
+        kind: "pot" as const,
+        categoryId: c.parentCategoryId,
+        name: c.name,
+        depth: 1,
+        recurringTransactionId: null,
+      })),
+      ...(budgetSubCategories ?? []),
+    ];
+  }, [potCategories, budgetSubCategories]);
+  const pickerPot = pot
+    ? {
+        name: pot.name,
+        onCreate: async (name: string, parentCategoryId: string) => {
+          try {
+            const created = await createPotCategory.mutateAsync({ potId: pot.id, name, parentCategoryId });
+            return created.id;
+          } catch (err) {
+            console.error("Failed to create pot category:", err);
+            return null;
+          }
+        },
+      }
+    : undefined;
   // Which rule (if any) already claims this row. Prefer one filing into the
   // category the row sits in, so the link points at the rule that put it there.
   const matchedRule = findMatchingRule(
@@ -153,16 +210,19 @@ export function CategorizePopover({
     categoryId: string,
     subLineId: string | null,
     planId: string | null | undefined,
+    potCategoryId: string | null,
   ) => {
     // The link changes only when the plan shown as the sub-category does. A
     // link to a plan of some other category isn't shown here, so picking a
     // plain category leaves it alone; picking away from the plan the row
     // showed unlinks it — that sub-category IS the link.
     const shownPlanId =
-      selectedSubCategory(pickerSubCategories, currentCategoryId, currentSubLineId, currentRecurringId)
+      selectedSubCategory(budgetSubCategories, currentCategoryId, currentSubLineId, currentRecurringId)
         ?.recurringTransactionId ?? null;
+    // A pot category says nothing about the plan, so picking one leaves the
+    // link alone.
     const recurringTransactionId =
-      planId === undefined || planId === shownPlanId ? undefined : planId;
+      planId === undefined || potCategoryId || planId === shownPlanId ? undefined : planId;
     setOpen(false);
     onCategorized?.(categoryId || null);
     categorize.mutate(
@@ -171,6 +231,7 @@ export function CategorizePopover({
         categoryId: categoryId || null,
         subLineId,
         recurringTransactionId,
+        potCategoryId,
         createRule,
         rulePattern: createRule ? rulePattern : undefined,
         ruleMatchType: createRule ? ruleMatchType : undefined,
@@ -192,6 +253,7 @@ export function CategorizePopover({
       setSelectedCategoryId(currentCategoryId || "");
       setSelectedSubLineId(currentSubLineId ?? null);
       setSelectedPlanId(undefined);
+      setSelectedPotCategoryId(currentPotCategoryId ?? null);
     }
     setOpen(next);
   };
@@ -210,7 +272,17 @@ export function CategorizePopover({
             <CategoryIcon icon={currentCategoryIcon ?? null} color={currentCategoryColor} size="sm" />
             <span className="truncate">{currentCategoryName}</span>
           </span>
-          {currentSubLineName && (
+          {currentPotCategoryName ? (
+            // The pot's own category, marked with the pot's icon so it reads
+            // as belonging to the pot rather than to the budget.
+            <span
+              className="ml-4 flex min-w-0 items-center gap-1 border-l-2 border-muted-foreground/20 pl-3 text-xs text-muted-foreground"
+              title={pot ? t("categorize.potCategoryHint", { pot: pot.name }) : undefined}
+            >
+              <Package className="h-3 w-3 shrink-0" aria-hidden />
+              <span className="truncate">{currentPotCategoryName}</span>
+            </span>
+          ) : currentSubLineName && (
             // ml-4 + the rule + pl-3 lands the name exactly under the
             // category's own text, past its icon.
             <span className="ml-4 truncate border-l-2 border-muted-foreground/20 pl-3 text-xs text-muted-foreground">
@@ -350,6 +422,8 @@ export function CategorizePopover({
             value={selectedCategoryId || null}
             subLineId={selectedSubLineId}
             recurringTransactionId={currentRecurringId}
+            potCategoryId={selectedPotCategoryId}
+            pot={pickerPot}
             onChange={handleSave}
             categories={categories}
             subCategories={pickerSubCategories}
@@ -386,10 +460,13 @@ export function CategorizePopover({
               recurringTransactionId={
                 selectedPlanId === undefined ? currentRecurringId : selectedPlanId
               }
-              onChange={(categoryId, subLineId, planId) => {
+              potCategoryId={selectedPotCategoryId}
+              pot={pickerPot}
+              onChange={(categoryId, subLineId, planId, potCategoryId) => {
                 setSelectedCategoryId(categoryId);
                 setSelectedSubLineId(subLineId);
-                setSelectedPlanId(planId);
+                setSelectedPlanId(potCategoryId ? undefined : planId);
+                setSelectedPotCategoryId(potCategoryId);
               }}
               categories={categories}
               subCategories={pickerSubCategories}
@@ -411,7 +488,9 @@ export function CategorizePopover({
             </Button>
             <Button
               size="sm"
-              onClick={() => handleSave(selectedCategoryId, selectedSubLineId, selectedPlanId)}
+              onClick={() =>
+                handleSave(selectedCategoryId, selectedSubLineId, selectedPlanId, selectedPotCategoryId)
+              }
               disabled={saving || !selectedCategoryId}
             >
               {saving ? t("categorize.saving") : t("common.save")}

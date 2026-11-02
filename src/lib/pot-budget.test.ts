@@ -183,7 +183,8 @@ const stored = (
   amount: number,
   categoryIds: string[] = [],
   sortOrder = 0,
-): StoredPotLine => ({ id, parentId, name: id, amount, sortOrder, categoryIds });
+  potCategoryIds: string[] = [],
+): StoredPotLine => ({ id, parentId, name: id, amount, sortOrder, categoryIds, potCategoryIds });
 
 describe("buildLineTree", () => {
   it("nests sub-lines in sort order and re-derives parent amounts", () => {
@@ -204,7 +205,7 @@ describe("buildLineTree", () => {
   });
 
   it("round-trips through treeToInput", () => {
-    const tree = buildLineTree([stored("a", null, 0, ["c1"]), stored("b", "a", 10, ["c2"])]);
+    const tree = buildLineTree([stored("a", null, 0, ["c1"]), stored("b", "a", 10, ["c2"], 0, ["p1"])]);
     expect(treeToInput(10, tree)).toEqual({
       total: 10,
       lines: [
@@ -212,7 +213,8 @@ describe("buildLineTree", () => {
           name: "a",
           amount: 10,
           categoryIds: ["c1"],
-          children: [{ name: "b", amount: 10, categoryIds: ["c2"], children: [] }],
+          potCategoryIds: [],
+          children: [{ name: "b", amount: 10, categoryIds: ["c2"], potCategoryIds: ["p1"], children: [] }],
         },
       ],
     });
@@ -280,9 +282,9 @@ describe("attributePotSpend", () => {
       { categoryId: "c-zero", net: 0 },
     ]);
     expect(view.unplanned.groups).toEqual([
-      { categoryId: null, spent: 120 },
-      { categoryId: "c-souvenirs", spent: 45 },
-      { categoryId: "c-tickets", spent: -20 },
+      { categoryId: null, potCategoryId: null, spent: 120 },
+      { categoryId: "c-souvenirs", potCategoryId: null, spent: 45 },
+      { categoryId: "c-tickets", potCategoryId: null, spent: -20 },
     ]);
     expect(view.unplanned.spent).toBe(145);
     expect(view.spent).toBe(145);
@@ -316,5 +318,70 @@ describe("attributePotSpend", () => {
 
   it("has no worst line when nothing is over", () => {
     expect(attributePotSpend(2000, tree, [{ categoryId: "c-hotel", net: -800 }]).worstLine).toBeNull();
+  });
+});
+
+describe("attributePotSpend with pot categories", () => {
+  // Costa Rica: Transport (category c-transport) split into Flight (pot
+  // category p-flight) and Car rental (p-car).
+  const tree: PotLineNode[] = buildLineTree([
+    stored("transport", null, 0, ["c-transport"], 0),
+    stored("flight", "transport", 2500, [], 0, ["p-flight"]),
+    stored("car", "transport", 900, [], 1, ["p-car"]),
+  ]);
+
+  it("lands a pot category on the sub-line that collects it", () => {
+    const view = attributePotSpend(3400, tree, [
+      { categoryId: "c-transport", potCategoryId: "p-flight", net: -1241.8 },
+      { categoryId: "c-transport", potCategoryId: "p-car", net: -300 },
+    ]);
+    const [transport] = view.lines;
+    expect(transport.children.map((c) => c.spent)).toEqual([1241.8, 300]);
+    expect(transport.spent).toBe(1541.8);
+    expect(transport.children[0].potCategoryIds).toEqual(["p-flight"]);
+  });
+
+  it("rolls the plain parent category, or an uncollected pot category, up to the parent's line", () => {
+    const view = attributePotSpend(3400, tree, [
+      { categoryId: "c-transport", potCategoryId: null, net: -50 },
+      { categoryId: "c-transport", potCategoryId: "p-gas", net: -40 },
+    ]);
+    expect(view.lines[0].spent).toBe(90);
+    expect(view.lines[0].children.map((c) => c.spent)).toEqual([0, 0]);
+    expect(view.unplanned.groups).toEqual([]);
+  });
+
+  it("keeps an unclaimed pot category as its own Unplanned row", () => {
+    const view = attributePotSpend(3400, tree, [
+      { categoryId: "c-food", potCategoryId: "p-snorkel", net: -80 },
+      { categoryId: "c-food", potCategoryId: null, net: -20 },
+    ]);
+    expect(view.unplanned.groups).toEqual([
+      { categoryId: "c-food", potCategoryId: "p-snorkel", spent: 80 },
+      { categoryId: "c-food", potCategoryId: null, spent: 20 },
+    ]);
+    expect(view.unplanned.spent).toBe(100);
+  });
+});
+
+describe("validatePotBudget with pot categories", () => {
+  it("keeps them, and rejects one collected twice", () => {
+    const ok = validatePotBudget(
+      { total: 10, lines: [{ name: "A", amount: 10, categoryIds: [], potCategoryIds: ["p1"] }] },
+      { hasTargetDate: false },
+    );
+    expect(ok.ok && ok.value.lines[0].potCategoryIds).toEqual(["p1"]);
+
+    const dup = validatePotBudget(
+      {
+        total: 10,
+        lines: [
+          { name: "A", amount: 5, potCategoryIds: ["p1"] },
+          { name: "B", amount: 5, potCategoryIds: ["p1"] },
+        ],
+      },
+      { hasTargetDate: false },
+    );
+    expect(dup).toEqual({ ok: false, error: "pots.budget.err.duplicateCategory", categoryId: "p1" });
   });
 });

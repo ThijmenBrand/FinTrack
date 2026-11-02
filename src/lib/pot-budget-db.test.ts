@@ -79,11 +79,11 @@ describe("loadPotCategoryNets", () => {
     const sorted = (potId: string) =>
       [...(nets.get(potId) ?? [])].sort((a, b) => String(a.categoryId).localeCompare(String(b.categoryId)));
     expect(sorted("pot-1")).toEqual([
-      { categoryId: "c1", net: -40 },
-      { categoryId: "c2", net: -40 },
-      { categoryId: null, net: -7 },
+      { categoryId: "c1", potCategoryId: null, net: -40 },
+      { categoryId: "c2", potCategoryId: null, net: -40 },
+      { categoryId: null, potCategoryId: null, net: -7 },
     ]);
-    expect(sorted("pot-2")).toEqual([{ categoryId: "c1", net: -3 }]);
+    expect(sorted("pot-2")).toEqual([{ categoryId: "c1", potCategoryId: null, net: -3 }]);
   });
 
   it("does nothing for no pots", async () => {

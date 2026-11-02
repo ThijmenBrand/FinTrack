@@ -9,7 +9,9 @@ import { treeToInput, validatePotBudget } from "@/lib/pot-budget";
 import { isIsoDate } from "@/lib/validation";
 import {
   budgetCategoryIds,
+  budgetPotCategoryIds,
   loadPotTrees,
+  potOwnsCategories,
   replacePotBudget,
   userOwnsCategories,
 } from "@/lib/pot-budget-db";
@@ -71,7 +73,11 @@ export async function PUT(request: NextRequest, { params }: Params) {
           ...(result.categoryId ? { categoryId: result.categoryId } : {}),
         });
       }
-      if (!(await userOwnsCategories(tx, userId, budgetCategoryIds(result.value)))) {
+      if (
+        !(await userOwnsCategories(tx, userId, budgetCategoryIds(result.value))) ||
+        // Only this pot's own: another pot's categories mean nothing here.
+        !(await potOwnsCategories(tx, userId, id, budgetPotCategoryIds(result.value)))
+      ) {
         return apiError("api.categoryNotFound", 404);
       }
 

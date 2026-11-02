@@ -314,6 +314,55 @@ describe("DELETE /api/categories", () => {
     expect(lines).toHaveLength(1);
   });
 
+  it("deletes the pot categories under a deleted category, and lets go of them everywhere", async () => {
+    const now = new Date().toISOString();
+    await testDb.client.execute({
+      sql: `INSERT INTO categories (id, user_id, name, created_at) VALUES ('cat-transport', ?, 'Transport', ?)`,
+      args: [USER, now],
+    });
+    await testDb.client.execute({
+      sql: `INSERT INTO transaction_groups (id, user_id, name, target_amount, created_at)
+            VALUES ('pot-1', ?, 'Costa Rica', 100, ?)`,
+      args: [USER, now],
+    });
+    await testDb.client.execute({
+      sql: `INSERT INTO pot_categories (id, user_id, pot_id, parent_category_id, name, created_at)
+            VALUES ('pc-flight', ?, 'pot-1', 'cat-transport', 'Flight', ?)`,
+      args: [USER, now],
+    });
+    await testDb.client.execute({
+      sql: `INSERT INTO pot_budget_lines (id, user_id, pot_id, name, amount, sort_order, created_at)
+            VALUES ('line-1', ?, 'pot-1', 'Flight', 100, 0, ?)`,
+      args: [USER, now],
+    });
+    await testDb.client.execute({
+      sql: `INSERT INTO pot_budget_line_pot_categories (id, user_id, pot_id, line_id, pot_category_id)
+            VALUES ('lpc-1', ?, 'pot-1', 'line-1', 'pc-flight')`,
+      args: [USER],
+    });
+    await testDb.client.execute({
+      sql: `INSERT INTO accounts (id, user_id, name, type, currency, initial_balance, sort_order, created_at, updated_at)
+            VALUES ('acc-pc', ?, 'Main', 'checking', 'EUR', 0, 0, ?, ?)`,
+      args: [USER, now, now],
+    });
+    await testDb.client.execute({
+      sql: `INSERT INTO transactions (id, user_id, account_id, date, description, amount, type, category_id, group_id, pot_category_id, created_at)
+            VALUES ('tx-pc', ?, 'acc-pc', '2026-07-01', 'Air Canada', -100, 'expense', 'cat-transport', 'pot-1', 'pc-flight', ?)`,
+      args: [USER, now],
+    });
+
+    const { db } = await import("@/db");
+    const { sql } = await import("drizzle-orm");
+    await db.run(sql`PRAGMA foreign_keys = OFF`);
+    const res = await deleteCategories(["cat-transport"]).finally(() => db.run(sql`PRAGMA foreign_keys = ON`));
+    expect(res.status).toBe(200);
+
+    expect((await testDb.client.execute(`SELECT id FROM pot_categories`)).rows).toHaveLength(0);
+    expect((await testDb.client.execute(`SELECT id FROM pot_budget_line_pot_categories`)).rows).toHaveLength(0);
+    const [row] = (await testDb.client.execute(`SELECT pot_category_id FROM transactions WHERE id = 'tx-pc'`)).rows;
+    expect(row.pot_category_id).toBeNull();
+  });
+
   it("returns 400 when no category id is provided", async () => {
     const res = await deleteCategories([]);
     expect(res.status).toBe(400);

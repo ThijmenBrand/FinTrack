@@ -17,7 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CategoryIcon } from "@/components/category-icon";
-import { CategorizePopover } from "@/components/categorize-popover";
+import { CategorizePopover, rowPot } from "@/components/categorize-popover";
 import { Search, Upload, FileSpreadsheet, Split } from "lucide-react";
 import { SplitBadge } from "@/components/split-badge";
 import type { Category, Pagination, Transaction } from "@/types/api";
@@ -231,6 +231,9 @@ export function SimpleTransactionList({
                   currentSubLineId={tx.subLineId}
                   currentSubLineName={tx.subLineName}
                   currentRecurringId={tx.recurringTransactionId}
+                  pot={rowPot(tx, ownsAccount(tx.accountId))}
+                  currentPotCategoryId={tx.potCategoryId}
+                  currentPotCategoryName={tx.potCategoryName}
                   categories={categoriesFor(tx.accountId)}
                   accountId={tx.accountId}
                   canCreateRule={ownsAccount(tx.accountId)}

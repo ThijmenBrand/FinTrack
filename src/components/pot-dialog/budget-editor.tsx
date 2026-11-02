@@ -16,10 +16,11 @@ import {
 import { cn, toIsoDate } from "@/lib/utils";
 import { potBudgetQuery } from "@/hooks/use-pots";
 import { useI18n } from "@/lib/i18n/client";
-import { CategoryChips, type CategoryInfo } from "./category-chips";
+import { CategoryChips, type CategoryInfo, type ChipsPot } from "./category-chips";
 import {
   addCategory,
   addLine,
+  addPotCategory,
   addSubLine,
   copyFrom,
   draftAllocation,
@@ -29,6 +30,7 @@ import {
   matchTotalToLines,
   removeCategory,
   removeLine,
+  removePotCategory,
   updateLine,
   usedCategoryIds,
   type DraftLine,
@@ -49,6 +51,11 @@ interface BudgetEditorProps {
   copySources: CopySource[];
   /** What the pot has set aside — clearing the date resets it, so say so. */
   fundedAmount?: number;
+  /**
+   * The pot being edited, once it exists: lines can then collect its own
+   * categories, and sub-lines can create them under their parent's category.
+   */
+  pot?: Omit<ChipsPot, "createParents">;
   idPrefix: string;
 }
 
@@ -56,7 +63,15 @@ interface BudgetEditorProps {
  * The total, the date it's saved toward, and the lines that split it. Pure
  * draft editing: the dialog around it owns saving.
  */
-export function BudgetEditor({ draft, onChange, categories, copySources, fundedAmount = 0, idPrefix }: BudgetEditorProps) {
+export function BudgetEditor({
+  draft,
+  onChange,
+  categories,
+  copySources,
+  fundedAmount = 0,
+  pot,
+  idPrefix,
+}: BudgetEditorProps) {
   const { t, formatCurrency: fc, formatDate } = useI18n();
   const taken = usedCategoryIds(draft);
   const allocation = draftAllocation(draft);
@@ -123,6 +138,7 @@ export function BudgetEditor({ draft, onChange, categories, copySources, fundedA
                 onChange={onChange}
                 categories={categories}
                 taken={taken}
+                pot={pot}
               />
               {line.children.length > 0 && (
                 <ul className="ml-1 space-y-3 border-l pl-3 sm:ml-2">
@@ -134,7 +150,8 @@ export function BudgetEditor({ draft, onChange, categories, copySources, fundedA
                         onChange={onChange}
                         categories={categories}
                         taken={taken}
-                        sub
+                        pot={pot}
+                        parent={line}
                       />
                     </li>
                   ))}
@@ -223,17 +240,26 @@ function LineFields({
   onChange,
   categories,
   taken,
-  sub = false,
+  pot,
+  parent,
 }: {
   line: DraftLine;
   draft: PotBudgetDraft;
   onChange: (d: PotBudgetDraft) => void;
   categories: CategoryInfo[];
   taken: Set<string>;
-  sub?: boolean;
+  pot?: Omit<ChipsPot, "createParents">;
+  /** Set for a sub-line: the line it hangs under. */
+  parent?: DraftLine;
 }) {
   const { t } = useI18n();
+  const sub = !!parent;
   const isParent = line.children.length > 0;
+  // A sub-line narrows its parent, so that's what a new pot category made
+  // from it hangs under: Transport › Flight from the Flight sub-line.
+  const createParents = parent
+    ? parent.categoryIds.flatMap((id) => categories.filter((c) => c.id === id))
+    : [];
   return (
     <>
       <div className="flex items-center gap-2">
@@ -265,11 +291,15 @@ function LineFields({
       </div>
       <CategoryChips
         value={line.categoryIds}
+        potValue={line.potCategoryIds}
         categories={categories}
         taken={taken}
         lineName={line.name}
         onAdd={(id) => onChange(addCategory(draft, line.key, id))}
         onRemove={(id) => onChange(removeCategory(draft, line.key, id))}
+        onAddPot={(id) => onChange(addPotCategory(draft, line.key, id))}
+        onRemovePot={(id) => onChange(removePotCategory(draft, line.key, id))}
+        pot={pot && { ...pot, createParents }}
       />
     </>
   );

@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
-import type { Pot, PotBudgetLineInput, PotBudgetTree, PotDetails } from "@/types/api";
+import type { Pot, PotBudgetLineInput, PotBudgetTree, PotCategory, PotDetails } from "@/types/api";
 
 export function usePots() {
   return useQuery({
@@ -135,5 +135,73 @@ export function useRemoveFromPot() {
       qc.invalidateQueries({ queryKey: ["pots"] });
       qc.invalidateQueries({ queryKey: ["transactions"] });
     },
+  });
+}
+
+const potCategoriesKey = (potId: string | null | undefined) => ["pots", potId ?? null, "categories"] as const;
+
+/**
+ * A pot's own categories. Every row of a pot asks with the same key, so a
+ * list fetches each pot's once, and only once a picker for it opens.
+ */
+export function usePotCategories(potId: string | null | undefined, { enabled = true }: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: potCategoriesKey(potId),
+    queryFn: () => apiFetch<PotCategory[]>(`/api/pots/${potId}/categories`),
+    enabled: enabled && !!potId,
+    staleTime: 60 * 1000,
+  });
+}
+
+/**
+ * Create a pot category, or get back the one already there under that parent
+ * and name. Resolves once the pot's list holds it, so a picker can select it
+ * straight away.
+ */
+export function useCreatePotCategory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ potId, ...body }: { potId: string; name: string; parentCategoryId: string }) =>
+      apiFetch<PotCategory>(`/api/pots/${potId}/categories`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    onSuccess: (created) => {
+      qc.setQueryData<PotCategory[]>(potCategoriesKey(created.potId), (list) =>
+        !list ? [created] : list.some((c) => c.id === created.id) ? list : [...list, created],
+      );
+      qc.invalidateQueries({ queryKey: ["pots", created.potId, "details"] });
+    },
+  });
+}
+
+export function useRenamePotCategory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ potId, categoryId, name }: { potId: string; categoryId: string; name: string }) =>
+      apiFetch(`/api/pots/${potId}/categories`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ categoryId, name }),
+      }),
+    onSuccess: (_r, { potId }) =>
+      Promise.all([
+        qc.invalidateQueries({ queryKey: ["pots", potId] }),
+        qc.invalidateQueries({ queryKey: ["transactions"] }),
+      ]),
+  });
+}
+
+export function useDeletePotCategory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ potId, categoryId }: { potId: string; categoryId: string }) =>
+      apiFetch(`/api/pots/${potId}/categories?categoryId=${encodeURIComponent(categoryId)}`, { method: "DELETE" }),
+    onSuccess: (_r, { potId }) =>
+      Promise.all([
+        qc.invalidateQueries({ queryKey: ["pots", potId] }),
+        qc.invalidateQueries({ queryKey: ["transactions"] }),
+      ]),
   });
 }

@@ -24,6 +24,8 @@ const TENANT_TABLES = [
   "transaction_groups",
   "pot_budget_lines",
   "pot_budget_line_categories",
+  "pot_categories",
+  "pot_budget_line_pot_categories",
   "stat_resets",
   "audit_log",
   "jobs",

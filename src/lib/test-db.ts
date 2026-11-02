@@ -42,8 +42,10 @@ const TABLES = [
   "split_rules",
   "transactions",
   "import_batches",
+  "pot_budget_line_pot_categories",
   "pot_budget_line_categories",
   "pot_budget_lines",
+  "pot_categories",
   "transaction_groups",
   "budget_month_targets",
   "budget_sub_lines",
@@ -164,6 +166,7 @@ export async function setupTestDb(name: string): Promise<TestDb> {
       category_label TEXT,
       category_source TEXT,
       sub_line_id TEXT,
+      pot_category_id TEXT,
       type TEXT NOT NULL,
       linked_transaction_id TEXT,
       transfer_dismissed INTEGER NOT NULL DEFAULT 0,
@@ -340,6 +343,7 @@ export async function setupTestDb(name: string): Promise<TestDb> {
   for (const stmt of migrationDdl("bank_sync")) await client.execute(stmt);
   for (const stmt of migrationDdl("notifications")) await client.execute(stmt);
   for (const stmt of migrationDdl("pot_budgets")) await client.execute(stmt);
+  for (const stmt of migrationDdl("pot_categories")) await client.execute(stmt);
 
   return {
     client,

@@ -14,6 +14,8 @@ export interface DraftLine {
   name: string;
   amount: string;
   categoryIds: string[];
+  /** The pot's own categories this line collects. */
+  potCategoryIds: string[];
   children: DraftLine[];
 }
 
@@ -53,6 +55,7 @@ function lineFromInput(l: PotBudgetLineInput): DraftLine {
     name: l.name,
     amount: formatAmount(l.amount),
     categoryIds: [...l.categoryIds],
+    potCategoryIds: [...(l.potCategoryIds ?? [])],
     children: l.children.map(lineFromInput),
   };
 }
@@ -103,6 +106,7 @@ function lineToInput(l: DraftLine): PotBudgetLineInput {
     // An empty leaf is a mistake to report, not a zero to save quietly.
     amount: children.length > 0 ? lineCents(l) / 100 : parsed ?? Number.NaN,
     categoryIds: l.categoryIds,
+    potCategoryIds: l.potCategoryIds,
     children,
   };
 }
@@ -124,18 +128,29 @@ export function validateDraft(d: PotBudgetDraft): PotBudgetValidation {
 export function draftChanged(d: PotBudgetDraft, original: PotBudgetDraft): boolean {
   const strip = (x: PotBudgetDraft) => {
     const p = toPayload(x);
-    const norm = (l: PotBudgetLineInput): unknown => [l.name.trim(), toCents(l.amount || 0), l.categoryIds, l.children.map(norm)];
+    const norm = (l: PotBudgetLineInput): unknown => [
+      l.name.trim(),
+      toCents(l.amount || 0),
+      l.categoryIds,
+      l.potCategoryIds ?? [],
+      l.children.map(norm),
+    ];
     return JSON.stringify([p.total == null ? null : toCents(p.total), p.targetDate, p.lines.map(norm)]);
   };
   return strip(d) !== strip(original);
 }
 
-/** Categories already on a line — the pickers leave them out. */
+/**
+ * Categories already on a line — the pickers leave them out. Ids of the
+ * user's categories and of the pot's own share one random space, so one set
+ * holds both.
+ */
 export function usedCategoryIds(d: PotBudgetDraft): Set<string> {
   const used = new Set<string>();
   const walk = (lines: DraftLine[]) => {
     for (const l of lines) {
       for (const c of l.categoryIds) used.add(c);
+      for (const c of l.potCategoryIds) used.add(c);
       walk(l.children);
     }
   };
@@ -154,7 +169,7 @@ function mapLines(lines: DraftLine[], key: string, fn: (l: DraftLine) => DraftLi
  */
 export function addLine(
   d: PotBudgetDraft,
-  init: { name?: string; amount?: number; categoryIds?: string[] } = {},
+  init: { name?: string; amount?: number; categoryIds?: string[]; potCategoryIds?: string[] } = {},
 ): PotBudgetDraft {
   const { state, diff, total } = draftAllocation(d);
   const remainder = state === "noLines" ? total ?? 0 : state === "under" ? diff : 0;
@@ -168,6 +183,7 @@ export function addLine(
         name: init.name ?? "",
         amount: amount > 0 ? formatAmount(amount) : "",
         categoryIds: init.categoryIds ?? [],
+        potCategoryIds: init.potCategoryIds ?? [],
         children: [],
       },
     ],
@@ -186,7 +202,10 @@ export function addSubLine(d: PotBudgetDraft, parentKey: string): PotBudgetDraft
       const inherit = l.children.length === 0 ? l.amount : "";
       return {
         ...l,
-        children: [...l.children, { key: newKey(), name: "", amount: inherit, categoryIds: [], children: [] }],
+        children: [
+          ...l.children,
+          { key: newKey(), name: "", amount: inherit, categoryIds: [], potCategoryIds: [], children: [] },
+        ],
       };
     }),
   };
@@ -227,26 +246,57 @@ export function removeCategory(d: PotBudgetDraft, key: string, categoryId: strin
   };
 }
 
+export function addPotCategory(d: PotBudgetDraft, key: string, potCategoryId: string): PotBudgetDraft {
+  if (usedCategoryIds(d).has(potCategoryId)) return d;
+  return {
+    ...d,
+    lines: mapLines(d.lines, key, (l) => ({ ...l, potCategoryIds: [...l.potCategoryIds, potCategoryId] })),
+  };
+}
+
+export function removePotCategory(d: PotBudgetDraft, key: string, potCategoryId: string): PotBudgetDraft {
+  return {
+    ...d,
+    lines: mapLines(d.lines, key, (l) => ({
+      ...l,
+      potCategoryIds: l.potCategoryIds.filter((c) => c !== potCategoryId),
+    })),
+  };
+}
+
 /** "Match total to lines": the total becomes what the lines add up to. */
 export function matchTotalToLines(d: PotBudgetDraft): PotBudgetDraft {
   return { ...d, total: formatAmount(draftAllocation(d).planned) };
 }
 
 /**
- * Turn an Unplanned category into its own line, planned at what it has cost
- * so far. The total is left alone — the indicator then says how far over the
- * lines are, and the user decides where that comes from.
+ * Turn an Unplanned category — or pot category, with `pot` — into its own
+ * line, planned at what it has cost so far. The total is left alone — the
+ * indicator then says how far over the lines are, and the user decides where
+ * that comes from.
  */
 export function addFromUnplanned(
   d: PotBudgetDraft,
-  category: { id: string; name: string },
+  category: { id: string; name: string; pot?: boolean },
   spent: number,
 ): PotBudgetDraft {
   if (usedCategoryIds(d).has(category.id)) return d;
-  return addLine(d, { name: category.name, amount: Math.max(0, spent), categoryIds: [category.id] });
+  return addLine(d, {
+    name: category.name,
+    amount: Math.max(0, spent),
+    ...(category.pot ? { potCategoryIds: [category.id] } : { categoryIds: [category.id] }),
+  });
 }
 
-/** Another pot's lines and total, in place of this draft's; the date stays. */
+/**
+ * Another pot's lines and total, in place of this draft's; the date stays.
+ * The other pot's own categories don't exist here, so lines let go of them.
+ */
 export function copyFrom(d: PotBudgetDraft, source: PotBudgetTree): PotBudgetDraft {
-  return { ...draftFromTree(source, null), targetDate: d.targetDate };
+  const strip = (l: PotBudgetTree["lines"][number]): PotBudgetTree["lines"][number] => ({
+    ...l,
+    potCategoryIds: [],
+    children: l.children.map(strip),
+  });
+  return { ...draftFromTree({ ...source, lines: source.lines.map(strip) }, null), targetDate: d.targetDate };
 }

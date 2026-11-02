@@ -1,6 +1,7 @@
 /**
  * A pot's budget: lines (with one level of sub-lines) that sum to the pot's
- * targetAmount, each collecting the categories it plans for. Pure — the rules
+ * targetAmount, each collecting the categories it plans for — the user's own
+ * categories, and the pot's own (Transport › Flight, see potCategories). Pure — the rules
  * the endpoint enforces and the editor checks before it lets you save are this
  * one module, and the spend attribution the dialog and the dashboard show is
  * computed here from per-category sums the DB layer hands in.
@@ -20,6 +21,9 @@ import type {
 export const MAX_POT_BUDGET_LINES = 100;
 export const MAX_POT_LINE_CATEGORIES = 30;
 export const MAX_POT_LINE_NAME = 50;
+/** Pot categories per pot. A bound, not a design limit. */
+export const MAX_POT_CATEGORIES = 100;
+export const MAX_POT_CATEGORY_NAME = 50;
 /**
  * Largest amount accepted anywhere in a pot budget. Far past any real pot, and
  * well inside the range where a float still holds every cent exactly.
@@ -102,15 +106,27 @@ export function validatePotBudget(
     if (!name || name.length > MAX_POT_LINE_NAME) return fail(POT_BUDGET_ERROR.lineName);
 
     const rawCats = v.categoryIds ?? [];
-    if (!Array.isArray(rawCats)) return fail(POT_BUDGET_ERROR.invalid);
-    if (rawCats.length > MAX_POT_LINE_CATEGORIES) return fail(POT_BUDGET_ERROR.tooManyCategories);
-    const categoryIds: string[] = [];
-    for (const c of rawCats) {
-      if (typeof c !== "string" || !c) return fail(POT_BUDGET_ERROR.invalid);
-      if (seen.has(c)) return fail(POT_BUDGET_ERROR.duplicateCategory, c);
-      seen.add(c);
-      categoryIds.push(c);
+    const rawPotCats = v.potCategoryIds ?? [];
+    if (!Array.isArray(rawCats) || !Array.isArray(rawPotCats)) return fail(POT_BUDGET_ERROR.invalid);
+    if (rawCats.length + rawPotCats.length > MAX_POT_LINE_CATEGORIES) {
+      return fail(POT_BUDGET_ERROR.tooManyCategories);
     }
+    // Both kinds are ids from the same random space; one `seen` keeps either
+    // from being collected twice.
+    const parseIds = (raw: unknown[]): string[] | PotBudgetValidation => {
+      const ids: string[] = [];
+      for (const c of raw) {
+        if (typeof c !== "string" || !c) return fail(POT_BUDGET_ERROR.invalid);
+        if (seen.has(c)) return fail(POT_BUDGET_ERROR.duplicateCategory, c);
+        seen.add(c);
+        ids.push(c);
+      }
+      return ids;
+    };
+    const categoryIds = parseIds(rawCats);
+    if (!Array.isArray(categoryIds)) return categoryIds;
+    const potCategoryIds = parseIds(rawPotCats);
+    if (!Array.isArray(potCategoryIds)) return potCategoryIds;
 
     const rawChildren = v.children ?? [];
     if (!Array.isArray(rawChildren)) return fail(POT_BUDGET_ERROR.invalid);
@@ -136,7 +152,7 @@ export function validatePotBudget(
       }
       amount = round2(v.amount);
     }
-    return { name, amount, categoryIds, children };
+    return { name, amount, categoryIds, potCategoryIds, children };
   };
 
   const lines: PotBudgetLineInput[] = [];
@@ -194,6 +210,7 @@ export interface StoredPotLine {
   amount: number;
   sortOrder: number;
   categoryIds: string[];
+  potCategoryIds: string[];
 }
 
 export interface PotLineNode {
@@ -201,6 +218,7 @@ export interface PotLineNode {
   name: string;
   amount: number;
   categoryIds: string[];
+  potCategoryIds: string[];
   children: PotLineNode[];
 }
 
@@ -217,12 +235,20 @@ export function buildLineTree(rows: readonly StoredPotLine[]): PotLineNode[] {
   return tops.map((top) => {
     const children: PotLineNode[] = sorted
       .filter((r) => r.parentId === top.id && topIds.has(r.parentId))
-      .map((c) => ({ id: c.id, name: c.name, amount: c.amount, categoryIds: c.categoryIds, children: [] }));
+      .map((c) => ({
+        id: c.id,
+        name: c.name,
+        amount: c.amount,
+        categoryIds: c.categoryIds,
+        potCategoryIds: c.potCategoryIds,
+        children: [],
+      }));
     return {
       id: top.id,
       name: top.name,
       amount: children.length > 0 ? sumAmounts(children) : top.amount,
       categoryIds: top.categoryIds,
+      potCategoryIds: top.potCategoryIds,
       children,
     };
   });
@@ -237,6 +263,7 @@ export function treeToInput(total: number | null, tree: readonly PotLineNode[]):
     name: n.name,
     amount: n.amount,
     categoryIds: [...n.categoryIds],
+    potCategoryIds: [...n.potCategoryIds],
     children: n.children.map(strip),
   });
   return { total, lines: tree.map(strip) };
@@ -248,13 +275,20 @@ export interface CategoryLine {
   parentName: string | null;
 }
 
-/** Which line each category counts toward. */
-export function categoryLineMap(tree: readonly PotLineNode[]): Map<string, CategoryLine> {
+/**
+ * Which line each category counts toward — the user's categories, or with
+ * `kind: "pot"` the pot's own.
+ */
+export function categoryLineMap(
+  tree: readonly PotLineNode[],
+  kind: "category" | "pot" = "category",
+): Map<string, CategoryLine> {
+  const idsOf = (n: PotLineNode) => (kind === "pot" ? n.potCategoryIds : n.categoryIds);
   const map = new Map<string, CategoryLine>();
   for (const line of tree) {
-    for (const c of line.categoryIds) map.set(c, { lineId: line.id, lineName: line.name, parentName: null });
+    for (const c of idsOf(line)) map.set(c, { lineId: line.id, lineName: line.name, parentName: null });
     for (const child of line.children) {
-      for (const c of child.categoryIds) {
+      for (const c of idsOf(child)) {
         map.set(c, { lineId: child.id, lineName: child.name, parentName: line.name });
       }
     }
@@ -262,16 +296,38 @@ export function categoryLineMap(tree: readonly PotLineNode[]): Map<string, Categ
   return map;
 }
 
-/** Signed SUM(amount) of a pot's spend rows in one category (null = none). */
+/**
+ * The line a pot transaction counts toward: the one collecting its pot
+ * category, else the one collecting its category — a pot category no line
+ * names still rolls up under its parent ("Flight" counts as Transport).
+ */
+export function lineForSpend(
+  byCategory: Map<string, CategoryLine>,
+  byPotCategory: Map<string, CategoryLine>,
+  categoryId: string | null,
+  potCategoryId: string | null,
+): CategoryLine | undefined {
+  return (
+    (potCategoryId ? byPotCategory.get(potCategoryId) : undefined) ??
+    (categoryId ? byCategory.get(categoryId) : undefined)
+  );
+}
+
+/**
+ * Signed SUM(amount) of a pot's spend rows in one category (null = none),
+ * split further by the pot category they're narrowed to (null = none).
+ */
 export interface CategoryNet {
   categoryId: string | null;
+  potCategoryId?: string | null;
   net: number;
 }
 
 /**
  * Spread a pot's spending over its lines. Each category's net lands on the
  * line that claims it (a parent's own categories count toward the parent
- * directly); anything unclaimed is Unplanned. Spend is net — a refund in a
+ * directly; a pot category claimed by a line wins over its parent category —
+ * see lineForSpend); anything unclaimed is Unplanned. Spend is net — a refund in a
  * line's category takes that line's spending back down — and floored at 0 per
  * line, so a line whose refunds outweigh its costs shows nothing spent rather
  * than negative.
@@ -281,16 +337,25 @@ export function attributePotSpend(
   tree: readonly PotLineNode[],
   nets: readonly CategoryNet[],
 ): PotBudgetView {
-  const lineOf = categoryLineMap(tree);
+  const byCategory = categoryLineMap(tree);
+  const byPotCategory = categoryLineMap(tree, "pot");
   const ownNet = new Map<string, number>();
-  const unplannedNet = new Map<string | null, number>();
+  // Keyed by "category|potCategory", so Flight and plain Transport stay two
+  // Unplanned rows — each one is its own "Add as line".
+  const unplannedNet = new Map<string, { categoryId: string | null; potCategoryId: string | null; net: number }>();
   let allNet = 0;
 
-  for (const { categoryId, net } of nets) {
+  for (const { categoryId, potCategoryId = null, net } of nets) {
     allNet += net;
-    const line = categoryId ? lineOf.get(categoryId) : undefined;
-    if (line) ownNet.set(line.lineId, (ownNet.get(line.lineId) ?? 0) + net);
-    else unplannedNet.set(categoryId, (unplannedNet.get(categoryId) ?? 0) + net);
+    const line = lineForSpend(byCategory, byPotCategory, categoryId, potCategoryId);
+    if (line) {
+      ownNet.set(line.lineId, (ownNet.get(line.lineId) ?? 0) + net);
+      continue;
+    }
+    const key = `${categoryId ?? ""}|${potCategoryId ?? ""}`;
+    const group = unplannedNet.get(key);
+    if (group) group.net += net;
+    else unplannedNet.set(key, { categoryId, potCategoryId, net });
   }
 
   let worst: PotBudgetView["worstLine"] = null;
@@ -317,6 +382,7 @@ export function attributePotSpend(
       pct: spendPct(spent, planned),
       status: spendStatus(spent, planned),
       categoryIds: node.categoryIds,
+      potCategoryIds: node.potCategoryIds,
       children: children.map(stripNet),
       net,
     };
@@ -326,11 +392,13 @@ export function attributePotSpend(
 
   const lines = tree.map((n) => stripNet(toView(n, null)));
 
-  const groups: PotUnplannedGroup[] = [...unplannedNet.entries()]
-    .map(([categoryId, net]) => ({ categoryId, spent: round2(-net) }))
+  const groups: PotUnplannedGroup[] = [...unplannedNet.values()]
+    .map(({ categoryId, potCategoryId, net }) => ({ categoryId, potCategoryId, spent: round2(-net) }))
     .filter((g) => g.spent !== 0)
     .sort((a, b) => b.spent - a.spent);
-  const unplannedSpent = round2(Math.max(0, -[...unplannedNet.values()].reduce((s, n) => s + n, 0)));
+  const unplannedSpent = round2(
+    Math.max(0, -[...unplannedNet.values()].reduce((s, g) => s + g.net, 0)),
+  );
 
   const spent = round2(Math.max(0, -allNet));
   return {

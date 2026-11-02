@@ -3,27 +3,36 @@
 import { useMemo } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import type { PotDetails } from "@/types/api";
+import type { PotCategory, PotDetails } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
 
 const SHOWN = 20;
 
 /**
  * The pot's transactions, newest first. With a budget planned, each one says
- * which line it counts toward — moving it means changing its category.
+ * which line it counts toward — moving it means changing its category (or
+ * the pot category under it).
  */
-export function TransactionsTab({ data }: { data: PotDetails }) {
+export function TransactionsTab({
+  data,
+  potCategories,
+}: {
+  data: PotDetails;
+  potCategories: Map<string, PotCategory>;
+}) {
   const { t, formatCurrency: fc, formatDate } = useI18n();
   const { pot, transactions, budget } = data;
   const hasLines = budget.lines.length > 0;
 
-  // Category → the line it counts toward, as "Line" or "Parent › Sub-line".
+  // Category (or pot category) → the line it counts toward, as "Line" or
+  // "Parent › Sub-line". A pot category's line wins over its parent's — the
+  // same order the server attributes spend in (lineForSpend).
   const lineOf = useMemo(() => {
     const map = new Map<string, string>();
     for (const l of budget.lines) {
-      for (const c of l.categoryIds) map.set(c, l.name);
+      for (const c of [...l.categoryIds, ...l.potCategoryIds]) map.set(c, l.name);
       for (const child of l.children) {
-        for (const c of child.categoryIds) map.set(c, `${l.name} › ${child.name}`);
+        for (const c of [...child.categoryIds, ...child.potCategoryIds]) map.set(c, `${l.name} › ${child.name}`);
       }
     }
     return map;
@@ -38,7 +47,10 @@ export function TransactionsTab({ data }: { data: PotDetails }) {
       {hasLines && <p className="text-xs text-muted-foreground">{t("pots.tx.hint")}</p>}
       <ul className="divide-y rounded-lg border">
         {transactions.slice(0, SHOWN).map((tx) => {
-          const line = tx.categoryId ? lineOf.get(tx.categoryId) : undefined;
+          const line =
+            (tx.potCategoryId ? lineOf.get(tx.potCategoryId) : undefined) ??
+            (tx.categoryId ? lineOf.get(tx.categoryId) : undefined);
+          const potCategory = tx.potCategoryId ? potCategories.get(tx.potCategoryId) : undefined;
           const label =
             tx.type === "internal_transfer" ? t("pots.tx.transfer") : line ?? t("pots.budget.unplanned");
           return (
@@ -51,6 +63,7 @@ export function TransactionsTab({ data }: { data: PotDetails }) {
                     <>
                       {" · "}
                       <span style={{ color: tx.categoryColor || undefined }}>{tx.categoryName}</span>
+                      {potCategory && ` › ${potCategory.name}`}
                     </>
                   )}
                 </p>

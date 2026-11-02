@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { POT_BUDGET_ERROR } from "@/lib/pot-budget";
 import {
   addCategory,
+  addPotCategory,
   addFromUnplanned,
   addLine,
   addSubLine,
@@ -14,6 +15,7 @@ import {
   matchTotalToLines,
   parseAmount,
   removeCategory,
+  removePotCategory,
   removeLine,
   toPayload,
   updateLine,
@@ -25,15 +27,16 @@ import {
 const TREE = {
   total: 2000,
   lines: [
-    { name: "Flights", amount: 400, categoryIds: ["c-flights"], children: [] },
-    { name: "Hotel", amount: 800, categoryIds: ["c-hotel"], children: [] },
+    { name: "Flights", amount: 400, categoryIds: ["c-flights"], potCategoryIds: [], children: [] },
+    { name: "Hotel", amount: 800, categoryIds: ["c-hotel"], potCategoryIds: [], children: [] },
     {
       name: "Food",
       amount: 800,
       categoryIds: ["c-snacks"],
+      potCategoryIds: [],
       children: [
-        { name: "Dining", amount: 500.5, categoryIds: ["c-food"], children: [] },
-        { name: "Groceries", amount: 299.5, categoryIds: [], children: [] },
+        { name: "Dining", amount: 500.5, categoryIds: ["c-food"], potCategoryIds: [], children: [] },
+        { name: "Groceries", amount: 299.5, categoryIds: [], potCategoryIds: [], children: [] },
       ],
     },
   ],
@@ -151,6 +154,19 @@ describe("editing lines", () => {
     expect(removed.lines[0].categoryIds).toEqual([]);
     expect(usedCategoryIds(removed).has("c-flights")).toBe(false);
   });
+
+  it("collects a pot category on one line only, alongside the user's categories", () => {
+    const d = vacation();
+    const added = addPotCategory(d, keyOf(d, "Dining"), "p-street-food");
+    expect(added.lines[2].children[0]).toMatchObject({
+      categoryIds: ["c-food"],
+      potCategoryIds: ["p-street-food"],
+    });
+    expect(addPotCategory(added, keyOf(added, "Groceries"), "p-street-food")).toBe(added);
+    expect(toPayload(added).lines[2].children[0].potCategoryIds).toEqual(["p-street-food"]);
+    const removed = removePotCategory(added, keyOf(added, "Dining"), "p-street-food");
+    expect(usedCategoryIds(removed).has("p-street-food")).toBe(false);
+  });
 });
 
 describe("addFromUnplanned", () => {
@@ -158,6 +174,11 @@ describe("addFromUnplanned", () => {
     const d = addFromUnplanned(vacation(), { id: "c-gifts", name: "Gifts" }, 35.2);
     expect(d.lines.at(-1)).toMatchObject({ name: "Gifts", amount: "35.20", categoryIds: ["c-gifts"] });
     expect(draftAllocation(d)).toMatchObject({ state: "over", diff: -35.2 });
+  });
+
+  it("adds an unplanned pot category as a line collecting it", () => {
+    const d = addFromUnplanned(vacation(), { id: "p-snorkel", name: "Snorkeling", pot: true }, 80);
+    expect(d.lines.at(-1)).toMatchObject({ name: "Snorkeling", categoryIds: [], potCategoryIds: ["p-snorkel"] });
   });
 
   it("does nothing for a category a line already has", () => {
@@ -174,6 +195,14 @@ describe("copyFrom", () => {
   it("takes the other pot's lines and total but keeps this pot's date", () => {
     const d = copyFrom({ ...emptyDraft(), targetDate: "2028-01-01" }, TREE);
     expect(toPayload(d)).toEqual({ ...TREE, targetDate: "2028-01-01" });
+  });
+
+  it("lets go of the other pot's own categories", () => {
+    const source = {
+      ...TREE,
+      lines: [{ name: "Flight", amount: 2000, categoryIds: [], potCategoryIds: ["p-other"], children: [] }],
+    };
+    expect(toPayload(copyFrom(emptyDraft(), source)).lines[0].potCategoryIds).toEqual([]);
   });
 
   it("gives the copied lines their own keys", () => {

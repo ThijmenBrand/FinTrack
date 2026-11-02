@@ -1,13 +1,13 @@
 "use client";
 
 import { useMemo } from "react";
-import { ChevronDown, ChevronRight, Repeat, Tag } from "lucide-react";
+import { ChevronDown, ChevronRight, Package, Repeat, Tag } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCreateCategory } from "@/hooks/use-categories";
 import { useAccounts } from "@/hooks/use-accounts";
 import { useBudgets } from "@/hooks/use-budgets";
 import { useI18n } from "@/lib/i18n/client";
-import { SearchCreatePicker } from "@/components/search-create-picker";
+import { SearchCreatePicker, type ExtraCreate } from "@/components/search-create-picker";
 import { CategoryIcon } from "@/components/category-icon";
 import type { BudgetData, SubCategoryOption } from "@/types/api";
 
@@ -22,12 +22,15 @@ const DEFAULT_COLOR = "#94a3b8";
 
 /**
  * Categories and sub-categories share one flat list, so the ids are prefixed
- * to say which table a row came from: a category, a budget sub-line, or a
- * recurring plan filed under a category.
+ * to say which table a row came from: a category, a budget sub-line, a
+ * recurring plan filed under a category, or a category of the row's pot.
  */
 const CATEGORY = "c:";
 const SUB = "s:";
 const PLAN = "r:";
+const POT = "p:";
+
+const PREFIX: Record<SubCategoryOption["kind"], string> = { line: SUB, plan: PLAN, pot: POT };
 
 interface Row {
   id: string;
@@ -40,6 +43,8 @@ interface Row {
   sub: boolean;
   /** A recurring plan as sub-category — marked with the repeat icon instead of a dot. */
   plan?: boolean;
+  /** A category of the row's pot — marked with the pot's icon instead of a dot. */
+  pot?: boolean;
   /** Band heading — set only when the list is split by the budget plan. */
   section?: string;
 }
@@ -106,16 +111,23 @@ export function bandByPlan<T extends { id: string }>(
  * else the plan it is linked to — as the line that stands for that plan, if
  * one does. Only ever an option of `categoryId` itself: a line or plan left
  * behind by a recategorization resolves to nothing, and the row reads as its
- * category alone. Mirrors `subLineName` in GET /api/transactions.
+ * category alone. Mirrors `subLineName` in GET /api/transactions. A pot
+ * category, when the row has one of `categoryId`'s, comes first: it is the
+ * narrowest answer the row has.
  */
 export function selectedSubCategory(
   options: SubCategoryOption[] | undefined,
   categoryId: string | null,
   subLineId: string | null | undefined,
   recurringTransactionId: string | null | undefined,
+  potCategoryId?: string | null,
 ): SubCategoryOption | undefined {
   if (!options || !categoryId) return undefined;
   const own = options.filter((o) => o.categoryId === categoryId);
+  if (potCategoryId) {
+    const pot = own.find((o) => o.kind === "pot" && o.id === potCategoryId);
+    if (pot) return pot;
+  }
   if (subLineId) {
     const line = own.find((o) => o.kind === "line" && o.id === subLineId);
     if (line) return line;
@@ -127,7 +139,16 @@ export function selectedSubCategory(
   );
 }
 
-function Swatch({ color, sub, plan }: { color: string | null; sub?: boolean; plan?: boolean }) {
+function Swatch({ color, sub, plan, pot }: { color: string | null; sub?: boolean; plan?: boolean; pot?: boolean }) {
+  if (pot) {
+    return (
+      <Package
+        className="h-3 w-3 shrink-0 opacity-80"
+        style={{ color: color || DEFAULT_COLOR }}
+        aria-hidden
+      />
+    );
+  }
   if (plan) {
     return (
       <Repeat
@@ -157,6 +178,8 @@ export function CategoryPicker({
   value,
   subLineId,
   recurringTransactionId,
+  potCategoryId,
+  pot,
   onChange,
   onClear,
   allowCreate = true,
@@ -188,12 +211,26 @@ export function CategoryPicker({
    * (or a line standing for it) is one of `value`'s — see selectedSubCategory.
    */
   recurringTransactionId?: string | null;
+  /** The pot category the row is narrowed to (a `kind: "pot"` option). */
+  potCategoryId?: string | null;
+  /**
+   * The row's pot, when it is in one with categories of its own to offer
+   * (passed as `kind: "pot"` sub-categories). With `onCreate`, typing a name
+   * offers to add it to the pot under the selected category.
+   */
+  pot?: { name: string; onCreate?: (name: string, parentCategoryId: string) => Promise<string | null> };
   /**
    * A sub-category also sets the category it belongs to; the two never
    * disagree. `planId` is the recurring plan the pick stands for — the plan
    * itself, or the one a sub-line stands for — and null for anything else.
+   * `potCategoryId` is set when the pick is one of the pot's own categories.
    */
-  onChange: (categoryId: string, subLineId: string | null, planId: string | null) => void;
+  onChange: (
+    categoryId: string,
+    subLineId: string | null,
+    planId: string | null,
+    potCategoryId: string | null,
+  ) => void;
   /** Adds a "No category" row — shown even with nothing selected when `placeholder` is set. */
   onClear?: () => void;
   /**
@@ -234,13 +271,14 @@ export function CategoryPicker({
     const rowsFor = (cat: PickerCategory, section?: string): Row[] => [
       { id: CATEGORY + cat.id, name: cat.name, color: cat.color, icon: cat.icon, sub: false, section },
       ...(byCategory.get(cat.id) ?? []).map((line) => ({
-        id: (line.kind === "plan" ? PLAN : SUB) + line.id,
+        id: PREFIX[line.kind] + line.id,
         name: line.name,
         depth: line.depth,
         group: { id: CATEGORY + cat.id, name: cat.name },
         color: cat.color,
         sub: true,
         plan: line.kind === "plan",
+        pot: line.kind === "pot",
         section,
       })),
     ];
@@ -253,7 +291,41 @@ export function CategoryPicker({
   }, [categories, subCategories, budgetCategoryIds, t]);
 
   const selected = categories.find((c) => c.id === value);
-  const selectedSub = selectedSubCategory(subCategories, value, subLineId, recurringTransactionId);
+  const selectedSub = selectedSubCategory(subCategories, value, subLineId, recurringTransactionId, potCategoryId);
+
+  // "Add Flight to Costa Rica under Transport": only with a category picked to
+  // hang it under, and only when that category doesn't already have it.
+  const potCreates = (name: string): ExtraCreate[] => {
+    if (!pot?.onCreate || !name || !value || !selected) return [];
+    const lower = name.toLowerCase();
+    const exists = (subCategories ?? []).some(
+      (o) => o.kind === "pot" && o.categoryId === value && o.name.toLowerCase() === lower,
+    );
+    if (exists) return [];
+    const create = pot.onCreate;
+    return [
+      {
+        key: "pot",
+        label: (
+          <span className="flex min-w-0 items-center gap-2">
+            <Package className="h-3.5 w-3.5 shrink-0" style={{ color: selected.color || DEFAULT_COLOR }} aria-hidden />
+            <span className="flex min-w-0 flex-col">
+              <span className="truncate">{t("categoryPicker.createInPot", { name, parent: selected.name })}</span>
+              <span className="truncate text-xs text-muted-foreground">
+                {t("categorize.potCategoryHint", { pot: pot.name })}
+              </span>
+            </span>
+          </span>
+        ),
+        onCreate: async () => {
+          const id = await create(name, value);
+          if (!id) return false;
+          onChange(value, null, null, id);
+          return true;
+        },
+      },
+    ];
+  };
 
   const label = selected
     ? selectedSub
@@ -267,7 +339,7 @@ export function CategoryPicker({
       items={rows}
       value={
         selectedSub
-          ? (selectedSub.kind === "plan" ? PLAN : SUB) + selectedSub.id
+          ? PREFIX[selectedSub.kind] + selectedSub.id
           : value
             ? CATEGORY + value
             : null
@@ -277,14 +349,21 @@ export function CategoryPicker({
           const line = (subCategories ?? []).find(
             (s) => s.kind === "line" && s.id === id.slice(SUB.length),
           );
-          if (line) onChange(line.categoryId, line.id, line.recurringTransactionId);
+          if (line) onChange(line.categoryId, line.id, line.recurringTransactionId, null);
           return;
         }
         if (id.startsWith(PLAN)) {
           const plan = (subCategories ?? []).find(
             (s) => s.kind === "plan" && s.id === id.slice(PLAN.length),
           );
-          if (plan) onChange(plan.categoryId, null, plan.id);
+          if (plan) onChange(plan.categoryId, null, plan.id, null);
+          return;
+        }
+        if (id.startsWith(POT)) {
+          const potCategory = (subCategories ?? []).find(
+            (s) => s.kind === "pot" && s.id === id.slice(POT.length),
+          );
+          if (potCategory) onChange(potCategory.categoryId, null, null, potCategory.id);
           return;
         }
         const categoryId = id.slice(CATEGORY.length);
@@ -298,13 +377,14 @@ export function CategoryPicker({
         // while the query loads, and leaves it empty for an account outside a
         // plan — both are pickers that could never have offered the line.
         const keep = !subCategories?.length && categoryId === value;
-        onChange(categoryId, keep ? subLineId ?? null : null, null);
+        onChange(categoryId, keep ? subLineId ?? null : null, null, keep ? potCategoryId ?? null : null);
       }}
       onClear={onClear}
       // An action-style trigger ("set category") never shows a selection, so
       // "No category" is one more thing it can set, not an undo.
       clearWhenEmpty={!!placeholder}
       creating={createCategory.isPending}
+      extraCreates={pot?.onCreate ? potCreates : undefined}
       onCreate={allowCreate ? (name) => {
         // The id is ours, so the picker can close on the new category right
         // away; the hook drops the row from the list again if the POST fails,
@@ -329,7 +409,7 @@ export function CategoryPicker({
         inline && !row.sub ? (
           <CategoryIcon icon={row.icon ?? null} color={row.color} size="sm" className="h-7 w-7" />
         ) : (
-          <Swatch color={row.color} sub={row.sub} plan={row.plan} />
+          <Swatch color={row.color} sub={row.sub} plan={row.plan} pot={row.pot} />
         )
       }
       trigger={
@@ -357,6 +437,9 @@ export function CategoryPicker({
               {selectedSub && (
                 <>
                   <ChevronRight className="h-3 w-3 shrink-0 opacity-40" />
+                  {selectedSub.kind === "pot" && (
+                    <Package className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
+                  )}
                   <span className="shrink-0 truncate">{selectedSub.name}</span>
                 </>
               )}

@@ -30,7 +30,7 @@ import {
   Paperclip,
   Filter,
 } from "lucide-react";
-import { CategorizePopover } from "@/components/categorize-popover";
+import { CategorizePopover, rowPot } from "@/components/categorize-popover";
 import { RecurringLinkPopover } from "@/components/recurring-link-popover";
 import { SplitSection } from "@/components/split-transaction-editor/split-section";
 import { SplitBadge } from "@/components/split-badge";
@@ -247,6 +247,9 @@ export function TransactionDetailDialog({
                 currentSubLineId={tx.subLineId}
                 currentSubLineName={tx.subLineName}
                 currentRecurringId={tx.recurringTransactionId}
+                pot={rowPot(tx, canCreateRule)}
+                currentPotCategoryId={tx.potCategoryId}
+                currentPotCategoryName={tx.potCategoryName}
                 categories={resolvedCategories}
                 subCategories={subCategories}
                 accountId={tx.accountId}
