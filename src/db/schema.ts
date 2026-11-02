@@ -160,6 +160,13 @@ export const transactions = sqliteTable("transactions", {
   // ponytail: no subLineLabel twin of categoryLabel — a planning label is not
   // history worth preserving past the plan. Add one if that ever bites.
   subLineId: text("sub_line_id").references(() => budgetSubLines.id),
+  // Optional refinement of categoryId inside the row's pot: a category that
+  // exists only in that pot (Costa Rica → Transport › Flight). Valid only
+  // while the row is in that pot AND has the pot category's parent as its
+  // category — every read checks both, so a row that leaves the pot or moves
+  // to another category simply stops showing it. No onDelete, as above: the
+  // delete paths clear it in code.
+  potCategoryId: text("pot_category_id").references(() => potCategories.id),
   type: text("type", {
     enum: ["income", "expense", "internal_transfer", "reimbursement"],
   }).notNull(),
@@ -600,6 +607,53 @@ export const potBudgetLineCategories = sqliteTable("pot_budget_line_categories",
   uniqueIndex("idx_pot_budget_line_categories_pot_category").on(table.potId, table.categoryId),
   index("idx_pot_budget_line_categories_line").on(table.lineId),
   index("idx_pot_budget_line_categories_category").on(table.userId, table.categoryId),
+]);
+
+// ─── Pot Categories ─────────────────────────────────────────────────────────
+// Categories that exist inside one pot only, each a child of one of the
+// user's own categories (Costa Rica → Transport › Flight). A pot transaction
+// in Transport can be narrowed to Flight; nothing outside the pot ever sees
+// it, so the global category list stays clean. The row's own category stays
+// Transport — every monthly budget and insight keeps counting it there.
+export const potCategories = sqliteTable("pot_categories", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  potId: text("pot_id")
+    .notNull()
+    .references(() => transactionGroups.id, { onDelete: "cascade" }),
+  parentCategoryId: text("parent_category_id")
+    .notNull()
+    .references(() => categories.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  uniqueIndex("idx_pot_categories_pot_parent_name").on(table.potId, table.parentCategoryId, table.name),
+  index("idx_pot_categories_user_pot").on(table.userId, table.potId),
+]);
+
+// Which budget line collects a pot category — the pot-scoped twin of
+// pot_budget_line_categories, one line per pot category.
+export const potBudgetLinePotCategories = sqliteTable("pot_budget_line_pot_categories", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  potId: text("pot_id")
+    .notNull()
+    .references(() => transactionGroups.id, { onDelete: "cascade" }),
+  lineId: text("line_id")
+    .notNull()
+    .references(() => potBudgetLines.id, { onDelete: "cascade" }),
+  potCategoryId: text("pot_category_id")
+    .notNull()
+    .references(() => potCategories.id, { onDelete: "cascade" }),
+}, (table) => [
+  uniqueIndex("idx_pot_budget_line_pot_categories_category").on(table.potCategoryId),
+  index("idx_pot_budget_line_pot_categories_pot").on(table.userId, table.potId),
 ]);
 
 // ─── Reimbursement Links ────────────────────────────────────────────────────

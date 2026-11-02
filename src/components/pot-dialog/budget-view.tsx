@@ -1,10 +1,10 @@
 "use client";
 
-import { Pencil, Plus, Wallet } from "lucide-react";
+import { Package, Pencil, Plus, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn, toIsoDate } from "@/lib/utils";
 import { TONE } from "@/app/(app)/budgets/_components/budget-row";
-import type { PotBudgetView, PotLineView, PotUnplannedGroup } from "@/types/api";
+import type { PotBudgetView, PotCategory, PotLineView, PotUnplannedGroup } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
 import type { CategoryInfo } from "./category-chips";
 
@@ -12,6 +12,7 @@ interface BudgetViewProps {
   budget: PotBudgetView;
   targetDate: string | null;
   categories: Map<string, CategoryInfo>;
+  potCategories: Map<string, PotCategory>;
   categoryColor: string | null;
   onEdit: () => void;
   onAddFromUnplanned: (group: PotUnplannedGroup & { categoryId: string }) => void;
@@ -22,6 +23,7 @@ export function BudgetView({
   budget,
   targetDate,
   categories,
+  potCategories,
   categoryColor,
   onEdit,
   onAddFromUnplanned,
@@ -40,7 +42,7 @@ export function BudgetView({
             {t("pots.budget.set")}
           </Button>
         </div>
-        <Unplanned budget={budget} categories={categories} onAdd={onAddFromUnplanned} />
+        <Unplanned budget={budget} categories={categories} potCategories={potCategories} onAdd={onAddFromUnplanned} />
       </div>
     );
   }
@@ -75,12 +77,18 @@ export function BudgetView({
         <ul className="divide-y rounded-lg border">
           {budget.lines.map((line) => (
             <li key={line.id}>
-              <LineRow line={line} categories={categories} color={categoryColor} />
+              <LineRow line={line} categories={categories} potCategories={potCategories} color={categoryColor} />
               {line.children.length > 0 && (
                 <ul className="mb-2 ml-4 space-y-0 border-l pl-1 sm:ml-5">
                   {line.children.map((child) => (
                     <li key={child.id}>
-                      <LineRow line={child} categories={categories} color={categoryColor} sub />
+                      <LineRow
+                        line={child}
+                        categories={categories}
+                        potCategories={potCategories}
+                        color={categoryColor}
+                        sub
+                      />
                     </li>
                   ))}
                 </ul>
@@ -90,7 +98,7 @@ export function BudgetView({
         </ul>
       )}
 
-      <Unplanned budget={budget} categories={categories} onAdd={onAddFromUnplanned} />
+      <Unplanned budget={budget} categories={categories} potCategories={potCategories} onAdd={onAddFromUnplanned} />
     </div>
   );
 }
@@ -98,16 +106,20 @@ export function BudgetView({
 function LineRow({
   line,
   categories,
+  potCategories,
   color,
   sub = false,
 }: {
   line: PotLineView;
   categories: Map<string, CategoryInfo>;
+  potCategories: Map<string, PotCategory>;
   color: string | null;
   sub?: boolean;
 }) {
   const { t, formatCurrency: fc } = useI18n();
-  const names = line.categoryIds.map((id) => categories.get(id)?.name).filter(Boolean);
+  const globalNames = line.categoryIds.map((id) => categories.get(id)?.name).filter(Boolean);
+  const potNames = line.potCategoryIds.map((id) => potCategories.get(id)?.name).filter(Boolean);
+  const names = [...globalNames, ...potNames];
   const over = line.status === "exceeded";
   return (
     <div className={cn("space-y-1.5", sub ? "px-3 py-2" : "px-3 py-2.5")}>
@@ -118,7 +130,17 @@ function LineRow({
               listed right under it — nothing to warn about. */}
           {(names.length > 0 || line.children.length === 0) && (
             <p className="truncate text-xs text-muted-foreground">
-              {names.length > 0 ? names.join(", ") : t("pots.budget.noCategories")}
+              {names.length === 0 && t("pots.budget.noCategories")}
+              {globalNames.join(", ")}
+              {potNames.map((name, i) => (
+                <span key={i}>
+                  {(globalNames.length > 0 || i > 0) && ", "}
+                  {/* The pot's own category: marked, so it never reads as one
+                      of the categories used everywhere else. */}
+                  <Package className="mr-0.5 inline h-3 w-3 -translate-y-px align-middle" aria-hidden />
+                  {name}
+                </span>
+              ))}
             </p>
           )}
         </div>
@@ -148,10 +170,12 @@ function LineRow({
 function Unplanned({
   budget,
   categories,
+  potCategories,
   onAdd,
 }: {
   budget: PotBudgetView;
   categories: Map<string, CategoryInfo>;
+  potCategories: Map<string, PotCategory>;
   onAdd: (group: PotUnplannedGroup & { categoryId: string }) => void;
 }) {
   const { t, formatCurrency: fc } = useI18n();
@@ -170,14 +194,33 @@ function Unplanned({
       <ul className="divide-y rounded-lg border">
         {groups.map((g) => {
           const cat = g.categoryId ? categories.get(g.categoryId) : undefined;
+          const potCat = g.potCategoryId ? potCategories.get(g.potCategoryId) : undefined;
           return (
-            <li key={g.categoryId ?? "none"} className="flex items-center gap-2 px-3 py-2 text-sm">
-              <span
-                className="h-2 w-2 shrink-0 rounded-full bg-muted-foreground/30"
-                style={cat?.color ? { backgroundColor: cat.color } : undefined}
-              />
+            <li
+              key={`${g.categoryId ?? "none"}|${g.potCategoryId ?? ""}`}
+              className="flex items-center gap-2 px-3 py-2 text-sm"
+            >
+              {potCat ? (
+                <Package
+                  className="h-3 w-3 shrink-0 text-muted-foreground"
+                  style={cat?.color ? { color: cat.color } : undefined}
+                  aria-hidden
+                />
+              ) : (
+                <span
+                  className="h-2 w-2 shrink-0 rounded-full bg-muted-foreground/30"
+                  style={cat?.color ? { backgroundColor: cat.color } : undefined}
+                />
+              )}
               <span className="min-w-0 flex-1 truncate">
-                {cat?.name ?? t("pots.budget.uncategorized")}
+                {potCat ? (
+                  <>
+                    <span className="text-muted-foreground">{cat?.name} › </span>
+                    {potCat.name}
+                  </>
+                ) : (
+                  cat?.name ?? t("pots.budget.uncategorized")
+                )}
               </span>
               <span className="shrink-0 tabular-nums">
                 {g.spent < 0 ? `+${fc(-g.spent)}` : fc(g.spent)}

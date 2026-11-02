@@ -11,7 +11,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { CategorizePopover } from "@/components/categorize-popover";
+import { CategorizePopover, rowPot } from "@/components/categorize-popover";
 import { PotCategoryPopover } from "@/components/pot-category-popover";
 import { CategoryIcon } from "@/components/category-icon";
 import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
@@ -229,6 +229,9 @@ export function TransactionRow({
                 currentSubLineId={tx.subLineId}
                 currentSubLineName={tx.subLineName}
                 currentRecurringId={tx.recurringTransactionId}
+                pot={rowPot(tx, canCreateRule)}
+                currentPotCategoryId={tx.potCategoryId}
+                currentPotCategoryName={tx.potCategoryName}
                 categories={categories}
                 accountId={tx.accountId}
                 canCreateRule={canCreateRule}
@@ -403,6 +406,9 @@ export function TransactionRow({
               currentSubLineId={tx.subLineId}
               currentSubLineName={tx.subLineName}
               currentRecurringId={tx.recurringTransactionId}
+              pot={rowPot(tx, canCreateRule)}
+              currentPotCategoryId={tx.potCategoryId}
+              currentPotCategoryName={tx.potCategoryName}
               categories={categories}
               accountId={tx.accountId}
               canCreateRule={canCreateRule}

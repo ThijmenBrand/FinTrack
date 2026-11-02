@@ -39,7 +39,9 @@ export async function POST(request: NextRequest) {
 
     await db
       .update(transactions)
-      .set({ groupId: potId })
+      // A pot category belongs to the pot the row came from — moving pots
+      // starts the row over on its plain category.
+      .set({ groupId: potId, potCategoryId: null })
       .where(and(eq(transactions.id, transactionId), eq(transactions.userId, userId)));
 
     return NextResponse.json({ success: true });
@@ -62,7 +64,7 @@ export async function DELETE(request: NextRequest) {
 
     await db
       .update(transactions)
-      .set({ groupId: null })
+      .set({ groupId: null, potCategoryId: null })
       .where(
         and(
           eq(transactions.id, transactionId),

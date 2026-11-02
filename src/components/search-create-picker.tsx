@@ -39,6 +39,17 @@ interface Option {
   section?: string;
 }
 
+/**
+ * A create row beyond the main one — e.g. "add it to this pot only". Built
+ * from the typed text by the caller, which also does the selecting: return
+ * true once done to close the popover, false to leave it open.
+ */
+export interface ExtraCreate {
+  key: string;
+  label: ReactNode;
+  onCreate: () => boolean | Promise<boolean>;
+}
+
 interface SearchCreatePickerProps<T extends PickerItem> {
   items: T[];
   /** Currently selected id, if any — drives the check/highlight. */
@@ -48,6 +59,12 @@ interface SearchCreatePickerProps<T extends PickerItem> {
    *  straight away (optimistic create) or once the request resolves. */
   onCreate?: (name: string) => string | null | Promise<string | null>;
   creating?: boolean;
+  /**
+   * More create rows, from the trimmed search text (maybe empty). With text
+   * they follow the matches like the main create row; without, they are
+   * suggestions and lead the list, where they're seen.
+   */
+  extraCreates?: (name: string) => ExtraCreate[];
   /** Omit to drop the "clear selection" row. */
   onClear?: () => void;
   /** Offer the clear row with nothing selected too — for an action-style
@@ -87,6 +104,7 @@ export function SearchCreatePicker<T extends PickerItem>({
   onSelect,
   onCreate,
   creating = false,
+  extraCreates,
   onClear,
   clearWhenEmpty = false,
   trigger,
@@ -143,7 +161,28 @@ export function SearchCreatePicker<T extends PickerItem>({
     }
   };
 
+  const [extraBusy, setExtraBusy] = useState<string | null>(null);
+  const extraOptions: Option[] = (extraCreates?.(name) ?? []).map((extra) => ({
+    key: `__extra_${extra.key}__`,
+    label: (
+      <>
+        <Plus className="h-3.5 w-3.5 shrink-0" />
+        {extra.label}
+      </>
+    ),
+    disabled: extraBusy !== null,
+    onSelect: async () => {
+      setExtraBusy(extra.key);
+      try {
+        if (await extra.onCreate()) close();
+      } finally {
+        setExtraBusy(null);
+      }
+    },
+  }));
+
   const options: Option[] = [
+    ...(name ? [] : extraOptions),
     ...matches.map((item) => ({
       key: item.id,
       label: (
@@ -190,6 +229,7 @@ export function SearchCreatePicker<T extends PickerItem>({
           },
         ]
       : []),
+    ...(name ? extraOptions : []),
     ...(onClear && (value || clearWhenEmpty) && labels.clear
       ? [
           {

@@ -7,7 +7,9 @@ import { withUser } from "@/lib/auth";
 import { MAX_POT_AMOUNT, toCents, validatePotBudget } from "@/lib/pot-budget";
 import {
   budgetCategoryIds,
+  budgetPotCategoryIds,
   deletePotBudgetLines,
+  deletePotCategories,
   replacePotBudget,
   topLevelPlannedCents,
   userOwnsCategories,
@@ -112,7 +114,11 @@ export async function POST(request: NextRequest) {
         { hasTargetDate: !!targetDate },
       );
       if (!result.ok) return apiError(result.error, 400, undefined, { code: result.error });
-      if (!(await userOwnsCategories(db, userId, budgetCategoryIds(result.value)))) {
+      // A pot that doesn't exist yet has no categories of its own to collect.
+      if (
+        budgetPotCategoryIds(result.value).length > 0 ||
+        !(await userOwnsCategories(db, userId, budgetCategoryIds(result.value)))
+      ) {
         return apiError("api.categoryNotFound", 404);
       }
       budget = result.value;
@@ -227,6 +233,7 @@ export async function DELETE(request: NextRequest) {
     await db.transaction(async (tx) => {
       // Budget lines first: FK cascades aren't guaranteed on hosted libsql.
       await deletePotBudgetLines(tx, userId, id);
+      await deletePotCategories(tx, userId, { potId: id });
 
       // Clear group_id on member transactions
       await tx

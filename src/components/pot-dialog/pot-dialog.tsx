@@ -8,7 +8,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AllocateToPotDialog } from "@/components/allocate-to-pot-dialog";
 import { PotDetailSkeleton } from "@/components/pot-detail-skeleton";
 import { useCategories } from "@/hooks/use-categories";
-import { useDeletePot, usePotDetails, usePots, useSavePotBudget, useUpdatePot } from "@/hooks/use-pots";
+import {
+  useCreatePotCategory,
+  useDeletePot,
+  usePotCategories,
+  usePotDetails,
+  usePots,
+  useSavePotBudget,
+  useUpdatePot,
+} from "@/hooks/use-pots";
 import { potPhase } from "@/lib/pot-budget";
 import { toIsoDate } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/client";
@@ -84,7 +92,14 @@ function viewToTree(budget: PotBudgetView): PotBudgetTree {
       name: l.name,
       amount: l.planned,
       categoryIds: l.categoryIds,
-      children: l.children.map((c) => ({ name: c.name, amount: c.planned, categoryIds: c.categoryIds, children: [] })),
+      potCategoryIds: l.potCategoryIds,
+      children: l.children.map((c) => ({
+        name: c.name,
+        amount: c.planned,
+        categoryIds: c.categoryIds,
+        potCategoryIds: c.potCategoryIds,
+        children: [],
+      })),
     })),
   };
 }
@@ -108,6 +123,10 @@ function PotDialogBody({
   const { data, isLoading } = usePotDetails(potId);
   const { data: pots = [] } = usePots();
   const { data: categories = [] } = useCategories();
+  // Its own query rather than the details' copy: one created from the editor
+  // lands in it at once, before the details refetch.
+  const { data: potCategories = [] } = usePotCategories(potId);
+  const createPotCategory = useCreatePotCategory();
   const deletePot = useDeletePot();
   const updatePot = useUpdatePot();
   const saveBudget = useSavePotBudget();
@@ -143,6 +162,7 @@ function PotDialogBody({
     [categories],
   );
   const categoryMap = useMemo(() => new Map(categoryInfo.map((c) => [c.id, c])), [categoryInfo]);
+  const potCategoryMap = useMemo(() => new Map(potCategories.map((c) => [c.id, c])), [potCategories]);
   const copySources = useMemo(
     () => pots.filter((p) => p.id !== potId && p.lineCount > 0).map((p) => ({ id: p.id, name: p.name, lineCount: p.lineCount })),
     [pots, potId],
@@ -187,8 +207,24 @@ function PotDialogBody({
   };
 
   const addUnplanned = (group: PotUnplannedGroup & { categoryId: string }) => {
-    const name = categoryMap.get(group.categoryId)?.name ?? "";
-    startEditing((d) => addFromUnplanned(d, { id: group.categoryId, name }, group.spent));
+    const potCategory = group.potCategoryId ? potCategoryMap.get(group.potCategoryId) : undefined;
+    const category = potCategory
+      ? { id: potCategory.id, name: potCategory.name, pot: true }
+      : { id: group.categoryId, name: categoryMap.get(group.categoryId)?.name ?? "" };
+    startEditing((d) => addFromUnplanned(d, category, group.spent));
+  };
+
+  const editorPot = {
+    name: pot.name,
+    categories: potCategories,
+    onCreate: async (name: string, parentCategoryId: string) => {
+      try {
+        return (await createPotCategory.mutateAsync({ potId: pot.id, name, parentCategoryId })).id;
+      } catch (e) {
+        setSaveError(e instanceof Error ? e.message : t("pots.settings.saveFailed"));
+        return null;
+      }
+    },
   };
 
   // Both close the dialog, so unsaved budget edits get the same question a
@@ -236,6 +272,7 @@ function PotDialogBody({
                   categories={categoryInfo}
                   copySources={copySources}
                   fundedAmount={pot.targetDate ? pot.fundedAmount : 0}
+                  pot={editorPot}
                   idPrefix="pot-budget"
                 />
               ) : (
@@ -243,6 +280,7 @@ function PotDialogBody({
                   budget={data.budget}
                   targetDate={pot.targetDate}
                   categories={categoryMap}
+                  potCategories={potCategoryMap}
                   categoryColor={pot.categoryColor}
                   onEdit={() => startEditing()}
                   onAddFromUnplanned={addUnplanned}
@@ -250,12 +288,13 @@ function PotDialogBody({
               )}
             </TabsContent>
             <TabsContent value="transactions" className="mt-0">
-              <TransactionsTab data={data} />
+              <TransactionsTab data={data} potCategories={potCategoryMap} />
             </TabsContent>
             <TabsContent value="settings" className="mt-0">
               <SettingsTab
                 pot={pot}
                 categories={categoryInfo}
+                potCategories={potCategories}
                 onArchive={handleArchive}
                 archiving={updatePot.isPending}
                 onDelete={handleDelete}

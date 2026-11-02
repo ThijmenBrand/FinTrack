@@ -150,6 +150,12 @@ export interface Transaction {
    * once neither resolves — the row keeps its category.
    */
   subLineName: string | null;
+  /**
+   * The pot category the row is narrowed to — only while the row is still in
+   * that pot and still has its parent as `categoryId`; null otherwise.
+   */
+  potCategoryId: string | null;
+  potCategoryName: string | null;
   type: "income" | "expense" | "internal_transfer" | "reimbursement";
   linkedTransactionId: string | null;
   linkedAccountName: string | null;
@@ -228,7 +234,20 @@ export interface PotBudgetLineInput {
   name: string;
   amount: number;
   categoryIds: string[];
+  /** This pot's own categories the line collects. Optional on input; always set on output. */
+  potCategoryIds?: string[];
   children: PotBudgetLineInput[];
+}
+
+/**
+ * A category that exists inside one pot only, as a child of one of the
+ * user's own categories (Transport › Flight).
+ */
+export interface PotCategory {
+  id: string;
+  potId: string;
+  parentCategoryId: string;
+  name: string;
 }
 
 export interface PotBudgetTree {
@@ -248,12 +267,15 @@ export interface PotLineView {
   pct: number;
   status: PotSpendStatus;
   categoryIds: string[];
+  potCategoryIds: string[];
   children: PotLineView[];
 }
 
 /** Pot spend whose category no line claims; `categoryId` null = uncategorized. */
 export interface PotUnplannedGroup {
   categoryId: string | null;
+  /** Set when the spend is narrowed to a pot category no line collects. */
+  potCategoryId: string | null;
   /** Signed: negative when refunds outweigh spending in this category. */
   spent: number;
 }
@@ -342,6 +364,8 @@ export interface PotLinkedTransaction {
   categoryId: string | null;
   categoryName: string | null;
   categoryColor: string | null;
+  /** Valid pot category only — same rule as `Transaction.potCategoryId`. */
+  potCategoryId: string | null;
 }
 
 export interface PotSpikeStats {
@@ -359,6 +383,7 @@ export interface PotDetails {
   allocations: PotAllocationEvent[];
   transactions: PotLinkedTransaction[];
   budget: PotBudgetView;
+  potCategories: PotCategory[];
 }
 
 export interface MonthMoneyView {
@@ -603,7 +628,8 @@ export interface BudgetSubLine {
  */
 export interface SubCategoryOption {
   id: string;
-  kind: "line" | "plan";
+  /** "pot": a category that exists only in the row's pot (see PotCategory). */
+  kind: "line" | "plan" | "pot";
   categoryId: string;
   name: string;
   depth: number;

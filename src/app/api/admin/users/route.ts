@@ -246,8 +246,12 @@ export async function DELETE(request: NextRequest) {
     // behind. Every write path that removes a parent row does the same.
     await db.run(sql`DELETE FROM budget_sub_lines WHERE user_id = ${id}`);
     // Pot budget lines likewise, categories before the lines they hang off.
+    // Rows point at pot categories with no ON DELETE; let go of them first.
+    await db.run(sql`UPDATE transactions SET pot_category_id = NULL WHERE user_id = ${id}`);
+    await db.run(sql`DELETE FROM pot_budget_line_pot_categories WHERE user_id = ${id}`);
     await db.run(sql`DELETE FROM pot_budget_line_categories WHERE user_id = ${id}`);
     await db.run(sql`DELETE FROM pot_budget_lines WHERE user_id = ${id}`);
+    await db.run(sql`DELETE FROM pot_categories WHERE user_id = ${id}`);
     // Same for what bank sync leaves behind (credentials are gone by now —
     // see above). Children before parents, in case FKs ARE enforced.
     for (const table of [

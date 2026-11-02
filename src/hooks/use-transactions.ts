@@ -8,7 +8,7 @@ import {
 import { apiFetch } from "@/lib/api";
 import { announceLearnedRule } from "@/lib/learned-rule-notice";
 import { cachedCategory } from "@/hooks/use-budgets";
-import type { Transaction, Pagination, PotRangeTotal, SubCategoryOption } from "@/types/api";
+import type { Transaction, Pagination, PotCategory, PotRangeTotal, SubCategoryOption } from "@/types/api";
 
 interface TransactionFilters {
   page?: number;
@@ -148,6 +148,8 @@ type CategorizePayload = {
   subLineId?: string | null;
   /** Link the row to this plan (null unlinks); omitted leaves the link alone. */
   recurringTransactionId?: string | null;
+  /** One of the row's pot's own categories, under `categoryId`; cleared when left out. */
+  potCategoryId?: string | null;
   createRule?: boolean;
   rulePattern?: string;
   ruleMatchType?: string;
@@ -202,6 +204,12 @@ export function useCategorizeTransaction() {
           ? options.find((o) => o.kind === "plan" && o.id === payload.recurringTransactionId)
               ?.name ?? null
           : null;
+      const potCategoryName = payload.potCategoryId
+        ? qc
+            .getQueriesData<PotCategory[]>({ queryKey: ["pots"] })
+            .flatMap(([key, list]) => (key[2] === "categories" && Array.isArray(list) ? list : []))
+            .find((c) => c.id === payload.potCategoryId)?.name ?? null
+        : null;
 
       for (const [key, data] of previous) {
         if (!data) continue;
@@ -238,6 +246,8 @@ export function useCategorizeTransaction() {
               // Blank when the link is left alone: whether its plan is a
               // sub-category of the new category is the refetch's to say.
               subLineName,
+              potCategoryId: payload.potCategoryId ?? null,
+              potCategoryName,
               ...(payload.recurringTransactionId !== undefined
                 ? { recurringTransactionId: payload.recurringTransactionId }
                 : {}),

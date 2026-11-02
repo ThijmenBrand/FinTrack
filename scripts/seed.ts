@@ -42,6 +42,8 @@ import {
   transactionGroups,
   potBudgetLines,
   potBudgetLineCategories,
+  potBudgetLinePotCategories,
+  potCategories,
   transactions,
   userPreferences,
 } from "../src/db/schema";
@@ -246,8 +248,10 @@ async function main() {
   await db.delete(transactions).where(eq(transactions.userId, userId));
   await db.delete(importBatches).where(eq(importBatches.userId, userId));
   await db.delete(recurringTransactions).where(eq(recurringTransactions.userId, userId));
+  await db.delete(potBudgetLinePotCategories).where(eq(potBudgetLinePotCategories.userId, userId));
   await db.delete(potBudgetLineCategories).where(eq(potBudgetLineCategories.userId, userId));
   await db.delete(potBudgetLines).where(eq(potBudgetLines.userId, userId));
+  await db.delete(potCategories).where(eq(potCategories.userId, userId));
   await db.delete(transactionGroups).where(eq(transactionGroups.userId, userId));
   await db.delete(budgetMonthTargets).where(eq(budgetMonthTargets.userId, userId));
   await db.delete(budgets).where(eq(budgets.userId, userId));

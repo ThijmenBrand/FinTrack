@@ -6,6 +6,7 @@ import {
   categoryRules,
   categories,
   budgetSubLines,
+  potCategories,
   recurringTransactions,
 } from "@/db/schema";
 import { eq, and, inArray } from "drizzle-orm";
@@ -23,6 +24,10 @@ import { setRecurringLink, type LinkablePlan } from "@/lib/recurring-link";
 // `recurringTransactionId` (single row only) files the row under a recurring
 // plan's sub-category: a plan id links the row to that plan, null unlinks it,
 // and leaving it out leaves the link alone — see setRecurringLink.
+//
+// `potCategoryId` (single row only) narrows the row to one of its pot's own
+// categories; it must hang under `categoryId` in the pot the row is in. Like
+// `subLineId`, it is written on every categorization: leaving it out clears it.
 export async function PUT(request: NextRequest) {
   return withUser(async (userId) => {
     const body = await request.json();
@@ -31,6 +36,7 @@ export async function PUT(request: NextRequest) {
       transactionIds,
       categoryId,
       subLineId,
+      potCategoryId,
       createRule,
       rulePattern,
       ruleMatchType,
@@ -114,6 +120,40 @@ export async function PUT(request: NextRequest) {
       resolvedSubLineId = subLineId;
     }
 
+    // A pot category narrows the category being set, inside the pot the row
+    // is in — so one row, the right parent, the right pot, the same owner.
+    let resolvedPotCategoryId: string | null = null;
+    if (potCategoryId != null) {
+      if (typeof potCategoryId !== "string" || !categoryOwnerId || ids.length !== 1) {
+        return apiError("api.subCategoryWrongCategory", 400);
+      }
+      const [[potCategory], [row]] = await Promise.all([
+        db
+          .select({ potId: potCategories.potId, parentCategoryId: potCategories.parentCategoryId })
+          .from(potCategories)
+          .where(and(eq(potCategories.id, potCategoryId), eq(potCategories.userId, categoryOwnerId))),
+        db
+          .select({ groupId: transactions.groupId })
+          .from(transactions)
+          .where(
+            and(
+              eq(transactions.id, ids[0]),
+              eq(transactions.userId, categoryOwnerId),
+              writableTransactions(userId),
+            ),
+          ),
+      ]);
+      if (
+        !potCategory ||
+        !row ||
+        potCategory.parentCategoryId !== categoryId ||
+        potCategory.potId !== row.groupId
+      ) {
+        return apiError("api.subCategoryWrongCategory", 400);
+      }
+      resolvedPotCategoryId = potCategoryId;
+    }
+
     // A plan is a sub-category of the category it is filed under, so it can
     // only be picked with that category — or through a sub-line that stands
     // for it, whatever the plan's own category says. Same owner-space rule as
@@ -191,6 +231,7 @@ export async function PUT(request: NextRequest) {
         // Written on every categorization, never left behind: a row moved to
         // another category cannot keep the old one's sub-line.
         subLineId: resolvedSubLineId,
+        potCategoryId: resolvedPotCategoryId,
         // Any manual (re)categorization retires the deleted-category label.
         categoryLabel: null,
         modifiedBy: userId,

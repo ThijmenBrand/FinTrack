@@ -104,6 +104,7 @@ const line = (name: string, amount: number, categoryIds: string[] = [], children
   name,
   amount,
   categoryIds,
+  potCategoryIds: [],
   children,
 });
 
@@ -293,8 +294,8 @@ describe("GET /api/pots/[id]/details — budget", () => {
     expect(budget.unplanned).toEqual({
       spent: 47,
       groups: [
-        { categoryId: "c-gifts", spent: 35 },
-        { categoryId: null, spent: 12 },
+        { categoryId: "c-gifts", potCategoryId: null, spent: 35 },
+        { categoryId: null, potCategoryId: null, spent: 12 },
       ],
     });
     expect(budget.worstLine).toMatchObject({ name: "Hotel", overBy: 100 });

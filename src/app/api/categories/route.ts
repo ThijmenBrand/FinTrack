@@ -16,6 +16,7 @@ import { eq, sql, and, asc, count, inArray } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { requireAccountAccess, visibleCategories } from "@/lib/account-access";
 import { logDataEvent } from "@/lib/audit";
+import { deletePotCategories } from "@/lib/pot-budget-db";
 import { isHexColor } from "@/lib/validation";
 import type { CategoryKind } from "@/types/api";
 
@@ -280,6 +281,9 @@ export async function DELETE(request: NextRequest) {
             eq(transactionGroups.userId, userId)
           )
         );
+
+      // Pot categories hang under a category; without it they mean nothing.
+      await deletePotCategories(db, userId, { parentCategoryIds: doomedIds });
 
       // A pot budget line keeps its name and amount; it just stops collecting
       // the deleted category.

@@ -18,6 +18,7 @@ import { effectiveExpenseAmount } from "@/lib/reimbursement-sql";
 import { requireAccountAccess, visibleTransactions } from "@/lib/account-access";
 import { isFiniteNumber, isIsoDate, sanitizeNote } from "@/lib/validation";
 import { subLineCategories } from "@/lib/budget-sub-lines";
+import { validPotCategory } from "@/lib/pot-budget-db";
 import { findRecurringForRow } from "@/lib/recurring-match";
 import {
   parentHasChildInCategories,
@@ -274,6 +275,10 @@ export async function GET(request: NextRequest) {
               AND r.user_id = "transactions"."user_id"
               AND r.category_id = "transactions"."category_id")
         )`,
+        // Same rule as the sub-line: only while the row is still in that pot,
+        // under that parent — see validPotCategory.
+        potCategoryId: validPotCategory("id"),
+        potCategoryName: validPotCategory("name"),
         type: transactions.type,
         linkedTransactionId: transactions.linkedTransactionId,
         // Caller-visibility, not row-owner visibility: a transfer counterpart
