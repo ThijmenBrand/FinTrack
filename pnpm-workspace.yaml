@@ -10,10 +10,22 @@ allowBuilds:
 # already uses a patched esbuild, and a blanket override would drag Vite's back
 # to 0.25. zod is pinned exactly to 4.1.11 by @vercel/cli-config (via
 # @vercel/blob) and to an older 4.x floor by @better-auth/core; vite comes in
-# through vitest, whose wide range keeps the lockfile on an older 8.x.
+# through vitest, whose wide range keeps the lockfile on an older 8.x. glob
+# comes in through @sentry/bundler-plugins, which still asks for ^13; minimatch
+# reaches us both through that glob and through eslint's @eslint/config-array.
+# Both patched majors are still dual CJS/ESM and need Node 20+, which the Node
+# 24 we build and test on satisfies.
+#
+# The glob override is the one here with an expiry date: @sentry/bundler-plugins
+# asks for ^14.0.3 from Sentry 11 on, so once the SDK moves to 11.x nothing
+# wants the old range any more and the line can go. Drop it then and confirm
+# with `pnpm why glob` that 14.x still resolves on its own. minimatch stays
+# either way — that one reaches us through eslint, which the SDK doesn't touch.
 overrides:
   "@esbuild-kit/core-utils>esbuild": "^0.25.12"
   browserslist: "^4.28.9"
   fast-uri: "^3.1.9"
+  glob: "^14.0.2"
+  minimatch: "^11.0.1"
   vite: "^8.1.6"
   zod: "^4.6.7"

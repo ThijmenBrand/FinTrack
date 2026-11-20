@@ -285,5 +285,5 @@ src/
 pnpm test
 ```
 
-Vitest, config in `vitest.config.ts`. CI runs `pnpm test` on every PR and on
+Vitest, config in `vitest.config.mts`. CI runs `pnpm test` on every PR and on
 pushes to `main` (`.github/workflows/test.yml`).
