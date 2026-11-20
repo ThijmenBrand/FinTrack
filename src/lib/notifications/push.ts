@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
-import webpush, { WebPushError } from "web-push";
+import { sendNotification as sendWebPush, WebPushError } from "web-push";
 import { db } from "@/db";
 import { pushSubscriptions, type PushSubscription } from "@/db/schema";
 
@@ -11,6 +11,13 @@ import { pushSubscriptions, type PushSubscription } from "@/db/schema";
  * Configured by VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY / VAPID_SUBJECT, in both
  * the web app (security events, test pushes) and the worker (everything it
  * evaluates). Without them push is simply off and the settings page says so.
+ *
+ * `web-push` is ESM-only from v4 and has no default export — named imports
+ * only. v4 is also what stopped the library parsing endpoints with the
+ * deprecated `url.parse()` (DEP0169), which the worker logged on every send.
+ * `@types/web-push` is still published for v3, so the compiler is checking us
+ * against the old shape; push.test.ts pins the exports we actually import
+ * against the real library, since every other test mocks it away.
  */
 
 export interface VapidConfig {
@@ -105,7 +112,7 @@ export async function sendPush(
         return false;
       }
       try {
-        await webpush.sendNotification(
+        await sendWebPush(
           { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
           body,
           {

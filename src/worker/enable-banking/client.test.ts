@@ -16,6 +16,12 @@ describe("classifyHttpError", () => {
     [res(401), "", "user_action", "key_rejected"],
     [res(503), "", "retry", "provider_unavailable"],
     [res(400), '{"error":"WRONG_FIELD"}', "bug", "invalid_response"],
+    // The bank failed, not us: retried with backoff, never dead-lettered on
+    // the first wobble. Seen in production as a 400 on a background sync.
+    [res(400), '{"error":"ASPSP_ERROR"}', "retry", "provider_unavailable"],
+    [res(409), '{"error":"ASPSP_UNAVAILABLE"}', "retry", "provider_unavailable"],
+    // …but a revoked consent still reaches the user, not the retry loop.
+    [res(400), '{"error":"REVOKED_SESSION"}', "user_action", "consent_revoked"],
   ])("maps %#", (r, body, kind, code) => {
     const err = classifyHttpError(r, body, undefined, now);
     expect(err.kind).toBe(kind);
@@ -29,6 +35,13 @@ describe("classifyHttpError", () => {
 
   it("maps 404 to the caller's notion of gone", () => {
     expect(classifyHttpError(res(404), "", "account_gone", 0).code).toBe("account_gone");
+  });
+
+  // A bank-side error must not mark the user's own application invalid: 401
+  // and 403 keep their meaning whatever code rides along.
+  it("leaves the key and consent verdicts alone", () => {
+    expect(classifyHttpError(res(401), '{"error":"ASPSP_ERROR"}', undefined, 0).code).toBe("key_rejected");
+    expect(classifyHttpError(res(403), '{"error":"ACCESS_DENIED"}', undefined, 0).code).toBe("consent_revoked");
   });
 });
 
