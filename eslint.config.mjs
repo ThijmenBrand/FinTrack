@@ -34,7 +34,7 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ["**/*.{js,jsx,mjs,cjs,ts,tsx}"],
+    files: ["**/*.{js,jsx,mjs,cjs,ts,mts,tsx}"],
     languageOptions: {
       globals: {
         ...globals.browser,
@@ -84,7 +84,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["**/*.config.{js,mjs,cjs,ts}", "scripts/**/*.ts"],
+    files: ["**/*.config.{js,mjs,cjs,ts,mts}", "scripts/**/*.ts"],
     languageOptions: {
       globals: globals.node,
     },
