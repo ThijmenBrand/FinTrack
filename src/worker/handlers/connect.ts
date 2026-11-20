@@ -207,10 +207,24 @@ export const completeAuthHandler: Handler<"bank.complete_auth"> = async (payload
           )
           .where(and(eq(bankAccountLinks.id, link.id), eq(bankAccountLinks.userId, ctx.userId)));
       }
-      await tx
+      // `completedAt IS NULL` again, here and not only in the SELECT above:
+      // between the two, a second run of this job can have completed the same
+      // state, and both would then rewrite the connection and re-bind its
+      // links. Nothing updated means someone got there first — throwing rolls
+      // this transaction back and leaves their work standing.
+      const completed = await tx
         .update(bankAuthStates)
         .set({ completedAt: now })
-        .where(and(eq(bankAuthStates.id, state.id), eq(bankAuthStates.userId, ctx.userId)));
+        .where(
+          and(
+            eq(bankAuthStates.id, state.id),
+            eq(bankAuthStates.userId, ctx.userId),
+            isNull(bankAuthStates.completedAt),
+          ),
+        );
+      if (completed.rowsAffected === 0) {
+        throw userAction("auth_state_invalid", "This bank authorisation is no longer valid");
+      }
     });
     // The old consent is superseded; end it at the bank too. Best effort —
     // it may well have expired already, which is why we're here.

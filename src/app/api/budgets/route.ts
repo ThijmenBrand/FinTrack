@@ -214,10 +214,20 @@ export async function GET(request: NextRequest) {
     const startDay = await effectiveStartDay(userId, plan, prefs.financialMonthStartDay);
 
     // Every spend-derived number in this endpoint respects one scope: an
-    // explicit accountId param wins, otherwise the plan's accounts (main plan
-    // when no budgetId was passed). A plan with zero accounts matches nothing.
+    // explicit accountId param narrows the plan's accounts, otherwise the
+    // plan's accounts in full (main plan when no budgetId was passed). A plan
+    // with zero accounts matches nothing.
+    //
+    // The param narrows, never widens. Every query below runs as `dataUserId`
+    // — the plan's OWNER for a shared plan — so an unintersected param would
+    // let a member read the owner's spending on an account the plan never
+    // shared with them, by passing its id.
+    const requestedIds =
+      plan && accountIds.length > 0
+        ? accountIds.filter((id) => plan.accountIds.includes(id))
+        : accountIds;
     const scopeAccountIds =
-      accountIds.length > 0 ? accountIds : plan ? plan.accountIds : undefined;
+      accountIds.length > 0 ? requestedIds : plan ? plan.accountIds : undefined;
     const scopeFilter = accountScopeFilter(scopeAccountIds);
 
     // Use the requested range when both dates are present and well-formed;

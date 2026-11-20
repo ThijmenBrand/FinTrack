@@ -1,4 +1,7 @@
-const CACHE_NAME = 'finance-tracker-v2';
+// v3: navigations are no longer cached (see the fetch handler). The rename is
+// what evicts the signed-in pages v2 already wrote to disk — 'activate' deletes
+// every cache that isn't the current name.
+const CACHE_NAME = 'finance-tracker-v3';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -30,16 +33,18 @@ self.addEventListener('fetch', (event) => {
   // Skip API routes — finance data must always be fresh
   if (url.pathname.startsWith('/api/')) return;
 
-  // Navigation requests: network-first with cache fallback
+  // Navigation requests: network-first, falling back to the app shell when
+  // offline.
+  //
+  // The response itself is deliberately NOT cached. These are the signed-in
+  // pages — a transaction list, a balance, an account name — and Cache Storage
+  // is on disk, unencrypted, outside the session: it survives sign-out, and
+  // the next person to open the browser on a shared machine can read what was
+  // cached there. The shell cached at install ('/') is what offline needs, and
+  // it carries nobody's data.
   if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request)
-        .then((response) => {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
-          return response;
-        })
-        .catch(() => caches.match(request).then((r) => r || caches.match('/')))
+      fetch(request).catch(() => caches.match('/').then((r) => r || Response.error()))
     );
     return;
   }

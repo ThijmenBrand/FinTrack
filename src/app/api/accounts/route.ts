@@ -5,7 +5,7 @@ import { accounts, bankAccountLinks, transactions } from "@/db/schema";
 import { eq, sum, count, and } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
-import { isFiniteNumber } from "@/lib/validation";
+import { isFiniteNumber, validateName } from "@/lib/validation";
 import { isBank, bankLabel } from "@/lib/banks";
 import { getAccessibleAccounts, requireAccountAccess, visibleTransactions } from "@/lib/account-access";
 import { excludeSplitChildren } from "@/lib/split-sql";
@@ -60,6 +60,8 @@ export async function POST(request: NextRequest) {
     if (!name || typeof name !== "string" || !isAccountType(type)) {
       return apiError("api.nameAndTypeRequired", 400);
     }
+    const nameCheck = validateName(name);
+    if (!nameCheck.ok) return apiError(nameCheck.error, 400, nameCheck.vars);
     if (bank != null && !isBank(bank)) {
       return apiError("api.invalidBank", 400);
     }
@@ -79,7 +81,7 @@ export async function POST(request: NextRequest) {
     await db.insert(accounts).values({
       id,
       userId,
-      name,
+      name: nameCheck.value,
       type,
       bank: bank ?? null,
       // Mirror the picked bank's label into bank_name so every existing display
@@ -116,6 +118,14 @@ export async function PUT(request: NextRequest) {
         { error: "Account ID is required" },
         { status: 400 }
       );
+    }
+    // Every other field here is checked before it is written; the name was
+    // the one that went in as whatever the body held, at whatever length.
+    let checkedName: string | undefined;
+    if (name !== undefined) {
+      const check = validateName(name);
+      if (!check.ok) return apiError(check.error, 400, check.vars);
+      checkedName = check.value;
     }
     if (type !== undefined && !isAccountType(type)) {
       return apiError("api.invalidAccountType", 400);
@@ -160,7 +170,7 @@ export async function PUT(request: NextRequest) {
     const updates: Partial<typeof accounts.$inferInsert> = {
       updatedAt: new Date().toISOString(),
     };
-    if (name !== undefined) updates.name = name;
+    if (checkedName !== undefined) updates.name = checkedName;
     if (type !== undefined) updates.type = type;
     if (bank !== undefined) {
       updates.bank = bank ?? null;

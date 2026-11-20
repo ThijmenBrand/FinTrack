@@ -31,11 +31,17 @@ export function scrubText(value: string): string {
   return out;
 }
 
-const SENSITIVE_KEYS = /^(authorization|cookie|set-cookie|code|state|session_?id|private_?key|certificate|psu-ip-address|psu-user-agent)$/i;
+const SENSITIVE_KEYS =
+  /^(authorization|cookie|set-cookie|code|state|session_?id|private_?key|certificate|psu-ip-address|psu-user-agent|(access|refresh|id|api|auth|bearer|csrf|invite|reset|verification)_?token|token|secret|(client|app)_?secret|password|passwd|pwd|passphrase|api_?key|credential(s)?|signature|kek|dek)$/i;
 
 function scrubValue(value: unknown, depth: number, seen: WeakSet<object>): unknown {
   if (typeof value === "string") return scrubText(value);
-  if (depth > 8 || value === null || typeof value !== "object") return value;
+  // Past the cutoff nothing below is looked at, so the value cannot be handed
+  // back as it is — a secret nested deeply enough would ride out to Sentry
+  // untouched. Drop it instead: a "[too deep]" in a stack trace costs a
+  // detail, returning the subtree costs the leak this file exists to stop.
+  if (depth > 8) return value === null || typeof value !== "object" ? value : "[too deep]";
+  if (value === null || typeof value !== "object") return value;
   if (seen.has(value)) return value;
   seen.add(value);
   if (Array.isArray(value)) {

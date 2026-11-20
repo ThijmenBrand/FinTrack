@@ -61,6 +61,8 @@ export function isMatchField(v: unknown): v is RuleMatchField {
 }
 
 export const MAX_USERNAME_LENGTH = 50;
+/** A lucide icon key or a single emoji — not a field to write prose into. */
+export const MAX_ICON_LENGTH = 64;
 export const MIN_PASSWORD_LENGTH = 10;
 
 // Common passwords list (top entries from breached password databases)
@@ -106,10 +108,17 @@ export function validateEmail(input: unknown): string | null {
   if (trimmed.length > MAX_EMAIL_LENGTH) {
     return `Email must be ${MAX_EMAIL_LENGTH} characters or fewer`;
   }
+  // Case-folded before the suffix check: better-auth lowercases the address
+  // before storing it, and initializeDatabase() grandfathers every
+  // `%@local.test` row to email_verified = 1 through a SQLite LIKE, which is
+  // itself case-insensitive. A case-sensitive check here would let
+  // `someone@LOCAL.TEST` through signup and come back verified on the next
+  // boot — email verification bypassed.
+  const normalized = trimmed.toLowerCase();
   if (
-    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed) ||
-    trimmed.endsWith("@local") ||
-    trimmed.endsWith("@local.test")
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized) ||
+    normalized.endsWith("@local") ||
+    normalized.endsWith("@local.test")
   ) {
     return "Enter a valid email address";
   }
@@ -159,9 +168,16 @@ export function sanitizeNote(input: unknown): string | null {
  * A post-login `?redirect=` target, or the fallback when it isn't a same-origin
  * path. Both "//" and "/\" parse as an authority — `/\evil.com` resolves to
  * https://evil.com — so a leading-slash check alone is not enough.
+ *
+ * Tab, LF and CR are stripped before the check, never just rejected around it:
+ * the URL parser deletes them wherever they appear, so `/\tevil.com` and
+ * `/\t/evil.com` reach the browser as `//evil.com` — an authority again — even
+ * though the raw string looks like a plain path here.
  */
 export function safeRedirectPath(input: unknown, fallback = "/"): string {
-  return typeof input === "string" && /^\/[^/\\]/.test(input) ? input : fallback;
+  if (typeof input !== "string") return fallback;
+  const stripped = input.replace(/[\t\n\r]/g, "");
+  return /^\/[^/\\]/.test(stripped) ? stripped : fallback;
 }
 
 export type PatternValidation =

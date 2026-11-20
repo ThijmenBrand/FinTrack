@@ -75,6 +75,11 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    # workflow_dispatch accepts any ref, so without this a hand-triggered run
+    # from any branch — including one opened by a fork PR and pushed by a
+    # collaborator — reaches production with the deploy key. Push already only
+    # fires on main; this holds manual runs to the same line.
+    if: github.ref == 'refs/heads/main'
     environment: production          # add required reviewers here for a manual approve step
     steps:
       - name: Deploy over SSH

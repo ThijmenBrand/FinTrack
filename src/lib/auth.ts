@@ -148,6 +148,10 @@ export const auth = betterAuth({
     // route (backoffice-controlled toggle) — better-auth's own signup stays on.
     requireEmailVerification: true,
     minPasswordLength: MIN_PASSWORD_LENGTH,
+    // A reset is how someone takes an account back. Leaving the old sessions
+    // signed in would leave whoever they are taking it back from signed in
+    // too, holding a cookie the new password does nothing about.
+    revokeSessionsOnPasswordReset: true,
     sendResetPassword: async ({ user, url }) => {
       await sendPasswordResetEmail(user.email, url, await emailLocale(user.id));
     },

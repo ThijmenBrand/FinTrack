@@ -9,6 +9,9 @@ import { requireAccountAccess } from "@/lib/account-access";
 
 // Kept well under SQLite's bound-parameter limit.
 const CHUNK = 500;
+// The backfill this undoes links the rows of one plan, not an unbounded set.
+// Without a ceiling the body decides how many chunked UPDATEs to run.
+const MAX_TRANSACTION_IDS = 10_000;
 
 // POST /api/recurring/[id]/undo-learned-rule — take back what a first link
 // taught the plan. body: { pattern: string, transactionIds: string[] }
@@ -31,6 +34,9 @@ export async function POST(
       : [];
     if (!pattern) {
       return NextResponse.json({ error: "pattern is required" }, { status: 400 });
+    }
+    if (ids.length > MAX_TRANSACTION_IDS) {
+      return apiError("api.tooManyTransactions", 400, { max: MAX_TRANSACTION_IDS });
     }
 
     // Unscoped by caller — the write-access check on the plan's account

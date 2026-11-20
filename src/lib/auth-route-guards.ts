@@ -1,7 +1,18 @@
 /** Route match key for /api/auth/*. Trailing slashes are stripped so no guard
- *  built on it is one `/` away from being skipped. */
+ *  built on it is one `/` away from being skipped, and the path is decoded
+ *  first: `URL.pathname` leaves `%2F` and friends encoded, so
+ *  `/two-factor%2Fdisable` would slip past an `endsWith` check here while the
+ *  catch-all route below still resolves it to the disable handler. */
 export function routePath(url: string): string {
-  return new URL(url).pathname.replace(/\/+$/, "");
+  const raw = new URL(url).pathname;
+  let decoded = raw;
+  try {
+    decoded = decodeURIComponent(raw);
+  } catch {
+    // Malformed escape — match on the raw path rather than throwing; a path
+    // that cannot be decoded cannot route anywhere either.
+  }
+  return decoded.replace(/\/+$/, "");
 }
 
 /**

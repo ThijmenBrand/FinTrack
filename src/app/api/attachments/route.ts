@@ -14,6 +14,8 @@ import { createRateLimiter } from "@/lib/rate-limit";
 import { collectOrphanAttachments, discardBlob } from "@/lib/attachment-store";
 import {
   ATTACHMENT_IMAGE_MAX_EDGE,
+  MAX_DECODED_PIXELS,
+  requestWithinLimit,
   MAX_ATTACHMENTS_PER_TRANSACTION,
   MAX_ATTACHMENT_BYTES,
   MAX_FILE_NAME_LENGTH,
@@ -117,11 +119,12 @@ export async function POST(request: NextRequest) {
     // Reject on the declared length before formData() buffers the whole body
     // into memory. The 1.1 leaves room for multipart framing; file.size below
     // is the real check.
-    if (Number(request.headers.get("content-length") ?? 0) > MAX_ATTACHMENT_BYTES * 1.1) {
+    const bounded = await requestWithinLimit(request, MAX_ATTACHMENT_BYTES * 1.1);
+    if (!bounded) {
       return apiError("api.attachmentTooLarge", 400);
     }
 
-    const formData = await request.formData();
+    const formData = await bounded.formData();
     const file = formData.get("file");
     const transactionId = (formData.get("transactionId") as string | null) || null;
     const accountId = (formData.get("accountId") as string | null) || null;
@@ -178,7 +181,7 @@ export async function POST(request: NextRequest) {
     let extension: "webp" | "pdf" = "pdf";
     if (kind !== "pdf") {
       try {
-        bytes = await sharp(raw, { limitInputPixels: 268402689 })
+        bytes = await sharp(raw, { limitInputPixels: MAX_DECODED_PIXELS })
           // .rotate() bakes in the EXIF orientation; sharp drops all other
           // metadata by default, so the GPS tag a phone writes into a photo of
           // a receipt never reaches the store.

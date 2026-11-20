@@ -226,7 +226,14 @@ export async function PUT(request: NextRequest) {
     const access = await requireAccountAccess(userId, existing.accountId, "write");
     const ownerId = access.account.userId;
 
-    if (body.accountId) {
+    // Keyed on presence, exactly like the `set` below: a truthiness check here
+    // would wave `accountId: ""` (or null, or 0) past the access check and
+    // then write it, cutting the plan loose from every account — including
+    // the one whose write access is what lets anyone edit or delete it again.
+    if ("accountId" in body) {
+      if (typeof body.accountId !== "string" || !body.accountId) {
+        return apiError("api.accountNotFound", 404);
+      }
       // Reassigning to another account: must be writable too, and owned by
       // the SAME owner — a recurring plan can't cross owner spaces.
       const newAccess = await requireAccountAccess(userId, body.accountId, "write");

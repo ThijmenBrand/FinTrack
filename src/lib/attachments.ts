@@ -17,8 +17,71 @@ export const ATTACHMENT_ACCEPT =
  * file is ~10x smaller, which is what makes the thumbnail strip paint fast.
  */
 export const ATTACHMENT_IMAGE_MAX_EDGE = 2400;
+/**
+ * Pixels sharp will decode before it gives up. Not a second copy of the byte
+ * limit: 4 MB of PNG is a few thousand pixels of photo, or ~500 megapixels of
+ * one flat colour, and sharp decodes to raw RGBA either way — a gigabyte of
+ * memory for a 4 MB upload. 40 MP is well past any phone camera and nowhere
+ * near that. (sharp's own default, 268402689, is the ceiling it already had.)
+ */
+export const MAX_DECODED_PIXELS = 40_000_000;
 /** Longest filename kept. Display only — the stored pathname is ours. */
 export const MAX_FILE_NAME_LENGTH = 200;
+
+/**
+ * A request whose body is known to be at most `max` bytes, or null when it
+ * isn't. Call it before `formData()`.
+ *
+ * Checking `file.size` after `formData()` is too late: by then the whole
+ * multipart body has been buffered into memory, so the size limit is one the
+ * sender chooses. Content-Length catches the honest case for free, but a
+ * chunked upload declares none at all — and so does any `Request` built from
+ * a `FormData` — so an absent header can't be read as "empty" and can't be
+ * refused either. Those bodies are read through a counter instead and cut off
+ * the moment they pass `max`, which bounds the memory either way.
+ *
+ * Multipart framing rides along with the file, so callers pass a slightly
+ * padded ceiling here and re-check the real `file.size` afterwards.
+ */
+export async function requestWithinLimit(
+  request: Request,
+  max: number,
+): Promise<Request | null> {
+  const declared = request.headers.get("content-length");
+  if (declared !== null) {
+    const length = Number(declared);
+    if (!Number.isFinite(length) || length < 0 || length > max) return null;
+    return request;
+  }
+
+  if (!request.body) return request;
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  // Same headers (the multipart boundary above all), body already in hand.
+  return new Request(request.url, {
+    method: request.method,
+    headers: request.headers,
+    body,
+  });
+}
 
 export type AttachmentKind = ImageType | "pdf";
 

@@ -11,11 +11,48 @@ import {
   isUnsettledRow,
   applyFee,
   type ColumnMapping,
+  MAX_CSV_BYTES,
 } from "@/lib/csv-utils";
+import { requestWithinLimit } from "@/lib/attachments";
 import { classifyRows, dropExistingRows, type NormalizedRow } from "@/lib/import/classify";
 
 interface CsvRow {
   [key: string]: string;
+}
+
+/** The required and optional column keys of a ColumnMapping, in that order. */
+const REQUIRED_MAPPING_KEYS = ["date", "description", "amount"] as const;
+const OPTIONAL_MAPPING_KEYS = [
+  "name",
+  "balance",
+  "fee",
+  "counterpartyIban",
+] as const;
+
+/**
+ * A ColumnMapping out of the raw form field, or null when the body isn't one.
+ * Only the known keys are carried over, each only when it is a string, so
+ * nothing the client invents reaches the row lookups downstream.
+ */
+function parseColumnMapping(raw: string): ColumnMapping | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const source = parsed as Record<string, unknown>;
+
+  const mapping = {} as ColumnMapping;
+  for (const key of REQUIRED_MAPPING_KEYS) {
+    if (typeof source[key] !== "string") return null;
+    mapping[key] = source[key];
+  }
+  for (const key of OPTIONAL_MAPPING_KEYS) {
+    if (typeof source[key] === "string") mapping[key] = source[key] as string;
+  }
+  return mapping;
 }
 
 /**
@@ -25,7 +62,15 @@ interface CsvRow {
  */
 export async function POST(request: NextRequest) {
   return withUser(async (userId) => {
-    const formData = await request.formData();
+    // Before formData(), not after: the 10 MB check below only runs once the
+    // whole multipart body is already buffered in memory, so a body that
+    // declares more than that (or declares nothing at all) is refused here.
+    const bounded = await requestWithinLimit(request, MAX_CSV_BYTES * 1.1);
+    if (!bounded) {
+      return apiError("api.fileTooLarge", 400);
+    }
+
+    const formData = await bounded.formData();
     const file = formData.get("file") as File | null;
     const accountId = formData.get("accountId") as string | null;
     const mappingJson = formData.get("mapping") as string | null;
@@ -33,7 +78,7 @@ export async function POST(request: NextRequest) {
     if (!file || !accountId || !mappingJson) {
       return apiError("api.uploadFieldsRequired", 400);
     }
-    if (file.size > 10 * 1024 * 1024) {
+    if (file.size > MAX_CSV_BYTES) {
       return apiError("api.fileTooLarge", 400);
     }
 
@@ -44,7 +89,14 @@ export async function POST(request: NextRequest) {
     const access = await requireAccountAccess(userId, accountId, "write");
     const ownedAccount = access.account;
 
-    const mapping: ColumnMapping = JSON.parse(mappingJson);
+    // Parsed defensively, not cast: `JSON.parse` on a form field throws on
+    // anything malformed (a 500 the caller chooses), and the `as` told the
+    // compiler a shape nothing had checked — every field here is used as a
+    // CSV column key, so each one has to be a string before it is believed.
+    const mapping = parseColumnMapping(mappingJson);
+    if (!mapping) {
+      return apiError("api.uploadFieldsRequired", 400);
+    }
 
     // Handle various encodings: UTF-16 LE/BE (common in Austrian/German bank exports)
     // and UTF-8 with BOM. file.text() assumes UTF-8, which garbles UTF-16 files.

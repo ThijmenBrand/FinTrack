@@ -90,6 +90,12 @@ export interface FlatImportRow {
 
 /** Total node cap per import — matches the server's validation. */
 export const MAX_IMPORT_ROWS = 200;
+/**
+ * Ceiling on a single budget amount. A hundred billion is past any household
+ * budget and far enough below Number.MAX_VALUE that no rollup of
+ * MAX_IMPORT_ROWS of them can reach Infinity.
+ */
+export const MAX_BUDGET_AMOUNT = 1e11;
 /** Category + MAX_SUB_LINE_DEPTH sub-line levels. */
 export const MAX_IMPORT_DEPTH = 4;
 

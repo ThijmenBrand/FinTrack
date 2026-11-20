@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { and, count, eq, inArray } from "drizzle-orm";
+import { and, count, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { accounts, bankAccountLinks, bankAuthStates, bankConnections } from "@/db/schema";
 import { apiError } from "@/lib/api-errors";
@@ -8,6 +8,9 @@ import { enqueueJob } from "@/lib/jobs/enqueue";
 import { JOB_PRIORITY } from "@/lib/jobs/types";
 import { normalizeIban } from "@/lib/csv-utils";
 import { isIsoDate, validateName } from "@/lib/validation";
+
+/** Thrown inside the write transaction so it rolls back; turned into a 409 below. */
+class AlreadyLinkedError extends Error {}
 
 const NEW_ACCOUNT_TYPES = ["checking", "savings", "joint", "credit", "other"] as const;
 type NewAccountType = (typeof NEW_ACCOUNT_TYPES)[number];
@@ -108,7 +111,25 @@ export async function linkBankAccounts({
 
   const now = new Date().toISOString();
   const linkIds: string[] = [];
+  let conflict = false;
   await db.transaction(async (tx) => {
+    // The "already linked" check above ran on a read taken before this
+    // transaction opened. Two mapping saves racing would both pass it and both
+    // insert, leaving one bank account feeding two FinTrack accounts. Re-read
+    // inside the write and roll back if the picture changed under us.
+    const linkedNow = new Set(
+      (
+        await tx
+          .select({ uid: bankAccountLinks.externalUid })
+          .from(bankAccountLinks)
+          .where(and(eq(bankAccountLinks.userId, userId), eq(bankAccountLinks.connectionId, connection.id)))
+      ).map((r) => r.uid),
+    );
+    if (plan.some((p) => linkedNow.has(p.uid))) {
+      conflict = true;
+      throw new AlreadyLinkedError();
+    }
+
     const [{ total }] = await tx.select({ total: count() }).from(accounts).where(eq(accounts.userId, userId));
     let sortOrder = total;
     for (const p of plan) {
@@ -152,12 +173,29 @@ export async function linkBankAccounts({
       });
     }
     if (authStateId) {
-      await tx
+      // Single use, enforced in the statement rather than around it: this is
+      // the authorisation the whole mapping save rides on, and a plain UPDATE
+      // would let two saves of the same state both go through.
+      const consumed = await tx
         .update(bankAuthStates)
         .set({ completedAt: now })
-        .where(and(eq(bankAuthStates.id, authStateId), eq(bankAuthStates.userId, userId)));
+        .where(and(
+          eq(bankAuthStates.id, authStateId),
+          eq(bankAuthStates.userId, userId),
+          isNull(bankAuthStates.completedAt),
+        ));
+      if (consumed.rowsAffected === 0) {
+        conflict = true;
+        throw new AlreadyLinkedError();
+      }
     }
+  }).catch((err) => {
+    if (err instanceof AlreadyLinkedError) return;
+    throw err;
   });
+  if (conflict) {
+    return apiError("api.bankAccountAlreadyLinked", 409);
+  }
 
   logDataEvent({
     userId,
