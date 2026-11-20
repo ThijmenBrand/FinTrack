@@ -101,7 +101,16 @@ async function main() {
       dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
       tracesSampleRate: 0,
       sendDefaultPii: false,
+      // The worker has no stdout anyone watches once the container is up, so
+      // its lifecycle lines ship to Sentry as logs. `log()` below writes with
+      // console.log, hence the level: without it the integration ignores
+      // everything this process says.
+      enableLogs: true,
+      integrations: [
+        Sentry.consoleLoggingIntegration({ levels: ["log", "warn", "error"] }),
+      ],
       beforeSend: scrubEvent,
+      beforeSendLog: scrubEvent,
       beforeBreadcrumb: (b) => (b.category === "http" || b.category === "fetch" ? null : b),
     });
   }

@@ -202,3 +202,49 @@ describe("proxy idle lock", () => {
     expect((await proxy(request("/api/transactions"))).status).toBe(401);
   });
 });
+
+describe("proxy Sentry tunnel", () => {
+  beforeEach(() => getSession.mockReset());
+
+  function envelope(path: string, cookie?: string): NextRequest {
+    return new NextRequest(`http://localhost:3000${path}?o=1&p=2`, {
+      method: "POST",
+      headers: cookie ? { cookie } : {},
+    });
+  }
+
+  // The tunnel is a rewrite in next.config.ts and the proxy runs first, so
+  // anything but a pass-through here means the browser's errors and logs are
+  // answered with a redirect and never reach Sentry.
+  it("lets an envelope through with no session at all", async () => {
+    const response = await proxy(envelope("/monitoring"));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("location")).toBeNull();
+    expect(getSession).not.toHaveBeenCalled();
+  });
+
+  it("lets an admin's envelope through instead of routing it to /backoffice", async () => {
+    getSession.mockResolvedValue(sessionResponse(null, "admin"));
+
+    const response = await proxy(envelope("/monitoring", "better-auth.session_token=abc"));
+
+    expect(response.headers.get("location")).toBeNull();
+  });
+
+  // The rewrite matches with and without the trailing slash.
+  it("lets a trailing-slash envelope through", async () => {
+    const response = await proxy(envelope("/monitoring/"));
+
+    expect(response.headers.get("location")).toBeNull();
+  });
+
+  // The bypass is a path equality check, not a prefix: nothing else may
+  // slip past the session gate by sitting under it.
+  it("still guards a path that merely starts with the tunnel route", async () => {
+    const response = await proxy(envelope("/monitoring-dashboard"));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toContain("/login");
+  });
+});
