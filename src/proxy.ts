@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { validateCsrfOrigin } from "@/lib/csrf";
 import { isLockExempt, readLockState, touchSession } from "@/lib/session-lock";
 import { SESSION_LOCKED_CODE, unlockPath } from "@/lib/unlock-path";
+import { isSentryTunnelPath } from "@/lib/sentry-tunnel";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
@@ -113,6 +114,18 @@ function lockedResponse(request: NextRequest): NextResponse {
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  // Sentry's tunnel. It is a rewrite in next.config.ts, and the proxy runs
+  // before rewrites, so the browser's envelope POST lands here first: without
+  // this it is answered with a redirect to /login, /unlock or /backoffice —
+  // signed out, idle-locked, or signed in as an admin — and every error and
+  // log the browser tried to report is lost. Nothing of ours sits behind the
+  // path; the rewrite forwards straight to Sentry's ingest endpoint. First of
+  // all, so nothing added below can ever swallow the browser's only way of
+  // telling us something broke.
+  if (isSentryTunnelPath(pathname)) {
+    return NextResponse.next();
+  }
 
   // FinTrack has no Server Actions — every mutation goes through /api/, where
   // the Origin check below applies. A request carrying `Next-Action` is
