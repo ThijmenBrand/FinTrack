@@ -4,28 +4,52 @@ allowBuilds:
   esbuild: true
   sharp: true
 
+# pnpm 11 refuses lockfile entries published within the last 24 hours, a
+# built-in default rather than anything configured here — `pnpm config get
+# minimumReleaseAge` reports undefined, yet the cutoff still applies. 11.16.0
+# went out on 2026-11-20 at ~14:00Z, so without these entries
+# `pnpm install --frozen-lockfile` fails with
+# ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION in CI and in the Docker build; pnpm
+# wrote the list itself when the version was installed. The whole block is
+# dead weight 24 hours after that publish — delete it then, and confirm with
+# a `--frozen-lockfile` install that it is no longer needed.
+minimumReleaseAgeExclude:
+  - '@sentry/browser-utils@11.16.0'
+  - '@sentry/browser@11.16.0'
+  - '@sentry/bundler-plugins@11.16.0'
+  - '@sentry/cloudflare@11.16.0'
+  - '@sentry/core@11.16.0'
+  - '@sentry/feedback@11.16.0'
+  - '@sentry/nextjs@11.16.0'
+  - '@sentry/node@11.16.0'
+  - '@sentry/opentelemetry@11.16.0'
+  - '@sentry/react@11.16.0'
+  - '@sentry/replay-canvas@11.16.0'
+  - '@sentry/replay@11.16.0'
+  - '@sentry/server-runtime-injection@11.16.0'
+  - '@sentry/server-utils@11.16.0'
+  - '@sentry/vercel-edge@11.16.0'
+
 # All of these fix advisories in transitive dependencies whose parents don't
 # yet allow (or resolve to) the patched release. The esbuild one is scoped to
 # the deprecated @esbuild-kit path drizzle-kit still pulls in; everything else
 # already uses a patched esbuild, and a blanket override would drag Vite's back
 # to 0.25. zod is pinned exactly to 4.1.11 by @vercel/cli-config (via
 # @vercel/blob) and to an older 4.x floor by @better-auth/core; vite comes in
-# through vitest, whose wide range keeps the lockfile on an older 8.x. glob
-# comes in through @sentry/bundler-plugins, which still asks for ^13; minimatch
-# reaches us both through that glob and through eslint's @eslint/config-array.
-# Both patched majors are still dual CJS/ESM and need Node 20+, which the Node
-# 24 we build and test on satisfies.
+# through vitest, whose wide range keeps the lockfile on an older 8.x.
+# minimatch reaches us through eslint's @eslint/config-array; its patched major
+# is still dual CJS/ESM and needs Node 20+, which the Node 24 we build and test
+# on satisfies.
 #
-# The glob override is the one here with an expiry date: @sentry/bundler-plugins
-# asks for ^14.0.3 from Sentry 11 on, so once the SDK moves to 11.x nothing
-# wants the old range any more and the line can go. Drop it then and confirm
-# with `pnpm why glob` that 14.x still resolves on its own. minimatch stays
-# either way — that one reaches us through eslint, which the SDK doesn't touch.
+# The glob override that used to sit here is gone: it existed because
+# @sentry/bundler-plugins asked for ^13, and from Sentry 11 on it asks for
+# ^14.0.3, so 14.x now resolves on its own and the line had nothing left to
+# pin. minimatch stays — eslint keeps the old range alive independently of the
+# SDK.
 overrides:
   "@esbuild-kit/core-utils>esbuild": "^0.25.12"
   browserslist: "^4.28.9"
   fast-uri: "^3.1.9"
-  glob: "^14.0.2"
   minimatch: "^11.0.1"
   vite: "^8.1.6"
   zod: "^4.6.7"
