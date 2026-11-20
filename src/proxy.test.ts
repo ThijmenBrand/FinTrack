@@ -202,3 +202,33 @@ describe("proxy idle lock", () => {
     expect((await proxy(request("/api/transactions"))).status).toBe(401);
   });
 });
+
+describe("proxy Server Action guard", () => {
+  beforeEach(() => getSession.mockReset());
+
+  function action(path: string, cookie?: string): NextRequest {
+    const headers: Record<string, string> = {
+      "next-action": "e19fdf94c60b774c739158554e0e1aba32a7a098",
+      "content-type": "text/plain;charset=UTF-8",
+    };
+    if (cookie) headers.cookie = cookie;
+    return new NextRequest(`http://localhost:3000${path}`, { method: "POST", headers });
+  }
+
+  // The app has no Server Actions, so these only ever come from scanners.
+  // Public paths are the ones that would otherwise reach Next's action
+  // router: no session is needed to get there.
+  it("refuses a Next-Action request on a public path", async () => {
+    expect((await proxy(action("/signup"))).status).toBe(400);
+    expect(getSession).not.toHaveBeenCalled();
+  });
+
+  it("refuses one on a static path the asset allowance would wave through", async () => {
+    expect((await proxy(action("/_next/data/x.json"))).status).toBe(400);
+  });
+
+  it("refuses one carrying a session cookie too", async () => {
+    expect((await proxy(action("/transactions", "better-auth.session_token=abc"))).status).toBe(400);
+    expect(getSession).not.toHaveBeenCalled();
+  });
+});

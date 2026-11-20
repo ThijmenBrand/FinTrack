@@ -450,6 +450,37 @@ describe("syncing", () => {
     expect(dead).toEqual([id]);
   }, 60_000);
 
+  // The production incident: Enable Banking answers 400 ASPSP_ERROR when the
+  // bank behind it has a moment. Dead-lettering that paged someone and left
+  // the scheduler re-queuing the link every 15 minutes, because a dead job
+  // never updates last_synced_at. It is an outage, so it retries like one.
+  it("retries a bank-side 400 instead of dead-lettering it", async () => {
+    const { connectionId } = await connectedUser();
+    const linkId = await link(connectionId, "acc-check", "uid-check");
+    bank.transactions["uid-check"] = [
+      { body: { transactions: [ebTx({ ref: "a1", amount: "9.50", cd: "DBIT", date: "2026-09-04" })] } },
+    ];
+    bank.failNext = { status: 400, body: { error: "ASPSP_ERROR" } };
+    const id = await enqueueJob(A, "bank.sync_link", { linkId });
+
+    const dead: string[] = [];
+    await drain({ onDead: (j) => dead.push(j.id) });
+    expect(dead).toEqual([]);
+    expect(await job(id)).toMatchObject({
+      status: "queued",
+      attempts: 1,
+      last_error_code: "provider_unavailable",
+    });
+
+    // The bank recovers and the retry imports what the dead-letter would have lost.
+    await exec("UPDATE jobs SET run_at = ? WHERE id = ?", [now(), id]);
+    await drain();
+    expect(await job(id)).toMatchObject({ status: "succeeded" });
+    expect(await rows("SELECT external_id FROM transactions WHERE account_id = 'acc-check'")).toMatchObject([
+      { external_id: "ref:a1" },
+    ]);
+  }, 60_000);
+
   it("a rate limit reschedules without using up an attempt", async () => {
     const { connectionId } = await connectedUser();
     const linkId = await link(connectionId, "acc-check", "uid-check");

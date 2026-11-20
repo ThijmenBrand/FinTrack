@@ -15,7 +15,7 @@ import * as Sentry from "@sentry/node";
 import { beat } from "@/db/jobs";
 import { enableWal } from "@/db/pragmas";
 import { loadKeyRing } from "./crypto/kek";
-import { runOnce } from "./runner";
+import { runOnce, type RunnerHooks } from "./runner";
 import { cleanupTick, reaperTick, schedulerTick } from "./scheduler";
 import { scrubEvent } from "@/lib/bank-sync/scrub";
 
@@ -50,13 +50,16 @@ function track<T>(p: Promise<T>): Promise<T> {
   return p;
 }
 
-const hooks = {
-  onDead: (job: { id: string; type: string }, err: { code: string }) => {
-    // Ids and codes only: no payload, no user data.
+const hooks: RunnerHooks = {
+  onDead: (job, err) => {
+    // Ids, codes and the worker's own message — never the payload, the
+    // provider's body or anything a user typed. The message stays out of the
+    // title so Sentry keeps grouping by job type and code; without it in
+    // `extra` an alert says only *that* something failed, not what.
     Sentry.captureMessage(`Job dead-lettered: ${job.type} (${err.code})`, {
       level: "error",
-      tags: { jobType: job.type, errorCode: err.code },
-      extra: { jobId: job.id },
+      tags: { jobType: job.type, errorCode: err.code, errorKind: err.kind },
+      extra: { jobId: job.id, reason: err.message },
     });
   },
 };
