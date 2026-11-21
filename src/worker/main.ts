@@ -18,6 +18,7 @@ import { loadKeyRing } from "./crypto/kek";
 import { runOnce, type RunnerHooks } from "./runner";
 import { cleanupTick, reaperTick, schedulerTick } from "./scheduler";
 import { scrubEvent } from "@/lib/bank-sync/scrub";
+import { DATA_COLLECTION } from "@/lib/sentry-data-collection";
 
 const INTERACTIVE_POLL_MS = 1_000;
 const BACKGROUND_POLL_MS = 15_000;
@@ -103,12 +104,12 @@ async function main() {
     Sentry.init({
       dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
       tracesSampleRate: 0,
-      sendDefaultPii: false,
+      dataCollection: DATA_COLLECTION,
       // The worker has no stdout anyone watches once the container is up, so
       // its lifecycle lines ship to Sentry as logs. `log()` below writes with
       // console.log, hence the level: without it the integration ignores
-      // everything this process says.
-      enableLogs: true,
+      // everything this process says. (SDK v11 sends logs by default, so the
+      // `enableLogs` opt-in that used to sit here is gone.)
       integrations: [
         Sentry.consoleLoggingIntegration({ levels: ["log", "warn", "error"] }),
       ],

@@ -31,7 +31,20 @@ export function scrubText(value: string): string {
   return out;
 }
 
+/**
+ * Matched against a whole key and against the last dot-separated segment of
+ * one. SDK v11 moved request data onto dotted span attributes
+ * (`http.request.header.authorization`, `url.query`), so an anchored
+ * whole-key test alone would no longer catch them. `dataCollection` already
+ * stops these categories at the source; this is the second layer.
+ */
 const SENSITIVE_KEYS = /^(authorization|cookie|set-cookie|code|state|session_?id|private_?key|certificate|psu-ip-address|psu-user-agent)$/i;
+
+function isSensitiveKey(key: string): boolean {
+  if (SENSITIVE_KEYS.test(key)) return true;
+  const lastSegment = key.slice(key.lastIndexOf(".") + 1);
+  return lastSegment !== key && SENSITIVE_KEYS.test(lastSegment);
+}
 
 function scrubValue(value: unknown, depth: number, seen: WeakSet<object>): unknown {
   if (typeof value === "string") return scrubText(value);
@@ -44,7 +57,7 @@ function scrubValue(value: unknown, depth: number, seen: WeakSet<object>): unkno
   }
   const obj = value as Record<string, unknown>;
   for (const key of Object.keys(obj)) {
-    obj[key] = SENSITIVE_KEYS.test(key) ? "[redacted]" : scrubValue(obj[key], depth + 1, seen);
+    obj[key] = isSensitiveKey(key) ? "[redacted]" : scrubValue(obj[key], depth + 1, seen);
   }
   return obj;
 }

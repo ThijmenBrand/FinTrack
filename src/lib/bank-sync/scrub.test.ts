@@ -30,4 +30,24 @@ describe("scrubEvent", () => {
     expect(JSON.stringify(out)).not.toMatch(/NL91ABNA|secret|Bearer abc|123-abc/);
     expect(out.request.headers["user-agent"]).toBe("ok");
   });
+
+  it("redacts dotted span attribute keys, as SDK v11 emits them", () => {
+    const span = {
+      name: "GET /settings/bank-connections/callback",
+      attributes: {
+        "http.request.header.authorization": "Bearer abc",
+        "http.request.header.cookie": "session=zzz",
+        "url.query": "code=secret&state=xyz",
+        "http.request.header.user-agent": "ok",
+        "server.address": "api.enablebanking.com",
+      },
+    };
+    const out = scrubEvent(span);
+    expect(out.attributes["http.request.header.authorization"]).toBe("[redacted]");
+    expect(out.attributes["http.request.header.cookie"]).toBe("[redacted]");
+    expect(JSON.stringify(out)).not.toMatch(/Bearer abc|session=zzz|secret|xyz/);
+    // Non-sensitive attributes keep their values.
+    expect(out.attributes["http.request.header.user-agent"]).toBe("ok");
+    expect(out.attributes["server.address"]).toBe("api.enablebanking.com");
+  });
 });
