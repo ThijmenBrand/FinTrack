@@ -18,6 +18,7 @@ import {
 import {
   MAX_IMPORT_ROWS,
   MAX_IMPORT_DEPTH,
+  MAX_BUDGET_AMOUNT,
   effectiveAmount,
   type ImportNode,
   type RowType,
@@ -64,7 +65,14 @@ function validateNodes(
     const nameCheck = validateName(raw?.name);
     if (!nameCheck.ok) return nameCheck;
     const amount = raw?.amount ?? null;
-    if (amount !== null && (!isFiniteNumber(amount) || amount < 0)) {
+    // Finite is not the same as sane: 200 nodes of 1e308 each are every one
+    // finite, and the totals rolled up from them reach Infinity, which then
+    // goes into the row and out to every reader of the plan. A budget line
+    // lives well under the ceiling.
+    if (
+      amount !== null &&
+      (!isFiniteNumber(amount) || amount < 0 || amount > MAX_BUDGET_AMOUNT)
+    ) {
       return { ok: false, error: "api.amountsInvalid" };
     }
     if (raw?.recurring !== undefined && typeof raw.recurring !== "boolean") {

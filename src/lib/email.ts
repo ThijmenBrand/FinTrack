@@ -7,6 +7,13 @@ import { getI18nFor } from "@/lib/i18n/translate";
 
 const RESEND_URL = "https://api.resend.com/emails";
 
+/** `t***@example.com` — enough to tell two recipients apart in a log, no more. */
+function maskEmail(address: string): string {
+  const at = address.lastIndexOf("@");
+  if (at <= 0) return "***";
+  return `${address[0]}***${address.slice(at)}`;
+}
+
 async function sendEmail(
   to: string,
   subject: string,
@@ -15,14 +22,20 @@ async function sendEmail(
 ): Promise<void> {
   // Legacy synthetic accounts (username@local.test) have no real mailbox.
   if (to.endsWith("@local") || to.endsWith("@local.test")) {
-    console.log(`[email] skipped send to synthetic address ${to}`);
+    console.log(`[email] skipped send to synthetic address ${maskEmail(to)}`);
     return;
   }
 
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
-    // Dev fallback: surface the mail content so flows are testable locally.
-    console.log(`[email] RESEND_API_KEY not set — would send to ${to}: ${subject}\n${html}`);
+    // Metadata only. The rendered body carries the action URL of a password
+    // reset, verification or invite — a live single-use token — and this
+    // branch is not limited to development, so logging it (and shipping it
+    // to Sentry) would hand those tokens to anyone who can read the logs.
+    // Render the mail yourself in dev if you need the link.
+    console.warn(
+      `[email] RESEND_API_KEY not set — not sent (subject="${subject}", to=${maskEmail(to)})`,
+    );
     return;
   }
 

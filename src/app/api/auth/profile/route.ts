@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { apiError } from "@/lib/api-errors";
-import { withUser, hashPassword, verifyPassword } from "@/lib/auth";
+import { withUser, withSession, hashPassword, verifyPassword } from "@/lib/auth";
 import { db } from "@/db";
 import { sql } from "drizzle-orm";
 import { logAuthEvent, logDataEvent, getRequestMeta } from "@/lib/audit";
@@ -35,7 +35,7 @@ export async function GET() {
 }
 
 export async function PATCH(req: NextRequest) {
-  return withUser(async (userId) => {
+  return withSession(async ({ userId, sessionId }) => {
     const body = await req.json();
     const { displayName, currentPassword, newPassword } = body;
 
@@ -88,6 +88,13 @@ export async function PATCH(req: NextRequest) {
       const hashed = await hashPassword(newPassword);
       await db.run(
         sql`UPDATE account SET password = ${hashed}, updated_at = ${new Date().toISOString()} WHERE user_id = ${userId} AND provider_id = 'credential'`
+      );
+      // Changing the password is how someone shuts an intruder out, so every
+      // OTHER session goes with it — a stolen cookie outlives the password
+      // otherwise. This one stays: signing the user out of the tab they just
+      // used would be its own surprise.
+      await db.run(
+        sql`DELETE FROM session WHERE user_id = ${userId} AND id != ${sessionId}`
       );
     }
 

@@ -17,7 +17,7 @@ import { withUser } from "@/lib/auth";
 import { requireAccountAccess, visibleCategories } from "@/lib/account-access";
 import { logDataEvent } from "@/lib/audit";
 import { deletePotCategories } from "@/lib/pot-budget-db";
-import { isHexColor } from "@/lib/validation";
+import { isHexColor, validateName, MAX_ICON_LENGTH } from "@/lib/validation";
 import type { CategoryKind } from "@/types/api";
 
 // Allowlist for the `kind` enum — CLAUDE.md requires validating enum-like
@@ -92,6 +92,16 @@ export async function POST(request: NextRequest) {
     if (!name) {
       return apiError("api.nameRequired", 400);
     }
+    // `!name` only rules out the empty and the missing: without this a number,
+    // an object or a megabyte of text went into the row as-is.
+    const nameCheck = validateName(name);
+    if (!nameCheck.ok) return apiError(nameCheck.error, 400, nameCheck.vars);
+    // An icon is a short emoji or lucide key, never free text.
+    if (icon !== undefined && icon !== null && icon !== "") {
+      if (typeof icon !== "string" || icon.length > MAX_ICON_LENGTH) {
+        return apiError("api.invalidIcon", 400);
+      }
+    }
 
     // Default to "expense" so existing clients that don't send `kind` keep working.
     if (kind !== undefined && !isCategoryKind(kind)) {
@@ -123,7 +133,7 @@ export async function POST(request: NextRequest) {
     await db.insert(categories).values({
       id,
       userId: ownerId,
-      name,
+      name: nameCheck.value,
       icon: icon || null,
       color: color || "#94a3b8",
       kind: cleanKind,

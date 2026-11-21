@@ -96,6 +96,10 @@ export async function PUT(request: NextRequest) {
       await db.run(
         sql`UPDATE account SET password = ${hashedPassword}, updated_at = ${now} WHERE user_id = ${id} AND provider_id = 'credential'`
       );
+      // An admin resetting someone's password is usually a lockout or a
+      // takeover being undone. Every session of theirs goes too, or whoever
+      // prompted the reset keeps the cookie they already hold.
+      await db.run(sql`DELETE FROM session WHERE user_id = ${id}`);
       await logAdminAction(session.userId, "password_reset", id);
     }
 

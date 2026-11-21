@@ -14,7 +14,7 @@ import { withUser } from "@/lib/auth";
 import { validatePattern, isMatchType, isMatchField } from "@/lib/validation";
 import { applyRuleToTransactions } from "@/lib/apply-rule";
 import { subLineCategories } from "@/lib/budget-sub-lines";
-import { writableTransactions } from "@/lib/account-access";
+import { writableTransactions, visibleCategories } from "@/lib/account-access";
 import { setRecurringLink, type LinkablePlan } from "@/lib/recurring-link";
 
 // PUT /api/transactions/categorize — categorize one or more transactions
@@ -93,7 +93,11 @@ export async function PUT(request: NextRequest) {
         ? db
             .select({ id: categories.id, userId: categories.userId })
             .from(categories)
-            .where(eq(categories.id, categoryId))
+            // Narrowed to what the caller can see, not every category in the
+            // table: an unscoped lookup answers "does this id exist?" for
+            // anyone's category, since a hit and a miss take different
+            // branches below. The batch could only ever use a visible one.
+            .where(and(eq(categories.id, categoryId), visibleCategories(userId)))
         : Promise.resolve([]),
     ]);
     if (splitParent) {

@@ -37,8 +37,20 @@ export function scrubText(value: string): string {
  * (`http.request.header.authorization`, `url.query`), so an anchored
  * whole-key test alone would no longer catch them. `dataCollection` already
  * stops these categories at the source; this is the second layer.
+ *
+ * The list past `psu-user-agent` is that second layer doing its job: the
+ * original names covered what the bank API sends us, not what the rest of the
+ * app carries. A reset or invite `token`, an `api_key`, a `password` in a
+ * failed-request body — all of them reached Sentry under their own names.
+ *
+ * Separators are `[-_]?` and `x-` is optional because the same name arrives
+ * spelled both ways: `api_key` in a JSON body, `x-api-key` as a header — and
+ * since v11 that header is a dotted attribute segment, matched by the last
+ * segment above. Over-matching here costs a redacted field in a trace; under-
+ * matching costs the secret.
  */
-const SENSITIVE_KEYS = /^(authorization|cookie|set-cookie|code|state|session_?id|private_?key|certificate|psu-ip-address|psu-user-agent)$/i;
+const SENSITIVE_KEYS =
+  /^(x-)?(authorization|cookie|set-cookie|code|state|session[-_]?id|private[-_]?key|certificate|psu-ip-address|psu-user-agent|(access|refresh|id|api|auth|bearer|csrf|invite|reset|verification)[-_]?token|token|secret|(client|app)[-_]?secret|password|passwd|pwd|passphrase|api[-_]?key|credential(s)?|signature|kek|dek)$/i;
 
 function isSensitiveKey(key: string): boolean {
   if (SENSITIVE_KEYS.test(key)) return true;
@@ -48,7 +60,12 @@ function isSensitiveKey(key: string): boolean {
 
 function scrubValue(value: unknown, depth: number, seen: WeakSet<object>): unknown {
   if (typeof value === "string") return scrubText(value);
-  if (depth > 8 || value === null || typeof value !== "object") return value;
+  // Past the cutoff nothing below is looked at, so the value cannot be handed
+  // back as it is — a secret nested deeply enough would ride out to Sentry
+  // untouched. Drop it instead: a "[too deep]" in a stack trace costs a
+  // detail, returning the subtree costs the leak this file exists to stop.
+  if (depth > 8) return value === null || typeof value !== "object" ? value : "[too deep]";
+  if (value === null || typeof value !== "object") return value;
   if (seen.has(value)) return value;
   seen.add(value);
   if (Array.isArray(value)) {

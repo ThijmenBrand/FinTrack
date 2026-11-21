@@ -293,10 +293,18 @@ export async function GET(request: NextRequest) {
               WHERE am.user_id = ${userId} AND am.accepted_at IS NOT NULL AND am.revoked_at IS NULL))
         )`,
         reimbursesTransactionId: transactions.reimbursesTransactionId,
+        // Caller-visibility, not row-owner visibility — the same rule as
+        // linkedAccountName above. Scoped to the row's owner alone, a shared
+        // row listed the descriptions of the expenses it covers even when
+        // those sit on the owner's private accounts.
         reimbursesDescription: sql<string | null>`(
           SELECT GROUP_CONCAT(t2.description, ', ') FROM reimbursement_links rl2
           JOIN transactions t2 ON t2.id = rl2.expense_id AND t2.user_id = "transactions"."user_id"
+          JOIN accounts a2 ON a2.id = t2.account_id
           WHERE rl2.reimbursement_id = ${transactions.id}
+            AND (a2.user_id = ${userId} OR a2.id IN (
+              SELECT am.account_id FROM account_members am
+              WHERE am.user_id = ${userId} AND am.accepted_at IS NOT NULL AND am.revoked_at IS NULL))
         )`,
         // Signed form of `effectiveExpenseAmount` (which returns a positive
         // magnitude) so the row shows the same reimbursement-adjusted value the

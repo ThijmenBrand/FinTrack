@@ -85,6 +85,17 @@ export async function POST(request: NextRequest) {
       return apiError("api.signInToAccept", 401);
     }
 
+    // The invite names one address, and the inviter picked it from the users
+    // who already have an account (see POST /accounts/[id]/members). Without
+    // this, the token alone is the authorisation: a link forwarded, logged or
+    // read over someone's shoulder would let anyone signed in take the share
+    // that was meant for them.
+    const invitedEmail = invite.member.email?.toLowerCase();
+    const signedInEmail = session.user.email?.toLowerCase();
+    if (!invitedEmail || !signedInEmail || invitedEmail !== signedInEmail) {
+      return apiError("api.inviteNotForYou", 403);
+    }
+
     const access = await getAccountAccess(session.user.id, invite.member.accountId);
     if (access?.role === "owner") {
       return apiError("api.alreadyOwnAccount", 400);

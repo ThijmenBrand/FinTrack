@@ -17,6 +17,7 @@ import {
   detectImageType,
   isAvatarPathname,
 } from "@/lib/avatar";
+import { MAX_DECODED_PIXELS, requestWithinLimit } from "@/lib/attachments";
 
 // Re-encoding is the expensive part of this route, so it gets its own limit
 // rather than riding the global 100/min: 10 uploads per 15 minutes, enough to
@@ -54,12 +55,14 @@ export async function POST(request: NextRequest) {
 
     // Reject on the declared length before formData() buffers the whole body
     // into memory. The 1.1 leaves room for multipart framing overhead; file.size
-    // below is the real check.
-    if (Number(request.headers.get("content-length") ?? 0) > MAX_AVATAR_BYTES * 1.1) {
+    // below is the real check. A body that declares no length at all is
+    // refused here rather than buffered — see declaresBodyWithin.
+    const bounded = await requestWithinLimit(request, MAX_AVATAR_BYTES * 1.1);
+    if (!bounded) {
       return apiError("api.imageTooLarge", 400);
     }
 
-    const formData = await request.formData();
+    const formData = await bounded.formData();
     const file = formData.get("file") as File | null;
     if (!file) {
       return apiError("api.fileRequired", 400);
@@ -76,7 +79,7 @@ export async function POST(request: NextRequest) {
 
     let out: Buffer;
     try {
-      out = await sharp(raw, { limitInputPixels: 268402689 })
+      out = await sharp(raw, { limitInputPixels: MAX_DECODED_PIXELS })
         // .rotate() bakes in the EXIF orientation; sharp drops all other
         // metadata by default, so camera GPS never reaches a public URL.
         .rotate()

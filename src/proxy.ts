@@ -112,6 +112,11 @@ function lockedResponse(request: NextRequest): NextResponse {
   return NextResponse.redirect(new URL(unlockPath(returnTo), request.url));
 }
 
+/** `path` is `prefix` itself, or sits under it — never merely starts with its letters. */
+function isUnderPrefix(path: string, prefix: string): boolean {
+  return path === prefix || path.startsWith(`${prefix}/`);
+}
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -138,14 +143,18 @@ export async function proxy(request: NextRequest) {
     return new NextResponse(null, { status: 400 });
   }
 
-  // Allow static assets and Next.js internals
+  // Allow static assets and Next.js internals. Each prefix ends at a path
+  // separator (or is the whole path): a bare startsWith("/banks") would wave
+  // through anything merely *beginning* with those letters — /banks-admin,
+  // /iconset — and route-level auth is the only thing behind it.
   if (
-    pathname.startsWith("/_next") ||
-    pathname.startsWith("/favicon") ||
-    pathname.startsWith("/icons") ||
+    isUnderPrefix(pathname, "/_next") ||
+    // A file, not a directory: /favicon.ico, /favicon-32.png.
+    /^\/favicon[-.][\w.-]+$/.test(pathname) ||
+    isUnderPrefix(pathname, "/icons") ||
     // The image optimizer refetches these server-side without cookies; a
     // redirect to /login makes it report "not a valid image".
-    pathname.startsWith("/banks")
+    isUnderPrefix(pathname, "/banks")
   ) {
     return NextResponse.next();
   }

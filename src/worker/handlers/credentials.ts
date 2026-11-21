@@ -38,9 +38,22 @@ export const generateCredentialHandler: Handler<"bank.generate_credential"> = as
   const now = new Date().toISOString();
   await db.transaction(async (tx) => {
     if (existing) {
-      await tx
+      // The status is re-asserted in the DELETE, not trusted from the read
+      // above: between that read and this transaction the credential may have
+      // been verified, and deleting a verified one drops a key whose consents
+      // are still live at the bank. No row deleted means it changed under us.
+      const deleted = await tx
         .delete(bankCredentials)
-        .where(and(eq(bankCredentials.id, existing.id), eq(bankCredentials.userId, ctx.userId)));
+        .where(
+          and(
+            eq(bankCredentials.id, existing.id),
+            eq(bankCredentials.userId, ctx.userId),
+            eq(bankCredentials.status, existing.status),
+          ),
+        );
+      if (deleted.rowsAffected === 0) {
+        throw bug("invalid_payload", "A credential in use exists; delete it first");
+      }
     }
     await tx.insert(bankCredentials).values({
       id,

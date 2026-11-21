@@ -50,4 +50,42 @@ describe("scrubEvent", () => {
     expect(out.attributes["http.request.header.user-agent"]).toBe("ok");
     expect(out.attributes["server.address"]).toBe("api.enablebanking.com");
   });
+  it("redacts app-wide secret names, hyphenated and x- prefixed alike", () => {
+    // The dotted-key match above and the widened name list meet here: a header
+    // spelled `x-api-key` arrives as the last segment of a span attribute, and
+    // the same secret is `api_key` in a JSON body. Both have to go.
+    const span: { attributes: Record<string, unknown> } = {
+      attributes: {
+        "http.request.header.x-api-key": "sk-live-1",
+        "http.request.header.x-reset-token": "live-token",
+        "http.request.body.password": "hunter2",
+        "db.statement.api_key": "sk-live-2",
+        "http.request.header.user-agent": "ok",
+        "server.address": "api.example.com",
+        "http.response.status_code": 500,
+      },
+    };
+    const out = scrubEvent(span);
+    for (const key of [
+      "http.request.header.x-api-key",
+      "http.request.header.x-reset-token",
+      "http.request.body.password",
+      "db.statement.api_key",
+    ]) {
+      expect(out.attributes[key]).toBe("[redacted]");
+    }
+    expect(JSON.stringify(out)).not.toMatch(/sk-live-1|sk-live-2|live-token|hunter2/);
+    // Everything that makes a trace worth reading survives.
+    expect(out.attributes["http.request.header.user-agent"]).toBe("ok");
+    expect(out.attributes["server.address"]).toBe("api.example.com");
+    expect(out.attributes["http.response.status_code"]).toBe(500);
+  });
+
+  it("drops objects past the depth cutoff instead of passing them through", () => {
+    // Without this the subtree was returned as it was: a secret nested deeply
+    // enough rode out to Sentry unscrubbed.
+    let deep: Record<string, unknown> = { password: "hunter2" };
+    for (let i = 0; i < 12; i++) deep = { nested: deep };
+    expect(JSON.stringify(scrubEvent(deep))).not.toMatch(/hunter2/);
+  });
 });

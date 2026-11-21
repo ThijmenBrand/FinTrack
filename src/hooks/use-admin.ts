@@ -65,7 +65,8 @@ export function useUpdateUser() {
 export function useDeleteUser() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => apiFetch(`/api/admin/users?id=${id}`, { method: "DELETE" }),
+    mutationFn: (id: string) =>
+      apiFetch(`/api/admin/users?id=${encodeURIComponent(id)}`, { method: "DELETE" }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["admin-users"] }); },
   });
 }

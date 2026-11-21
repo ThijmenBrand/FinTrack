@@ -7,6 +7,9 @@ import { commitImport, type CommitTransaction, type NewRule } from "@/lib/import
 
 // Backstop against unbounded request bodies — a real bank CSV is far smaller.
 const MAX_IMPORT_ROWS = 5000;
+// One rule per distinct merchant in a statement, at the very most. The rows
+// are capped above; this is the other array the body carries.
+const MAX_NEW_RULES = 500;
 
 interface CommitRequest {
   accountId: string;
@@ -32,6 +35,9 @@ export async function POST(request: NextRequest) {
     }
     if (txList.length > MAX_IMPORT_ROWS) {
       return apiError("api.tooManyTransactions", 400, { max: MAX_IMPORT_ROWS });
+    }
+    if (Array.isArray(newRules) && newRules.length > MAX_NEW_RULES) {
+      return apiError("api.tooManyRules", 400, { max: MAX_NEW_RULES });
     }
 
     // Write access to the target account — 404 if the caller can't see it,

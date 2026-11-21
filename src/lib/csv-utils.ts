@@ -491,7 +491,19 @@ export function splitNameAndDescription(
  * E.g. "AH Strijp 8616 >EINDHOVEN25.02.2026..." → "AH Strijp"
  * E.g. "PayPal Europe S.a.r.l..." → "PayPal Europe S.a.r.l..."
  */
+/** Biggest CSV body accepted for preview or import. */
+export const MAX_CSV_BYTES = 10 * 1024 * 1024;
+
+/** How much of a description extractPattern will look at. See the note there. */
+const MAX_PATTERN_SOURCE_LENGTH = 200;
+
 export function extractPattern(description: string): string {
+  // Bounded before any regex touches it. `\s+\d+\s*$` backtracks across a run
+  // of whitespace from every starting position when the tail doesn't match —
+  // quadratic in the length of the run — and a CSV description arrives at
+  // whatever length the file gave it. A pattern is a few words; a couple of
+  // hundred characters is far more than one needs, and caps the work.
+  description = description.slice(0, MAX_PATTERN_SOURCE_LENGTH);
   // For BEA (card) transactions: get text before ">"
   const beforeArrow = description.split(">")[0]?.trim();
   if (beforeArrow && beforeArrow.length < description.length) {

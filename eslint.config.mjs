@@ -78,9 +78,12 @@ export default tseslint.config(
     },
   },
   {
+    // These may reach for adminDb — that is the point of the exception. They
+    // may NOT import the worker: turning the rule "off" dropped both bans at
+    // once, so the patterns are restated here without the adminDb paths.
     files: ["src/app/api/admin/**", "src/db/**", "src/lib/audit.ts"],
     rules: {
-      "no-restricted-imports": "off",
+      "no-restricted-imports": ["error", { patterns: WORKER_PATTERNS }],
     },
   },
   {
