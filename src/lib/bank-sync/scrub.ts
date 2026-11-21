@@ -31,8 +31,32 @@ export function scrubText(value: string): string {
   return out;
 }
 
+/**
+ * Matched against a whole key and against the last dot-separated segment of
+ * one. SDK v11 moved request data onto dotted span attributes
+ * (`http.request.header.authorization`, `url.query`), so an anchored
+ * whole-key test alone would no longer catch them. `dataCollection` already
+ * stops these categories at the source; this is the second layer.
+ *
+ * The list past `psu-user-agent` is that second layer doing its job: the
+ * original names covered what the bank API sends us, not what the rest of the
+ * app carries. A reset or invite `token`, an `api_key`, a `password` in a
+ * failed-request body — all of them reached Sentry under their own names.
+ *
+ * Separators are `[-_]?` and `x-` is optional because the same name arrives
+ * spelled both ways: `api_key` in a JSON body, `x-api-key` as a header — and
+ * since v11 that header is a dotted attribute segment, matched by the last
+ * segment above. Over-matching here costs a redacted field in a trace; under-
+ * matching costs the secret.
+ */
 const SENSITIVE_KEYS =
-  /^(authorization|cookie|set-cookie|code|state|session_?id|private_?key|certificate|psu-ip-address|psu-user-agent|(access|refresh|id|api|auth|bearer|csrf|invite|reset|verification)_?token|token|secret|(client|app)_?secret|password|passwd|pwd|passphrase|api_?key|credential(s)?|signature|kek|dek)$/i;
+  /^(x-)?(authorization|cookie|set-cookie|code|state|session[-_]?id|private[-_]?key|certificate|psu-ip-address|psu-user-agent|(access|refresh|id|api|auth|bearer|csrf|invite|reset|verification)[-_]?token|token|secret|(client|app)[-_]?secret|password|passwd|pwd|passphrase|api[-_]?key|credential(s)?|signature|kek|dek)$/i;
+
+function isSensitiveKey(key: string): boolean {
+  if (SENSITIVE_KEYS.test(key)) return true;
+  const lastSegment = key.slice(key.lastIndexOf(".") + 1);
+  return lastSegment !== key && SENSITIVE_KEYS.test(lastSegment);
+}
 
 function scrubValue(value: unknown, depth: number, seen: WeakSet<object>): unknown {
   if (typeof value === "string") return scrubText(value);
@@ -50,7 +74,7 @@ function scrubValue(value: unknown, depth: number, seen: WeakSet<object>): unkno
   }
   const obj = value as Record<string, unknown>;
   for (const key of Object.keys(obj)) {
-    obj[key] = SENSITIVE_KEYS.test(key) ? "[redacted]" : scrubValue(obj[key], depth + 1, seen);
+    obj[key] = isSensitiveKey(key) ? "[redacted]" : scrubValue(obj[key], depth + 1, seen);
   }
   return obj;
 }
