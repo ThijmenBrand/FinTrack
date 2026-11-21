@@ -1,5 +1,14 @@
 name: deploy
 
+# Third-party actions are pinned by commit digest, with the release they were
+# at in the trailing comment. A tag like v5 is mutable: whoever controls the
+# repo can repoint it at any commit, and that commit runs here with our
+# secrets. The digest is the only immutable reference GitHub offers.
+#
+# To bump one, resolve the tag and take the sha it prints — don't hand-copy:
+#   gh api repos/<owner>/<repo>/commits/<tag> --jq .sha
+
+
 on:
   push:
     branches: [main]
@@ -17,9 +26,9 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: "24"
           cache: "pnpm"
@@ -35,11 +44,11 @@ jobs:
     outputs:
       image: ${{ steps.ref.outputs.image }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -51,7 +60,7 @@ jobs:
 
       - name: Build and push
         id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           platforms: linux/amd64        # Netcup VPS is x86_64
