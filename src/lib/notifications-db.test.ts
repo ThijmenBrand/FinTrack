@@ -20,12 +20,10 @@ vi.mock("web-push", () => {
   }
   return {
     WebPushError,
-    default: {
-      sendNotification: async (sub: { endpoint: string }, body: string) => {
-        if (gone.has(sub.endpoint)) throw new WebPushError(410);
-        pushed.push({ endpoint: sub.endpoint, payload: JSON.parse(body) });
-        return { statusCode: 201 };
-      },
+    sendNotification: async (sub: { endpoint: string }, body: string) => {
+      if (gone.has(sub.endpoint)) throw new WebPushError(410);
+      pushed.push({ endpoint: sub.endpoint, payload: JSON.parse(body) });
+      return { statusCode: 201 };
     },
   };
 });

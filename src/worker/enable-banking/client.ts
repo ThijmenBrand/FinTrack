@@ -226,6 +226,17 @@ export function classifyHttpError(
   if (res.status >= 500 || res.status === 408) {
     return retry("provider_unavailable", `Enable Banking returned ${res.status}`);
   }
+  // Enable Banking's pass-through for "the bank itself failed": it answers
+  // 400 ASPSP_ERROR when the ASPSP's own API errored or sent something it
+  // can't map. That is not a request we got wrong — it clears on its own, so
+  // one bank-side wobble must not dead-letter the sync and page someone at
+  // midnight. Retried with backoff (1 m, 5 m, 30 m, 2 h, 6 h) it still
+  // dead-letters if it really persists, and it is gentler on the bank's
+  // unattended quota than dead-lettering: a dead job leaves `lastSyncedAt`
+  // untouched, so the scheduler re-queues the link every 15 minutes instead.
+  if (/ASPSP_ERROR|UNAVAILABLE/.test(code)) {
+    return retry("provider_unavailable", `Enable Banking returned ${res.status} (${code})`);
+  }
   // Remaining 4xx: we sent something the provider didn't accept. A bug.
   return bug("invalid_response", `Enable Banking returned ${res.status}${code ? ` (${code})` : ""}`);
 }

@@ -39,7 +39,7 @@ describe("toIsoDate", () => {
   });
 
   it("uses local components, not UTC conversion", () => {
-    // TZ=UTC in vitest.config.ts, so local === UTC here; this documents that
+    // TZ=UTC in vitest.config.mts, so local === UTC here; this documents that
     // the function reads getFullYear/getMonth/getDate rather than toISOString.
     const d = new Date(2026, 5, 15, 23, 59, 59);
     expect(toIsoDate(d)).toBe("2026-06-15");

@@ -125,9 +125,22 @@ export async function proxy(request: NextRequest) {
   // this it is answered with a redirect to /login, /unlock or /backoffice —
   // signed out, idle-locked, or signed in as an admin — and every error and
   // log the browser tried to report is lost. Nothing of ours sits behind the
-  // path; the rewrite forwards straight to Sentry's ingest endpoint.
+  // path; the rewrite forwards straight to Sentry's ingest endpoint. First of
+  // all, so nothing added below can ever swallow the browser's only way of
+  // telling us something broke.
   if (isSentryTunnelPath(pathname)) {
     return NextResponse.next();
+  }
+
+  // FinTrack has no Server Actions — every mutation goes through /api/, where
+  // the Origin check below applies. A request carrying `Next-Action` is
+  // therefore never ours: it is a scanner replaying action ids, and letting it
+  // through only reaches Next's action router (which answers 400 and logs a
+  // stack trace) on a path the Origin check does not cover. Refuse it here.
+  // If a Server Action is ever added, this has to go — and the Origin check
+  // has to grow to cover page paths.
+  if (request.headers.has("next-action")) {
+    return new NextResponse(null, { status: 400 });
   }
 
   // Allow static assets and Next.js internals. Each prefix ends at a path
