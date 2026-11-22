@@ -7,9 +7,10 @@
  * about a different thing:
  *
  *   value         steps. It is only known on the days someone wrote a figure
- *                 down, and is carried forward in between — never interpolated,
- *                 because a straight line between two statements would invent
- *                 daily movement nobody observed.
+ *                 down, and is carried forward in between — the stored series
+ *                 never invents a figure for a day nobody valued. (The chart
+ *                 draws a smooth curve THROUGH the recorded figures, which is
+ *                 a drawing decision; it does not change what is here.)
  *   contributed   accumulates. It comes from the ledger's own transfer legs,
  *                 so it is exact on every day it changes.
  *

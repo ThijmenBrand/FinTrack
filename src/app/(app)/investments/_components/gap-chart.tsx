@@ -15,10 +15,12 @@ import type { SeriesPoint } from "@/lib/investment-series";
  * from your own deposits makes the claim checkable against a number the ledger
  * already knows. Green when value is ahead, red when it is behind.
  *
- * Both series are step functions and are drawn as steps. Value is only known
- * on the days someone wrote a figure down — those get a dot — and is carried
- * flat in between rather than sloped, because a slope would invent daily
- * movement nobody observed.
+ * Contributions are drawn as steps: a deposit lands on one day, and sloping
+ * into it would show money arriving before it did. Value is drawn as a smooth
+ * curve through the figures that were actually recorded — each of those keeps
+ * its dot, so what was observed stays distinguishable from the line drawn
+ * between. The curve is monotone, so it never bulges past the figures either
+ * side of it; see `smoothPath`.
  */
 
 const H_DESKTOP = 300;
@@ -80,6 +82,78 @@ function ticks(min: number, max: number, count = 4): number[] {
     if (v >= min - step / 2) out.push(v);
   }
   return out;
+}
+
+/** Two decimals is already below a pixel; more just bloats the path string. */
+const r = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * A smooth curve through the points, using monotone cubic interpolation
+ * (Fritsch–Carlson).
+ *
+ * The plain cubic spline every charting library reaches for overshoots: after
+ * a jump it swings past both ends of the segment, drawing a portfolio value
+ * that was never reached — on a chart whose whole claim is "this is what you
+ * had", that is a lie the curve tells for the sake of looking nice. Monotone
+ * tangents keep every segment between the two figures that bound it, so the
+ * smoothing only ever decides HOW the line travels between two recorded
+ * numbers, never how far.
+ */
+export function smoothPath(pts: { x: number; y: number }[]): string {
+  if (pts.length === 0) return "";
+  if (pts.length === 1) return `M ${r(pts[0].x)} ${r(pts[0].y)}`;
+
+  const n = pts.length;
+  const dx: number[] = [];
+  const slope: number[] = [];
+  for (let i = 0; i < n - 1; i++) {
+    const h = pts[i + 1].x - pts[i].x;
+    dx.push(h);
+    slope.push(h === 0 ? 0 : (pts[i + 1].y - pts[i].y) / h);
+  }
+
+  // Tangents: the average of the neighbouring slopes, but flat at a turning
+  // point — a tangent through a peak is what makes a spline overshoot it.
+  const m: number[] = new Array(n);
+  m[0] = slope[0];
+  m[n - 1] = slope[n - 2];
+  for (let i = 1; i < n - 1; i++) {
+    m[i] = slope[i - 1] * slope[i] <= 0 ? 0 : (slope[i - 1] + slope[i]) / 2;
+  }
+
+  // Fritsch–Carlson: pull any tangent back inside the circle of radius 3, which
+  // is the condition for the segment to stay monotone.
+  for (let i = 0; i < n - 1; i++) {
+    if (slope[i] === 0) {
+      m[i] = 0;
+      m[i + 1] = 0;
+      continue;
+    }
+    const a = m[i] / slope[i];
+    const b = m[i + 1] / slope[i];
+    const sq = a * a + b * b;
+    if (sq > 9) {
+      const tau = 3 / Math.sqrt(sq);
+      m[i] = tau * a * slope[i];
+      m[i + 1] = tau * b * slope[i];
+    }
+  }
+
+  let d = `M ${r(pts[0].x)} ${r(pts[0].y)}`;
+  for (let i = 0; i < n - 1; i++) {
+    const h = dx[i];
+    // Two figures on the same day have no segment to curve through.
+    if (h <= 0) {
+      d += ` L ${r(pts[i + 1].x)} ${r(pts[i + 1].y)}`;
+      continue;
+    }
+    const c1x = pts[i].x + h / 3;
+    const c1y = pts[i].y + (m[i] * h) / 3;
+    const c2x = pts[i + 1].x - h / 3;
+    const c2y = pts[i + 1].y - (m[i + 1] * h) / 3;
+    d += ` C ${r(c1x)} ${r(c1y)}, ${r(c2x)} ${r(c2y)}, ${r(pts[i + 1].x)} ${r(pts[i + 1].y)}`;
+  }
+  return d;
 }
 
 interface Props {
@@ -154,7 +228,10 @@ export function GapChart({ points, valuationDates }: Props) {
 
   const { x, y, gridValues } = geometry;
 
-  /** Step path: hold the previous value until the next date, then jump. */
+  /**
+   * Step path: hold the previous value until the next date, then jump. Used
+   * for contributions, where the jump is the event.
+   */
   const stepPath = (pts: { date: string; v: number }[]) => {
     if (pts.length === 0) return "";
     let d = `M ${x(pts[0].date)} ${y(pts[0].v)}`;
@@ -165,30 +242,48 @@ export function GapChart({ points, valuationDates }: Props) {
   };
 
   const contributionPts = slice.map((p) => ({ date: p.date, v: p.contributed }));
-  // Carried forward through the window so the band has a value on every date
-  // the deposits move, not only on the days a figure was written.
-  const valuePts: { date: string; v: number }[] = [];
-  let carried: number | null = null;
-  for (const p of slice) {
-    if (p.value !== null) carried = p.value;
-    if (carried !== null) valuePts.push({ date: p.date, v: carried });
-  }
 
-  /** The band: value line out, contributions line back. */
+  /**
+   * The value curve's own points: the days a figure was recorded, plus the two
+   * window edges so the line spans the chart.
+   *
+   * Deliberately NOT every sample date. The series carries the last figure
+   * forward onto each deposit date, and curving through those carried copies
+   * would draw a staircase with rounded corners — a shape that looks like
+   * movement on days nothing was observed, which is the opposite of what the
+   * smoothing is for. The edges are carried values too, so the curve opens and
+   * closes flat rather than inventing a trend beyond the outermost figure.
+   */
+  const valuePts = useMemo(() => {
+    const out: { date: string; v: number }[] = [];
+    slice.forEach((p, i) => {
+      if (p.value === null) return;
+      if (valuationDateSet.has(p.date) || i === 0 || i === slice.length - 1) {
+        out.push({ date: p.date, v: p.value });
+      }
+    });
+    return out;
+  }, [slice, valuationDateSet]);
+
+  const valuePath = useMemo(
+    () => smoothPath(valuePts.map((p) => ({ x: x(p.date), y: y(p.v) }))),
+    [valuePts, x, y],
+  );
+
+  /** The band: value curve out, contributions steps back. */
   const bandPath = useMemo(() => {
     if (valuePts.length < 2) return "";
     const from = valuePts[0].date;
     const back = contributionPts.filter((p) => p.date >= from);
     if (back.length < 2) return "";
-    let d = stepPath(valuePts);
+    let d = valuePath;
     const reversed = [...back].reverse();
     d += ` L ${x(reversed[0].date)} ${y(reversed[0].v)}`;
     for (let i = 1; i < reversed.length; i++) {
       d += ` L ${x(reversed[i].date)} ${y(reversed[i - 1].v)} L ${x(reversed[i].date)} ${y(reversed[i].v)}`;
     }
     return `${d} Z`;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [valuePts, contributionPts, x, y]);
+  }, [valuePath, valuePts, contributionPts, x, y]);
 
   const lastValued = [...slice].reverse().find((p) => p.value !== null);
   const latestGain =
@@ -311,14 +406,15 @@ export function GapChart({ points, valuationDates }: Props) {
               strokeWidth={1.5}
             />
             <path
-              d={stepPath(valuePts)}
+              d={valuePath}
               fill="none"
               stroke={bandColor}
               strokeWidth={2}
               strokeLinejoin="round"
+              strokeLinecap="round"
             />
-            {/* Dots only where a figure was actually recorded — the rest of
-                the line is carried forward, and shouldn't look observed. */}
+            {/* Dots only where a figure was actually recorded — the curve
+                between them is drawn, not observed. */}
             {slice
               .filter((p) => p.value !== null && valuationDateSet.has(p.date))
               .map((p) => (
