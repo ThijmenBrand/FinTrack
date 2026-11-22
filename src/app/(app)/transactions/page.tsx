@@ -56,6 +56,7 @@ import { TransactionRow, PotRow } from "./_components/transaction-row";
 import {
   TransactionContextMenu,
   TransactionNoteDialog,
+  TransactionTagDialog,
   type ContextMenuState,
 } from "./_components/transaction-context-menu";
 import { TransactionTotals } from "./_components/transaction-totals";
@@ -134,6 +135,7 @@ function TransactionsPage() {
   const [addToPotTx, setAddToPotTx] = useState<Transaction | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [noteTx, setNoteTx] = useState<Transaction | null>(null);
+  const [newTagTx, setNewTagTx] = useState<Transaction | null>(null);
   const [splitEditorOpen, setSplitEditorOpen] = useState(false);
 
   // Bulk selection state
@@ -926,6 +928,7 @@ function TransactionsPage() {
         onFilterByAccount={
           accountFilter === "all" ? (tx) => applyFilter("account", tx.accountId) : undefined
         }
+        onNewTag={setNewTagTx}
         onSplit={(tx) => {
           setSelectedTransaction(tx);
           setSplitEditorOpen(true);
@@ -938,6 +941,11 @@ function TransactionsPage() {
       {/* Note Editor Dialog */}
       {noteTx && (
         <TransactionNoteDialog tx={noteTx} onClose={() => setNoteTx(null)} />
+      )}
+
+      {/* New Tag Dialog */}
+      {newTagTx && (
+        <TransactionTagDialog tx={newTagTx} onClose={() => setNewTagTx(null)} />
       )}
 
       {/* CSV Upload Dialog */}

@@ -3,6 +3,7 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { admin, twoFactor } from "better-auth/plugins";
 import { passkey } from "@better-auth/passkey";
+import { AUTH_COOKIE_PREFIX } from "@/lib/auth-cookie-prefix";
 import { db } from "@/db/index";
 import * as schema from "@/db/schema";
 import { eq } from "drizzle-orm";
@@ -70,6 +71,11 @@ export const auth = betterAuth({
   baseURL: getBaseURL(),
   appName: "FinTrack",
   trustedOrigins: [getBaseURL()],
+  advanced: {
+    // Per-checkout cookie names, so two local dev servers on localhost don't
+    // evict each other's session — see @/lib/auth-cookie-prefix.
+    cookiePrefix: AUTH_COOKIE_PREFIX,
+  },
   plugins: [
     admin(),
     passkey({ rpName: "FinTrack" }),

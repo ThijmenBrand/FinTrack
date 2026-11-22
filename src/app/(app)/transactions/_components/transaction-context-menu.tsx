@@ -20,6 +20,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   StickyNote,
@@ -30,13 +31,22 @@ import {
   Tag,
   Check,
   Filter,
+  Hash,
+  Plus,
   Search,
   Split,
   Wallet,
 } from "lucide-react";
 import { useCategorizeTransaction, useUpdateTransactionNotes } from "@/hooks/use-transactions";
+import {
+  useAddTransactionTag,
+  useCreateTag,
+  useRemoveTransactionTag,
+  useTags,
+} from "@/hooks/use-tags";
 import { bandByPlan, usePlanCategoryIds } from "@/components/category-picker";
-import { MAX_NOTE_LENGTH, sanitizeNote } from "@/lib/validation";
+import { useResetOnChange } from "@/hooks/use-reset-on-change";
+import { MAX_NOTE_LENGTH, MAX_USERNAME_LENGTH, sanitizeNote } from "@/lib/validation";
 import type { Transaction, Category } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
 
@@ -60,6 +70,8 @@ interface TransactionContextMenuProps {
   /** Unset while the list is already narrowed to accounts — adding one more
    *  would widen it, not filter it. */
   onFilterByAccount?: (tx: Transaction) => void;
+  /** Opens the name-it dialog for a tag that doesn't exist yet. */
+  onNewTag: (tx: Transaction) => void;
   /** Opens the detail dialog with the split editor active — new split or edit. */
   onSplit: (tx: Transaction) => void;
   onUnsplit: (tx: Transaction) => void;
@@ -90,6 +102,7 @@ export function TransactionContextMenu({
   onFilterByCategory,
   onFilterByName,
   onFilterByAccount,
+  onNewTag,
   onSplit,
   onUnsplit,
 }: TransactionContextMenuProps) {
@@ -101,6 +114,32 @@ export function TransactionContextMenu({
   // the row's own category control is one click away for search and create.
   const planIds = usePlanCategoryIds(tx?.accountId, { enabled: !!tx });
   const { inPlan, rest, banded } = bandByPlan(categories, planIds);
+
+  // Tags live beside the category: the row's ACCOUNT OWNER's vocabulary, same
+  // as the detail dialog's picker offers.
+  const { data: availableTags = [] } = useTags(tx?.accountId, { enabled: !!tx });
+  const addTag = useAddTransactionTag();
+  const removeTag = useRemoveTransactionTag();
+  // Several tags in one visit, so the submenu stays open on a pick — and the
+  // ticks come from here, since `menu.tx` is a snapshot taken at right-click
+  // time and never hears about the writes.
+  const [tagIds, setTagIds] = useState<string[]>([]);
+  useResetOnChange(tx?.id, () => setTagIds((tx?.tags ?? []).map((tag) => tag.id)));
+
+  const toggleTag = (tagId: string) => {
+    if (!tx) return;
+    const on = tagIds.includes(tagId);
+    // The tick moves first and goes back if the write doesn't land, so the
+    // list never claims a tag the row hasn't got.
+    setTagIds((ids) => (on ? ids.filter((id) => id !== tagId) : [...ids, tagId]));
+    const undo = (err: unknown) => {
+      console.error("Failed to change tag:", err);
+      setTagIds((ids) => (on ? [...ids, tagId] : ids.filter((id) => id !== tagId)));
+    };
+    const vars = { transactionId: tx.id, tagId };
+    if (on) removeTag.mutate(vars, { onError: undo });
+    else addTag.mutate(vars, { onError: undo });
+  };
 
   return (
     <DropdownMenu open={!!menu} onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -133,9 +172,9 @@ export function TransactionContextMenu({
               {t("tx.menu.filterByCategory")}
             </DropdownMenuItem>
           )}
+          <DropdownMenuSeparator />
           {!tx.isSplitParent && (
             <>
-              <DropdownMenuSeparator />
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
                   <Tag />
@@ -182,6 +221,38 @@ export function TransactionContextMenu({
                   )}
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
+            </>
+          )}
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <Hash />
+              {t("tags.label")}
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="max-h-72 overflow-y-auto">
+              {availableTags.map((tag) => (
+                <DropdownMenuItem
+                  key={tag.id}
+                  // The menu would close on a pick, and tagging is rarely one
+                  // tag: hold it open and let the ticks answer.
+                  onSelect={(e) => {
+                    e.preventDefault();
+                    toggleTag(tag.id);
+                  }}
+                >
+                  <Hash className="opacity-60" />
+                  <span className="truncate">{tag.name}</span>
+                  {tagIds.includes(tag.id) && <Check className="ml-auto" />}
+                </DropdownMenuItem>
+              ))}
+              {availableTags.length > 0 && <DropdownMenuSeparator />}
+              <DropdownMenuItem onSelect={() => onNewTag(tx)}>
+                <Plus />
+                {t("tx.menu.newTag")}
+              </DropdownMenuItem>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+          {!tx.isSplitParent && (
+            <>
               {!tx.groupId ? (
                 <DropdownMenuItem onSelect={() => onAddToPot(tx)}>
                   <Package />
@@ -289,6 +360,72 @@ export function TransactionNoteDialog({ tx, onClose }: TransactionNoteDialogProp
             {t("common.cancel")}
           </Button>
           <Button onClick={save}>{t("common.save")}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+interface TransactionTagDialogProps {
+  tx: Transaction;
+  onClose: () => void;
+}
+
+/**
+ * Name a tag that doesn't exist yet and put it on the row in one gesture,
+ * for the right-click menu — whose submenu can tick an existing tag but has
+ * nowhere to type a new one.
+ */
+export function TransactionTagDialog({ tx, onClose }: TransactionTagDialogProps) {
+  const { t } = useI18n();
+  const [name, setName] = useState("");
+  // A tag made on a shared row belongs to the account's OWNER, or the row
+  // couldn't carry it.
+  const createTag = useCreateTag(tx.accountId);
+  const addTag = useAddTransactionTag();
+  const trimmed = name.trim();
+
+  const save = async () => {
+    if (!trimmed || createTag.isPending) return;
+    try {
+      // The id is ours so the tag can go on the row without a second round
+      // trip; a name that already exists comes back as the existing tag.
+      const created = await createTag.mutateAsync({ id: crypto.randomUUID(), name: trimmed });
+      addTag.mutate({ transactionId: tx.id, tagId: created.id });
+    } catch (err) {
+      console.error("Failed to create tag:", err);
+    }
+    onClose();
+  };
+
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="truncate">
+            {t("tags.newTitle", { name: tx.name || tx.description })}
+          </DialogTitle>
+        </DialogHeader>
+        <Input
+          autoFocus
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              save();
+            }
+          }}
+          maxLength={MAX_USERNAME_LENGTH}
+          placeholder={t("tags.namePlaceholder")}
+        />
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+          <Button onClick={save} disabled={!trimmed || createTag.isPending}>
+            {t("common.create")}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
