@@ -15,19 +15,23 @@ export function useInsights(params: {
   /** Preceding period of equal length; when set, the API returns `previous` totals for deltas. */
   prevDateFrom?: string;
   prevDateTo?: string;
+  /** Off while the view that needs this range is hidden (the comparison period). */
+  enabled?: boolean;
 }) {
+  const { enabled = true, ...query } = params;
   const searchParams = new URLSearchParams();
-  if (params.dateFrom) searchParams.set("dateFrom", params.dateFrom);
-  if (params.dateTo) searchParams.set("dateTo", params.dateTo);
-  if (params.accountId) searchParams.set("accountId", params.accountId);
-  if (params.budgetId) searchParams.set("budgetId", params.budgetId);
-  if (params.prevDateFrom) searchParams.set("prevDateFrom", params.prevDateFrom);
-  if (params.prevDateTo) searchParams.set("prevDateTo", params.prevDateTo);
+  if (query.dateFrom) searchParams.set("dateFrom", query.dateFrom);
+  if (query.dateTo) searchParams.set("dateTo", query.dateTo);
+  if (query.accountId) searchParams.set("accountId", query.accountId);
+  if (query.budgetId) searchParams.set("budgetId", query.budgetId);
+  if (query.prevDateFrom) searchParams.set("prevDateFrom", query.prevDateFrom);
+  if (query.prevDateTo) searchParams.set("prevDateTo", query.prevDateTo);
 
   return useQuery({
-    queryKey: ["insights", params],
+    queryKey: ["insights", query],
     queryFn: () => apiFetch<InsightsData>(`/api/insights?${searchParams}`),
     staleTime: 2 * 60 * 1000,
+    enabled,
   });
 }
 
