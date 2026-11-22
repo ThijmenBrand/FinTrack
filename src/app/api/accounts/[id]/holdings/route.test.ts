@@ -479,3 +479,129 @@ describe("deleting a trade", () => {
     expect((await del("broker", "nope")).status).toBe(404);
   });
 });
+
+/**
+ * The repair path for a holding that claims to have cost nothing.
+ *
+ * Rows like these predate the rule that a buy must carry a price, so the
+ * endpoint has to both refuse new ones and let the old ones be corrected —
+ * and correcting one has to move the cost, the cash and the account's whole
+ * valuation history with it.
+ */
+describe("a trade with no price", () => {
+  async function patch(accountId: string, tradeId: string, body: Record<string, unknown>) {
+    const { PATCH } = await import("./[tradeId]/route");
+    const res = await PATCH(
+      new Request("http://t", { method: "PATCH", body: JSON.stringify(body) }) as never,
+      { params: Promise.resolve({ id: accountId, tradeId }) },
+    );
+    return { status: res.status, body: (await res.json()) as HoldingRow[] };
+  }
+
+  /** What the UI used to allow: units with no price, written straight in. */
+  async function legacyBuy(instrumentId: string, date: string, quantity: number) {
+    await testDb.client.execute({
+      sql: `INSERT INTO trades (id, user_id, account_id, instrument_id, date, type, quantity, unit_price, fee, created_at)
+            VALUES ('legacy', ?, 'broker', ?, ?, 'buy', ?, 0, 0, ?)`,
+      args: [USER, instrumentId, date, quantity, NOW],
+    });
+  }
+
+  async function deposit(date: string, amount: number) {
+    await testDb.client.execute({
+      sql: `INSERT INTO transactions (id, user_id, account_id, date, description, amount, type, created_at)
+            VALUES (?, ?, 'broker', ?, 'Deposit', ?, 'internal_transfer', ?)`,
+      args: [`dep-${date}-${amount}`, USER, date, amount, NOW],
+    });
+  }
+
+  it("is refused outright", async () => {
+    const res = await trade("broker", {
+      instrument: ETF,
+      type: "buy",
+      date: "2026-01-05",
+      quantity: 3,
+      fee: 1,
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("reports no cost and no return while it stands", async () => {
+    const seed = await trade("broker", {
+      instrument: ETF,
+      type: "buy",
+      date: "2026-01-05",
+      quantity: 1,
+      unitPrice: 130,
+    });
+    const instrumentId = seed.body[0].instrument.id;
+    await legacyBuy(instrumentId, "2026-01-06", 3);
+    await price("broker", { instrumentId, date: "2026-01-31", price: 120 });
+
+    const [held] = (await holdings("broker")).body;
+    expect(held.quantity).toBe(4);
+    expect(held.averagePrice).toBeNull();
+    expect(held.totalReturn).toBeNull();
+  });
+
+  it("leaves the uninvested deposit out of the value rather than guessing", async () => {
+    await deposit("2026-01-01", 448);
+    const seed = await trade("broker", {
+      instrument: ETF,
+      type: "buy",
+      date: "2026-01-05",
+      quantity: 1,
+      unitPrice: 130,
+    });
+    const instrumentId = seed.body[0].instrument.id;
+    await legacyBuy(instrumentId, "2026-01-06", 2);
+    await price("broker", { instrumentId, date: "2026-01-31", price: 120 });
+
+    // 3 units at 120. The 448 deposit cannot be split into spent and spare
+    // while one of the buys will not say what it cost, so none of it is
+    // claimed as cash.
+    expect((await accountValue()).value).toBe(360);
+  });
+
+  it("puts the cost, the cash and the history right once the price is filled in", async () => {
+    await deposit("2026-01-01", 448);
+    const seed = await trade("broker", {
+      instrument: ETF,
+      type: "buy",
+      date: "2026-01-05",
+      quantity: 1,
+      unitPrice: 130,
+    });
+    const instrumentId = seed.body[0].instrument.id;
+    await legacyBuy(instrumentId, "2026-01-06", 2);
+    await price("broker", { instrumentId, date: "2026-01-31", price: 120 });
+
+    const fixed = await patch("broker", "legacy", { unitPrice: 131 });
+    expect(fixed.status).toBe(200);
+
+    const [held] = fixed.body;
+    expect(held.quantity).toBe(3);
+    expect(held.costBasis).toBe(392);
+    expect(held.averagePrice).toBeCloseTo(130.667, 3);
+    expect(held.totalReturn).toBe(-32);
+
+    // 448 in, 392 spent, 56 still cash — beside 360 of fund.
+    expect((await accountValue()).value).toBe(416);
+  });
+
+  it("refuses a correction that would take the price back out", async () => {
+    const seed = await trade("broker", {
+      instrument: ETF,
+      type: "buy",
+      date: "2026-01-05",
+      quantity: 1,
+      unitPrice: 130,
+    });
+    const ids = await testDb.client.execute({
+      sql: `SELECT id FROM trades WHERE account_id = 'broker'`,
+    });
+    expect(seed.status).toBe(201);
+    const res = await patch("broker", ids.rows[0].id as string, { unitPrice: 0 });
+    expect(res.status).toBe(400);
+  });
+});

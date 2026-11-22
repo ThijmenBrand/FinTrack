@@ -40,7 +40,13 @@ export async function HoldingsTable({
   const closed = holdings.filter((h) => h.quantity === 0);
 
   const row = (h: Holding, isClosed: boolean) => {
-    const gain = isClosed ? h.realized + h.dividends : h.totalReturn;
+    // A trade with no price leaves nothing to measure against, so there is no
+    // return to show — not a zero, and certainly not the whole market value.
+    const gain = !h.costKnown
+      ? null
+      : isClosed
+        ? h.realized + h.dividends
+        : h.totalReturn;
     return (
       <tr key={h.instrumentId} className="border-b last:border-b-0">
         <td className="py-2.5 pr-3">

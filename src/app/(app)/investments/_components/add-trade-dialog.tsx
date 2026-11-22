@@ -175,6 +175,10 @@ export function AddTradeDialog({
       ? !isNew && price !== ""
       : (isNew ? name !== "" : true) &&
         (!needsQuantity || quantity !== "") &&
+        // A buy or sell has to say what it cost. Saving the units on their
+        // own records a holding that appears to have cost nothing, which
+        // reads back as a profit the size of the whole position.
+        (!needsQuantity || num(unitPrice) > 0) &&
         (type !== "fee" || fee !== "") &&
         (type !== "dividend" || unitPrice !== "");
 
@@ -385,6 +389,11 @@ export function AddTradeDialog({
                       value={unitPrice}
                       onChange={(e) => setUnitPrice(e.target.value)}
                     />
+                    {needsQuantity && (
+                      <p className="text-xs text-muted-foreground">
+                        {t("investments.trade.unitPriceHint")}
+                      </p>
+                    )}
                   </div>
                 )}
                 <div className="grid gap-2">

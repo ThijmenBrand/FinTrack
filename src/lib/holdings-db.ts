@@ -16,8 +16,8 @@ import {
   trades,
   type instruments as InstrumentsTable,
 } from "@/db/schema";
-import { and, asc, eq, inArray } from "drizzle-orm";
-import { transactions } from "@/db/schema";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { accounts, transactions } from "@/db/schema";
 import {
   cashAtBroker,
   derivePositions,
@@ -124,18 +124,137 @@ export async function getAccountHoldings(
     groupPrices(priceRows),
     asOf,
   );
-  return valued
-    .map((p) => ({
-      ...p,
-      accountId,
-      instrument: instrumentById.get(p.instrumentId)!,
-    }))
-    .filter((h) => h.instrument)
-    .sort((a, b) => {
-      // Open holdings first, biggest by value; closed ones trail behind.
-      if ((a.quantity > 0) !== (b.quantity > 0)) return a.quantity > 0 ? -1 : 1;
-      return (b.marketValue ?? 0) - (a.marketValue ?? 0);
-    });
+  return sortHoldings(
+    valued
+      .map((p) => ({
+        ...p,
+        accountId,
+        instrument: instrumentById.get(p.instrumentId)!,
+      }))
+      .filter((h) => h.instrument),
+  );
+}
+
+/** Open holdings first, biggest by value; closed ones trail behind. */
+function sortHoldings(holdings: Holding[]): Holding[] {
+  return [...holdings].sort((a, b) => {
+    if ((a.quantity > 0) !== (b.quantity > 0)) return a.quantity > 0 ? -1 : 1;
+    return (b.marketValue ?? 0) - (a.marketValue ?? 0);
+  });
+}
+
+export interface AccountPositions {
+  holdings: Holding[];
+  /** The holdings' market value, or 0 while none of them is priced. */
+  holdingsValue: number;
+  /**
+   * Deposited at the broker and not yet invested, or null when a trade with
+   * no price makes it unknowable. Part of what the account is worth.
+   */
+  cash: number | null;
+  /** Trades recorded without a price — what makes cost and cash unknown. */
+  unpricedTrades: number;
+}
+
+/**
+ * One account's holdings together with the cash beside them.
+ *
+ * The two travel together because they are the two halves of what a brokerage
+ * account is worth, and reading them apart is how a page ends up showing a
+ * value that its own parts do not add up to.
+ */
+export async function getAccountPositions(
+  db: typeof defaultDb,
+  ownerId: string,
+  accountId: string,
+  asOf: string = toIsoDate(new Date()),
+): Promise<AccountPositions> {
+  const [{ tradeRows, priceRows, instrumentById }, contributions] = await Promise.all([
+    loadAccountData(db, ownerId, accountId),
+    loadContributions(db, ownerId, accountId),
+  ]);
+  if (tradeRows.length === 0) {
+    return { holdings: [], holdingsValue: 0, cash: null, unpricedTrades: 0 };
+  }
+
+  const holdings = sortHoldings(
+    valuePositions(derivePositions(tradeRows), groupPrices(priceRows), asOf)
+      .map((p) => ({ ...p, accountId, instrument: instrumentById.get(p.instrumentId)! }))
+      .filter((h) => h.instrument),
+  );
+
+  return {
+    holdings,
+    holdingsValue: holdings.reduce(
+      (sum, h) => sum + (h.quantity > 0 ? (h.marketValue ?? 0) : 0),
+      0,
+    ),
+    cash: cashAtBroker(contributions, tradeRows, asOf),
+    unpricedTrades: tradeRows.filter(
+      (t) => (t.type === "buy" || t.type === "sell") && t.unitPrice <= 0,
+    ).length,
+  };
+}
+
+export interface TradeRecord {
+  id: string;
+  accountId: string;
+  accountName: string;
+  instrumentId: string;
+  instrumentName: string;
+  date: string;
+  type: "buy" | "sell" | "dividend" | "fee";
+  quantity: number;
+  unitPrice: number;
+  fee: number;
+}
+
+/**
+ * What was actually entered, newest first — the trades themselves rather than
+ * the positions derived from them.
+ *
+ * Positions cannot be corrected; the rows behind them can, so a mistyped buy
+ * needs somewhere to be seen before it can be fixed. Bounded, because this is
+ * a record to scan and correct, not a history to browse.
+ */
+export async function listTrades(
+  db: typeof defaultDb,
+  /** The accounts to read, each with the id of the user whose space they live in. */
+  scope: { id: string; ownerId: string }[],
+  limit = 100,
+): Promise<TradeRecord[]> {
+  if (scope.length === 0) return [];
+  const accountIds = scope.map((a) => a.id);
+  const ownerIds = [...new Set(scope.map((a) => a.ownerId))];
+  const rows = await db
+    .select({
+      id: trades.id,
+      accountId: trades.accountId,
+      accountName: accounts.name,
+      instrumentId: trades.instrumentId,
+      instrumentName: instruments.name,
+      date: trades.date,
+      type: trades.type,
+      quantity: trades.quantity,
+      unitPrice: trades.unitPrice,
+      fee: trades.fee,
+    })
+    .from(trades)
+    .innerJoin(instruments, eq(instruments.id, trades.instrumentId))
+    .innerJoin(accounts, eq(accounts.id, trades.accountId))
+    // Both halves, and on purpose. The accounts bound what is read; the owner
+    // ids are whose space those rows live in, which is not the reader on a
+    // shared account — filtering on the reader would drop exactly the trades a
+    // shared account exists to show.
+    .where(
+      and(
+        inArray(trades.userId, ownerIds),
+        inArray(trades.accountId, accountIds),
+      ),
+    )
+    .orderBy(desc(trades.date), desc(trades.createdAt))
+    .limit(limit);
+  return rows;
 }
 
 /**
@@ -303,7 +422,13 @@ export async function recomputeAccountValuations(
       // What the account is worth is what it holds PLUS what has arrived and
       // not been invested. Counting only the holdings makes a monthly-deposit,
       // quarterly-buy habit read as a steady loss.
-      value: holdingsValue + cashAtBroker(contributions, upTo, date),
+      //
+      // Null cash means a trade was recorded without a price, so how much of
+      // the deposits is still cash cannot be worked out. The holdings are
+      // still worth what they are worth, so the figure stands on them alone —
+      // understated, and the page says why rather than letting the gap pass
+      // as a loss.
+      value: holdingsValue + (cashAtBroker(contributions, upTo, date) ?? 0),
     });
   }
 

@@ -276,3 +276,87 @@ describe("cashAtBroker", () => {
     expect(cashAtBroker(paid, [charge("2026-01-20", 15)], "2026-01-31")).toBe(385);
   });
 });
+
+/**
+ * A buy with no price is the one gap that bends every figure at once: the
+ * position looks free, so its whole market value reads as profit, and the
+ * money that bought it looks like it is still sitting at the broker.
+ */
+describe("a trade recorded without a price", () => {
+  const priced = [{ date: "2026-01-10", price: 120 }];
+  const prices = new Map([["etf", priced]]);
+
+  it("leaves the cost unknown rather than calling it zero", () => {
+    const p = one([buy("2026-01-01", 3, 0)]);
+    expect(p.quantity).toBe(3);
+    expect(p.costKnown).toBe(false);
+    expect(p.averagePrice).toBeNull();
+  });
+
+  it("reports no return instead of the whole market value as profit", () => {
+    const [v] = valuePositions(
+      derivePositions([buy("2026-01-01", 3, 0)]),
+      prices,
+      "2026-01-31",
+    );
+    expect(v.marketValue).toBe(360);
+    expect(v.unrealized).toBeNull();
+    expect(v.totalReturn).toBeNull();
+  });
+
+  it("still values the holding, because the units are real", () => {
+    const valued = valuePositions(
+      derivePositions([buy("2026-01-01", 3, 0)]),
+      prices,
+      "2026-01-31",
+    );
+    expect(portfolioValue(valued)).toBe(360);
+  });
+
+  it("makes the cash beside it unknown rather than the whole deposit", () => {
+    const paid = [{ date: "2026-01-01", amount: 448 }];
+    expect(cashAtBroker(paid, [buy("2026-01-01", 3, 0)], "2026-01-31")).toBeNull();
+    // And known again the moment the price is filled in.
+    expect(cashAtBroker(paid, [buy("2026-01-01", 3, 130)], "2026-01-31")).toBe(58);
+  });
+
+  it("does not poison a date before the trade happened", () => {
+    const paid = [{ date: "2026-01-01", amount: 448 }];
+    expect(cashAtBroker(paid, [buy("2026-02-01", 3, 0)], "2026-01-31")).toBe(448);
+  });
+
+  it("taints a holding priced on one buy and not the other", () => {
+    const p = one([buy("2026-01-01", 1, 130), buy("2026-02-01", 1, 0)]);
+    expect(p.costKnown).toBe(false);
+    expect(p.averagePrice).toBeNull();
+  });
+});
+
+/**
+ * The headline return and the per-holding returns are two routes to the same
+ * number, and they have to arrive at it. Value is holdings PLUS the cash that
+ * has not been invested; deduct what was put in and what is left is exactly
+ * what the positions say they have made.
+ */
+describe("the account's return and its holdings' returns agree", () => {
+  it("reconciles once the holdings and the cash are both counted", () => {
+    const paid = [
+      { date: "2026-01-01", amount: 150 },
+      { date: "2026-02-01", amount: 150 },
+      { date: "2026-03-01", amount: 148 },
+    ];
+    const trades = [buy("2026-01-02", 1, 130, 1), buy("2026-02-02", 2, 130, 1)];
+    const prices = new Map([["etf", [{ date: "2026-03-02", price: 119.95 }]]]);
+
+    const valued = valuePositions(derivePositions(trades), prices, "2026-03-02");
+    const holdings = portfolioValue(valued)!;
+    const cash = cashAtBroker(paid, trades, "2026-03-02")!;
+    const putIn = paid.reduce((sum, c) => sum + c.amount, 0);
+
+    const headline = holdings + cash - putIn;
+    const perHolding = valued.reduce((sum, p) => sum + (p.totalReturn ?? 0), 0);
+    expect(headline).toBeCloseTo(perHolding, 10);
+    // And it is the loss the broker would show, not a profit.
+    expect(headline).toBeLessThan(0);
+  });
+});

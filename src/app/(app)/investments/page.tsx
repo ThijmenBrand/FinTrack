@@ -19,6 +19,7 @@ import { GapChart } from "./_components/gap-chart";
 import { UpdateValueDialog } from "./_components/update-value-dialog";
 import { AddTradeDialog } from "./_components/add-trade-dialog";
 import { HoldingsTable, ASSET_CLASS_LABELS } from "./_components/holdings-table";
+import { TradesCard } from "./_components/trades-card";
 import { isConfigured } from "@/lib/prices/eodhd";
 import { AllocationBar } from "./_components/allocation-bar";
 
@@ -30,7 +31,7 @@ import { AllocationBar } from "./_components/allocation-bar";
  */
 export default async function InvestmentsPage() {
   const { userId } = await requireAuth();
-  const [overview, { t, formatCurrency, formatDayMonth }] = await Promise.all([
+  const [overview, { t, plural, formatCurrency, formatDayMonth }] = await Promise.all([
     getInvestmentsOverview(userId),
     getI18n(),
   ]);
@@ -70,8 +71,16 @@ export default async function InvestmentsPage() {
     valuationDates,
     holdings,
     allocation,
+    brokerCash,
+    brokerCashUnknown,
+    unpricedTrades,
+    trades,
     derivedFromHoldings,
   } = overview;
+  // What the value is made of, said out loud. A brokerage account is holdings
+  // plus the money that has arrived and not been invested yet, and a figure
+  // that shows only the first half makes an untouched deposit read as a loss.
+  const inHoldings = totalValue - brokerCash;
   const age = valuationAgeDays(valuedAt);
   const up = (gain ?? 0) >= 0;
 
@@ -115,6 +124,22 @@ export default async function InvestmentsPage() {
               <p className="text-3xl font-semibold tabular-nums tracking-tight">
                 {everValued ? formatCurrency(totalValue) : "—"}
               </p>
+              {everValued && (brokerCash > 0.005 || brokerCashUnknown) && (
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {/* Both halves whenever there is cash to name, even if a
+                      priceless trade means some of it is missing — the banner
+                      above says so, and naming the part we do know beats
+                      hiding it behind "not counted". */}
+                  {brokerCash > 0.005
+                    ? t("investments.valueParts", {
+                        holdings: formatCurrency(inHoldings),
+                        cash: formatCurrency(brokerCash),
+                      })
+                    : t("investments.holdingsOnly", {
+                        holdings: formatCurrency(inHoldings),
+                      })}
+                </p>
+              )}
               <p
                 className={`mt-0.5 text-xs ${
                   stale ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"
@@ -162,7 +187,20 @@ export default async function InvestmentsPage() {
             )}
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          {/* Said here rather than only beside the trade that causes it: this
+              one gap moves the return, the cost basis and the cash at once,
+              so it belongs next to the numbers it is bending. */}
+          {unpricedTrades > 0 && (
+            <p className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+              {plural(
+                unpricedTrades,
+                "investments.unpricedTrades.one",
+                "investments.unpricedTrades.other",
+                { count: unpricedTrades },
+              )}
+            </p>
+          )}
           <GapChart points={points} valuationDates={valuationDates} />
         </CardContent>
       </Card>
@@ -195,6 +233,18 @@ export default async function InvestmentsPage() {
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {trades.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("investments.trades.title")}</CardTitle>
+            <CardDescription>{t("investments.trades.hint")}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <TradesCard trades={trades} showAccount={accounts.length > 1} />
+          </CardContent>
+        </Card>
       )}
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
