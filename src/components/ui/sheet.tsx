@@ -3,11 +3,24 @@
 import * as React from "react";
 import { Drawer as VaulDrawer } from "vaul";
 import { cn } from "@/lib/utils";
+import { haptics } from "@/lib/haptics";
 
+/**
+ * A sheet that is dragged shut rather than clicked shut has no button press to
+ * confirm it — the tick on open and close is what a native sheet gives you
+ * when it snaps to a detent.
+ */
 const Sheet = ({
+  onOpenChange,
   ...props
 }: React.ComponentProps<typeof VaulDrawer.Root>) => (
-  <VaulDrawer.Root {...props} />
+  <VaulDrawer.Root
+    onOpenChange={(open) => {
+      haptics.tap();
+      onOpenChange?.(open);
+    }}
+    {...props}
+  />
 );
 Sheet.displayName = "Sheet";
 

@@ -6,6 +6,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { BANK_SYNC_KEY, syncDueBankLinks } from "@/hooks/use-bank-sync";
+import { haptics } from "@/lib/haptics";
+import { toast } from "@/lib/toast";
+import { describeError } from "@/lib/error-message";
+import { activeI18n } from "@/lib/i18n/active";
 
 const THRESHOLD = 70;
 const RESISTANCE = 0.5;
@@ -68,7 +72,11 @@ export function PullToRefresh() {
         return;
       }
       e.preventDefault(); // otherwise iOS rubber-bands <main> under the indicator
+      const previous = pulled;
       pulled = Math.min(delta * RESISTANCE, THRESHOLD * 1.5);
+      // The tick at the threshold is the whole point of the gesture: it tells
+      // the finger it can let go now, without watching the indicator.
+      if (previous < THRESHOLD && pulled >= THRESHOLD) haptics.impact();
       setPull(pulled);
       offset(pulled, false);
     };
@@ -91,6 +99,14 @@ export function PullToRefresh() {
         .then((synced) => {
           if (synced) qc.invalidateQueries({ queryKey: BANK_SYNC_KEY });
           return qc.refetchQueries({ type: "active" });
+        })
+        .catch((err) => {
+          // A refresh that silently does nothing is worse than no refresh:
+          // the user pulled precisely because they doubted what's on screen.
+          // The listeners are bound once, so the wording is looked up when
+          // the failure happens rather than captured at bind time.
+          const { title, description } = describeError(err, activeI18n().t);
+          toast.error(title, { description, key: "pull-to-refresh" });
         })
         .finally(() => {
           busy = false;

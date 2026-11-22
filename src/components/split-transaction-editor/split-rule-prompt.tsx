@@ -51,7 +51,7 @@ export function SplitRulePrompt({
         lines: buildRuleLines(rows, mode, totalCents),
         applyToExisting,
       },
-      { onSuccess: onDone, onError: (err) => console.error("Failed to create split rule:", err) },
+      { onSuccess: onDone },
     );
   };
 

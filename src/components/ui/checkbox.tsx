@@ -12,7 +12,9 @@ const Checkbox = React.forwardRef<
   <CheckboxPrimitive.Root
     ref={ref}
     className={cn(
-      "peer h-4 w-4 shrink-0 rounded-sm border border-primary shadow focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground",
+      // A checkbox with no hover state is indistinguishable from a printed
+      // one until you click it; the ring on hover is what says "this is live".
+      "peer h-4 w-4 shrink-0 rounded-sm border border-primary shadow transition-[background-color,box-shadow] duration-150 hover:ring-2 hover:ring-primary/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground",
       className
     )}
     {...props}

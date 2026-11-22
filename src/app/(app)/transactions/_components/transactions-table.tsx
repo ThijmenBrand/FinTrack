@@ -32,6 +32,7 @@ import {
 } from "./transactions-skeleton";
 import type { Pagination } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
+import { QueryError } from "@/components/query-error";
 
 type Option = { value: string; label: string; color?: string | null };
 
@@ -87,6 +88,9 @@ interface TransactionsTableProps {
   pagination: Pagination;
   setPagination: Dispatch<SetStateAction<Pagination>>;
   loading: boolean;
+  /** Set when the query failed, so the table says so instead of showing "no transactions". */
+  error?: unknown;
+  onRetry?: () => void;
   fetching: boolean;
   rowCount: number;
   hasActiveFilters: boolean;
@@ -118,6 +122,8 @@ export function TransactionsTable({
   pagination,
   setPagination,
   loading,
+  error,
+  onRetry,
   fetching,
   rowCount,
   hasActiveFilters,
@@ -189,7 +195,9 @@ export function TransactionsTable({
         </div>
       </div>
 
-      {!loading && rowCount === 0 ? (
+      {!loading && error ? (
+        <QueryError error={error} onRetry={onRetry} retrying={fetching} variant="inline" />
+      ) : !loading && rowCount === 0 ? (
         <div className="flex flex-col items-center justify-center px-4 py-16">
           <FileSpreadsheet className="h-16 w-16 text-muted-foreground/30 mb-4" />
             <h3 className="text-lg font-medium text-muted-foreground mb-1">

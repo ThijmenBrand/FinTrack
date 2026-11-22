@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/client";
+import { toast } from "@/lib/toast";
 import { useAllocateToPot } from "@/hooks/use-pots";
 import { useResetOnChange } from "@/hooks/use-reset-on-change";
 
@@ -72,8 +73,13 @@ export function AllocateToPotDialog({
       await allocate.mutateAsync({ potId, amount: signedDelta });
       onAllocated?.();
       onOpenChange(false);
-    } catch (err) {
-      console.error("Failed to update pot allocation:", err);
+      // The dialog is gone by now and the pot card is one of many on the
+      // page, so without this the money appears to have moved nowhere.
+      toast.success(
+        t(mode === "add" ? "ok.allocated" : "ok.deallocated", { name: potName }),
+      );
+    } catch {
+      // Announced by the mutation cache's onError (see QueryProvider).
     }
   };
 

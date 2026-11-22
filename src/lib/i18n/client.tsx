@@ -1,8 +1,9 @@
 "use client";
 
-import { createContext, useContext } from "react";
+import { createContext, useContext, useEffect } from "react";
 import { DEFAULT_LOCALE, type Locale } from ".";
 import { getI18nFor, type I18n } from "./translate";
+import { setActiveLocale } from "./active";
 
 const I18nContext = createContext<I18n>(getI18nFor(DEFAULT_LOCALE));
 
@@ -18,6 +19,10 @@ export function I18nProvider({
   locale: Locale;
   children: React.ReactNode;
 }) {
+  // Publish it for the code that speaks to the user from outside the tree —
+  // the failure toasts raised by the query cache, chiefly. See ./active.
+  useEffect(() => setActiveLocale(locale), [locale]);
+
   return <I18nContext.Provider value={getI18nFor(locale)}>{children}</I18nContext.Provider>;
 }
 

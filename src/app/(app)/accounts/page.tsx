@@ -79,6 +79,7 @@ import {
 } from "@/lib/account-kinds";
 import { BANKS, bankHasSeparateFeeColumn } from "@/lib/banks";
 import { useI18n } from "@/lib/i18n/client";
+import { QueryError } from "@/components/query-error";
 import type { MessageKey } from "@/lib/i18n/translate";
 import { BankLogo } from "@/components/bank-logo";
 import { AvatarStack } from "@/components/user-avatar";
@@ -471,7 +472,14 @@ export default function AccountsPage() {
 function AccountsPageInner() {
   const { t, plural, formatCurrency } = useI18n();
   const searchParams = useSearchParams();
-  const { data: accountsData = emptyAccounts, isLoading: loading } = useAccounts();
+  const {
+    data: accountsData = emptyAccounts,
+    isLoading: loading,
+    isError: accountsFailed,
+    error: accountsError,
+    refetch: refetchAccounts,
+    isFetching: accountsFetching,
+  } = useAccounts();
   const { data: prefs } = usePreferences();
   const updatePrefs = useUpdatePreferences();
   const createAccount = useCreateAccount();
@@ -611,9 +619,10 @@ function AccountsPageInner() {
 
     try {
       await reorderAccounts.mutateAsync(newAccounts.map((a) => a.id));
-    } catch (err) {
-      console.error("Failed to reorder accounts:", err);
-      // Refetch so the optimistic local order reverts to the server's order.
+    } catch {
+      // The failure is announced by the mutation cache's onError (see
+      // QueryProvider) — otherwise the cards would simply spring back and
+      // the drag would look like it never registered.
       queryClient.invalidateQueries({ queryKey: ["accounts"] });
     }
   };
@@ -897,6 +906,12 @@ function AccountsPageInner() {
             </div>
           ))}
         </div>
+      ) : accountsFailed ? (
+        <QueryError
+          error={accountsError}
+          onRetry={() => refetchAccounts()}
+          retrying={accountsFetching}
+        />
       ) : accounts.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed py-16">
           <Landmark className="h-12 w-12 text-muted-foreground/30 mb-3" />

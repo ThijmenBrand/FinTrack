@@ -4,6 +4,7 @@ import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Trash2, X, Loader2 } from "lucide-react";
+import { haptics } from "@/lib/haptics";
 import { useI18n } from "@/lib/i18n/client";
 
 interface ConfirmDeleteButtonProps {
@@ -42,15 +43,22 @@ export function ConfirmDeleteButton({
   const resolvedConfirmLabel = confirmLabel ?? t("common.delete");
   const [confirming, setConfirming] = useState(false);
 
+  /** Arming a delete is the moment to make the finger hesitate. */
+  const arm = () => {
+    haptics.warn();
+    setConfirming(true);
+  };
+
   const confirm = async () => {
     // Every caller fires this from an onClick, so a rejecting onConfirm would
-    // be an unhandled rejection. There is no toast layer to show it in; the
-    // strip staying armed is the feedback — the row is still there.
+    // be an unhandled rejection. The failure itself is announced by the
+    // app-wide toast; leaving the strip armed is the local half of that —
+    // the row is still there, and the button is still the way to retry.
     try {
       await onConfirm();
       setConfirming(false);
-    } catch (err) {
-      console.error("Delete failed:", err);
+    } catch {
+      // Reported by the mutation cache's onError (see QueryProvider).
     }
   };
 
@@ -61,7 +69,7 @@ export function ConfirmDeleteButton({
           variant="outline"
           size="sm"
           className={cn("text-destructive hover:text-destructive", className)}
-          onClick={() => setConfirming(true)}
+          onClick={arm}
           disabled={disabled}
         >
           <Trash2 className="h-4 w-4" />
@@ -102,7 +110,7 @@ export function ConfirmDeleteButton({
         variant="ghost"
         size="icon"
         className={cn("h-7 w-7 text-muted-foreground hover:text-destructive", className)}
-        onClick={() => setConfirming(true)}
+        onClick={arm}
         disabled={disabled}
         aria-label={resolvedLabel}
       >

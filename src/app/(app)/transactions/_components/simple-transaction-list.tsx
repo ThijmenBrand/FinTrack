@@ -22,6 +22,7 @@ import { Search, Upload, FileSpreadsheet, Split } from "lucide-react";
 import { SplitBadge } from "@/components/split-badge";
 import type { Category, Pagination, Transaction } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
+import { QueryError } from "@/components/query-error";
 import { useIsCategorizing } from "@/hooks/use-transactions";
 import { PaginationBar } from "./transactions-table";
 import { PaginationBarSkeleton, SimpleRowsSkeleton } from "./transactions-skeleton";
@@ -85,6 +86,8 @@ export function SimpleTransactionList({
   pagination,
   setPagination,
   loading,
+  error,
+  onRetry,
   fetching,
   search,
   onSearchChange,
@@ -105,6 +108,9 @@ export function SimpleTransactionList({
   pagination: Pagination;
   setPagination: Dispatch<SetStateAction<Pagination>>;
   loading: boolean;
+  /** Set when the query failed, so the list says so instead of showing "no transactions". */
+  error?: unknown;
+  onRetry?: () => void;
   fetching: boolean;
   search: string;
   onSearchChange: (value: string) => void;
@@ -181,6 +187,8 @@ export function SimpleTransactionList({
           <SimpleRowsSkeleton />
           <PaginationBarSkeleton />
         </div>
+      ) : error ? (
+        <QueryError error={error} onRetry={onRetry} retrying={fetching} variant="inline" />
       ) : transactions.length === 0 ? (
         <div className="flex flex-col items-center justify-center px-4 py-16">
           <FileSpreadsheet className="mb-4 h-16 w-16 text-muted-foreground/30" />

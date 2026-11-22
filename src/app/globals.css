@@ -187,6 +187,32 @@
   summary {
     touch-action: manipulation;
   }
+
+  /* Tailwind v4's preflight hands <button> the arrow cursor, which leaves
+     almost every control in this app looking inert on hover. On the web a
+     thing that does something when you click it reads as a pointer, so put
+     that back — across every clickable role, not just <button>. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="tab"]:not([aria-disabled="true"]),
+  [role="switch"]:not([aria-disabled="true"]),
+  [role="checkbox"]:not([aria-disabled="true"]),
+  [role="radio"]:not([aria-disabled="true"]),
+  [role="menuitem"],
+  [role="menuitemcheckbox"],
+  [role="menuitemradio"],
+  [role="option"],
+  summary,
+  label[for],
+  select:not(:disabled) {
+    cursor: pointer;
+  }
+  /* And a control that can't be used should say so rather than invite a click. */
+  button:disabled,
+  select:disabled,
+  [aria-disabled="true"] {
+    cursor: not-allowed;
+  }
 }
 
 /* Navigation chrome (tab bar, title bar): a long press must not select its

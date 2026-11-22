@@ -59,8 +59,8 @@ export function PotTransactionPicker({
     try {
       await addToPot.mutateAsync({ potId, transactionId });
       onAdded?.();
-    } catch (err) {
-      console.error("Failed to add to pot:", err);
+    } catch {
+      // Announced by the mutation cache's onError (see QueryProvider).
     } finally {
       setAddingId(null);
     }

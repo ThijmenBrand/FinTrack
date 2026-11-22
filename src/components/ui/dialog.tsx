@@ -5,6 +5,7 @@ import { Drawer as VaulDrawer } from "vaul";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/client";
+import { haptics } from "@/lib/haptics";
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = React.useState(false);
@@ -67,7 +68,9 @@ const DesktopDialogContent = React.forwardRef<
       <div className="overflow-y-auto overflow-x-hidden flex-1 min-h-0 grid gap-4 [&>*]:min-w-0">
         {children}
       </div>
-      <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none">
+      {/* A 16px glyph is a 16px target; the padding makes it a real button,
+          and the hover fill shows which one the pointer is on. */}
+      <DialogPrimitive.Close className="absolute right-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none">
         <X className="h-4 w-4" />
         <span className="sr-only">{t("common.closeDialog")}</span>
       </DialogPrimitive.Close>
@@ -135,16 +138,29 @@ interface DialogProps {
   dismissible?: boolean;
 }
 
-const Dialog = ({ children, dismissible, ...props }: DialogProps) => {
+const Dialog = ({ children, dismissible, onOpenChange, ...props }: DialogProps) => {
   const isMobile = useIsMobile();
   if (isMobile) {
     return (
-      <MobileDrawer {...props} dismissible={dismissible}>
+      <MobileDrawer
+        {...props}
+        dismissible={dismissible}
+        // A sheet swiped away has no button press to confirm it landed; the
+        // tick stands in for the one a native sheet gives on its detent.
+        onOpenChange={(open) => {
+          haptics.tap();
+          onOpenChange?.(open);
+        }}
+      >
         {children}
       </MobileDrawer>
     );
   }
-  return <DesktopDialog {...props}>{children}</DesktopDialog>;
+  return (
+    <DesktopDialog {...props} onOpenChange={onOpenChange}>
+      {children}
+    </DesktopDialog>
+  );
 };
 Dialog.displayName = "Dialog";
 

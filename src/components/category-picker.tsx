@@ -393,7 +393,7 @@ export function CategoryPicker({
         // ponytail: default grey + no icon; recolor in settings if it matters.
         createCategory.mutate(
           { id, name, color: DEFAULT_COLOR, icon: null },
-          { onError: (err) => console.error("Failed to create category:", err) },
+          { },
         );
         return CATEGORY + id;
       } : undefined}

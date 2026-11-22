@@ -7,6 +7,9 @@ import { PwaInstallPrompt } from "@/components/pwa-install-prompt";
 import { LearnedRuleNotice } from "@/components/learned-rule-notice";
 import { ViewTransitions } from "@/components/view-transitions";
 import { SessionLockWatcher } from "@/components/session-lock-watcher";
+import { Toaster } from "@/components/ui/toaster";
+import { ConnectionStatus } from "@/components/connection-status";
+import { PullToRefresh } from "@/components/pull-to-refresh";
 import { requireAuth } from "@/lib/auth";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -34,6 +37,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <PwaInstallPrompt />
       <LearnedRuleNotice />
       <SessionLockWatcher />
+      {/* Every scrollable page, not just Transactions: a gesture that works on
+          one screen and silently does nothing on the next is worse than none. */}
+      <PullToRefresh />
+      <ConnectionStatus />
+      <Toaster />
     </div>
   );
 }
