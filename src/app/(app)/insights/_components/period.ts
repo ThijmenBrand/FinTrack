@@ -6,6 +6,19 @@ import { toIsoDate } from "@/lib/utils";
 // and render a day early west of UTC, so they're parsed as local midnight.
 const localDate = (iso: string) => new Date(`${iso}T00:00:00`);
 
+/**
+ * Is this a real calendar date in YYYY-MM-DD form? Date strings reach the page
+ * from the URL, where anything can be typed, and `formatRangeLabel` below
+ * hands them to Intl, which throws a RangeError on an invalid date and takes
+ * the whole render down with it. 2026-02-31 fails too: Date rolls it forward
+ * to March, so it doesn't survive the round trip.
+ */
+export function isCalendarDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = localDate(value);
+  return !Number.isNaN(date.getTime()) && toIsoDate(date) === value;
+}
+
 /** "Jul 7 – Aug 6, 2026". Empty bounds (All Time) have no range to state. */
 export function formatRangeLabel(i18n: I18n, from: string, to: string): string {
   if (!from || !to) return i18n.t("insights.allTimeLabel");

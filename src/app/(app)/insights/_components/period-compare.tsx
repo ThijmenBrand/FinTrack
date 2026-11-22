@@ -505,7 +505,11 @@ export function PeriodCompare({
   const lengthsDiffer = aDays > 0 && bDays > 0 && aDays !== bDays;
   // A period that hasn't finished is being judged on part of its spending.
   const aRunning = sides !== null && sides.a.elapsedDays < aDays;
-  const resetBetween = isBeforeCutoff(b.from, aData.statsCutoff);
+  // Either side can be the older one — B is whichever period was picked, not
+  // necessarily the earlier — so both are checked against the cutoff.
+  const resetBetween =
+    isBeforeCutoff(a.from, aData.statsCutoff) ||
+    isBeforeCutoff(b.from, aData.statsCutoff);
 
   const categoryScale = Math.max(
     1,

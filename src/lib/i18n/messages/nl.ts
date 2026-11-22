@@ -1067,7 +1067,7 @@ export const nl: Record<MessageKey, string> = {
   "insights.periodCompare.metric.perDay": "Uitgaven per dag",
   "insights.periodCompare.lengthWarning": "Deze periodes zijn niet even lang ({a} dagen tegenover {b}) — uitgaven per dag vergelijkt ze eerlijk, de totalen niet.",
   "insights.periodCompare.runningWarning": "Deze periode loopt nog: {elapsed} van {total} dagen tot nu toe.",
-  "insights.periodCompare.resetWarning": "De vergeleken periode reikt verder terug dan je statistiekenreset op {date}.",
+  "insights.periodCompare.resetWarning": "Een van deze periodes begint vóór je statistiekenreset op {date}, dus de twee komen niet uit hetzelfde financiële leven.",
   "insights.periodCompare.pace.title": "Uitgaventempo",
   "insights.periodCompare.pace.hint": "Lopend uitgaventotaal, dag voor dag van elke periode.",
   "insights.periodCompare.pace.empty": "Geen van beide periodes heeft uitgaven om te tonen.",

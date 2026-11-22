@@ -36,7 +36,12 @@ import { SignalCards } from "./_components/signal-cards";
 import { TopSpending } from "./_components/top-spending";
 import { CategoryBreakdownCard } from "./_components/category-breakdown-card";
 import { MoneyFlow } from "./_components/money-flow";
-import { daysLeftIn, elapsedDays, formatRangeLabel } from "./_components/period";
+import {
+  daysLeftIn,
+  elapsedDays,
+  formatRangeLabel,
+  isCalendarDate,
+} from "./_components/period";
 import { BudgetVsActual } from "./_components/budget-vs-actual";
 import { BudgetComparisonStrip } from "./_components/budget-comparison-strip";
 import { SimpleStory } from "./_components/simple-story";
@@ -211,7 +216,9 @@ function resolveCompareRange(
   if (compare === "previous")
     return getPreviousRange(preset, startDay, dateFrom, dateTo);
   if (compare === "custom")
-    return customFrom && customTo ? { from: customFrom, to: customTo } : null;
+    return isCalendarDate(customFrom) && isCalendarDate(customTo)
+      ? { from: customFrom, to: customTo }
+      : null;
   return getPresetRange(compare, startDay);
 }
 
@@ -223,6 +230,15 @@ const VALID_PRESETS = new Set<PresetKey>([
   "all",
   "custom",
 ]);
+
+/**
+ * A date from the query string, or "" when it isn't one. Everything downstream
+ * — the range label, the API call — assumes a real date, and `?dateTo=invalid`
+ * would otherwise crash the render inside Intl.
+ */
+function parseDateParam(value: string | null): string {
+  return value && isCalendarDate(value) ? value : "";
+}
 
 function parsePreset(value: string | null): PresetKey {
   return value && VALID_PRESETS.has(value as PresetKey) ? (value as PresetKey) : "this_month";
@@ -282,11 +298,11 @@ export default function InsightsPage() {
   const simple = prefs?.simpleMode ?? false;
 
   const [preset, setPreset] = useState<PresetKey>(() => parsePreset(searchParams.get("preset")));
-  const [customDateFrom, setCustomDateFrom] = useState<string>(
-    () => searchParams.get("dateFrom") || "",
+  const [customDateFrom, setCustomDateFrom] = useState<string>(() =>
+    parseDateParam(searchParams.get("dateFrom")),
   );
-  const [customDateTo, setCustomDateTo] = useState<string>(
-    () => searchParams.get("dateTo") || "",
+  const [customDateTo, setCustomDateTo] = useState<string>(() =>
+    parseDateParam(searchParams.get("dateTo")),
   );
   // Comparison mode: two periods of one budget, side by side. Which budget is
   // the app-wide scope's business, not this view's — so the two columns differ
@@ -298,11 +314,11 @@ export default function InsightsPage() {
   const [comparePreset, setComparePreset] = useState<ComparePresetKey>(() =>
     parseComparePreset(searchParams.get("comparePreset")),
   );
-  const [compareDateFrom, setCompareDateFrom] = useState<string>(
-    () => searchParams.get("compareFrom") || "",
+  const [compareDateFrom, setCompareDateFrom] = useState<string>(() =>
+    parseDateParam(searchParams.get("compareFrom")),
   );
-  const [compareDateTo, setCompareDateTo] = useState<string>(
-    () => searchParams.get("compareTo") || "",
+  const [compareDateTo, setCompareDateTo] = useState<string>(() =>
+    parseDateParam(searchParams.get("compareTo")),
   );
   // Which view: "all budgets" or one plan — the app-wide scope, which already
   // resolves a stale or deleted plan id back to the main budget.

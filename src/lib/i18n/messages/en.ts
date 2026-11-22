@@ -1083,7 +1083,7 @@ export const en = {
   "insights.periodCompare.metric.perDay": "Spend per day",
   "insights.periodCompare.lengthWarning": "These periods are not the same length ({a} days against {b}) — spend per day compares them fairly, the totals do not.",
   "insights.periodCompare.runningWarning": "This period is still running: {elapsed} of {total} days so far.",
-  "insights.periodCompare.resetWarning": "The compared period reaches back past your statistics reset on {date}.",
+  "insights.periodCompare.resetWarning": "One of these periods starts before your statistics reset on {date}, so the two are not from the same financial life.",
   "insights.periodCompare.pace.title": "Spending pace",
   "insights.periodCompare.pace.hint": "Running expense total, day by day of each period.",
   "insights.periodCompare.pace.empty": "Neither period has any spending to chart.",
