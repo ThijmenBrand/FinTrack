@@ -13,6 +13,7 @@ import { getI18n } from "@/lib/i18n/server";
 import type { MessageKey } from "@/lib/i18n/translate";
 import type { Holding } from "@/lib/holdings-db";
 import { colorForClass } from "./allocation-bar";
+import { LinkInstrumentDialog } from "./link-instrument-dialog";
 
 export const ASSET_CLASS_LABELS: Record<string, MessageKey> = {
   equity: "investments.class.equity",
@@ -24,7 +25,14 @@ export const ASSET_CLASS_LABELS: Record<string, MessageKey> = {
   other: "investments.class.other",
 };
 
-export async function HoldingsTable({ holdings }: { holdings: Holding[] }) {
+export async function HoldingsTable({
+  holdings,
+  canLink = false,
+}: {
+  holdings: Holding[];
+  /** False without a provider token: the lookup would only ever fail. */
+  canLink?: boolean;
+}) {
   const { t, formatCurrency, formatDayMonth, formatNumber } = await getI18n();
   if (holdings.length === 0) return null;
 
@@ -50,6 +58,15 @@ export async function HoldingsTable({ holdings }: { holdings: Holding[] }) {
                 {h.instrument.isin ?? h.instrument.symbol ?? ""}
                 {isClosed ? ` · ${t("investments.holdings.closed")}` : ""}
               </p>
+              {/* Only where it would change something: a closed position needs
+                  no live price, and one already linked updates itself. */}
+              {canLink && !isClosed && h.instrument.dataSource === "manual" && (
+                <LinkInstrumentDialog
+                  instrumentId={h.instrumentId}
+                  name={h.instrument.name}
+                  isin={h.instrument.isin}
+                />
+              )}
             </div>
           </div>
         </td>

@@ -19,6 +19,7 @@ import { GapChart } from "./_components/gap-chart";
 import { UpdateValueDialog } from "./_components/update-value-dialog";
 import { AddTradeDialog } from "./_components/add-trade-dialog";
 import { HoldingsTable, ASSET_CLASS_LABELS } from "./_components/holdings-table";
+import { isConfigured } from "@/lib/prices/eodhd";
 import { AllocationBar } from "./_components/allocation-bar";
 
 /**
@@ -174,7 +175,7 @@ export default async function InvestmentsPage() {
               <CardDescription>{t("investments.holdings.hint")}</CardDescription>
             </CardHeader>
             <CardContent>
-              <HoldingsTable holdings={holdings} />
+              <HoldingsTable holdings={holdings} canLink={isConfigured()} />
             </CardContent>
           </Card>
           <Card className="h-fit">

@@ -39,6 +39,8 @@ export interface JobPayloads {
   "bank.delete_credential": { credentialId: string };
   /** Look at the user's data for notifications (budgets, bills, subscriptions). */
   "notifications.evaluate": { reason: "sync" | "daily" };
+  /** Fetch closing prices for the instruments this user still holds. */
+  "prices.refresh": { reason: "daily" | "manual" };
 }
 
 /**

@@ -337,10 +337,11 @@ export const instruments = sqliteTable("instruments", {
   })
     .notNull()
     .default("equity"),
-  // Where prices come from. Only "manual" exists today; the column is here so
-  // a provider later is an addition rather than a migration, exactly as
-  // Ghostfolio's dataSource works.
-  dataSource: text("data_source", { enum: ["manual"] })
+  // Where prices come from. "manual" is a figure someone typed; "eodhd" means
+  // the instrument is linked to a provider listing (see `symbol`) and the
+  // nightly job keeps it priced. Widening this enum needs no migration — the
+  // column is plain TEXT with no CHECK, exactly as Ghostfolio's dataSource is.
+  dataSource: text("data_source", { enum: ["manual", "eodhd"] })
     .notNull()
     .default("manual"),
   createdAt: text("created_at")
@@ -1211,6 +1212,7 @@ export const JOB_TYPES = [
   "bank.revoke_session",
   "bank.delete_credential",
   "notifications.evaluate",
+  "prices.refresh",
 ] as const;
 export const JOB_STATUSES = ["queued", "running", "succeeded", "failed", "dead", "cancelled"] as const;
 

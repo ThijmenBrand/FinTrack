@@ -59,6 +59,9 @@ const TABLES = [
   "category_rules",
   "categories",
   "user_preferences",
+  // Global, not per user — but the price budget's daily counters live here,
+  // and a count carried between tests would make them order-dependent.
+  "app_settings",
   "audit_log",
   "accounts",
   '"user"',
@@ -108,6 +111,11 @@ export async function setupTestDb(name: string): Promise<TestDb> {
       sort_order INTEGER NOT NULL DEFAULT 0,
       budget_id TEXT,
       created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )`,
     `CREATE TABLE IF NOT EXISTS asset_valuations (

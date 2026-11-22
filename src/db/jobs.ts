@@ -5,6 +5,7 @@ import {
   bankAccountLinks,
   bankConnections,
   bankCredentials,
+  instruments,
   jobs,
   notifications,
   pushSubscriptions,
@@ -15,6 +16,8 @@ import {
 import { scrubPayload } from "@/lib/jobs/types";
 import { evaluateDedupeKey } from "@/lib/notifications/queue";
 import { DAILY_RUN_SETTING, appTimeZone, dailyRunDue } from "@/lib/notifications/schedule";
+import { isConfigured } from "@/lib/prices/eodhd";
+import { lastClosedTradingDay, toIso } from "@/lib/prices/schedule";
 
 /**
  * The job queue's cross-user operations. A worker serves every user, so
@@ -311,6 +314,76 @@ export async function enqueueDailyNotificationEvaluations(now = Date.now()): Pro
     .insert(appSettings)
     .values({ key: DAILY_RUN_SETTING, value: today, updatedAt: iso(now) })
     .onConflictDoUpdate({ target: appSettings.key, set: { value: today, updatedAt: iso(now) } });
+  return queued;
+}
+
+
+/** Remembers the UTC day the price refresh was last queued for. */
+const PRICE_RUN_SETTING = "prices.last_daily_run";
+
+/**
+ * The daily price refresh: one job per user who has linked an instrument.
+ *
+ * Queued once per UTC day and only after the last close has actually been
+ * published — the provider's free plan allows 20 calls a day, so a run that
+ * fires at breakfast would spend the budget fetching yesterday's prices again
+ * and have nothing left when today's closes appeared.
+ *
+ * Users with no linked instruments are skipped entirely rather than queued and
+ * filtered inside the handler: an empty job still claims a lease and writes
+ * two rows, and the queue is shared with bank syncs that have real work.
+ */
+export async function enqueueDailyPriceRefresh(now = Date.now()): Promise<number> {
+  if (!isConfigured()) return 0;
+
+  const at = new Date(now);
+  // Only once the day's close exists. `lastClosedTradingDay` steps back to the
+  // previous day before the close hour, so "it equals today" is exactly the
+  // condition that today's prices are fetchable.
+  if (lastClosedTradingDay(at) !== toIso(at)) return 0;
+
+  const today = toIso(at);
+  const [setting] = await adminDb
+    .select({ value: appSettings.value })
+    .from(appSettings)
+    .where(eq(appSettings.key, PRICE_RUN_SETTING))
+    .limit(1);
+  if (setting?.value === today) return 0;
+
+  const users = await adminDb
+    .selectDistinct({ userId: instruments.userId })
+    .from(instruments)
+    .where(eq(instruments.dataSource, "eodhd"));
+
+  let queued = 0;
+  for (const { userId } of users) {
+    const rows = await adminDb
+      .insert(jobs)
+      .values({
+        userId,
+        type: "prices.refresh",
+        payload: JSON.stringify({ reason: "daily" }),
+        priority: 10,
+        dedupeKey: `prices.refresh:${userId}:${today}`,
+        // One retry. A spent budget is not retryable and the handler says so;
+        // anything else gets tomorrow's run anyway.
+        maxAttempts: 2,
+        runAt: iso(now),
+        createdAt: iso(now),
+        updatedAt: iso(now),
+      })
+      .onConflictDoNothing()
+      .returning({ id: jobs.id });
+    queued += rows.length;
+  }
+
+  await adminDb
+    .insert(appSettings)
+    .values({ key: PRICE_RUN_SETTING, value: today, updatedAt: iso(now) })
+    .onConflictDoUpdate({
+      target: appSettings.key,
+      set: { value: today, updatedAt: iso(now) },
+    });
   return queued;
 }
 

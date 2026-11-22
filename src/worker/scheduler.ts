@@ -3,6 +3,7 @@ import {
   cleanupOldNotifications,
   connectionsNearingExpiry,
   enqueueDailyNotificationEvaluations,
+  enqueueDailyPriceRefresh,
   enqueueDueSyncs,
   expireLapsedConnections,
   markExpiryNotified,
@@ -10,6 +11,7 @@ import {
 } from "@/db/jobs";
 import { EXPIRY_WARNING_MS, SYNC_INTERVAL_MS } from "@/lib/bank-sync/config";
 import { notify } from "@/lib/notifications/dispatch";
+import { cleanupBudgetCounters } from "@/lib/prices/budget";
 
 /**
  * Periodic housekeeping, run by the worker. Every step is idempotent, so a
@@ -19,7 +21,13 @@ import { notify } from "@/lib/notifications/dispatch";
 /** Every 15 minutes: due syncs, lapsed consents, expiry warnings, the morning notification run. */
 export async function schedulerTick(
   now = Date.now(),
-): Promise<{ queued: number; expired: number; warned: number; evaluations: number }> {
+): Promise<{
+  queued: number;
+  expired: number;
+  warned: number;
+  evaluations: number;
+  priceRuns: number;
+}> {
   const expired = await expireLapsedConnections(now);
   const queued = await enqueueDueSyncs(SYNC_INTERVAL_MS, now);
 
@@ -38,7 +46,8 @@ export async function schedulerTick(
     warned++;
   }
   const evaluations = await enqueueDailyNotificationEvaluations(now);
-  return { queued, expired, warned, evaluations };
+  const priceRuns = await enqueueDailyPriceRefresh(now);
+  return { queued, expired, warned, evaluations, priceRuns };
 }
 
 /** Every minute: jobs whose worker died mid-run go back to the queue (or the DLQ). */
@@ -50,4 +59,5 @@ export async function reaperTick(now = Date.now()): Promise<number> {
 export async function cleanupTick(now = Date.now()): Promise<void> {
   await cleanupFinishedJobs(now);
   await cleanupOldNotifications(now);
+  await cleanupBudgetCounters(now);
 }

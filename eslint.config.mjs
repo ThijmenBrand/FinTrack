@@ -81,7 +81,15 @@ export default tseslint.config(
     // These may reach for adminDb — that is the point of the exception. They
     // may NOT import the worker: turning the rule "off" dropped both bans at
     // once, so the patterns are restated here without the adminDb paths.
-    files: ["src/app/api/admin/**", "src/db/**", "src/lib/audit.ts"],
+    // src/lib/prices/budget.ts counts calls against the deployment's own API
+    // plan, which belongs to the install and not to any user — scoping it per
+    // user would let two users spend the whole daily allowance each.
+    files: [
+      "src/app/api/admin/**",
+      "src/db/**",
+      "src/lib/audit.ts",
+      "src/lib/prices/budget.ts",
+    ],
     rules: {
       "no-restricted-imports": ["error", { patterns: WORKER_PATTERNS }],
     },
