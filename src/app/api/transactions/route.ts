@@ -26,6 +26,13 @@ import {
   parentHasChildMatchingSearch,
   childHasParentMatchingSearch,
 } from "@/lib/split-list";
+import {
+  childHasParentWithTags,
+  clearTransactionTags,
+  hasAnyTag,
+  parentHasChildWithTags,
+  tagsForTransactions,
+} from "@/lib/tags-db";
 
 const VALID_TX_TYPES = ["income", "expense", "internal_transfer", "reimbursement"] as const;
 type TxType = (typeof VALID_TX_TYPES)[number];
@@ -52,6 +59,9 @@ export async function GET(request: NextRequest) {
     const dateFrom = searchParams.get("dateFrom");
     const dateTo = searchParams.get("dateTo");
     const categoryIds = searchParams.getAll("categoryId").filter(Boolean);
+    // Repeatable, and ORed like categories: `tag:Holiday tag:Work` asks for
+    // rows carrying either, not rows carrying both.
+    const tagIds = searchParams.getAll("tagId").filter(Boolean);
     const excludeCategoryIds = searchParams.getAll("excludeCategory").filter(Boolean);
     const excludeTypes = searchParams.getAll("excludeType").filter(Boolean);
     const uncategorized = searchParams.get("uncategorized");
@@ -146,6 +156,16 @@ export async function GET(request: NextRequest) {
           // splits array attached below carries the actual match.
           parentHasChildInCategories(categoryIds),
         )!,
+      );
+    }
+    // Tags are the row's own, plus both halves of the split exception the
+    // search filter makes: a tag on a hidden part surfaces the family (list
+    // side), and a tag on the wrapper — the only row of the family the list
+    // shows — pulls its parts in, or the totals under a listed family would
+    // read €0.
+    if (tagIds.length) {
+      conditions.push(
+        or(hasAnyTag(tagIds), parentHasChildWithTags(tagIds), childHasParentWithTags(tagIds))!,
       );
     }
     // Exclusions: keep uncategorized rows visible when excluding categories.
@@ -497,8 +517,20 @@ export async function GET(request: NextRequest) {
       list.push(child);
       childrenByParent.set(key, list);
     }
+    // Tags for the whole page in one query — split children included, since
+    // they are rendered as rows of their own under their parent.
+    const tagsByTransaction = await tagsForTransactions(userId, [
+      ...rows.map((r) => r.id),
+      ...childRows.map((c) => c.id),
+    ]);
+    const withTags = <T extends { id: string }>(row: T) => ({
+      ...row,
+      tags: tagsByTransaction.get(row.id) ?? [],
+    });
     const rowsWithSplits = rows.map((r) =>
-      r.isSplitParent ? { ...r, splits: childrenByParent.get(r.id) ?? [] } : r
+      r.isSplitParent
+        ? { ...withTags(r), splits: (childrenByParent.get(r.id) ?? []).map(withTags) }
+        : withTags(r),
     );
 
     // A pot contributes one net, on the side its sign puts it. With a `type`
@@ -818,6 +850,11 @@ export async function DELETE(request: NextRequest) {
       // Mirrors were auto-created, delete them
       const mirrors = linked.filter((l) => l.isManual);
       if (mirrors.length) {
+        await clearTransactionTags(
+          db,
+          mirrors.map((m) => m.id),
+          [...new Set(mirrors.map((m) => m.userId))],
+        );
         await db.delete(transactions).where(and(
           inArray(transactions.id, mirrors.map((m) => m.id)),
           inArray(transactions.userId, [...new Set(mirrors.map((m) => m.userId))]),
@@ -861,11 +898,18 @@ export async function DELETE(request: NextRequest) {
         inArray(reimbursementLinks.expenseId, childIdsQuery),
         inArray(reimbursementLinks.reimbursementId, childIdsQuery),
       ));
+      const doomedChildren = await childIdsQuery;
+      await clearTransactionTags(db, doomedChildren.map((c) => c.id), ownerIds);
       await db.delete(transactions).where(and(
         inArray(transactions.parentTransactionId, splitParentIds),
         inArray(transactions.userId, ownerIds),
       ));
     }
+
+    // Tag links go before the rows they hang off: `foreign_keys=ON` is not
+    // guaranteed on hosted libsql, so the cascade may never fire and leave a
+    // link pointing at a transaction that no longer exists.
+    await clearTransactionTags(db, deleteIds, ownerIds);
 
     // The owner scope is per batch rather than per row: every id here came back
     // from the lookup above, and every owner in the list owns an account the

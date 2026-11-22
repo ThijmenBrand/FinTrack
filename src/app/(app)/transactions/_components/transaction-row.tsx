@@ -29,7 +29,8 @@ import {
   Tag,
 } from "lucide-react";
 import { SplitBadge } from "@/components/split-badge";
-import type { Transaction, Category, Pot, PotRangeTotal } from "@/types/api";
+import { TagBadge } from "@/components/tag-picker";
+import type { Transaction, Category, Pot, PotRangeTotal, TransactionTag } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
 import { useIsCategorizing } from "@/hooks/use-transactions";
 import { useLongPress } from "@/hooks/use-long-press";
@@ -73,6 +74,34 @@ function PotBadge({ groupId, groupName, className }: { groupId: string; groupNam
         {groupName}
       </Badge>
     </Link>
+  );
+}
+
+/**
+ * The row's tags, kept short. A row can carry any number of them, but the line
+ * it shares with the description has a job already — past two the rest become
+ * a count, and the detail dialog has the full list.
+ */
+function RowTags({ tags, className }: { tags: TransactionTag[]; className: string }) {
+  if (!tags.length) return null;
+  const shown = tags.slice(0, 2);
+  const rest = tags.length - shown.length;
+  return (
+    <>
+      {shown.map((tag) => (
+        <TagBadge key={tag.id} name={tag.name} className={className} />
+      ))}
+      {rest > 0 && (
+        <Badge
+          variant="secondary"
+          className={`${className} font-normal`}
+          // The names are one click away, in the dialog this row opens.
+          title={tags.map((tag) => tag.name).join(", ")}
+        >
+          +{rest}
+        </Badge>
+      )}
+    </>
   );
 }
 
@@ -276,6 +305,7 @@ export function TransactionRow({
                   className="text-[10px] px-1 py-0 shrink-0 gap-0.5"
                 />
               )}
+              <RowTags tags={tx.tags ?? []} className="h-auto text-[10px] px-1.5 py-0 shrink-0 gap-0.5" />
             </div>
             <p className="truncate text-[13px] text-muted-foreground">
               {!showDate && needsCategory ? (
@@ -370,6 +400,7 @@ export function TransactionRow({
                 className="text-[10px] px-1.5 py-0 shrink-0 gap-0.5"
               />
             )}
+            <RowTags tags={tx.tags ?? []} className="h-auto text-[10px] px-1.5 py-0 shrink-0 gap-0.5" />
           </div>
           {tx.name && tx.description && tx.description !== tx.name && (
             <div className={`text-xs text-muted-foreground truncate mt-0.5 ${isInPot ? "line-through" : ""}`}>

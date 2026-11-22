@@ -1,6 +1,7 @@
 import { and, eq, inArray, isNotNull, or } from "drizzle-orm";
 import { db } from "@/db";
 import { transactions, reimbursementLinks, categories } from "@/db/schema";
+import { clearSplitChildTags } from "@/lib/tags-db";
 import { MONEY_EPSILON, isFiniteNumber, sanitizeNote } from "@/lib/validation";
 import type { MessageKey } from "@/lib/i18n/translate";
 
@@ -118,6 +119,9 @@ export async function applySplit(opts: {
   const stampedAt = splitStamps(splits.length);
   await db.transaction(async (tx) => {
     if (parent.isSplitParent) {
+      // The old parts are about to be replaced wholesale; their tags go with
+      // them, as their categories and notes do.
+      await clearSplitChildTags(tx, parentId, ownerId);
       await tx
         .delete(transactions)
         .where(and(eq(transactions.parentTransactionId, parentId), eq(transactions.userId, ownerId)));
@@ -182,6 +186,7 @@ export async function unsplitTransaction(opts: {
   if (await childrenWithLinks(parentId, ownerId)) return fail("api.splitChildLinked", 409);
 
   await db.transaction(async (tx) => {
+    await clearSplitChildTags(tx, parentId, ownerId);
     await tx
       .delete(transactions)
       .where(and(eq(transactions.parentTransactionId, parentId), eq(transactions.userId, ownerId)));

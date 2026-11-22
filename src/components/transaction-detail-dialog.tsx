@@ -19,6 +19,7 @@ import {
 import {
   Wallet,
   Tag,
+  Tags,
   StickyNote,
   Clock,
   Hash,
@@ -42,6 +43,7 @@ import { useAccounts } from "@/hooks/use-accounts";
 import { useSubCategories } from "@/hooks/use-budgets";
 import { useUndoTransfer, type UndoneCounterpart } from "@/hooks/use-transactions";
 import { NotesEditor } from "@/components/notes-editor";
+import { TagPicker } from "@/components/tag-picker";
 import { TransactionAttachments } from "@/components/attachment-strip";
 
 import type { Transaction, ReimbursementDetail } from "@/types/api";
@@ -257,6 +259,25 @@ export function TransactionDetailDialog({
                 onCategorized={handleCategorized}
               />
             )}
+          </div>
+
+          {/* Under the category, because that is what a tag sits beside: the
+              category is the one budget line this row counts towards, a tag is
+              any other label the user wants to find it by later. */}
+          <div className="flex items-start gap-3">
+            <Tags className="h-4 w-4 text-muted-foreground shrink-0 mt-1.5" />
+            <span className="text-muted-foreground w-20 shrink-0 mt-1">{t("tags.label")}</span>
+            <TagPicker
+              key={tx.id}
+              transactionId={tx.id}
+              accountId={tx.accountId}
+              // ?? []: every list that opens this dialog reads the row from
+              // /api/transactions, which always sends the array — but the
+              // dialog also takes snapshots held in component state, and an
+              // older one predating this field must not blank the section.
+              tags={tx.tags ?? []}
+              readOnly={readOnly}
+            />
           </div>
 
           {tx.balance !== null && (

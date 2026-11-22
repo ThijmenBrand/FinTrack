@@ -4,6 +4,7 @@ import { eq, and, notInArray, inArray, asc, or, isNull, sql } from "drizzle-orm"
 import { visibleAccounts, writableTransactions } from "@/lib/account-access";
 import { normalizeIban } from "@/lib/csv-utils";
 import { excludeSplitParents } from "@/lib/split-sql";
+import { clearTransactionTags } from "@/lib/tags-db";
 
 /**
  * The user's transfer bucket, found by its stored `kind` rather than by its
@@ -221,6 +222,11 @@ export async function splitTransfersForAccount(
   // mirror once the detector pairs it, and deleting one loses real money.
   const mirrors = legs.filter((leg) => leg.isMirror && leg.linkedTransactionId);
   if (mirrors.length) {
+    await clearTransactionTags(
+      db,
+      mirrors.map((leg) => leg.id),
+      [...new Set(mirrors.map((leg) => leg.userId))],
+    );
     await db.delete(transactions).where(
       and(
         inArray(transactions.id, mirrors.map((leg) => leg.id)),

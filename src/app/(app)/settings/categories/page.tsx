@@ -30,6 +30,7 @@ import { CATEGORY_KIND_OPTIONS, groupKind } from "./_components/category-row";
 import { CategoryDialog } from "./_components/category-dialog";
 import { RuleDialog } from "./_components/rule-dialog";
 import { SplitRulesSection } from "./_components/split-rules-section";
+import { TagsSection } from "./_components/tags-section";
 import { UncategorizedTransactions } from "./_components/uncategorized-transactions";
 import { CategoryRow } from "./_components/category-row";
 import { SettingsHeader } from "@/components/settings/settings-ui";
@@ -299,6 +300,8 @@ function CategoriesPageInner() {
       <UncategorizedTransactions />
 
       <SplitRulesSection categories={categories} />
+
+      <TagsSection />
 
       {/* Categories with Grouped Rules */}
       <div className="space-y-3 pt-2">

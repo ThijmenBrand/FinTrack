@@ -8,7 +8,7 @@ import {
   getFinancialMonthRange,
   getPreviousFinancialMonth,
 } from "@/lib/financial-month";
-import type { Account, Category, Pot } from "@/types/api";
+import type { Account, Category, Pot, Tag } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
 import { useMediaQuery } from "@/hooks/use-browser";
 import type { I18n, MessageKey } from "@/lib/i18n/translate";
@@ -32,11 +32,12 @@ export const PERIOD_OPTIONS: { value: string; labelKey: MessageKey }[] = [
 // The `key:value` tokens are query syntax, not prose — they stay in English so
 // a filter URL means the same thing whatever language the UI is in. Only the
 // human-readable description beside each suggestion is translated.
-const FILTER_KEYS = ["account", "category", "type", "period", "pot"] as const;
+const FILTER_KEYS = ["account", "category", "tag", "type", "period", "pot"] as const;
 
 const FILTER_KEY_LABELS: Record<string, MessageKey> = {
   account: "tx.search.key.account",
   category: "tx.search.key.category",
+  tag: "tx.search.key.tag",
   type: "tx.search.key.type",
   period: "tx.search.key.period",
   pot: "tx.search.key.pot",
@@ -98,6 +99,7 @@ interface TransactionSearchBarProps {
   search: string;
   accountFilter: string;
   categoryFilters: string[];
+  tagFilters: string[];
   typeFilters: string[];
   potFilter: string;
   periodFilter: string;
@@ -107,6 +109,7 @@ interface TransactionSearchBarProps {
   excludeTypes: string[];
   accounts: Account[];
   categories: Category[];
+  tags: Tag[];
   pots: Pot[];
   distinctTypes: string[];
   onApply: (key: string, value: string) => void;
@@ -120,6 +123,7 @@ export function TransactionSearchBar({
   search,
   accountFilter,
   categoryFilters,
+  tagFilters,
   typeFilters,
   potFilter,
   periodFilter,
@@ -129,6 +133,7 @@ export function TransactionSearchBar({
   excludeTypes,
   accounts,
   categories,
+  tags,
   pots,
   distinctTypes,
   onApply,
@@ -159,6 +164,10 @@ export function TransactionSearchBar({
     for (const id of categoryFilters) {
       const cat = categories.find((c) => c.id === id);
       tokens.push({ key: "category", value: id, prefix: "category:", text: cat?.name || id });
+    }
+    for (const id of tagFilters) {
+      const tag = tags.find((tg) => tg.id === id);
+      tokens.push({ key: "tag", value: id, prefix: "tag:", text: tag?.name || id });
     }
     for (const type of typeFilters) {
       const opt = TYPE_OPTIONS.find((o) => o.value === type);
@@ -198,7 +207,7 @@ export function TransactionSearchBar({
       tokens.push({ key: "search", value: search, prefix: "", text: search });
     }
     return tokens;
-  }, [accountFilter, categoryFilters, typeFilters, potFilter, periodFilter, dateFromOverride, dateToOverride, excludeCategories, excludeTypes, search, accounts, categories, pots, t, formatDate]);
+  }, [accountFilter, categoryFilters, tagFilters, typeFilters, potFilter, periodFilter, dateFromOverride, dateToOverride, excludeCategories, excludeTypes, search, accounts, categories, tags, pots, t, formatDate]);
 
   const suggestions = useMemo(() => {
     const raw = inputValue.trim();
@@ -231,6 +240,8 @@ export function TransactionSearchBar({
           options = accounts.map((a) => ({ value: a.id, label: a.name }));
         } else if (key === "category") {
           options = categories.map((c) => ({ value: c.id, label: c.name }));
+        } else if (key === "tag") {
+          options = tags.map((tg) => ({ value: tg.id, label: tg.name }));
         } else if (key === "type") {
           options = TYPE_OPTIONS.filter((o) => distinctTypes.includes(o.value)).map((o) => ({
             value: o.value,
@@ -278,7 +289,7 @@ export function TransactionSearchBar({
             value: raw,
           },
         ];
-  }, [inputValue, accounts, categories, pots, distinctTypes, t]);
+  }, [inputValue, accounts, categories, tags, pots, distinctTypes, t]);
 
   const handleSuggestionSelect = (suggestion: (typeof suggestions)[number]) => {
     if (suggestion.type === "key") {

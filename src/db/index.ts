@@ -17,6 +17,8 @@ const TENANT_TABLES = [
   "transaction_attachments",
   "categories",
   "category_rules",
+  "tags",
+  "transaction_tags",
   "split_rules",
   "budgets",
   "budget_plans",
