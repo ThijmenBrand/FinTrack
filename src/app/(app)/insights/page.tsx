@@ -674,8 +674,12 @@ export default function InsightsPage() {
     // Simple mode is one narrow column of sentences — centre it (header included)
     // so it doesn't sit against the left edge with a page of empty space beside it.
     <div className={`space-y-4 md:space-y-6${simple ? " mx-auto max-w-4xl" : ""}`}>
-      {/* Header */}
-      <div className="flex items-end justify-between flex-wrap gap-4">
+      {/* Header. The controls hang from the top of the title rather than the
+          bottom of the subtitle: a 36px select sits exactly on the h1's line
+          box, so the range picker and the word "Insights" share an edge, and
+          the second period's row stacks under it instead of floating between
+          the two lines of the title. */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">{t("insights.title")}</h1>
           <p className="text-sm text-muted-foreground">
@@ -715,7 +719,7 @@ export default function InsightsPage() {
         </div>
         {/* Phones: the ranges become a row of chips — one tap each, instead of
             a dropdown to open first. */}
-        <div className="flex items-center gap-2 flex-wrap max-md:w-full max-md:flex-col max-md:items-stretch max-md:gap-3">
+        <div className="flex flex-wrap items-center justify-end gap-2 max-md:w-full max-md:flex-col max-md:items-stretch max-md:gap-3">
           <div
             role="radiogroup"
             aria-label={t("insights.rangeLabel")}
@@ -791,10 +795,10 @@ export default function InsightsPage() {
               {t("insights.periodCompare.toggle")}
             </button>
           )}
-          {/* Second period: its own row, so the two pickers read as a pair
-              rather than a third filter. */}
+          {/* Second period: its own row, right-flush with the row above, so
+              the two pickers read as a pair rather than a third filter. */}
           {compareActive && (
-            <div className="flex w-full items-center gap-2 max-md:flex-col max-md:items-stretch">
+            <div className="flex w-full items-center justify-end gap-2 max-md:flex-col max-md:items-stretch">
               <span className="shrink-0 text-sm text-muted-foreground">
                 {t("insights.periodCompare.versus")}
               </span>

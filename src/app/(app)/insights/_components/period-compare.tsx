@@ -35,9 +35,36 @@ const METRIC_LABELS: Record<MetricKey, MessageKey> = {
   perDay: "insights.periodCompare.metric.perDay",
 };
 
-/** Row and header share one grid so the columns line up across both. */
+/**
+ * Row and header share one grid so the columns line up across both. No column
+ * gap: the rules that carry the eye from a metric's name to its figures have
+ * to run unbroken, so cells are spaced by their own padding instead.
+ */
 const GRID =
-  "grid grid-cols-3 gap-x-3 gap-y-1 sm:grid-cols-[minmax(0,1fr)_repeat(3,minmax(0,8rem))] sm:gap-x-4";
+  "grid grid-cols-3 sm:grid-cols-[minmax(0,1.3fr)_repeat(3,minmax(6rem,1fr))]";
+
+/**
+ * Shared cell padding. The row's outer edges give their padding back so the
+ * table's first and last columns stay flush with the card's own.
+ */
+const CELL = "px-1.5 py-2.5 first:pl-0 last:pr-0 sm:px-3";
+
+/**
+ * The period the page is actually on gets a tinted column behind it, so the
+ * figures being judged read as one block rather than as the left of three
+ * number columns. Below sm it would be a stripe under a third of each row.
+ */
+const BAND = "sm:bg-muted/40";
+
+/** Figures are right-aligned so their digits line up down the column. */
+const NUM = "text-right tabular-nums";
+
+/**
+ * One consistent hairline per row. The metric's name and its figures sit a
+ * column apart, and the rule is what the eye travels along to get between
+ * them — a lighter one for some rows only made the rail flicker.
+ */
+const ROW_RULE = "border-t border-border";
 
 const GOOD = "text-emerald-600 dark:text-emerald-400";
 const BAD = "text-red-600 dark:text-red-400";
@@ -73,17 +100,31 @@ function Delta({
   const tone = upIsGood === null ? "" : up === upIsGood ? GOOD : BAD;
   // A savings rate that went 25% → 50% moved 25 percentage points; calling
   // that "+100%" would be true of the ratio and misleading about the rate.
+  // The arrow is a mark on the number, not a character beside it — set small
+  // enough that the figure stays the thing you read. The direction is the
+  // whole point of the figure, so it is also spelled out for anyone who gets
+  // the cell read aloud rather than seeing the triangle.
+  const arrow = (
+    <>
+      <span aria-hidden="true" className="text-[0.7em] leading-none">
+        {up ? "▲" : "▼"}
+      </span>
+      <span className="sr-only">
+        {i18n.t(up ? "insights.periodCompare.up" : "insights.periodCompare.down")}{" "}
+      </span>
+    </>
+  );
   if (format === "percent") {
     return (
       <span className={tone}>
-        {up ? "▲" : "▼"} {Math.abs(delta).toFixed(1)}{" "}
+        {arrow} {Math.abs(delta).toFixed(1)}{" "}
         {i18n.t("insights.periodCompare.percentagePoints")}
       </span>
     );
   }
   return (
     <span className={tone}>
-      {up ? "▲" : "▼"} {formatMetric(i18n, Math.abs(delta), format)}
+      {arrow} {formatMetric(i18n, Math.abs(delta), format)}
       {pct !== null && Math.abs(pct) < 1000 && (
         <span className="text-[0.9em] opacity-80">
           {" "}
@@ -95,22 +136,34 @@ function Delta({
   );
 }
 
-/** A column header: the period's name, with its dates wrapping underneath. */
+/** A column header: the period's name, with its dates on a line underneath. */
 function HeadCell({
   label,
   sub,
   strong = false,
+  className = "",
 }: {
   label: string;
   sub?: string;
   strong?: boolean;
+  className?: string;
 }) {
   return (
-    <div className="min-w-0 text-xs font-medium text-muted-foreground">
-      <div className={`truncate ${strong ? "text-foreground" : ""}`} title={label}>
+    <div
+      role="columnheader"
+      className={`min-w-0 border-b pb-2 text-xs font-medium ${NUM} ${CELL} ${className}`}
+    >
+      <div
+        className={`truncate ${strong ? "text-foreground" : "text-muted-foreground"}`}
+        title={label}
+      >
         {label}
       </div>
-      {sub && <div className="font-normal leading-tight">{sub}</div>}
+      {sub && (
+        <div className="font-normal leading-tight text-muted-foreground/80 sm:truncate">
+          {sub}
+        </div>
+      )}
     </div>
   );
 }
@@ -529,32 +582,72 @@ export function PeriodCompare({
           </p>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className={GRID}>
-            <div className="hidden sm:block" />
-            <HeadCell label={a.label} sub={a.rangeLabel} strong />
-            <HeadCell label={b.label} sub={b.rangeLabel} />
-            <HeadCell label={t("insights.periodCompare.change")} />
-            {metrics.map((row) => (
-              <div key={row.key} className="contents">
-                <div className="col-span-3 mt-2 text-xs text-muted-foreground sm:col-span-1 sm:mt-0 sm:self-center sm:text-sm sm:text-foreground">
-                  {t(METRIC_LABELS[row.key])}
+          <div role="table" className={GRID}>
+            <div role="row" className="contents">
+              <div className={`hidden border-b sm:block ${CELL}`} />
+              <HeadCell
+                label={a.label}
+                sub={a.rangeLabel}
+                strong
+                className={`${BAND} sm:rounded-t-md`}
+              />
+              <HeadCell label={b.label} sub={b.rangeLabel} />
+              <HeadCell label={t("insights.periodCompare.change")} />
+            </div>
+            {metrics.map((row, i) => {
+              // The header carries its own rule, so the first row goes without.
+              const nameRule = i === 0 ? "" : ROW_RULE;
+              // Below sm the name sits on its own line above its figures, so
+              // the rule between metrics rides on the name alone.
+              const figureRule = i === 0 ? "" : "sm:border-t sm:border-border";
+              const last = i === metrics.length - 1;
+              // Net is the line the whole table is working towards, so it is
+              // the one figure that carries its own colour — the same
+              // emerald/red the headline strip gives it elsewhere.
+              const netTone =
+                row.key === "net" && row.a !== null
+                  ? row.a >= 0
+                    ? GOOD
+                    : BAD
+                  : "";
+              return (
+                <div key={row.key} role="row" className="contents">
+                  <div
+                    role="rowheader"
+                    className={`col-span-3 text-xs text-muted-foreground max-sm:pb-0 max-sm:pt-3 sm:col-span-1 sm:self-center sm:text-sm sm:text-foreground ${
+                      row.key === "net" ? "sm:font-medium" : ""
+                    } ${nameRule} ${CELL}`}
+                  >
+                    {t(METRIC_LABELS[row.key])}
+                  </div>
+                  <div
+                    role="cell"
+                    className={`text-sm font-semibold sm:text-[15px] ${NUM} ${CELL} ${BAND} ${figureRule} ${netTone} ${
+                      last ? "sm:rounded-b-md" : ""
+                    }`}
+                  >
+                    {formatMetric(i18n, row.a, row.format)}
+                  </div>
+                  <div
+                    role="cell"
+                    className={`text-[13px] text-muted-foreground sm:text-sm ${NUM} ${CELL} ${figureRule}`}
+                  >
+                    {formatMetric(i18n, row.b, row.format)}
+                  </div>
+                  <div
+                    role="cell"
+                    className={`text-[11px] font-medium sm:text-[13px] ${NUM} ${CELL} ${figureRule}`}
+                  >
+                    <Delta
+                      delta={row.delta}
+                      pct={row.pct}
+                      format={row.format}
+                      upIsGood={row.upIsGood}
+                    />
+                  </div>
                 </div>
-                <div className="text-sm font-semibold tabular-nums">
-                  {formatMetric(i18n, row.a, row.format)}
-                </div>
-                <div className="text-sm tabular-nums text-muted-foreground">
-                  {formatMetric(i18n, row.b, row.format)}
-                </div>
-                <div className="text-xs tabular-nums">
-                  <Delta
-                    delta={row.delta}
-                    pct={row.pct}
-                    format={row.format}
-                    upIsGood={row.upIsGood}
-                  />
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
           {(lengthsDiffer || aRunning || resetBetween) && (
             <div className="space-y-1 border-t pt-3 text-xs text-muted-foreground">
