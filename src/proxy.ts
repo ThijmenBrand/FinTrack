@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { getSessionCookie } from "better-auth/cookies";
 import { NextRequest, NextResponse } from "next/server";
+import { AUTH_COOKIE_PREFIX, authCookieNames } from "@/lib/auth-cookie-prefix";
 import { validateCsrfOrigin } from "@/lib/csrf";
 import { isLockExempt, readLockState, touchSession } from "@/lib/session-lock";
 import { SESSION_LOCKED_CODE, unlockPath } from "@/lib/unlock-path";
@@ -67,10 +68,7 @@ function hasTwoFactorEnabled(session: Session): boolean {
 }
 
 function clearAuthCookies(response: NextResponse): NextResponse {
-  response.cookies.delete("better-auth.session_token");
-  response.cookies.delete("__Secure-better-auth.session_token");
-  response.cookies.delete("better-auth.session_data");
-  response.cookies.delete("__Secure-better-auth.session_data");
+  for (const name of authCookieNames()) response.cookies.delete(name);
   return response;
 }
 
@@ -159,7 +157,9 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const sessionToken = getSessionCookie(request.headers);
+  const sessionToken = getSessionCookie(request.headers, {
+    cookiePrefix: AUTH_COOKIE_PREFIX,
+  });
 
   // Redirect authenticated users away from the login pages (admins to the
   // backoffice, everyone else to the app), but allow stale sessions through.

@@ -85,6 +85,7 @@ empty `.env` still runs.
 |---|---|---|
 | `BETTER_AUTH_SECRET` | prod | Session-signing secret, min 32 chars. A dev fallback is used if unset (with a warning); **required in production**. |
 | `BETTER_AUTH_URL` | yes | Base URL, e.g. `http://localhost:3000` or your prod domain. Used for auth callbacks — and baked in at *build* time by `src/proxy.ts`. |
+| `AUTH_COOKIE_PREFIX` | no | Prefix for the session cookie names. Default `better-auth`. Cookies ignore the port, so two dev servers on `localhost` share one session cookie and sign each other out — give each checkout its own prefix (letters, digits, `-`, `_`). |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` / `ADMIN_DISPLAY_NAME` | no | Seeded on first `db:migrate` only, and only when the database has no users. Default `admin`/`admin`, signing in as `admin@local.test`. |
 | `SEED_USERNAME` / `SEED_PASSWORD` / `SEED_EMAIL` | no | Defaults for `db:seed`'s target user. Default `demo`/`demo`, signing in as `demo@local.test`. |
 | `RESEND_API_KEY` / `EMAIL_FROM` | prod | Signup verification and password-reset mail. Unset locally → mail contents are logged to the console instead. |
