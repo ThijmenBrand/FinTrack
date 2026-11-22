@@ -40,7 +40,7 @@ import {
 import { useAccounts } from "@/hooks/use-accounts";
 import { useAccountCategories, useCategories } from "@/hooks/use-categories";
 import { usePots, useDeletePot, useAddToPot, useRemoveFromPot, useCreatePot } from "@/hooks/use-pots";
-import { useVisibleTags } from "@/hooks/use-tags";
+import { useBulkTagTransactions, useCreateTag, useVisibleTags } from "@/hooks/use-tags";
 import { useTransactions, useDeleteTransaction, useDetectTransfers, useDeleteReimbursement, useBulkCategorizeTransactions, useBulkDeleteTransactions, useUnsplitTransaction } from "@/hooks/use-transactions";
 import { usePreferences } from "@/hooks/use-preferences";
 import { useBudgetScope } from "@/hooks/use-budget-scope";
@@ -109,6 +109,7 @@ function TransactionsPage() {
   const removeFromPot = useRemoveFromPot();
   const createPot = useCreatePot();
   const bulkCategorize = useBulkCategorizeTransactions();
+  const bulkTag = useBulkTagTransactions();
   const bulkDelete = useBulkDeleteTransactions();
   const unsplitTx = useUnsplitTransaction();
 
@@ -522,16 +523,75 @@ function TransactionsPage() {
     (a) => a.role !== "owner" || a.sharedWith > 0,
   );
 
+  // Both the category list and the tag list the bulk bar may offer are
+  // per-owner, so both start from the owners the selection spans.
+  const bulkOwnerIds = useMemo(
+    () =>
+      new Set(selectedOnPage.map((t) => accounts.find((a) => a.id === t.accountId)?.userId)),
+    [selectedOnPage, accounts],
+  );
   // What the bulk bar may offer: the categories of every owner the selection
   // spans. ponytail: a selection crossing two owners keeps both lists, and a
   // pick then lands only on that owner's rows — narrow the selection (or filter
   // by account) if that matters.
-  const bulkCategories = useMemo(() => {
-    const owners = new Set(
-      selectedOnPage.map((t) => accounts.find((a) => a.id === t.accountId)?.userId),
-    );
-    return categories.filter((c) => owners.has(c.userId));
-  }, [selectedOnPage, accounts, categories]);
+  const bulkCategories = useMemo(
+    () => categories.filter((c) => bulkOwnerIds.has(c.userId)),
+    [bulkOwnerIds, categories],
+  );
+  // The same rule for tags, which are per owner too.
+  const bulkTags = useMemo(
+    () => visibleTags.filter((tag) => bulkOwnerIds.has(tag.userId)),
+    [bulkOwnerIds, visibleTags],
+  );
+  // Which tags show ticked — and so come OFF on the next pick instead of going
+  // on. A tag is ticked when it is on every selected row ITS OWNER owns: the
+  // rows a pick could actually reach. Counting the other owner's half too
+  // would leave a tag that is already on all of its own rows permanently
+  // un-ticked, and so permanently stuck on "add" — no way to take it off a
+  // mixed selection at all. A tag can only ever sit on its owner's rows, so
+  // the carrier tally needs no owner check of its own.
+  const bulkTagIds = useMemo(() => {
+    const rowsPerOwner = new Map<string | undefined, number>();
+    const carriers = new Map<string, number>();
+    for (const row of selectedOnPage) {
+      const owner = accounts.find((a) => a.id === row.accountId)?.userId;
+      rowsPerOwner.set(owner, (rowsPerOwner.get(owner) ?? 0) + 1);
+      for (const tag of row.tags) carriers.set(tag.id, (carriers.get(tag.id) ?? 0) + 1);
+    }
+    return visibleTags
+      .filter((tag) => {
+        const owned = rowsPerOwner.get(tag.userId) ?? 0;
+        return owned > 0 && carriers.get(tag.id) === owned;
+      })
+      .map((tag) => tag.id);
+  }, [selectedOnPage, accounts, visibleTags]);
+  // A created tag has to land in one owner's space; across two owners there
+  // is no single answer, so the create row goes away. Any account of that one
+  // owner names the space — the API resolves the owner from it.
+  const bulkTagAccountId = bulkOwnerIds.size === 1 ? selectedOnPage[0]?.accountId : undefined;
+  const createBulkTag = useCreateTag(bulkTagAccountId);
+  const handleCreateBulkTag = async (name: string) => {
+    // Our own id, so the picker can toggle the tag on in the same gesture —
+    // see TagPicker, which creates the same way.
+    const id = crypto.randomUUID();
+    try {
+      return (await createBulkTag.mutateAsync({ id, name })).id;
+    } catch (err) {
+      console.error("Failed to create tag:", err);
+      return null;
+    }
+  };
+
+  const handleBulkTag = (tagId: string) => {
+    // The selection stays: the popover is still open for the next tag, and
+    // clearing it here would send the one after that an empty list. Unlike
+    // categorizing, tagging is rarely the end of the gesture.
+    bulkTag.mutate({
+      transactionIds: selectedOnPage.map((t) => t.id),
+      tagId,
+      action: bulkTagIds.includes(tagId) ? "remove" : "add",
+    });
+  };
   // A selection on one account bands that account's budget plan to the top;
   // across accounts there is no one plan to put first.
   const bulkAccountIds = new Set(selectedOnPage.map((t) => t.accountId));
@@ -867,12 +927,18 @@ function TransactionsPage() {
         <TransactionBulkBar
           count={selectedOnPage.length}
           categories={bulkCategories}
+          tags={bulkTags}
+          selectedTagIds={bulkTagIds}
           accountId={bulkAccountId}
           canAddToPot={pots.length > 0 && selectedOnPage.some((t) => !t.groupId)}
           canReimburse={selectedOnPage.some((t) => t.type === "income")}
           categorizePending={bulkCategorize.isPending}
+          tagPending={bulkTag.isPending}
           deletePending={bulkDelete.isPending}
           onCategorize={handleBulkCategorize}
+          onTag={handleBulkTag}
+          onCreateTag={bulkTagAccountId ? handleCreateBulkTag : undefined}
+          creatingTag={createBulkTag.isPending}
           onAddToPot={() => setBulkPotOpen(true)}
           onReimburse={() => setReimburseQueue(selectedOnPage.filter((t) => t.type === "income"))}
           onDelete={handleBulkDelete}

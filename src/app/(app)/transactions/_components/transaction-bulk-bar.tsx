@@ -2,22 +2,39 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Package, Receipt, Trash2, Loader2, X } from "lucide-react";
+import { Hash, Package, Receipt, Trash2, Loader2, X } from "lucide-react";
 import { CategoryPicker } from "@/components/category-picker";
-import type { Category } from "@/types/api";
+import { SearchCreatePicker } from "@/components/search-create-picker";
+import type { Category, Tag } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
 
 interface TransactionBulkBarProps {
   count: number;
   categories: Category[];
+  /** The vocabulary the selection may be tagged with: every owner it spans.
+   *  Empty is fine — the picker then only offers the create row. */
+  tags: Tag[];
+  /** Tags EVERY selected row already carries. They show ticked, and picking
+   *  one takes it off the selection instead of putting it on — the same
+   *  toggle the row's own picker does, read over the whole selection. */
+  selectedTagIds: string[];
   /** The one account every selected row is on, if they share one — its budget
    *  plan bands to the top of the category list. */
   accountId?: string;
   canAddToPot: boolean;
   canReimburse: boolean;
   categorizePending: boolean;
+  tagPending: boolean;
   deletePending: boolean;
   onCategorize: (categoryId: string | null) => void;
+  /** Toggles `tagId` over the selection; the bar never decides the direction,
+   *  `selectedTagIds` already says which way it goes. */
+  onTag: (tagId: string) => void;
+  /** Creates a tag from typed text and gives back its id, which is then
+   *  toggled on like any other. Omitted when the selection spans two owners:
+   *  there is no single space the new tag could belong to. */
+  onCreateTag?: (name: string) => Promise<string | null>;
+  creatingTag?: boolean;
   onAddToPot: () => void;
   onReimburse: () => void;
   onDelete: () => void | Promise<void>;
@@ -27,12 +44,18 @@ interface TransactionBulkBarProps {
 export function TransactionBulkBar({
   count,
   categories,
+  tags,
+  selectedTagIds,
   accountId,
   canAddToPot,
   canReimburse,
   categorizePending,
+  tagPending,
   deletePending,
   onCategorize,
+  onTag,
+  onCreateTag,
+  creatingTag = false,
   onAddToPot,
   onReimburse,
   onDelete,
@@ -59,6 +82,37 @@ export function TransactionBulkBar({
           className="h-8 text-xs max-md:h-10 max-md:text-sm"
         />
       </div>
+      {/* Multi-select: the popover stays open, so a selection can take several
+          tags in one trip to the list. */}
+      <SearchCreatePicker
+        items={tags.map((tag) => ({ id: tag.id, name: tag.name }))}
+        value={null}
+        selectedIds={selectedTagIds}
+        onSelect={onTag}
+        onCreate={onCreateTag}
+        creating={creatingTag}
+        labels={{ search: "tags.search", empty: "tags.empty", create: "tags.createNamed" }}
+        renderLeading={() => <Hash className="h-3 w-3 shrink-0 text-muted-foreground" />}
+        trigger={
+          <Button
+            variant="outline"
+            size="sm"
+            aria-haspopup="listbox"
+            className="h-8 max-md:h-10"
+            // Not disabled while a pick is in flight: the list is still open
+            // and the point is to pick several. The spinner says it is busy;
+            // a disabled trigger would only lose the focus the popover
+            // returns to it on close.
+          >
+            {tagPending ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Hash className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            {t("tx.bulk.setTags")}
+          </Button>
+        }
+      />
       {canAddToPot && (
         <Button variant="outline" size="sm" className="h-8 max-md:h-10" onClick={onAddToPot}>
           <Package className="mr-1.5 h-3.5 w-3.5" />
