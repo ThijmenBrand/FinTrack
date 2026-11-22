@@ -26,6 +26,7 @@ import { activeMembership, memberAccountIds, visibleTransactions } from "@/lib/a
 import { getPaySchedule, paydaysBetween, type PaySchedule } from "@/lib/pay-schedule";
 import { getMonthMoneyMath } from "@/lib/month-money";
 import { classifyOnTrack } from "@/lib/on-track";
+import { accountScopeFilter } from "@/lib/budget-plan";
 import { formatCurrency, toIsoDate } from "@/lib/utils";
 import { effectiveExpenseAmount, potSpentAmount } from "@/lib/reimbursement-sql";
 import { excludeSplitChildren, excludeSplitParents } from "@/lib/split-sql";
@@ -583,7 +584,17 @@ export async function getPotBudgets(
  * per-budget split (via the transaction's account) so a shared category shows
  * which budget the money actually left.
  */
-export async function getTopCategories(userId: string, startDay: number = 1) {
+/**
+ * Top spending categories this period. `accountIds` narrows it to one budget's
+ * accounts — under a budget scope the card must not rank spending from budgets
+ * that aren't on screen. Undefined keeps it cross-budget, with the per-budget
+ * split line that makes it readable.
+ */
+export async function getTopCategories(
+  userId: string,
+  startDay: number = 1,
+  accountIds?: string[],
+) {
   const { monthStart, monthEnd } = getDateRanges(startDay);
 
   const [rows, plans] = await Promise.all([
@@ -610,6 +621,7 @@ export async function getTopCategories(userId: string, startDay: number = 1) {
           excludeSplitParents(),
           gte(transactions.date, monthStart),
           lte(transactions.date, monthEnd),
+          accountScopeFilter(accountIds),
         ),
       )
       .groupBy(transactions.categoryId, categories.id, accounts.budgetId),
@@ -645,7 +657,9 @@ export async function getTopCategories(userId: string, startDay: number = 1) {
   }
 
   return {
-    planCount: plans.length,
+    // Scoped to one budget: every row is that budget's, so the split line
+    // would repeat its name five times.
+    planCount: accountIds ? 1 : plans.length,
     categories: Array.from(byCategory.values())
       .sort((a, b) => b.total - a.total)
       .slice(0, 5)

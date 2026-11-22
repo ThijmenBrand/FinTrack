@@ -29,6 +29,7 @@ import {
 import { NAV_SECTIONS, PRIMARY_NAV, useSecondaryNav, useSessionUser } from "@/components/nav-shared";
 import { UserAvatar } from "@/components/user-avatar";
 import { FeedbackButton } from "@/components/feedback-dialog";
+import { BudgetScopeSelect } from "@/components/budget-scope-select";
 import { useI18n } from "@/lib/i18n/client";
 
 export function Sidebar() {
@@ -68,8 +69,16 @@ export function Sidebar() {
         )}
       </div>
 
+      {/* The budget everything below is scoped to. Directly under the logo,
+          where a workspace switcher sits, because that is the promise it
+          makes: pick a budget and the app follows. Renders nothing until
+          there are two budgets to choose between. */}
+      <div className="px-3 pt-3">
+        <BudgetScopeSelect collapsed={collapsed} />
+      </div>
+
       {/* Navigation */}
-      <nav className="flex-1 px-3 py-4">
+      <nav className="flex-1 px-3 pb-4 pt-3">
         {sections.map((group, i) => (
           <div
             key={group.section}
