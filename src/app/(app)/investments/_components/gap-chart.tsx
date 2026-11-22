@@ -23,7 +23,9 @@ import type { SeriesPoint } from "@/lib/investment-series";
 
 const H_DESKTOP = 300;
 const H_MOBILE = 220;
-const PAD = { top: 16, right: 16, bottom: 28, left: 60 };
+const PAD_DESKTOP = { top: 16, right: 16, bottom: 28, left: 60 };
+// A phone cannot spare 60px for axis labels; the tick text shrinks to match.
+const PAD_MOBILE = { top: 12, right: 10, bottom: 26, left: 44 };
 const MOBILE_BREAKPOINT = 640;
 
 const RANGES = [
@@ -94,12 +96,23 @@ export function GapChart({ points, valuationDates }: Props) {
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   const isNarrow = useMediaQuery(`(max-width: ${MOBILE_BREAKPOINT}px)`);
   const height = isNarrow ? H_MOBILE : H_DESKTOP;
+  const PAD = isNarrow ? PAD_MOBILE : PAD_DESKTOP;
 
+  // ResizeObserver, not a window resize listener: the first measure has to
+  // land once the card has actually been laid out, and on a phone the window
+  // never resizes afterwards — so a missed first reading would leave the
+  // chart drawn at its 720px default, painting straight out of the card.
   useEffect(() => {
-    const measure = () => setWidth(Math.max(280, containerRef.current?.clientWidth ?? 720));
+    const el = containerRef.current;
+    if (!el) return;
+    const measure = () => {
+      const w = el.clientWidth;
+      if (w > 0) setWidth(w);
+    };
     measure();
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
   }, []);
 
   const valuationDateSet = useMemo(() => new Set(valuationDates), [valuationDates]);
@@ -137,7 +150,7 @@ export function GapChart({ points, valuationDates }: Props) {
       PAD.left + ((Date.parse(`${iso}T00:00:00Z`) - first) / timeSpan) * innerW;
     const y = (v: number) => PAD.top + innerH - ((v - yMin) / span) * innerH;
     return { x, y, innerW, innerH, gridValues };
-  }, [slice, lo, hi, width, height]);
+  }, [slice, lo, hi, width, height, PAD]);
 
   const { x, y, gridValues } = geometry;
 
@@ -246,7 +259,7 @@ export function GapChart({ points, valuationDates }: Props) {
 
       <div
         ref={containerRef}
-        className="relative w-full touch-pan-y"
+        className="relative w-full overflow-hidden touch-pan-y"
         onPointerMove={(e) => onMove(e.clientX)}
         onPointerLeave={() => setHoverIdx(null)}
       >
@@ -255,7 +268,7 @@ export function GapChart({ points, valuationDates }: Props) {
           height={height}
           role="img"
           aria-label={t("investments.chart.label")}
-          className="overflow-visible"
+          className="block max-w-full overflow-hidden"
         >
           <defs>
             <clipPath id={clipId}>

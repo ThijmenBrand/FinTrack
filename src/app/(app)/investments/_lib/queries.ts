@@ -14,6 +14,8 @@ import {
   sumCashBalances,
 } from "@/lib/account-kinds";
 import { getInvestmentSeries, type SeriesPoint } from "@/lib/investment-series";
+import { db } from "@/db";
+import { getAccountHoldings, type Holding } from "@/lib/holdings-db";
 import { getInvestmentSummary } from "../../_lib/dashboard-queries";
 import { toIsoDate } from "@/lib/utils";
 
@@ -46,6 +48,21 @@ export interface InvestmentsOverview {
   netWorth: number;
   points: SeriesPoint[];
   valuationDates: string[];
+  /** Every holding across every investment account, open and closed. */
+  holdings: Holding[];
+  /**
+   * Open, priced holdings grouped by asset class, plus a "cash" slice for
+   * money deposited at the broker but not yet invested. Empty without holdings.
+   */
+  allocation: { key: string; value: number }[];
+  /** Deposited but uninvested, part of what the accounts are worth. */
+  brokerCash: number;
+  /**
+   * True once any account carries trades. Its value is then derived from
+   * quantity x price, and typing a figure by hand would be overwritten on the
+   * next recompute — so the UI stops offering to.
+   */
+  derivedFromHoldings: boolean;
 }
 
 /**
@@ -64,11 +81,37 @@ export const getInvestmentsOverview = cache(
     ]);
     if (!summary) return null;
 
-    const { points, valuationDates } = await getInvestmentSeries(
-      userId,
-      EARLIEST,
-      toIsoDate(new Date()),
-    );
+    const [{ points, valuationDates }, holdingsPerAccount] = await Promise.all([
+      getInvestmentSeries(userId, EARLIEST, toIsoDate(new Date())),
+      // Per account rather than one query: positions are derived by walking
+      // one account's trades in order, and merging two accounts' trades would
+      // average their cost bases together into a figure belonging to neither.
+      Promise.all(
+        summary.accounts.map((a) =>
+          getAccountHoldings(db, a.ownerId, a.id),
+        ),
+      ),
+    ]);
+    const holdings = holdingsPerAccount.flat();
+
+    const byClass = new Map<string, number>();
+    let holdingsValue = 0;
+    for (const h of holdings) {
+      if (h.quantity <= 0 || h.marketValue === null) continue;
+      const key = h.instrument.assetClass;
+      byClass.set(key, (byClass.get(key) ?? 0) + h.marketValue);
+      holdingsValue += h.marketValue;
+    }
+    // Whatever the valuations say the accounts are worth beyond their priced
+    // holdings is money sitting at the broker uninvested. Shown as its own
+    // slice rather than folded in silently: "20% of my portfolio is still
+    // cash" is one of the few things an allocation chart is actually for.
+    const brokerCash =
+      holdings.length > 0 ? Math.max(0, summary.totalValue - holdingsValue) : 0;
+    if (brokerCash > 0.005) {
+      byClass.set("cash", (byClass.get("cash") ?? 0) + brokerCash);
+    }
+    const allocation = [...byClass].map(([key, value]) => ({ key, value }));
 
     const accounts: InvestmentAccountRow[] = summary.accounts.map((a) => ({
       ...a,
@@ -106,6 +149,10 @@ export const getInvestmentsOverview = cache(
       netWorth: cash + summary.totalValue,
       points,
       valuationDates,
+      holdings,
+      allocation,
+      brokerCash,
+      derivedFromHoldings: holdings.length > 0,
     };
   },
 );

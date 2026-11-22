@@ -205,6 +205,9 @@ export const getInvestmentSummary = cache(async (userId: string) => {
 
   const rows = investments.map((a) => ({
     id: a.id,
+    // The ACCOUNT OWNER, which is not the reader on a shared account. Trades,
+    // prices and valuations all live in the owner's space.
+    ownerId: a.userId,
     name: a.name,
     bank: a.bank,
     bankName: a.bankName,

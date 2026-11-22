@@ -17,6 +17,9 @@ import { valuationAgeDays } from "@/lib/account-kinds";
 import { getInvestmentsOverview } from "./_lib/queries";
 import { GapChart } from "./_components/gap-chart";
 import { UpdateValueDialog } from "./_components/update-value-dialog";
+import { AddTradeDialog } from "./_components/add-trade-dialog";
+import { HoldingsTable, ASSET_CLASS_LABELS } from "./_components/holdings-table";
+import { AllocationBar } from "./_components/allocation-bar";
 
 /**
  * The investments page answers three questions, in this order: what is it
@@ -64,6 +67,9 @@ export default async function InvestmentsPage() {
     netWorth,
     points,
     valuationDates,
+    holdings,
+    allocation,
+    derivedFromHoldings,
   } = overview;
   const age = valuationAgeDays(valuedAt);
   const up = (gain ?? 0) >= 0;
@@ -72,14 +78,28 @@ export default async function InvestmentsPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <Header title={t("investments.title")} subtitle={t("investments.subtitle")} />
-        <UpdateValueDialog
-          accounts={accounts.map((a) => ({
-            id: a.id,
-            name: a.name,
-            currentValue: a.currentValue,
-            valuedAt: a.valuedAt,
-          }))}
-        />
+        <div className="flex shrink-0 items-center gap-2">
+          <AddTradeDialog
+            accounts={accounts.map((a) => ({ id: a.id, name: a.name }))}
+            instruments={holdings.map((h) => ({
+              id: h.instrument.id,
+              name: h.instrument.name,
+              accountId: h.accountId,
+            }))}
+          />
+          {/* Once holdings decide the value, a typed-in total would be
+              overwritten by the next recompute, so it stops being offered. */}
+          {!derivedFromHoldings && (
+            <UpdateValueDialog
+              accounts={accounts.map((a) => ({
+                id: a.id,
+                name: a.name,
+                currentValue: a.currentValue,
+                valuedAt: a.valuedAt,
+              }))}
+            />
+          )}
+        </div>
       </div>
 
       <Card>
@@ -145,6 +165,36 @@ export default async function InvestmentsPage() {
           <GapChart points={points} valuationDates={valuationDates} />
         </CardContent>
       </Card>
+
+      {holdings.length > 0 && (
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
+          <Card>
+            <CardHeader>
+              <CardTitle>{t("investments.holdings.title")}</CardTitle>
+              <CardDescription>{t("investments.holdings.hint")}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <HoldingsTable holdings={holdings} />
+            </CardContent>
+          </Card>
+          <Card className="h-fit">
+            <CardHeader>
+              <CardTitle>{t("investments.allocation.title")}</CardTitle>
+              <CardDescription>{t("investments.allocation.hint")}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <AllocationBar
+                slices={allocation.map((a) => ({
+                  key: a.key,
+                  label: a.key,
+                  labelKey: ASSET_CLASS_LABELS[a.key],
+                  value: a.value,
+                }))}
+              />
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <Card>

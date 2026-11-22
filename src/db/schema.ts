@@ -310,6 +310,110 @@ export const assetValuations = sqliteTable("asset_valuations", {
   index("idx_asset_valuations_user_date").on(table.userId, table.date),
 ]);
 
+// ─── Instruments ─────────────────────────────────────────────────────────────
+// A thing that can be held: an ETF, a share, a bond, a lump of gold.
+//
+// Per user rather than global. Two households holding the same ETF get a row
+// each, which duplicates a little reference data and in exchange keeps every
+// query in this file scoped by user_id like the rest of the app — no shared
+// table to guard differently, and nobody's holdings can leak through a name
+// collision.
+export const instruments = sqliteTable("instruments", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  // Both optional: a European investor identifies a fund by ISIN, an American
+  // by ticker, and someone tracking a gold bar by neither.
+  isin: text("isin"),
+  symbol: text("symbol"),
+  currency: text("currency").notNull().default("EUR"),
+  // One level, not Ghostfolio's two. A household portfolio is a handful of
+  // funds, and the only thing the split has to answer is "how spread out am
+  // I" — which this resolves at the granularity people actually think in.
+  assetClass: text("asset_class", {
+    enum: ["equity", "bond", "cash", "commodity", "real_estate", "crypto", "other"],
+  })
+    .notNull()
+    .default("equity"),
+  // Where prices come from. Only "manual" exists today; the column is here so
+  // a provider later is an addition rather than a migration, exactly as
+  // Ghostfolio's dataSource works.
+  dataSource: text("data_source", { enum: ["manual"] })
+    .notNull()
+    .default("manual"),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_instruments_user").on(table.userId),
+]);
+
+// ─── Trades ──────────────────────────────────────────────────────────────────
+// What you did, which is the only durable record. Positions are DERIVED from
+// these rows and never stored: a stored quantity is a second source of truth
+// that drifts the first time a trade is corrected.
+export const trades = sqliteTable("trades", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  accountId: text("account_id")
+    .notNull()
+    .references(() => accounts.id, { onDelete: "cascade" }),
+  instrumentId: text("instrument_id")
+    .notNull()
+    .references(() => instruments.id, { onDelete: "cascade" }),
+  date: text("date").notNull(),
+  // Four, not Ghostfolio's six. "interest" and "liability" have no meaning in
+  // a household brokerage account that this app does not already cover.
+  type: text("type", { enum: ["buy", "sell", "dividend", "fee"] }).notNull(),
+  // Zero for a fee; for a dividend it is the number of units it was paid on,
+  // which may be left at zero when only the total matters.
+  quantity: real("quantity").notNull().default(0),
+  // Per unit for a buy or sell; the total for a dividend; zero for a fee.
+  unitPrice: real("unit_price").notNull().default(0),
+  // Charged on top, always a cost. Part of what a position cost you.
+  fee: real("fee").notNull().default(0),
+  notes: text("notes"),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_trades_account_date").on(table.accountId, table.date),
+  index("idx_trades_instrument_date").on(table.instrumentId, table.date),
+  index("idx_trades_user_date").on(table.userId, table.date),
+]);
+
+// ─── Instrument prices ───────────────────────────────────────────────────────
+// What one unit was worth on a day. Same shape as Ghostfolio's MarketData: one
+// row per instrument per date, a single close, no OHLC — a household tracker
+// has no use for intraday, and offering it would invite checking.
+export const instrumentPrices = sqliteTable("instrument_prices", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  instrumentId: text("instrument_id")
+    .notNull()
+    .references(() => instruments.id, { onDelete: "cascade" }),
+  date: text("date").notNull(),
+  price: real("price").notNull(),
+  source: text("source", { enum: ["manual", "provider"] })
+    .notNull()
+    .default("manual"),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  uniqueIndex("idx_instrument_prices_instrument_date").on(
+    table.instrumentId,
+    table.date,
+  ),
+  index("idx_instrument_prices_user").on(table.userId),
+]);
+
 // ─── Categories ──────────────────────────────────────────────────────────────
 // User-defined spending categories (unique per user)
 export const categories = sqliteTable("categories", {
@@ -847,6 +951,7 @@ export const accountsRelations = relations(accounts, ({ one, many }) => ({
   recurringTransactions: many(recurringTransactions),
   importBatches: many(importBatches),
   valuations: many(assetValuations),
+  trades: many(trades),
 }));
 
 export const budgetPlansRelations = relations(budgetPlans, ({ one, many }) => ({
@@ -872,6 +977,29 @@ export const transactionsRelations = relations(transactions, ({ one }) => ({
   recurringTransaction: one(recurringTransactions, {
     fields: [transactions.recurringTransactionId],
     references: [recurringTransactions.id],
+  }),
+}));
+
+export const instrumentsRelations = relations(instruments, ({ one, many }) => ({
+  user: one(user, { fields: [instruments.userId], references: [user.id] }),
+  trades: many(trades),
+  prices: many(instrumentPrices),
+}));
+
+export const tradesRelations = relations(trades, ({ one }) => ({
+  user: one(user, { fields: [trades.userId], references: [user.id] }),
+  account: one(accounts, { fields: [trades.accountId], references: [accounts.id] }),
+  instrument: one(instruments, {
+    fields: [trades.instrumentId],
+    references: [instruments.id],
+  }),
+}));
+
+export const instrumentPricesRelations = relations(instrumentPrices, ({ one }) => ({
+  user: one(user, { fields: [instrumentPrices.userId], references: [user.id] }),
+  instrument: one(instruments, {
+    fields: [instrumentPrices.instrumentId],
+    references: [instruments.id],
   }),
 }));
 

@@ -98,6 +98,40 @@ export async function recordValuation(
   await syncLatestValuation(db, opts.ownerId, opts.accountId);
 }
 
+/**
+ * Write one dated figure WITHOUT re-deriving the account's latest.
+ *
+ * For callers rebuilding a whole run of dates at once (holdings recompute):
+ * they call `syncLatestValuation` themselves, once, at the end. Everyone else
+ * wants `recordValuation`, which does both.
+ */
+export async function upsertValuation(
+  db: typeof defaultDb,
+  opts: {
+    ownerId: string;
+    accountId: string;
+    date: string;
+    value: number;
+    source?: ValuationSource;
+  },
+): Promise<void> {
+  const now = new Date().toISOString();
+  await db
+    .insert(assetValuations)
+    .values({
+      userId: opts.ownerId,
+      accountId: opts.accountId,
+      date: opts.date,
+      value: opts.value,
+      source: opts.source ?? "manual",
+      createdAt: now,
+    })
+    .onConflictDoUpdate({
+      target: [assetValuations.accountId, assetValuations.date],
+      set: { value: opts.value, source: opts.source ?? "manual", createdAt: now },
+    });
+}
+
 /** Remove one dated figure — a typo, or a day that should never have had one. */
 export async function deleteValuation(
   db: typeof defaultDb,
