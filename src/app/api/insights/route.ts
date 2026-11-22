@@ -5,12 +5,13 @@ import { transactions, categories, transactionGroups } from "@/db/schema";
 import { eq, and, gte, lte, sql, inArray, notInArray, type SQL } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { effectiveExpenseAmount, potSpentAmount } from "@/lib/reimbursement-sql";
-import { getStatsCutoff, isBeforeCutoff } from "@/lib/stat-reset";
+import { isBeforeCutoff, listStatResets } from "@/lib/stat-reset";
 import { trendWindow } from "@/lib/trend-window";
 import { resolveBudgetPlan } from "@/lib/budget-plan";
 import { getUserPreferences } from "@/lib/preferences";
 import { visibleCategories, visibleTransactions } from "@/lib/account-access";
 import { excludeSplitParents } from "@/lib/split-sql";
+import { batchOptional } from "@/lib/db-batch";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 /** Months of history the monthly bars always cover, current month included. */
@@ -96,8 +97,8 @@ export async function GET(request: NextRequest) {
     // counts real money movement (income/expense), not reimbursements etc.
     // Qualifying cross-budget transfers count into the totals; the category
     // breakdown deliberately ignores them (they have no category).
-    const directSummary = async (conds: SQL[]) => {
-      const [row] = await db
+    const directSummaryQuery = (conds: SQL[]) =>
+      db
         .select({
           totalIncome: sql<number>`sum(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} WHEN ${crossIn} THEN ${transactions.amount} ELSE 0 END)`,
           totalExpenses: sql<number>`sum(CASE WHEN ${transactions.type} = 'expense' THEN (
@@ -114,12 +115,13 @@ export async function GET(request: NextRequest) {
         })
         .from(transactions)
         .where(and(sql`${transactions.groupId} IS NULL`, ...conds));
-      return {
-        totalIncome: row?.totalIncome ?? 0,
-        totalExpenses: row?.totalExpenses ?? 0,
-        txCount: row?.txCount ?? 0,
-      };
-    };
+
+    type SummaryRow = { totalIncome: number; totalExpenses: number; txCount: number };
+    const toSummary = (rows: SummaryRow[]) => ({
+      totalIncome: rows[0]?.totalIncome ?? 0,
+      totalExpenses: rows[0]?.totalExpenses ?? 0,
+      txCount: rows[0]?.txCount ?? 0,
+    });
 
     // Direct (ungrouped) NET spend per category: reimbursement-adjusted expenses
     // minus income booked to the same category (a rent share paid back, say), so
@@ -165,12 +167,6 @@ export async function GET(request: NextRequest) {
 
     const conditions = buildConditions(dateFrom, dateTo);
 
-    const [summary, catBreakdown, potSpendingRows] = await Promise.all([
-      directSummary(conditions),
-      directCategoryExpenses(conditions),
-      potSpendingPerPot(conditions),
-    ]);
-
     // Daily totals: direct rows plus pot activity per date. Pot deltas are
     // SIGNED (not floored): refunds/reimbursements inside pots reduce that
     // day's spend so month sums reconcile with the range-level summary (which
@@ -185,33 +181,112 @@ export async function GET(request: NextRequest) {
     const series = trendWindow(dateFrom, dateTo, TREND_MONTHS);
     const seriesConditions = buildConditions(series.from, series.to);
 
-    const [directDaily, potDaily] = await Promise.all([
-      db
-        .select({
-          date: transactions.date,
-          income: sql<number>`sum(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} WHEN ${crossIn} THEN ${transactions.amount} ELSE 0 END)`,
-          expenses: sql<number>`sum(CASE WHEN ${transactions.type} = 'expense' THEN (
-            ${effectiveExpenseAmount()}
-          ) WHEN ${crossOut} THEN -${transactions.amount} ELSE 0 END)`,
-        })
-        .from(transactions)
-        .where(and(sql`${transactions.groupId} IS NULL`, ...seriesConditions))
-        .groupBy(transactions.date),
-      db
-        .select({
-          date: transactions.date,
-          delta: sql<number>`-sum(${transactions.amount})`,
-        })
-        .from(transactionGroups)
-        .innerJoin(transactions, eq(transactions.groupId, transactionGroups.id))
-        .where(
-          and(
-            sql`${transactions.type} != 'internal_transfer'`,
-            ...seriesConditions,
-          ),
-        )
-        .groupBy(transactions.date),
+    const dailyDirectQuery = db
+      .select({
+        date: transactions.date,
+        income: sql<number>`sum(CASE WHEN ${transactions.type} = 'income' THEN ${transactions.amount} WHEN ${crossIn} THEN ${transactions.amount} ELSE 0 END)`,
+        expenses: sql<number>`sum(CASE WHEN ${transactions.type} = 'expense' THEN (
+          ${effectiveExpenseAmount()}
+        ) WHEN ${crossOut} THEN -${transactions.amount} ELSE 0 END)`,
+      })
+      .from(transactions)
+      .where(and(sql`${transactions.groupId} IS NULL`, ...seriesConditions))
+      .groupBy(transactions.date);
+
+    const dailyPotQuery = db
+      .select({
+        date: transactions.date,
+        delta: sql<number>`-sum(${transactions.amount})`,
+      })
+      .from(transactionGroups)
+      .innerJoin(transactions, eq(transactions.groupId, transactionGroups.id))
+      .where(
+        and(sql`${transactions.type} != 'internal_transfer'`, ...seriesConditions),
+      )
+      .groupBy(transactions.date);
+
+    // Month × category expense matrix: direct net spend (same
+    // expense-minus-income netting as the breakdown) plus signed pot spend,
+    // merged in JS below, each (month, category) cell clamped at 0.
+    const monthlyCatDirectQuery = db
+      .select({
+        month: sql<string>`substr(${transactions.date}, 1, 7)`,
+        categoryId: transactions.categoryId,
+        total: sql<number>`sum(CASE WHEN ${transactions.type} = 'expense'
+          THEN (${effectiveExpenseAmount()}) ELSE -${transactions.amount} END)`,
+      })
+      .from(transactions)
+      .where(
+        and(
+          inArray(transactions.type, ["expense", "income"]),
+          sql`${transactions.groupId} IS NULL`,
+          ...conditions,
+        ),
+      )
+      .groupBy(sql`substr(${transactions.date}, 1, 7)`, transactions.categoryId);
+
+    const monthlyCatPotQuery = db
+      .select({
+        month: sql<string>`substr(${transactions.date}, 1, 7)`,
+        categoryId: transactionGroups.categoryId,
+        total: sql<number>`-sum(${transactions.amount})`,
+      })
+      .from(transactionGroups)
+      .innerJoin(transactions, eq(transactions.groupId, transactionGroups.id))
+      .where(and(sql`${transactions.type} != 'internal_transfer'`, ...conditions))
+      .groupBy(
+        sql`substr(${transactions.date}, 1, 7)`,
+        transactionGroups.categoryId,
+      );
+
+    // Top merchants by reimbursement-adjusted spend, grouped
+    // case/whitespace-insensitively on description.
+    const topMerchantsQuery = db
+      .select({
+        description: sql<string>`MIN(${transactions.description})`,
+        total: sql<number>`sum(${effectiveExpenseAmount()})`,
+        count: sql<number>`count(*)`,
+      })
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.type, "expense"),
+          sql`${transactions.groupId} IS NULL`,
+          ...conditions,
+        ),
+      )
+      .groupBy(sql`lower(trim(${transactions.description}))`)
+      .orderBy(sql`sum(${effectiveExpenseAmount()}) DESC`)
+      .limit(10);
+
+    // Everything the page needs that depends on nothing else, in ONE round
+    // trip. Against a remote database these were seven waves of awaits, and
+    // the waiting — not the SQL — was most of what the insights page spent.
+    // A statistics reset rides along because the previous-period block below
+    // needs it before it can decide whether to compare at all.
+    const [
+      summaryRows,
+      catBreakdown,
+      potSpendingRows,
+      directDaily,
+      potDaily,
+      directMonthlyCat,
+      potMonthlyCat,
+      topMerchants,
+      resetRows,
+    ] = await db.batch([
+      directSummaryQuery(conditions),
+      directCategoryExpenses(conditions),
+      potSpendingPerPot(conditions),
+      dailyDirectQuery,
+      dailyPotQuery,
+      monthlyCatDirectQuery,
+      monthlyCatPotQuery,
+      topMerchantsQuery,
+      listStatResets(dataUserId).limit(1),
     ]);
+    const summary = toSummary(summaryRows);
+    const statsCutoff = resetRows[0]?.date ?? null;
 
     const dailyByDate = new Map(directDaily.map((d) => [d.date, { ...d }]));
     for (const p of potDaily) {
@@ -245,49 +320,6 @@ export async function GET(request: NextRequest) {
     }
     const monthlyTotals = [...monthlyMap.values()];
 
-    // Month × category expense matrix: direct net spend (same expense-minus-income
-    // netting as the breakdown above) plus signed pot spend, merged in JS, each
-    // (month, category) cell clamped at 0.
-    const [directMonthlyCat, potMonthlyCat] = await Promise.all([
-      db
-        .select({
-          month: sql<string>`substr(${transactions.date}, 1, 7)`,
-          categoryId: transactions.categoryId,
-          total: sql<number>`sum(CASE WHEN ${transactions.type} = 'expense'
-            THEN (${effectiveExpenseAmount()}) ELSE -${transactions.amount} END)`,
-        })
-        .from(transactions)
-        .where(
-          and(
-            inArray(transactions.type, ["expense", "income"]),
-            sql`${transactions.groupId} IS NULL`,
-            ...conditions,
-          ),
-        )
-        .groupBy(
-          sql`substr(${transactions.date}, 1, 7)`,
-          transactions.categoryId,
-        ),
-      db
-        .select({
-          month: sql<string>`substr(${transactions.date}, 1, 7)`,
-          categoryId: transactionGroups.categoryId,
-          total: sql<number>`-sum(${transactions.amount})`,
-        })
-        .from(transactionGroups)
-        .innerJoin(transactions, eq(transactions.groupId, transactionGroups.id))
-        .where(
-          and(
-            sql`${transactions.type} != 'internal_transfer'`,
-            ...conditions,
-          ),
-        )
-        .groupBy(
-          sql`substr(${transactions.date}, 1, 7)`,
-          transactionGroups.categoryId,
-        ),
-    ]);
-
     const monthCatMap = new Map<
       string,
       { month: string; categoryId: string | null; total: number }
@@ -306,26 +338,6 @@ export async function GET(request: NextRequest) {
       .map((c) => ({ ...c, total: Math.max(c.total, 0) }))
       .filter((c) => c.total > 0)
       .sort((a, b) => a.month.localeCompare(b.month));
-
-    // Top merchants by reimbursement-adjusted spend, grouped
-    // case/whitespace-insensitively on description.
-    const topMerchants = await db
-      .select({
-        description: sql<string>`MIN(${transactions.description})`,
-        total: sql<number>`sum(${effectiveExpenseAmount()})`,
-        count: sql<number>`count(*)`,
-      })
-      .from(transactions)
-      .where(
-        and(
-          eq(transactions.type, "expense"),
-          sql`${transactions.groupId} IS NULL`,
-          ...conditions,
-        ),
-      )
-      .groupBy(sql`lower(trim(${transactions.description}))`)
-      .orderBy(sql`sum(${effectiveExpenseAmount()}) DESC`)
-      .limit(10);
 
     // Merge pot totals into the category breakdown. Pot spend with a null
     // categoryId flows into the Uncategorized entry.
@@ -372,26 +384,18 @@ export async function GET(request: NextRequest) {
     const breakdownCatIds = [...breakdownByCat.keys()].filter(
       (k) => k !== "none",
     );
-    if (breakdownCatIds.length > 0) {
-      const metas = await db
-        .select({
-          id: categories.id,
-          name: categories.name,
-          color: categories.color,
-        })
-        .from(categories)
-        // Owner category ids appear on shared rows; resolve their labels too.
-        .where(and(inArray(categories.id, breakdownCatIds), visibleCategories(userId)));
-      for (const m of metas) {
-        const entry = breakdownByCat.get(m.id);
-        if (entry) {
-          entry.categoryName = m.name;
-          entry.categoryColor = m.color;
-        }
-      }
-    }
-
-    const totalExpensesWithPots = summary.totalExpenses + totalPotSpending;
+    const metaQuery =
+      breakdownCatIds.length > 0
+        ? db
+            .select({
+              id: categories.id,
+              name: categories.name,
+              color: categories.color,
+            })
+            .from(categories)
+            // Owner category ids appear on shared rows; resolve their labels too.
+            .where(and(inArray(categories.id, breakdownCatIds), visibleCategories(userId)))
+        : null;
 
     // Previous-period totals (same account filter, same range semantics as the
     // main summary/breakdown) for vs-previous deltas.
@@ -401,27 +405,44 @@ export async function GET(request: NextRequest) {
     // delta against it would read as a real change when it is only the reset.
     // Clamping the period instead would compare a short window to a full one —
     // equally wrong. Return null and tell the client why.
-    const statsCutoff = await getStatsCutoff(dataUserId);
     const previousPredatesReset = isBeforeCutoff(prevDateFrom, statsCutoff);
+    const wantsPrevious =
+      !!prevDateFrom &&
+      !!prevDateTo &&
+      !previousPredatesReset &&
+      ISO_DATE.test(prevDateFrom) &&
+      ISO_DATE.test(prevDateTo);
+    const prevConditions = wantsPrevious
+      ? buildConditions(prevDateFrom, prevDateTo)
+      : null;
+
+    // Second and last round trip: the category labels (which need the ids the
+    // first wave produced) and the comparison period (which needs to know
+    // there was no statistics reset in between) travel together.
+    const [metaRows, prevSummaryRows, prevCats, prevPots] = await batchOptional(
+      metaQuery,
+      prevConditions && directSummaryQuery(prevConditions),
+      prevConditions && directCategoryExpenses(prevConditions),
+      prevConditions && potSpendingPerPot(prevConditions),
+    );
+    for (const m of metaRows ?? []) {
+      const entry = breakdownByCat.get(m.id);
+      if (entry) {
+        entry.categoryName = m.name;
+        entry.categoryColor = m.color;
+      }
+    }
+
+    const totalExpensesWithPots = summary.totalExpenses + totalPotSpending;
+
     let previous: {
       totalIncome: number;
       totalExpenses: number;
       net: number;
       categoryTotals: Record<string, number>;
     } | null = null;
-    if (
-      prevDateFrom &&
-      prevDateTo &&
-      !previousPredatesReset &&
-      ISO_DATE.test(prevDateFrom) &&
-      ISO_DATE.test(prevDateTo)
-    ) {
-      const prevConditions = buildConditions(prevDateFrom, prevDateTo);
-      const [prevSummary, prevCats, prevPots] = await Promise.all([
-        directSummary(prevConditions),
-        directCategoryExpenses(prevConditions),
-        potSpendingPerPot(prevConditions),
-      ]);
+    if (prevSummaryRows && prevCats && prevPots) {
+      const prevSummary = toSummary(prevSummaryRows);
       const categoryTotals: Record<string, number> = {};
       for (const c of prevCats) {
         const key = c.categoryId ?? "none";

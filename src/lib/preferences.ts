@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { db } from "@/db";
 import { userPreferences, type UserPreferences } from "@/db/schema";
 import { eq } from "drizzle-orm";
@@ -52,15 +53,28 @@ function toAutoBudget(row: UserPreferences): AutoBudgetPreferences {
   };
 }
 
-export async function getUserPreferences(userId: string): Promise<AutoBudgetPreferences> {
-  const rows = await db
-    .select()
-    .from(userPreferences)
-    .where(eq(userPreferences.userId, userId))
-    .limit(1);
-  if (rows.length === 0) return { ...DEFAULTS };
-  return toAutoBudget(rows[0]);
-}
+/**
+ * One user's preferences, read once per server render.
+ *
+ * Nearly every server path wants them — the dashboard page, the language
+ * helper, each budget-scope lookup — and the row changes about as often as
+ * the user visits Settings, so a render pays for one read however many
+ * callers ask. Outside a render pass (route handlers, the worker, tests)
+ * `cache` is a plain call, so nothing is held anywhere it could go stale.
+ * No write path re-reads through here either: `updateUserPreferences` hands
+ * back the fresh row itself.
+ */
+export const getUserPreferences = cache(
+  async (userId: string): Promise<AutoBudgetPreferences> => {
+    const rows = await db
+      .select()
+      .from(userPreferences)
+      .where(eq(userPreferences.userId, userId))
+      .limit(1);
+    if (rows.length === 0) return { ...DEFAULTS };
+    return toAutoBudget(rows[0]);
+  },
+);
 
 async function ensureRow(userId: string): Promise<void> {
   const existing = await db

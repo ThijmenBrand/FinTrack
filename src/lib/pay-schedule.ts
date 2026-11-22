@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { db } from "@/db";
 import { recurringTransactions } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
@@ -25,8 +26,11 @@ const FALLBACK: PaySchedule = {
  * Pick a pay schedule for a user. Looks for an active recurring income
  * transaction; falls back to "monthly on the 25th" so spike math still
  * produces sensible numbers when no recurring income is configured.
+ *
+ * Cached per render pass: three dashboard cards run spike maths off the same
+ * answer, and re-reading it for each is a round trip for nothing.
  */
-export async function getPaySchedule(userId: string): Promise<PaySchedule> {
+export const getPaySchedule = cache(async (userId: string): Promise<PaySchedule> => {
   const rows = await db
     .select({
       amount: recurringTransactions.amount,
@@ -59,7 +63,7 @@ export async function getPaySchedule(userId: string): Promise<PaySchedule> {
     dayOfMonth: best.dayOfMonth,
     monthOfYear: best.monthOfYear,
   };
-}
+});
 
 /**
  * Generate the list of payday dates (YYYY-MM-DD) on or after `from` and

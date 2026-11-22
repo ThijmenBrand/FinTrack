@@ -1,6 +1,5 @@
 import { cache } from "react";
-import { headers } from "next/headers";
-import { auth } from "@/lib/auth";
+import { getCurrentSession } from "@/lib/auth";
 import { getUserPreferences } from "@/lib/preferences";
 import { DEFAULT_LOCALE, isLocale, type Locale } from ".";
 import { getRequestLocale } from "./request";
@@ -16,7 +15,7 @@ import { getI18nFor, type I18n } from "./translate";
  */
 export const getLocale = cache(async (): Promise<Locale> => {
   try {
-    const session = await auth.api.getSession({ headers: await headers() });
+    const session = await getCurrentSession();
     if (session?.user?.id) {
       const prefs = await getUserPreferences(session.user.id);
       if (isLocale(prefs.locale)) return prefs.locale;

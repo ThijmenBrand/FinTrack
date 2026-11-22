@@ -102,17 +102,19 @@ export function combineAnnualIncome({
 }
 
 /**
- * Income for one financial year, scoped to a plan's accounts. Recurring plans
- * live on an account, so a Joint budget only counts the salary paid into joint
- * accounts — the same scoping every other per-plan figure uses.
+ * The two reads behind {@link getAnnualIncome}, as queries rather than rows.
+ *
+ * Handed out so a caller already making a round trip — the yearly budget view
+ * asks seven questions at once — can send these along with the rest instead of
+ * opening a trip of its own. {@link foldAnnualIncome} turns the rows back into
+ * the answer.
  */
-export async function getAnnualIncome(
+export function annualIncomeQueries(
   userId: string,
   year: number,
   startDay: number,
   accountIds: string[] | undefined,
-  now: Date = new Date(),
-): Promise<AnnualIncome> {
+) {
   const { from, to } = getFinancialYearRange(year, startDay);
   const scope = accountScopeFilter(accountIds);
   const bucket = financialMonthBucketExpr(startDay);
@@ -124,7 +126,7 @@ export async function getAnnualIncome(
         ? inArray(recurringTransactions.accountId, accountIds)
         : sql`1=0`;
 
-  const [incomeRows, recurringIncome] = await Promise.all([
+  return [
     db
       .select({
         bucket: sql<string>`${bucket}`,
@@ -159,8 +161,22 @@ export async function getAnnualIncome(
           ...(recurringScope ? [recurringScope] : []),
         ),
       ),
-  ]);
+  ] as const;
+}
 
+type AnnualIncomeQueries = ReturnType<typeof annualIncomeQueries>;
+export type AnnualIncomeRows = [
+  Awaited<AnnualIncomeQueries[0]>,
+  Awaited<AnnualIncomeQueries[1]>,
+];
+
+/** The rows {@link annualIncomeQueries} asked for, folded into the answer. */
+export function foldAnnualIncome(
+  year: number,
+  startDay: number,
+  now: Date,
+  [incomeRows, recurringIncome]: AnnualIncomeRows,
+): AnnualIncome {
   const actualByMonth = new Map<number, number>();
   for (const row of incomeRows) {
     if (!row.bucket) continue;
@@ -183,6 +199,24 @@ export async function getAnnualIncome(
     closedThrough: closedMonthCount(year, startDay, now),
     currentMonthIndex: currentMonthIndexFor(year, startDay, now),
   });
+}
+
+/**
+ * Income for one financial year, scoped to a plan's accounts. Recurring plans
+ * live on an account, so a Joint budget only counts the salary paid into joint
+ * accounts — the same scoping every other per-plan figure uses.
+ */
+export async function getAnnualIncome(
+  userId: string,
+  year: number,
+  startDay: number,
+  accountIds: string[] | undefined,
+  now: Date = new Date(),
+): Promise<AnnualIncome> {
+  const [incomeRows, recurringRows] = await db.batch(
+    annualIncomeQueries(userId, year, startDay, accountIds),
+  );
+  return foldAnnualIncome(year, startDay, now, [incomeRows, recurringRows]);
 }
 
 /**

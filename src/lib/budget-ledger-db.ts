@@ -44,23 +44,24 @@ function addSpend(
 }
 
 /**
- * Every euro the plan spent in `year`, split by category and financial month.
+ * The two reads behind {@link getYearSpendByCategoryMonth}, as queries rather
+ * than rows, so a caller already making a round trip can send them along.
  *
  * Matches the spend definition the rest of the budget views use: expense rows
  * outside a pot with reimbursements netted off, plus each pot's own net spend
  * counted against the pot's category. Internal transfers never count.
  */
-export async function getYearSpendByCategoryMonth(
+export function yearSpendQueries(
   userId: string,
   year: number,
   startDay: number,
   accountIds: string[] | undefined,
-): Promise<SpendByCategoryMonth> {
+) {
   const { from, to } = getFinancialYearRange(year, startDay);
   const scope = accountScopeFilter(accountIds);
   const bucket = financialMonthBucketExpr(startDay);
 
-  const [txRows, potRows] = await Promise.all([
+  return [
     db
       .select({
         categoryId: transactions.categoryId,
@@ -105,8 +106,20 @@ export async function getYearSpendByCategoryMonth(
         ),
       )
       .groupBy(transactionGroups.id, transactionGroups.categoryId, sql`${bucket}`),
-  ]);
+  ] as const;
+}
 
+type YearSpendQueries = ReturnType<typeof yearSpendQueries>;
+export type YearSpendRows = [
+  Awaited<YearSpendQueries[0]>,
+  Awaited<YearSpendQueries[1]>,
+];
+
+/** The rows {@link yearSpendQueries} asked for, folded into the answer. */
+export function foldYearSpend(
+  year: number,
+  [txRows, potRows]: YearSpendRows,
+): SpendByCategoryMonth {
   const out: SpendByCategoryMonth = new Map();
   for (const row of [...txRows, ...potRows]) {
     if (!row.categoryId || !row.bucket) continue;
@@ -115,6 +128,23 @@ export async function getYearSpendByCategoryMonth(
     addSpend(out, row.categoryId, slot.monthIndex, Number(row.total) || 0);
   }
   return out;
+}
+
+/**
+ * Every euro the plan spent in `year`, split by category and financial month.
+ * One round trip; {@link yearSpendQueries} is the same pair for a caller that
+ * is already making one.
+ */
+export async function getYearSpendByCategoryMonth(
+  userId: string,
+  year: number,
+  startDay: number,
+  accountIds: string[] | undefined,
+): Promise<SpendByCategoryMonth> {
+  const [txRows, potRows] = await db.batch(
+    yearSpendQueries(userId, year, startDay, accountIds),
+  );
+  return foldYearSpend(year, [txRows, potRows]);
 }
 
 /**
@@ -134,13 +164,9 @@ export function planStartMonthIndex(
   return slot.monthIndex;
 }
 
-/** Targets already frozen for this plan-year, keyed category → month. */
-async function readFrozenTargets(
-  userId: string,
-  planId: string,
-  year: number,
-): Promise<Map<string, Map<number, number>>> {
-  const rows = await db
+/** Targets already frozen for this plan-year. */
+export function frozenTargetsQuery(userId: string, planId: string, year: number) {
+  return db
     .select({
       categoryId: budgetMonthTargets.categoryId,
       monthIndex: budgetMonthTargets.monthIndex,
@@ -154,7 +180,14 @@ async function readFrozenTargets(
         eq(budgetMonthTargets.year, year),
       ),
     );
+}
 
+export type FrozenTargetRows = Awaited<ReturnType<typeof frozenTargetsQuery>>;
+
+/** Frozen targets keyed category → month. */
+export function foldFrozenTargets(
+  rows: FrozenTargetRows,
+): Map<string, Map<number, number>> {
   const out = new Map<string, Map<number, number>>();
   for (const row of rows) {
     const byMonth = out.get(row.categoryId) ?? new Map<number, number>();
@@ -163,6 +196,27 @@ async function readFrozenTargets(
   }
   return out;
 }
+
+/** The plan's active allocations — one envelope per category. */
+export function ledgerAllocationsQuery(userId: string, planId: string) {
+  return db
+    .select({
+      categoryId: budgets.categoryId,
+      amount: budgets.amount,
+      createdAt: budgets.createdAt,
+    })
+    .from(budgets)
+    .where(
+      and(
+        eq(budgets.userId, userId),
+        eq(budgets.budgetId, planId),
+        eq(budgets.status, "active"),
+        eq(budgets.isActive, true),
+      ),
+    );
+}
+
+export type LedgerAllocationRows = Awaited<ReturnType<typeof ledgerAllocationsQuery>>;
 
 export interface CategoryLedger {
   categoryId: string;
@@ -195,26 +249,43 @@ export async function buildLedgerYear(
   now: Date = new Date(),
   freeze: boolean = true,
 ): Promise<CategoryLedger[]> {
-  const [allocations, frozen, spend] = await Promise.all([
-    db
-      .select({
-        categoryId: budgets.categoryId,
-        amount: budgets.amount,
-        createdAt: budgets.createdAt,
-      })
-      .from(budgets)
-      .where(
-        and(
-          eq(budgets.userId, userId),
-          eq(budgets.budgetId, plan.id),
-          eq(budgets.status, "active"),
-          eq(budgets.isActive, true),
-        ),
-      ),
-    readFrozenTargets(userId, plan.id, year),
-    getYearSpendByCategoryMonth(userId, year, startDay, plan.accountIds),
+  // Four reads, one round trip rather than four requests. `getYearlyBudgetView`
+  // folds these into a batch of its own; this is the path for callers that want
+  // the ledger on its own.
+  const [allocations, frozenRows, txSpend, potSpend] = await db.batch([
+    ledgerAllocationsQuery(userId, plan.id),
+    frozenTargetsQuery(userId, plan.id, year),
+    ...yearSpendQueries(userId, year, startDay, plan.accountIds),
   ]);
+  const frozen = foldFrozenTargets(frozenRows);
+  const spend = foldYearSpend(year, [txSpend, potSpend]);
+  const ledger = foldLedgerYear({ allocations, frozen, spend, plan, year, startDay, now });
 
+  if (freeze) await freezeClosedTargets(userId, plan.id, year, ledger, frozen);
+  return ledger;
+}
+
+/**
+ * The carry-over chain itself, from rows already in hand. Pure — the freezing
+ * write stays with the caller that asked for it.
+ */
+export function foldLedgerYear({
+  allocations,
+  frozen,
+  spend,
+  plan,
+  year,
+  startDay,
+  now,
+}: {
+  allocations: LedgerAllocationRows;
+  frozen: Map<string, Map<number, number>>;
+  spend: SpendByCategoryMonth;
+  plan: ResolvedBudgetPlan;
+  year: number;
+  startDay: number;
+  now: Date;
+}): CategoryLedger[] {
   const slots = getFinancialYearMonths(year, startDay);
   const closedThrough = closedMonthCount(year, startDay, now);
   const planStart = planStartMonthIndex(plan.periodStartedAt, year, startDay);
@@ -243,12 +314,11 @@ export async function buildLedgerYear(
     };
   });
 
-  if (freeze) await freezeClosedTargets(userId, plan.id, year, ledger, frozen);
   return ledger;
 }
 
 /** Record the target of every closed month that doesn't have one yet. */
-async function freezeClosedTargets(
+export async function freezeClosedTargets(
   userId: string,
   planId: string,
   year: number,

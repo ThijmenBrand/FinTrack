@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { db } from "@/db";
 import { accounts, accountMembers, budgetPlans, transactions, user } from "@/db/schema";
 import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
@@ -32,10 +33,24 @@ export interface ResolvedBudgetPlan {
  * "viewer", see ResolvedBudgetPlan.role). Returns null when there is no such
  * accessible plan.
  */
-export async function resolveBudgetPlan(
+export function resolveBudgetPlan(
   userId: string,
   budgetId?: string | null,
 ): Promise<ResolvedBudgetPlan | null> {
+  // Normalized before the cache: `cache` keys on the argument list, so
+  // `(user)` and `(user, null)` would otherwise be two entries for one answer.
+  return loadBudgetPlan(userId, budgetId ?? null);
+}
+
+/**
+ * Cached per render pass. Up to four reads resolve one plan, and a page asks
+ * for the same plan from several cards — the dashboard alone resolved it
+ * twice before this.
+ */
+const loadBudgetPlan = cache(async (
+  userId: string,
+  budgetId: string | null,
+): Promise<ResolvedBudgetPlan | null> => {
   let [plan] = await db
     .select()
     .from(budgetPlans)
@@ -103,7 +118,7 @@ export async function resolveBudgetPlan(
     role,
     ownerName,
   };
-}
+});
 
 /**
  * The plan the user's dashboard budgets on: their chosen main
