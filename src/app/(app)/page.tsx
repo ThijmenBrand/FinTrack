@@ -13,8 +13,8 @@ import {
   PeriodSummary,
   PeriodSummarySkeleton,
 } from "./_components/period-summary";
-import { getMainPlan, getScopeAccountRows } from "./_lib/dashboard-queries";
-import { effectiveStartDay, resolveBudgetPlan } from "@/lib/budget-plan";
+import { getScopeAccountRows } from "./_lib/dashboard-queries";
+import { effectiveStartDay, resolveBudgetPlan, resolveBudgetScope } from "@/lib/budget-plan";
 import { defaultScopeAccountIds } from "@/lib/account-scope";
 import {
   BudgetCategories,
@@ -44,6 +44,7 @@ import {
   UpcomingMoneyCard,
   UpcomingMoneyCardSkeleton,
 } from "./_components/upcoming-money-card";
+import { BudgetScopeSelect } from "@/components/budget-scope-select";
 import { getI18n } from "@/lib/i18n/server";
 import type { I18n } from "@/lib/i18n/translate";
 
@@ -54,7 +55,10 @@ function DashboardHeader({
   i18n,
 }: {
   startDay: number;
-  /** Set when ?budget= pinned the page to a plan other than the usual one. */
+  /**
+   * Set only when a ?budget= link pointed the page at a budget. The sidebar
+   * selector needs no banner — it shows the scope itself.
+   */
   pinnedPlanName: string | null;
   i18n: I18n;
 }) {
@@ -73,10 +77,16 @@ function DashboardHeader({
           pct: Math.round(progress * 100),
         })}
       </p>
+      {/* Phones have no sidebar, so the scope selector lives under the title
+          — the one place a page header action belongs on a phone. */}
+      <div className="col-span-2 row-start-3 mt-1 md:hidden">
+        <BudgetScopeSelect variant="header" />
+      </div>
+
       {/* Every number below is a pinned budget's, which the page otherwise
           never says — and without a way out you'd be stuck on a link. */}
       {pinnedPlanName && (
-        <p className="col-span-2 row-start-3 mt-1 flex flex-wrap items-center gap-x-2 text-sm md:col-span-1">
+        <p className="col-span-2 row-start-4 mt-1 flex flex-wrap items-center gap-x-2 text-sm md:col-span-1 md:row-start-3">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-0.5 font-medium">
             <Wallet className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             {t("dashboard.pinnedToBudget", { name: pinnedPlanName })}
@@ -98,16 +108,22 @@ function DashboardHeader({
 }
 
 /**
- * The plan the dashboard runs on: the one ?budget= names, else the usual main
- * plan. A stale link — a deleted plan, or an account that stopped being shared
- * — falls back to the main plan rather than to an empty dashboard.
+ * The plan the dashboard runs on: the one ?budget= names, else whatever the
+ * sidebar selector is scoped to. A stale link — a deleted plan, or an account
+ * that stopped being shared — falls back to the scope rather than to an empty
+ * dashboard.
+ *
+ * `scoped` says whether the page narrows to this plan's accounts. It is false
+ * under "All budgets", where the plan is only what the category card falls
+ * back to (it names the plan it shows, so the two never disagree).
  */
 async function resolveDashboardPlan(userId: string, requestedPlanId: string | null) {
   if (requestedPlanId) {
-    const pinned = await resolveBudgetPlan(userId, requestedPlanId);
-    if (pinned) return { plan: pinned, pinned: true };
+    const linked = await resolveBudgetPlan(userId, requestedPlanId);
+    if (linked) return { plan: linked, scoped: true, fromLink: true };
   }
-  return { plan: await getMainPlan(userId), pinned: false };
+  const scope = await resolveBudgetScope(userId);
+  return { plan: scope.plan, scoped: !scope.all, fromLink: false };
 }
 
 export default async function DashboardPage({
@@ -124,42 +140,44 @@ export default async function DashboardPage({
   const requestedPlanId = typeof budget === "string" ? budget : null;
   // The account query doesn't depend on prefs, so don't wait on them serially —
   // against a remote DB each round trip here delays every card below.
-  const [prefs, scopeRows, { plan: mainPlan, pinned }, i18n] = await Promise.all([
+  const [prefs, scopeRows, { plan: scopedPlan, scoped, fromLink }, i18n] = await Promise.all([
     getUserPreferences(userId),
     getScopeAccountRows(userId),
     resolveDashboardPlan(userId, requestedPlanId),
     getI18n(),
   ]);
   const startDay = prefs.financialMonthStartDay;
-  // Pinned: the tiles count the budget's accounts, narrowed to the ones this
-  // user may read — a shared plan can hold accounts that were never shared
-  // with them. Otherwise everyday money only: all checking accounts (see
-  // defaultScopeAccountIds). Drives the Earned/Spent/Net tiles.
+  // Scoped to one budget: the tiles count that budget's accounts, narrowed to
+  // the ones this user may read — a shared plan can hold accounts that were
+  // never shared with them. Under "All budgets" it's everyday money only: all
+  // checking accounts (see defaultScopeAccountIds). Drives Earned/Spent/Net.
   const visibleIds = new Set(scopeRows.map((a) => a.id));
-  const pinnedScope =
-    pinned && mainPlan ? mainPlan.accountIds.filter((id) => visibleIds.has(id)) : [];
+  const scopedAccountIds =
+    scoped && scopedPlan ? scopedPlan.accountIds.filter((id) => visibleIds.has(id)) : [];
   const accountIds =
-    pinnedScope.length > 0
-      ? pinnedScope
+    scopedAccountIds.length > 0
+      ? scopedAccountIds
       : defaultScopeAccountIds(scopeRows, prefs.defaultAccountId);
-  // Free-to-spend math follows the main budget's accounts; without plans it
+  // Free-to-spend math follows the scoped budget's accounts; without plans it
   // falls back to the same all-checking scope.
-  const mainPlanAccountIds = mainPlan ? mainPlan.accountIds : accountIds;
-  // A shared main plan runs its card as the OWNER (their data, their financial
+  const scopedPlanAccountIds = scopedPlan ? scopedPlan.accountIds : accountIds;
+  // A shared plan runs its card as the OWNER (their data, their financial
   // month) so both parties see identical numbers. The other cards keep the
   // member's own identity and startDay.
-  const planIsForeign = mainPlan !== null && mainPlan.ownerId !== userId;
-  const planUserId = planIsForeign ? mainPlan.ownerId : userId;
-  const planStartDay = await effectiveStartDay(userId, mainPlan, startDay);
+  const planIsForeign = scopedPlan !== null && scopedPlan.ownerId !== userId;
+  const planUserId = planIsForeign ? scopedPlan.ownerId : userId;
+  const planStartDay = await effectiveStartDay(userId, scopedPlan, startDay);
   // Only a plan that actually resolved gets passed on; the cards fall back to
-  // the main plan on their own when this is undefined.
-  const pinnedPlanId = pinned && mainPlan ? mainPlan.id : undefined;
+  // the main plan on their own when this is undefined. Passed under "All
+  // budgets" too — the category card can only show one budget, and this is
+  // the one it names.
+  const scopedPlanId = scopedPlan ? scopedPlan.id : undefined;
 
   return (
     <div className="space-y-4">
       <DashboardHeader
         startDay={startDay}
-        pinnedPlanName={pinned && mainPlan ? mainPlan.name : null}
+        pinnedPlanName={fromLink && scopedPlan ? scopedPlan.name : null}
         i18n={i18n}
       />
 
@@ -168,7 +186,7 @@ export default async function DashboardPage({
           userId={userId}
           startDay={startDay}
           accountIds={accountIds}
-          planId={pinnedPlanId}
+          planId={scopedPlanId}
         />
       </Suspense>
 
@@ -179,7 +197,7 @@ export default async function DashboardPage({
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_21rem]">
         <div className="space-y-4">
           <Suspense fallback={<BudgetCategoriesSkeleton />}>
-            <BudgetCategories userId={userId} startDay={startDay} planId={pinnedPlanId} />
+            <BudgetCategories userId={userId} startDay={startDay} planId={scopedPlanId} />
           </Suspense>
           {/* What the budget card can't know: the money already promised to
               bills and salaries that haven't moved yet. Simple mode drops it
@@ -189,7 +207,7 @@ export default async function DashboardPage({
               <UpcomingMoneyCard
                 userId={userId}
                 startDay={startDay}
-                accountIds={pinnedScope.length > 0 ? pinnedScope : undefined}
+                accountIds={scopedAccountIds.length > 0 ? scopedAccountIds : undefined}
               />
             </Suspense>
           )}
@@ -207,11 +225,15 @@ export default async function DashboardPage({
                 <ComingUpThisMonthCard
                   userId={planUserId}
                   startDay={planStartDay}
-                  accountIds={mainPlanAccountIds}
+                  accountIds={scopedPlanAccountIds}
                 />
               </Suspense>
               <Suspense fallback={<TopSpendingCardSkeleton />}>
-                <TopSpendingCard userId={userId} startDay={startDay} />
+                <TopSpendingCard
+                  userId={userId}
+                  startDay={startDay}
+                  accountIds={scopedAccountIds.length > 0 ? scopedAccountIds : undefined}
+                />
               </Suspense>
               <Suspense fallback={<SavingTowardCardSkeleton />}>
                 <SavingTowardCard userId={userId} startDay={startDay} />

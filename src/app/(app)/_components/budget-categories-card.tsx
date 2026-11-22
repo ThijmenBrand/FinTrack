@@ -1,9 +1,7 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, PiggyBank, Star, Users } from "lucide-react";
+import { ArrowRight, PiggyBank } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -11,16 +9,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { TransactionsFilterLink } from "@/components/transactions-filter-link";
 import { CategoryIcon } from "@/components/category-icon";
-import { apiFetch } from "@/lib/api";
 import { getFinancialMonthRange } from "@/lib/financial-month";
 import type { BudgetOverview } from "../_lib/dashboard-queries";
 import { useI18n } from "@/lib/i18n/client";
@@ -39,52 +29,31 @@ const PERIOD_LABEL_KEYS: Record<string, MessageKey> = {
 const ROW =
   "grid grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 px-4 py-3 sm:grid-cols-[minmax(0,13.5rem)_minmax(96px,1fr)_7rem_8.5rem] sm:rounded-lg sm:py-2.5";
 
-interface PlanOption {
-  id: string;
-  name: string;
-  isMain: boolean;
-  /** Display name of the sharing owner; null for the user's own plans. */
-  ownerName: string | null;
-}
-
 interface BudgetCategoriesCardProps {
   initialData: BudgetOverview;
-  plans: PlanOption[];
   startDay: number;
 }
 
 /**
- * The dashboard budget card. Server-rendered with the main plan's data; the
- * in-card switcher peeks at another budget without re-scoping the rest of the
- * dashboard.
+ * The dashboard budget card. Which budget it shows is the app-wide scope the
+ * sidebar selector sets, resolved on the server — the card used to carry its
+ * own switcher, which could leave it disagreeing with the rest of the page.
+ * Its subtitle still names the plan, so "All budgets" doesn't hide which one
+ * these categories belong to.
  */
 export function BudgetCategoriesCard({
   initialData,
-  plans,
   startDay,
 }: BudgetCategoriesCardProps) {
   const { t, formatCurrency } = useI18n();
-  const initialPlanId = initialData.plan?.id ?? null;
-  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(initialPlanId);
-  const viewingOther = selectedPlanId !== null && selectedPlanId !== initialPlanId;
-
-  const { data: switchedData, isLoading: switching } = useQuery({
-    queryKey: ["dashboard-budget-overview", selectedPlanId],
-    queryFn: () =>
-      apiFetch<BudgetOverview>(
-        `/api/dashboard/budget-overview?budgetId=${encodeURIComponent(selectedPlanId ?? "")}`,
-      ),
-    enabled: viewingOther,
-  });
-
-  const data = viewingOther ? switchedData : initialData;
-  const selectedPlan = plans.find((p) => p.id === selectedPlanId) ?? null;
+  const data = initialData;
+  const selectedPlan = data.plan;
 
   const fmRange =
     startDay === 1 ? null : getFinancialMonthRange(new Date(), startDay);
-  // Rows link into /transactions scoped to the same accounts the card counted:
-  // pick another budget from the switcher and the list behind a category
-  // follows it. No plan (or a plan with no accounts) links unscoped, as before.
+  // Rows link into /transactions scoped to the same accounts the card counted,
+  // so the list behind a category always matches the bar you clicked. No plan
+  // (or a plan with no accounts) links unscoped, as before.
   const planAccountIds = data?.plan?.accountIds ?? [];
   const filterProps = {
     account: planAccountIds.length ? planAccountIds.join(",") : undefined,
@@ -93,40 +62,6 @@ export function BudgetCategoriesCard({
     dateTo: fmRange?.to,
   };
 
-  const switcher = plans.length > 1 && (
-    <Select
-      value={selectedPlanId ?? undefined}
-      onValueChange={setSelectedPlanId}
-    >
-      <SelectTrigger
-        className="h-7 w-auto gap-1.5 border-none bg-transparent px-2 text-sm font-medium shadow-none hover:bg-muted/60"
-        aria-label={t("dashboard.budgetCard.switcherLabel")}
-      >
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent align="end">
-        {plans.map((p) => (
-          <SelectItem key={p.id} value={p.id}>
-            <span className="flex items-center gap-1.5">
-              {p.name}
-              {p.isMain && (
-                <Star
-                  className="h-3 w-3 fill-current text-amber-500"
-                  aria-label={t("dashboard.budgetCard.mainBudgetStar")}
-                />
-              )}
-              {p.ownerName && (
-                <Users
-                  className="h-3 w-3 text-violet-500"
-                  aria-label={t("sharing.sharedByTooltip", { name: p.ownerName })}
-                />
-              )}
-            </span>
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
 
   const planLabel = selectedPlan
     ? [
@@ -142,15 +77,12 @@ export function BudgetCategoriesCard({
         .join(" · ")
     : null;
 
-  if (!data || (viewingOther && switching)) {
+  if (!data) {
     return (
       <Card>
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <CardTitle>{t("dashboard.budgetCard.title")}</CardTitle>
-              {switcher}
-            </div>
+            <CardTitle>{t("dashboard.budgetCard.title")}</CardTitle>
             <Link
               href="/budgets"
               className="text-xs text-primary hover:underline flex items-center gap-0.5"
@@ -178,10 +110,7 @@ export function BudgetCategoriesCard({
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <CardTitle>{t("dashboard.budgetCard.emptyTitle")}</CardTitle>
-              {switcher}
-            </div>
+            <CardTitle>{t("dashboard.budgetCard.emptyTitle")}</CardTitle>
           </div>
         </CardHeader>
         <CardContent>
@@ -208,10 +137,7 @@ export function BudgetCategoriesCard({
     <Card>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <CardTitle>{t("dashboard.budgetCard.title")}</CardTitle>
-            {switcher}
-          </div>
+          <CardTitle>{t("dashboard.budgetCard.title")}</CardTitle>
           <Link
             href="/budgets"
             className="text-xs text-primary hover:underline flex items-center gap-0.5"

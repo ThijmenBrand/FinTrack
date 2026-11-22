@@ -4,14 +4,14 @@ import {
   CardHeader,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getBudgetOverview, getUserPlans } from "../_lib/dashboard-queries";
+import { getBudgetOverview } from "../_lib/dashboard-queries";
 import { BudgetCategoriesCard } from "./budget-categories-card";
 
 /**
- * Server shell for the dashboard budget card: fetches the plan's overview and
- * the plan list, then hands rendering (and in-card budget switching) to the
- * client card. `planId` is the page's ?budget= pin; without it the card opens
- * on the main plan as before.
+ * Server shell for the dashboard budget card: fetches the scoped plan's
+ * overview and hands rendering to the client card. `planId` is the budget the
+ * page resolved — the ?budget= link, else the app-wide scope; without it the
+ * card falls back to the main plan.
  */
 export async function BudgetCategories({
   userId,
@@ -22,14 +22,9 @@ export async function BudgetCategories({
   startDay?: number;
   planId?: string;
 }) {
-  const [data, plans] = await Promise.all([
-    getBudgetOverview(userId, startDay, planId),
-    getUserPlans(userId),
-  ]);
+  const data = await getBudgetOverview(userId, startDay, planId);
 
-  return (
-    <BudgetCategoriesCard initialData={data} plans={plans} startDay={startDay} />
-  );
+  return <BudgetCategoriesCard initialData={data} startDay={startDay} />;
 }
 
 export function BudgetCategoriesSkeleton() {

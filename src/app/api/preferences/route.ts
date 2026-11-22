@@ -23,6 +23,7 @@ export async function PUT(request: NextRequest) {
     if (typeof body?.hideInternalTransfers === "boolean") patch.hideInternalTransfers = body.hideInternalTransfers;
     if (typeof body?.countCrossBudgetTransfers === "boolean") patch.countCrossBudgetTransfers = body.countCrossBudgetTransfers;
     if (typeof body?.simpleMode === "boolean") patch.simpleMode = body.simpleMode;
+    if (typeof body?.budgetScopeAll === "boolean") patch.budgetScopeAll = body.budgetScopeAll;
     if (isFiniteNumber(body?.autoBudgetIntervalMonths)) patch.autoBudgetIntervalMonths = body.autoBudgetIntervalMonths;
     if (isFiniteNumber(body?.autoBudgetLookbackMonths)) patch.autoBudgetLookbackMonths = body.autoBudgetLookbackMonths;
     if (isFiniteNumber(body?.financialMonthStartDay)) patch.financialMonthStartDay = body.financialMonthStartDay;

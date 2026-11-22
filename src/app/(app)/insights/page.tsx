@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Input } from "@/components/ui/input";
@@ -19,7 +19,7 @@ import {
   useMoneyFlow,
 } from "@/hooks/use-insights";
 import { useBudgets } from "@/hooks/use-budgets";
-import { useBudgetPlans } from "@/hooks/use-budget-plans";
+import { ALL_BUDGETS, useBudgetScope } from "@/hooks/use-budget-scope";
 import { usePreferences } from "@/hooks/use-preferences";
 import { useStatResets } from "@/hooks/use-stat-resets";
 import { useI18n } from "@/lib/i18n/client";
@@ -221,15 +221,9 @@ function LoadingMessages() {
   );
 }
 
-// Saved budget-tab selection (per device): "overall" or a plan id. Replaces
-// the pre-plans account selection.
-const BUDGET_STORAGE_KEY = "insights-budget-selection-v1";
-const OVERALL = "overall";
-
-function loadSavedBudgetSelection(): string | null {
-  if (typeof window === "undefined") return null;
-  return window.localStorage.getItem(BUDGET_STORAGE_KEY);
-}
+// The budget tabs are a second surface onto the app-wide scope, not a
+// selection of their own — picking one here moves the sidebar selector too.
+// Replaces the per-device localStorage selection this page used to keep.
 
 export default function InsightsPage() {
   const i18n: I18n = useI18n();
@@ -251,33 +245,28 @@ export default function InsightsPage() {
   const [customDateTo, setCustomDateTo] = useState<string>(
     () => searchParams.get("dateTo") || "",
   );
-  // Which view: "overall" or a budget plan id. Init precedence: URL > saved
-  // selection > main plan (applied once plans load).
-  const [selectedBudget, setSelectedBudget] = useState<string | null>(() => {
-    return searchParams.get("budget") ?? loadSavedBudgetSelection();
-  });
+  // Which view: "all budgets" or one plan — the app-wide scope, which already
+  // resolves a stale or deleted plan id back to the main budget.
+  const {
+    plans,
+    value: selectedBudget,
+    plan: selectedPlan,
+    setValue: setSelectedBudget,
+    isLoading: scopeLoading,
+  } = useBudgetScope();
 
-  const { data: plansData } = useBudgetPlans();
-  // Memoised: a fresh [] each render would re-run every effect below it.
-  const plans = useMemo(() => plansData?.plans ?? [], [plansData]);
-
-  // Default to the main budget on first load when nothing pinned a view, and
-  // recover to it when a saved/linked plan id no longer exists (deleted plan).
+  // ?budget= links in from an account dialog. Like /budgets?plan=, "show me
+  // this budget's insights" moves the app-wide scope instead of diverging
+  // from it. Applied once; the URL sync below drops the param afterwards.
+  const linkedBudgetId = searchParams.get("budget");
+  const linkHandledRef = useRef(false);
   useEffect(() => {
-    if (!plansData) return;
-    const known =
-      selectedBudget === OVERALL ||
-      (selectedBudget !== null && plans.some((p) => p.id === selectedBudget));
-    if (known) return;
-    const main = plans.find((p) => p.isMain) ?? plans[0];
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- One-shot sync from async-loaded plans; user must still be able to override afterwards.
-    setSelectedBudget(main ? main.id : OVERALL);
-  }, [plansData, plans, selectedBudget]);
-
-  const selectedPlan =
-    selectedBudget !== null && selectedBudget !== OVERALL
-      ? plans.find((p) => p.id === selectedBudget) ?? null
-      : null;
+    if (!linkedBudgetId || linkHandledRef.current || scopeLoading) return;
+    linkHandledRef.current = true;
+    if (linkedBudgetId === ALL_BUDGETS || plans.some((p) => p.id === linkedBudgetId)) {
+      setSelectedBudget(linkedBudgetId);
+    }
+  }, [linkedBudgetId, scopeLoading, plans, setSelectedBudget]);
   // Simple mode keeps the switcher (a second budget is useless if you can't
   // reach it) but hides it when there's nothing to switch between.
   const showBudgetTabs = plans.length > 0 && (!simple || plans.length > 1);
@@ -296,22 +285,18 @@ export default function InsightsPage() {
   const dateFrom = computedRange ? computedRange.from : customDateFrom;
   const dateTo = computedRange ? computedRange.to : customDateTo;
 
-  // Sync filter state back into the URL so a back-nav restores the same view,
-  // and save the budget selection so the next visit starts from it.
+  // Sync the date filters back into the URL so a back-nav restores the same
+  // view. The budget is not among them: it lives in the app-wide scope.
   useEffect(() => {
     const params = new URLSearchParams();
     if (preset !== "this_month") params.set("preset", preset);
-    if (selectedBudget !== null) params.set("budget", selectedBudget);
     if (preset === "custom") {
       if (customDateFrom) params.set("dateFrom", customDateFrom);
       if (customDateTo) params.set("dateTo", customDateTo);
     }
     const qs = params.toString();
     router.replace(qs ? `/insights?${qs}` : "/insights", { scroll: false });
-    if (selectedBudget !== null) {
-      window.localStorage.setItem(BUDGET_STORAGE_KEY, selectedBudget);
-    }
-  }, [preset, selectedBudget, customDateFrom, customDateTo, router]);
+  }, [preset, customDateFrom, customDateTo, router]);
 
   const accountIdParam =
     selectedAccountIds.length > 0 ? selectedAccountIds.join(",") : undefined;
@@ -516,9 +501,9 @@ export default function InsightsPage() {
             </p>
           </div>
           {showBudgetTabs && (
-            <Tabs value={selectedBudget ?? OVERALL} onValueChange={setSelectedBudget}>
+            <Tabs value={selectedBudget ?? ALL_BUDGETS} onValueChange={setSelectedBudget}>
               <TabsList>
-                <TabsTrigger value={OVERALL}>{t("insights.overall")}</TabsTrigger>
+                <TabsTrigger value={ALL_BUDGETS}>{t("insights.overall")}</TabsTrigger>
                 {plans.map((p) => (
                   <TabsTrigger key={p.id} value={p.id} className="gap-1.5">
                     {p.isMain && (
@@ -584,7 +569,7 @@ export default function InsightsPage() {
                   // The budget behind these numbers — follow it through to the
                   // plan itself rather than hunting for it on the budgets page.
                   <Link
-                    href={`/budgets?plan=${encodeURIComponent(selectedPlan.id)}`}
+                    href="/budgets"
                     className="text-primary hover:underline"
                   >
                     {t("insights.planBudget", { name: selectedPlan.name })}
@@ -602,12 +587,12 @@ export default function InsightsPage() {
         <div className="flex items-center gap-2 flex-wrap max-md:w-full max-md:flex-col max-md:items-stretch max-md:gap-3">
           {showBudgetTabs && (
             <Tabs
-              value={selectedBudget ?? OVERALL}
+              value={selectedBudget ?? ALL_BUDGETS}
               onValueChange={setSelectedBudget}
               className="max-md:w-full"
             >
               <TabsList className="scrollbar-hide max-md:flex max-md:w-full max-md:justify-start max-md:overflow-x-auto">
-                <TabsTrigger value={OVERALL} className="max-md:flex-1">
+                <TabsTrigger value={ALL_BUDGETS} className="max-md:flex-1">
                   {t("insights.overall")}
                 </TabsTrigger>
                 {plans.map((p) => (
