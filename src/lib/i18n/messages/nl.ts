@@ -1206,6 +1206,8 @@ export const nl: Record<MessageKey, string> = {
   "insights.periodCompare.percentagePoints": "pp",
   "insights.periodCompare.allTimeHint": "Kies eerst een periode — Alles heeft geen tweede periode om mee te vergelijken.",
   "insights.periodCompare.same": "\u2248 gelijk",
+  "insights.periodCompare.up": "hoger",
+  "insights.periodCompare.down": "lager",
   "insights.periodCompare.metric.transactions": "Transacties",
   "insights.periodCompare.metric.perDay": "Uitgaven per dag",
   "insights.periodCompare.lengthWarning": "Deze periodes zijn niet even lang ({a} dagen tegenover {b}) — uitgaven per dag vergelijkt ze eerlijk, de totalen niet.",

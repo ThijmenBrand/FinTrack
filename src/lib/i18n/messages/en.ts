@@ -1227,6 +1227,8 @@ export const en = {
   "insights.periodCompare.percentagePoints": "pp",
   "insights.periodCompare.allTimeHint": "Pick a date range first — All Time has no second period to compare with.",
   "insights.periodCompare.same": "\u2248 the same",
+  "insights.periodCompare.up": "up",
+  "insights.periodCompare.down": "down",
   "insights.periodCompare.metric.transactions": "Transactions",
   "insights.periodCompare.metric.perDay": "Spend per day",
   "insights.periodCompare.lengthWarning": "These periods are not the same length ({a} days against {b}) — spend per day compares them fairly, the totals do not.",
