@@ -29,9 +29,20 @@ export interface Position {
   instrumentId: string;
   /** Units held now. Zero means the holding was closed, not that it never was. */
   quantity: number;
-  /** What the units still held cost, fees included. */
+  /** What the units still held cost, fees included. Meaningless while `costKnown` is false. */
   costBasis: number;
-  /** costBasis / quantity, or null for a closed holding. */
+  /**
+   * False once a buy or sell was recorded without a price.
+   *
+   * A trade with no price is a gap in the record, not a free holding, and the
+   * two have to be told apart: treating the gap as a cost of zero reports the
+   * whole market value as profit, which is the most flattering possible lie
+   * about a position. Everything derived from cost — the average price, the
+   * unrealized gain, how much of the deposit is still cash — goes null
+   * instead, and says so.
+   */
+  costKnown: boolean;
+  /** costBasis / quantity, or null for a closed holding or an unknown cost. */
   averagePrice: number | null;
   /** Profit already taken: sale proceeds minus the average cost of what went. */
   realized: number;
@@ -45,7 +56,7 @@ export interface ValuedPosition extends Position {
   priceDate: string | null;
   /** quantity x price, or null while unpriced. */
   marketValue: number | null;
-  /** marketValue - costBasis, or null while unpriced. */
+  /** marketValue - costBasis, or null while unpriced or while the cost is unknown. */
   unrealized: number | null;
   /** Unrealized plus everything already banked. The honest total for a holding. */
   totalReturn: number | null;
@@ -75,6 +86,7 @@ export function derivePositions(trades: TradeRow[]): Map<string, Position> {
         instrumentId,
         quantity: 0,
         costBasis: 0,
+        costKnown: true,
         averagePrice: null,
         realized: 0,
         dividends: 0,
@@ -89,6 +101,10 @@ export function derivePositions(trades: TradeRow[]): Map<string, Position> {
     const p = get(t.instrumentId);
     switch (t.type) {
       case "buy": {
+        // No price on the buy means nobody wrote down what it cost. The units
+        // are still held — the quantity is real — but every figure measured
+        // against cost is now unknown for this holding.
+        if (t.unitPrice <= 0) p.costKnown = false;
         // The fee is part of what the units cost: it is money that left to
         // acquire them, and leaving it out would overstate every return.
         p.costBasis += t.quantity * t.unitPrice + t.fee;
@@ -97,6 +113,9 @@ export function derivePositions(trades: TradeRow[]): Map<string, Position> {
         break;
       }
       case "sell": {
+        // Likewise for a sale with no price: what it realized is unrecorded,
+        // and so is what came back into cash.
+        if (t.unitPrice <= 0) p.costKnown = false;
         const avg = p.quantity > DUST ? p.costBasis / p.quantity : 0;
         // Never sell more than is held, however the trade was typed — a
         // negative holding is not a thing a household account can have.
@@ -132,7 +151,7 @@ export function derivePositions(trades: TradeRow[]): Map<string, Position> {
       p.costBasis = 0;
       p.averagePrice = null;
     } else {
-      p.averagePrice = p.costBasis / p.quantity;
+      p.averagePrice = p.costKnown ? p.costBasis / p.quantity : null;
     }
   }
   return positions;
@@ -165,7 +184,8 @@ export function valuePositions(
   return [...positions.values()].map((p) => {
     const found = priceAsOf(pricesByInstrument.get(p.instrumentId) ?? [], asOf);
     const marketValue = found ? p.quantity * found.price : null;
-    const unrealized = marketValue === null ? null : marketValue - p.costBasis;
+    const unrealized =
+      marketValue === null || !p.costKnown ? null : marketValue - p.costBasis;
     return {
       ...p,
       price: found?.price ?? null,
@@ -214,25 +234,44 @@ export function cashFlowOf(t: TradeRow): number {
 }
 
 /**
+ * True while every buy and sell says what it cost or fetched.
+ *
+ * One priceless trade is enough to make the cash figure a fiction: the trade
+ * appears to have spent nothing, so every euro that funded it still looks
+ * like it is sitting at the broker.
+ */
+export function spendIsKnown(trades: TradeRow[]): boolean {
+  return trades.every(
+    (t) => (t.type !== "buy" && t.type !== "sell") || t.unitPrice > 0,
+  );
+}
+
+/**
  * Cash sitting at the broker on a date: what was transferred in, minus what
  * the trades have spent of it.
  *
- * Clamped at zero. A negative result means trades were entered without the
- * transfers that funded them — common when someone types in a portfolio
- * before importing a bank statement — and showing the account as owing money
- * would be a worse lie than showing it as holding none.
+ * Null when a trade in scope was recorded without a price. The subtraction is
+ * only as good as what the trades admit to spending, and a buy with no price
+ * would hand back the whole deposit as "uninvested" — money the account does
+ * not have. Unknown is the honest answer there, and the callers show it as a
+ * gap rather than quietly counting zero.
+ *
+ * Otherwise clamped at zero. A negative result means trades were entered
+ * without the transfers that funded them — common when someone types in a
+ * portfolio before importing a bank statement — and showing the account as
+ * owing money would be a worse lie than showing it as holding none.
  */
 export function cashAtBroker(
   contributions: { date: string; amount: number }[],
   trades: TradeRow[],
   asOf: string,
-): number {
+): number | null {
+  const upTo = trades.filter((t) => t.date <= asOf);
+  if (!spendIsKnown(upTo)) return null;
   const paidIn = contributions
     .filter((c) => c.date <= asOf)
     .reduce((sum, c) => sum + c.amount, 0);
-  const spent = trades
-    .filter((t) => t.date <= asOf)
-    .reduce((sum, t) => sum + cashFlowOf(t), 0);
+  const spent = upTo.reduce((sum, t) => sum + cashFlowOf(t), 0);
   return Math.max(0, paidIn + spent);
 }
 

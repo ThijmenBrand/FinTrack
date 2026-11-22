@@ -15,7 +15,12 @@ import {
 } from "@/lib/account-kinds";
 import { getInvestmentSeries, type SeriesPoint } from "@/lib/investment-series";
 import { db } from "@/db";
-import { getAccountHoldings, type Holding } from "@/lib/holdings-db";
+import {
+  getAccountPositions,
+  listTrades,
+  type Holding,
+  type TradeRecord,
+} from "@/lib/holdings-db";
 import { getInvestmentSummary } from "../../_lib/dashboard-queries";
 import { toIsoDate } from "@/lib/utils";
 
@@ -58,6 +63,16 @@ export interface InvestmentsOverview {
   /** Deposited but uninvested, part of what the accounts are worth. */
   brokerCash: number;
   /**
+   * True when a trade with no price makes the cash figure unknowable, so the
+   * page can say the value is holdings only rather than letting the missing
+   * money read as a loss.
+   */
+  brokerCashUnknown: boolean;
+  /** How many trades were recorded without a price. Zero in a clean ledger. */
+  unpricedTrades: number;
+  /** What was entered, newest first, so a mistyped trade can be corrected. */
+  trades: TradeRecord[];
+  /**
    * True once any account carries trades. Its value is then derived from
    * quantity x price, and typing a figure by hand would be overwritten on the
    * next recompute — so the UI stops offering to.
@@ -81,33 +96,42 @@ export const getInvestmentsOverview = cache(
     ]);
     if (!summary) return null;
 
-    const [{ points, valuationDates }, holdingsPerAccount] = await Promise.all([
-      getInvestmentSeries(userId, EARLIEST, toIsoDate(new Date())),
-      // Per account rather than one query: positions are derived by walking
-      // one account's trades in order, and merging two accounts' trades would
-      // average their cost bases together into a figure belonging to neither.
-      Promise.all(
-        summary.accounts.map((a) =>
-          getAccountHoldings(db, a.ownerId, a.id),
+    const [{ points, valuationDates }, positionsPerAccount, trades] =
+      await Promise.all([
+        getInvestmentSeries(userId, EARLIEST, toIsoDate(new Date())),
+        // Per account rather than one query: positions are derived by walking
+        // one account's trades in order, and merging two accounts' trades would
+        // average their cost bases together into a figure belonging to neither.
+        Promise.all(
+          summary.accounts.map((a) => getAccountPositions(db, a.ownerId, a.id)),
         ),
-      ),
-    ]);
-    const holdings = holdingsPerAccount.flat();
+        listTrades(
+          db,
+          summary.accounts.map((a) => ({ id: a.id, ownerId: a.ownerId })),
+        ),
+      ]);
+    const holdings = positionsPerAccount.flatMap((p) => p.holdings);
 
     const byClass = new Map<string, number>();
-    let holdingsValue = 0;
     for (const h of holdings) {
       if (h.quantity <= 0 || h.marketValue === null) continue;
       const key = h.instrument.assetClass;
       byClass.set(key, (byClass.get(key) ?? 0) + h.marketValue);
-      holdingsValue += h.marketValue;
     }
-    // Whatever the valuations say the accounts are worth beyond their priced
-    // holdings is money sitting at the broker uninvested. Shown as its own
-    // slice rather than folded in silently: "20% of my portfolio is still
-    // cash" is one of the few things an allocation chart is actually for.
-    const brokerCash =
-      holdings.length > 0 ? Math.max(0, summary.totalValue - holdingsValue) : 0;
+    // Cash comes from the ledger's own arithmetic — deposits in, trades out —
+    // not from subtracting the holdings off the valuation. The subtraction
+    // would only ever restate the figure the valuation was built from, so it
+    // could never disagree with it, and a missing deposit would show up as
+    // nothing at all instead of as the gap it is.
+    const accountCash = positionsPerAccount.map((p) => p.cash);
+    const brokerCash = accountCash.reduce<number>((sum, c) => sum + (c ?? 0), 0);
+    const unpricedTrades = positionsPerAccount.reduce(
+      (sum, p) => sum + p.unpricedTrades,
+      0,
+    );
+    // Shown as its own slice rather than folded in silently: "20% of my
+    // portfolio is still cash" is one of the few things an allocation chart is
+    // actually for.
     if (brokerCash > 0.005) {
       byClass.set("cash", (byClass.get("cash") ?? 0) + brokerCash);
     }
@@ -152,6 +176,9 @@ export const getInvestmentsOverview = cache(
       holdings,
       allocation,
       brokerCash,
+      brokerCashUnknown: unpricedTrades > 0,
+      unpricedTrades,
+      trades,
       derivedFromHoldings: holdings.length > 0,
     };
   },

@@ -121,6 +121,14 @@ export function checkTrade(
   if ((body.type === "buy" || body.type === "sell") && quantity <= 0) {
     return { ok: false, error: "api.quantityRequired" };
   }
+  if ((body.type === "buy" || body.type === "sell") && unitPrice <= 0) {
+    // What a trade cost is not optional. Accepting the quantity on its own
+    // records a holding that appears to have cost nothing, which reports its
+    // entire market value as profit and hands the whole deposit back as
+    // uninvested cash. Someone who cannot remember the price can look it up;
+    // the app cannot.
+    return { ok: false, error: "api.unitPriceRequired" };
+  }
   if (body.type === "dividend" && unitPrice <= 0) {
     return { ok: false, error: "api.amountRequired" };
   }
