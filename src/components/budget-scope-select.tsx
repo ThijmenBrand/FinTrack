@@ -1,7 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { Check, ChevronsUpDown, Layers, Settings2, Star, Users, Wallet } from "lucide-react";
+import {
+  Check,
+  ChevronsUpDown,
+  Layers,
+  Loader2,
+  Settings2,
+  Star,
+  Users,
+  Wallet,
+} from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -34,7 +43,8 @@ export function BudgetScopeSelect({
   className?: string;
 }) {
   const { t, plural } = useI18n();
-  const { plans, value, plan, setValue, isLoading, hasChoice } = useBudgetScope();
+  const { plans, value, plan, setValue, isLoading, isSwitching, hasChoice } =
+    useBudgetScope();
   // Server-rendered pages mount this too, and the scope only exists once the
   // client queries resolve — rendering the trigger before then is a hydration
   // mismatch, not a flash of the wrong budget.
@@ -63,38 +73,59 @@ export function BudgetScopeSelect({
     variant === "sidebar" ? (
       <DropdownMenuTrigger
         aria-label={t("nav.budgetScope.label")}
+        aria-busy={isSwitching}
         className={cn(
           "flex w-full items-center gap-2.5 rounded-lg border bg-background/60 px-2.5 py-2 text-left transition-colors hover:bg-sidebar-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           collapsed && "justify-center px-0",
           className,
         )}
       >
-        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-          {isAll ? <Layers className="h-3.5 w-3.5" /> : <Wallet className="h-3.5 w-3.5" />}
+        <span
+          className={cn(
+            "flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary",
+            // Collapsed rail: no chevron slot, so the badge itself carries the
+            // spinner — otherwise a switch there shows nothing at all.
+            collapsed && isSwitching && "animate-pulse",
+          )}
+        >
+          {collapsed && isSwitching ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : isAll ? (
+            <Layers className="h-3.5 w-3.5" />
+          ) : (
+            <Wallet className="h-3.5 w-3.5" />
+          )}
         </span>
         {!collapsed && (
           <>
             <span className="min-w-0 flex-1">
               <span className="block text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                {t("nav.budgetScope.heading")}
+                {isSwitching ? t("nav.budgetScope.switching") : t("nav.budgetScope.heading")}
               </span>
               <span className="block truncate text-sm font-medium text-sidebar-foreground">
                 {label}
               </span>
             </span>
-            <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            {isSwitching ? (
+              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
+            ) : (
+              <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            )}
           </>
         )}
       </DropdownMenuTrigger>
     ) : (
       <DropdownMenuTrigger
         aria-label={t("nav.budgetScope.label")}
+        aria-busy={isSwitching}
         className={cn(
           "inline-flex h-8 items-center gap-1.5 rounded-full bg-muted px-3 text-sm font-medium transition-colors hover:bg-muted/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           className,
         )}
       >
-        {isAll ? (
+        {isSwitching ? (
+          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
+        ) : isAll ? (
           <Layers className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         ) : (
           <Wallet className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -107,6 +138,10 @@ export function BudgetScopeSelect({
   return (
     <DropdownMenu modal={false}>
       {trigger}
+      {/* The spinner is the sighted cue; this is the same news, announced. */}
+      <span role="status" aria-live="polite" className="sr-only">
+        {isSwitching ? t("nav.budgetScope.switchingTo", { name: label }) : ""}
+      </span>
       <DropdownMenuContent
         align="start"
         side={variant === "sidebar" ? "right" : "bottom"}
