@@ -19,12 +19,15 @@ import {
 export async function TopSpendingCard({
   userId,
   startDay = 1,
+  accountIds,
 }: {
   userId: string;
   startDay?: number;
+  /** The budget scope's accounts; undefined under "All budgets". */
+  accountIds?: string[];
 }) {
   const [{ planCount, categories: topCategories }, { t, formatCurrency, intlLocale }] =
-    await Promise.all([getTopCategories(userId, startDay), getI18n()]);
+    await Promise.all([getTopCategories(userId, startDay, accountIds), getI18n()]);
 
   const monthLabel = formatFinancialMonthLabel(new Date(), startDay, intlLocale);
   const fmRange = startDay === 1 ? null : getFinancialMonthRange(new Date(), startDay);
@@ -44,7 +47,10 @@ export async function TopSpendingCard({
           </Link>
         </div>
         <CardDescription>
-          {monthLabel} &middot; {t("dashboard.topSpending.allAccounts")}
+          {monthLabel} &middot;{" "}
+          {accountIds
+            ? t("dashboard.topSpending.budgetAccounts")
+            : t("dashboard.topSpending.allAccounts")}
         </CardDescription>
       </CardHeader>
       <CardContent>

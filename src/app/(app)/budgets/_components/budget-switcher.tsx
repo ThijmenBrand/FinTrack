@@ -8,14 +8,17 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
-import { Check, ChevronDown, Pencil, Pin, PinOff, Plus, Star, Users } from "lucide-react";
+import { Check, ChevronDown, Pencil, Plus, Star, Users } from "lucide-react";
 import type { BudgetPlanData } from "@/types/api";
-import { usePreferences, useUpdatePreferences } from "@/hooks/use-preferences";
 import { useI18n } from "@/lib/i18n/client";
 
 /**
  * The page title *is* the plan switcher: one budget is on screen at a time, so
  * a tab strip spent horizontal room on plans nobody was looking at.
+ *
+ * Picking here sets the app-wide budget scope — the same selection the sidebar
+ * selector shows, not a second one that could drift from it. Choosing a budget
+ * is what "use this as my budget" used to mean, so the old pin action is gone.
  */
 export function BudgetSwitcher({
   plans,
@@ -31,8 +34,6 @@ export function BudgetSwitcher({
   onCreate: () => void;
 }) {
   const { t, plural } = useI18n();
-  const { data: prefs } = usePreferences();
-  const updatePrefs = useUpdatePreferences();
 
   const subtitle = (plan: BudgetPlanData) =>
     [
@@ -51,11 +52,6 @@ export function BudgetSwitcher({
     ]
       .filter(Boolean)
       .join(" · ");
-
-  // Only a shared plan needs pinning — the user's own plans already reachable
-  // via their isMain flag, and mainBudgetPlanId only ever resolves a foreign one.
-  const canPin = !!active?.ownerName;
-  const isPinned = canPin && prefs?.mainBudgetPlanId === active?.id;
 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -98,17 +94,6 @@ export function BudgetSwitcher({
               {t("common.edit")}
             </DropdownMenuItem>
           )}
-          {canPin && (
-            <DropdownMenuItem
-              onSelect={() =>
-                updatePrefs.mutate({ mainBudgetPlanId: isPinned ? null : active!.id })
-              }
-              className="gap-2"
-            >
-              {isPinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
-              {isPinned ? t("budgets.switcher.unpin") : t("budgets.switcher.pin")}
-            </DropdownMenuItem>
-          )}
           <DropdownMenuItem onSelect={onCreate} className="gap-2 text-primary">
             <Plus className="h-4 w-4" />
             {t("budgets.tabs.newBudget")}
@@ -131,23 +116,6 @@ export function BudgetSwitcher({
       )}
 
       <div className="ml-auto hidden items-center gap-2 sm:flex">
-        {canPin && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() =>
-              updatePrefs.mutate({ mainBudgetPlanId: isPinned ? null : active!.id })
-            }
-            disabled={updatePrefs.isPending}
-          >
-            {isPinned ? (
-              <PinOff className="mr-1.5 h-3.5 w-3.5" />
-            ) : (
-              <Pin className="mr-1.5 h-3.5 w-3.5" />
-            )}
-            {isPinned ? t("budgets.switcher.unpin") : t("budgets.switcher.pin")}
-          </Button>
-        )}
         {/* Plan metadata (rename, accounts) is owner-only, regardless of the
             editor/viewer split that governs allocations on a shared plan. */}
         {active && active.role === "owner" && (

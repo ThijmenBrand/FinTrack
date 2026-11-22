@@ -120,6 +120,37 @@ export async function resolveMainPlan(userId: string): Promise<ResolvedBudgetPla
 }
 
 /**
+ * The app-wide budget scope, as the sidebar selector set it: either "all
+ * budgets" (no plan narrows the view) or one plan. A plan that no longer
+ * resolves — deleted, or an account that stopped being shared — falls back to
+ * the user's own is_main plan rather than to an empty app.
+ */
+export interface BudgetScope {
+  /** True when the user picked "All budgets": views stay cross-budget. */
+  all: boolean;
+  /**
+   * The scoped plan. Still set under `all` so pages that can only show one
+   * budget (the dashboard's category card) have a plan to fall back to —
+   * they say which plan they are showing, so the two never disagree silently.
+   */
+  plan: ResolvedBudgetPlan | null;
+}
+
+export async function resolveBudgetScope(userId: string): Promise<BudgetScope> {
+  // One preferences read: resolveMainPlan would fetch them again for the very
+  // same row, and against a remote DB that is a wasted round trip on the
+  // dashboard's critical path.
+  const prefs = await getUserPreferences(userId);
+  const chosen = prefs.mainBudgetPlanId
+    ? await resolveBudgetPlan(userId, prefs.mainBudgetPlanId)
+    : null;
+  return {
+    all: prefs.budgetScopeAll,
+    plan: chosen ?? (await resolveBudgetPlan(userId, null)),
+  };
+}
+
+/**
  * The financialMonthStartDay plan-scoped math must use: the plan OWNER's, so
  * owner and member see identical numbers for a shared plan. Falls back to
  * `ownStartDay` for own plans (or no plan).

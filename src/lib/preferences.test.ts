@@ -27,6 +27,7 @@ describe("user preferences", () => {
       financialMonthStartDay: 1,
       defaultAccountId: null,
       mainBudgetPlanId: null,
+      budgetScopeAll: false,
       hideInternalTransfers: false,
       countCrossBudgetTransfers: false,
       locale: "en",

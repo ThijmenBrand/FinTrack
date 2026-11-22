@@ -10,8 +10,10 @@ export interface AutoBudgetPreferences {
   lastAutoBudgetCheckAt: string | null;
   financialMonthStartDay: number;
   defaultAccountId: string | null;
-  /** Dashboard main-plan override — may be a plan shared with the user. Null = own is_main plan. */
+  /** The chosen budget scope — may be a plan shared with the user. Null = own is_main plan. */
   mainBudgetPlanId: string | null;
+  /** "All budgets": cross-budget scope. Wins over mainBudgetPlanId when true. */
+  budgetScopeAll: boolean;
   hideInternalTransfers: boolean;
   countCrossBudgetTransfers: boolean;
   locale: Locale;
@@ -26,6 +28,7 @@ const DEFAULTS: AutoBudgetPreferences = {
   financialMonthStartDay: 1,
   defaultAccountId: null,
   mainBudgetPlanId: null,
+  budgetScopeAll: false,
   hideInternalTransfers: false,
   countCrossBudgetTransfers: false,
   locale: DEFAULT_LOCALE,
@@ -41,6 +44,7 @@ function toAutoBudget(row: UserPreferences): AutoBudgetPreferences {
     financialMonthStartDay: row.financialMonthStartDay,
     defaultAccountId: row.defaultAccountId ?? null,
     mainBudgetPlanId: row.mainBudgetPlanId ?? null,
+    budgetScopeAll: row.budgetScopeAll,
     hideInternalTransfers: row.hideInternalTransfers,
     countCrossBudgetTransfers: row.countCrossBudgetTransfers,
     locale: isLocale(row.locale) ? row.locale : DEFAULT_LOCALE,
@@ -102,6 +106,9 @@ export async function updateUserPreferences(
   }
   if (patch.mainBudgetPlanId !== undefined) {
     updates.mainBudgetPlanId = patch.mainBudgetPlanId;
+  }
+  if (patch.budgetScopeAll !== undefined) {
+    updates.budgetScopeAll = patch.budgetScopeAll;
   }
   if (patch.hideInternalTransfers !== undefined) {
     updates.hideInternalTransfers = patch.hideInternalTransfers;
