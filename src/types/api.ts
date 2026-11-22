@@ -208,6 +208,10 @@ export interface TransactionTag {
 
 /** A tag in the user's vocabulary, with how many rows carry it. */
 export interface Tag extends TransactionTag {
+  /** Owner of the tag; only this owner's rows may be given it. Lets a list
+   *  spanning several owners (the bulk bar) narrow to the right vocabulary,
+   *  the same way CategoryWithDetails.userId does. */
+  userId: string;
   /** Rows carrying this tag. 0 on a tag belonging to a sharing owner. */
   transactionCount: number;
 }

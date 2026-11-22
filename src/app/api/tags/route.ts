@@ -30,7 +30,9 @@ export async function GET(request: NextRequest) {
         : eq(tags.userId, userId);
 
     // The count is the caller's own business — someone else's tag comes back
-    // as a bare name rather than a tally over accounts they cannot see.
+    // as a name and its owner rather than a tally over accounts they cannot
+    // see. The owner id is already on every account the caller can reach, and
+    // the bulk bar needs it to tell two owners' vocabularies apart.
     const rows = await db
       .select({
         id: tags.id,
@@ -50,7 +52,12 @@ export async function GET(request: NextRequest) {
       .orderBy(asc(tags.name));
 
     return NextResponse.json(
-      rows.map((r) => ({ id: r.id, name: r.name, transactionCount: r.transactionCount })),
+      rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        userId: r.userId,
+        transactionCount: r.transactionCount,
+      })),
     );
   }, "Failed to fetch tags");
 }

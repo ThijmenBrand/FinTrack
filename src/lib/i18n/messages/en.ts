@@ -751,6 +751,7 @@ export const en = {
   "tx.bulk.selected": "{count} selected",
   "tx.bulk.applying": "Applying...",
   "tx.bulk.setCategory": "Set category...",
+  "tx.bulk.setTags": "Tag selection...",
   "tx.bulk.noCategory": "No category",
   "tx.bulk.addToPot": "Add to Pot",
   "tx.bulk.markReimbursement": "Mark as reimbursement",

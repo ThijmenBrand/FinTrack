@@ -734,6 +734,7 @@ export const nl: Record<MessageKey, string> = {
   "tx.bulk.selected": "{count} geselecteerd",
   "tx.bulk.applying": "Toepassen...",
   "tx.bulk.setCategory": "Categorie instellen...",
+  "tx.bulk.setTags": "Selectie taggen...",
   "tx.bulk.noCategory": "Geen categorie",
   "tx.bulk.addToPot": "Aan potje toevoegen",
   "tx.bulk.markReimbursement": "Markeren als terugbetaling",

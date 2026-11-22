@@ -119,3 +119,34 @@ export function useRemoveTransactionTag() {
     },
   });
 }
+
+/**
+ * Put one tag on, or take it off, a whole selection in one request.
+ *
+ * A tag belongs to the row's ACCOUNT OWNER, so a selection spanning two owners
+ * only takes the tag on the half that owner owns — `skipped` counts the rest.
+ * The caller decides which way the toggle goes; see the bulk bar.
+ */
+export function useBulkTagTransactions() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      transactionIds: string[];
+      tagId: string;
+      action: "add" | "remove";
+    }) =>
+      apiFetch<{ success: boolean; count: number; skipped: number }>(
+        "/api/transactions/tags",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(vars),
+        },
+      ),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["transactions"] });
+      // Usage counts move with it.
+      qc.invalidateQueries({ queryKey: ["tags"] });
+    },
+  });
+}

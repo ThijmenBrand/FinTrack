@@ -175,3 +175,44 @@ export async function clearSplitChildTags(
     ),
   );
 }
+
+/**
+ * Put `tagId` on every one of `transactionIds`, in one statement rather than a
+ * request per row. A row that already carries the tag is left alone instead of
+ * erroring — re-tagging a selection that overlaps the last one is a no-op, the
+ * same as the per-row endpoint.
+ *
+ * `ownerId` is the TAG's owner, and the caller must already have narrowed
+ * `transactionIds` to rows that owner owns: the link table keys on user_id, so
+ * a link written under the wrong one is invisible to every read above it.
+ */
+export async function addTagToTransactions(
+  ownerId: string,
+  tagId: string,
+  transactionIds: string[],
+): Promise<void> {
+  if (!transactionIds.length) return;
+  await db
+    .insert(transactionTags)
+    .values(transactionIds.map((transactionId) => ({ userId: ownerId, transactionId, tagId })))
+    .onConflictDoNothing();
+}
+
+/** The mirror: take `tagId` off those rows. The tag itself stays in the
+ *  vocabulary, exactly as taking it off one row does. */
+export async function removeTagFromTransactions(
+  ownerId: string,
+  tagId: string,
+  transactionIds: string[],
+): Promise<void> {
+  if (!transactionIds.length) return;
+  await db
+    .delete(transactionTags)
+    .where(
+      and(
+        inArray(transactionTags.transactionId, transactionIds),
+        eq(transactionTags.tagId, tagId),
+        eq(transactionTags.userId, ownerId),
+      ),
+    );
+}
