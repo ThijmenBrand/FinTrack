@@ -22,6 +22,7 @@ import { RecurringFormDialog, type RecurringPrefill } from "./_components/recurr
 import { RecurringList } from "./_components/recurring-list";
 import { UpcomingPayments } from "./_components/upcoming-payments";
 import { useI18n } from "@/lib/i18n/client";
+import { QueryError } from "@/components/query-error";
 import { TONE_TEXT } from "@/app/(app)/budgets/_components/budget-row";
 
 // One reading column. The page is a list with a headline above it, and rows
@@ -69,7 +70,7 @@ function RecurringPageContent() {
   const { t, formatCurrency } = useI18n();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { data: items = [], isLoading: loading } = useRecurring();
+  const { data: items = [], isLoading: loading, isError, error, refetch, isFetching } = useRecurring();
   const { data: accounts = [] } = useAccounts();
   const { data: categories = [] } = useCategories();
   const { data: plansData } = useBudgetPlans();
@@ -131,8 +132,8 @@ function RecurringPageContent() {
     setTogglingId(item.id);
     try {
       await updateRecurring.mutateAsync({ id: item.id, isActive: !item.isActive });
-    } catch (err) {
-      console.error("Failed to toggle recurring plan:", err);
+    } catch {
+      // Announced by the mutation cache's onError (see QueryProvider).
     } finally {
       setTogglingId(null);
     }
@@ -177,6 +178,22 @@ function RecurringPageContent() {
       />
     </header>
   );
+
+  if (isError) {
+    // An empty plan list and a failed request look identical otherwise, and
+    // "you have no recurring payments" is an alarming thing to get wrong.
+    return (
+      <div className={PAGE}>
+        {header}
+        <QueryError
+          className="mt-6"
+          error={error}
+          onRetry={() => refetch()}
+          retrying={isFetching}
+        />
+      </div>
+    );
+  }
 
   if (loading) {
     return (

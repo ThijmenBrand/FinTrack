@@ -48,8 +48,8 @@ export function LogoEditor({
       await setLogo.mutateAsync({ id: plan.id, source: input });
       setSource("");
       setOpen(false);
-    } catch (err) {
-      console.error("Failed to set recurring logo:", err);
+    } catch {
+      // Announced by the mutation cache's onError (see QueryProvider).
     }
   };
   const remove = async () => {
@@ -57,8 +57,8 @@ export function LogoEditor({
     try {
       await removeLogo.mutateAsync(plan.id);
       setOpen(false);
-    } catch (err) {
-      console.error("Failed to remove recurring logo:", err);
+    } catch {
+      // Announced by the mutation cache's onError (see QueryProvider).
     }
   };
 

@@ -99,8 +99,8 @@ export function ReimbursementPicker({
       await reimburse.mutateAsync({ transactionId, expenseIds: [expense.id] });
       onLinked?.();
       onOpenChange(false);
-    } catch (err) {
-      console.error("Failed to link:", err);
+    } catch {
+      // Announced by the mutation cache's onError (see QueryProvider).
     } finally {
       setLinkingId(null);
     }

@@ -171,7 +171,7 @@ export function CategoryChips({
         const id = crypto.randomUUID();
         createCategory.mutate(
           { id, name, color: DEFAULT_COLOR, icon: null },
-          { onError: (err) => console.error("Failed to create category:", err) },
+          { },
         );
         return CATEGORY + id;
       }}

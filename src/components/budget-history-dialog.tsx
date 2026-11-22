@@ -23,6 +23,9 @@ import { useBudgetHistory } from "@/hooks/use-budgets";
 
 import type { Transaction } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
+import { ApiError } from "@/lib/api";
+import { describeError } from "@/lib/error-message";
+import { toast } from "@/lib/toast";
 import { WARN_PCT, TONE, incomeStatus } from "@/app/(app)/budgets/_components/budget-row";
 
 /**
@@ -86,18 +89,22 @@ export function BudgetHistoryDialog({ allocation, budgetId, onOpenChange }: Budg
         const res = await fetch(
           `/api/transactions?categoryId=${allocation.categoryId}&dateFrom=${dateFrom}&dateTo=${dateTo}&type=${txType}&limit=100&sortBy=date&sortOrder=desc`
         );
+        if (!res.ok) throw new ApiError(res.status, res.statusText);
         const data = await res.json();
         setMonthTransactions((prev) => ({
           ...prev,
           [month]: data.data || [],
         }));
       } catch (err) {
-        console.error("Failed to fetch transactions:", err);
+        // Expanding a month and getting an empty list reads as "nothing was
+        // spent here", which is a different fact from "this didn't load".
+        const { title, description } = describeError(err, t);
+        toast.error(title, { description, key: "budget-history" });
       } finally {
         setLoadingMonth(null);
       }
     },
-    [expandedMonth, monthTransactions, allocation]
+    [expandedMonth, monthTransactions, allocation, t]
   );
 
   if (!allocation) {

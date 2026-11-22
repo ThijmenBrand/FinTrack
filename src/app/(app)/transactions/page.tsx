@@ -17,7 +17,6 @@ import { Button } from "@/components/ui/button";
 import { AddToPotDialog } from "@/components/add-to-pot-dialog";
 import { CsvUploadDialog } from "@/components/csv-upload-dialog";
 import { AddTransactionDialog } from "@/components/add-transaction-dialog";
-import { PullToRefresh } from "@/components/pull-to-refresh";
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog";
 import { ReimbursementPicker } from "@/components/reimbursement-picker";
 import { CreatePotDialog, PotDialog } from "@/components/pot-dialog";
@@ -47,6 +46,7 @@ import { useBudgetScope } from "@/hooks/use-budget-scope";
 import { BudgetScopeSelect } from "@/components/budget-scope-select";
 import type { Transaction, Pot, Pagination, PotRangeTotal } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
+import { toast } from "@/lib/toast";
 import {
   TransactionSearchBar,
   computeDateRange,
@@ -254,7 +254,13 @@ function TransactionsPage() {
   ]);
 
   // Transaction data via React Query
-  const { data: txData, isLoading: loading, isPlaceholderData: fetching } = useTransactions({
+  const {
+    data: txData,
+    isLoading: loading,
+    isPlaceholderData: fetching,
+    error: txError,
+    refetch: refetchTransactions,
+  } = useTransactions({
     page: pagination.page,
     limit: pagination.limit,
     sortBy,
@@ -381,24 +387,24 @@ function TransactionsPage() {
   const handleRemoveFromPot = async (potId: string, transactionId: string) => {
     try {
       await removeFromPot.mutateAsync({ potId, transactionId });
-    } catch (err) {
-      console.error("Failed to remove from pot:", err);
+    } catch {
+      // Announced by the mutation cache's onError (see QueryProvider).
     }
   };
 
   const handleDeletePot = async (potId: string) => {
     try {
       await deletePot.mutateAsync(potId);
-    } catch (err) {
-      console.error("Failed to delete pot:", err);
+    } catch {
+      // Announced by the mutation cache's onError (see QueryProvider).
     }
   };
 
   const handleAddToPot = async (potId: string, transactionId: string) => {
     try {
       await addToPot.mutateAsync({ potId, transactionId });
-    } catch (err) {
-      console.error("Failed to add to pot:", err);
+    } catch {
+      // Announced by the mutation cache's onError (see QueryProvider).
     }
   };
 
@@ -420,8 +426,8 @@ function TransactionsPage() {
             : t("tx.transfersNone"),
         );
       }
-    } catch (err) {
-      console.error("Failed to detect transfers:", err);
+    } catch {
+      // Announced by the mutation cache's onError (see QueryProvider).
     }
   };
 
@@ -503,17 +509,24 @@ function TransactionsPage() {
     );
   };
 
+  // A bulk action clears the selection as it finishes, so the bar that
+  // reported "12 selected" is gone by the time the rows update — without a
+  // confirmation there is nothing left on screen saying what happened.
   const handleBulkCategorize = async (categoryId: string | null) => {
+    const count = selectedOnPage.length;
     await bulkCategorize.mutateAsync({
       transactionIds: selectedOnPage.map((t) => t.id),
       categoryId,
     });
     clearSelection();
+    toast.success(plural(count, "ok.categorized.one", "ok.categorized.other"));
   };
 
   const handleBulkDelete = async () => {
+    const count = selectedOnPage.length;
     await bulkDelete.mutateAsync(selectedOnPage.map((t) => t.id));
     clearSelection();
+    toast.success(plural(count, "tx.bulk.deleted.one", "tx.bulk.deleted.other"));
   };
 
   // Derived from the accounts, not the rows: createdByName is only set on
@@ -689,7 +702,6 @@ function TransactionsPage() {
   if (simple) {
     return (
       <div className="space-y-6">
-        <PullToRefresh />
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">{t("tx.title")}</h1>
@@ -717,6 +729,8 @@ function TransactionsPage() {
           pagination={pagination}
           setPagination={setPagination}
           loading={loading}
+          error={txError}
+          onRetry={() => refetchTransactions()}
           fetching={fetching}
           search={search}
           onSearchChange={handleSimpleSearch}
@@ -762,7 +776,6 @@ function TransactionsPage() {
 
   return (
     <div className="space-y-6">
-      <PullToRefresh />
       {/* Header */}
       {/* flex-wrap: in a narrow desktop window the five labeled actions drop
           below the title instead of crushing the subtitle. */}
@@ -951,6 +964,8 @@ function TransactionsPage() {
         pagination={pagination}
         setPagination={setPagination}
         loading={loading}
+        error={txError}
+        onRetry={() => refetchTransactions()}
         fetching={fetching}
         rowCount={transactions.length}
         hasActiveFilters={hasActiveFilters}

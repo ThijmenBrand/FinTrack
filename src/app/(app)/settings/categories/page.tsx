@@ -140,8 +140,10 @@ function CategoriesPageInner() {
     qc.setQueryData(["categories"], reordered);
     try {
       await reorderCategories.mutateAsync(reordered.map((c) => c.id));
-    } catch (err) {
-      console.error("Failed to reorder categories:", err);
+    } catch {
+      // The optimistic reorder is rolled back below; the failure itself is
+      // announced by the mutation cache's onError (see QueryProvider). A
+      // silent snap-back would just look like the drag never took.
       qc.invalidateQueries({ queryKey: ["categories"] });
     }
   };
@@ -158,8 +160,8 @@ function CategoriesPageInner() {
   const handleBulkDelete = async () => {
     try {
       await bulkDelete.mutateAsync(selectedCategories.map((c) => c.id));
-    } catch (err) {
-      console.error("Failed to delete categories:", err);
+    } catch {
+      // Announced by the mutation cache's onError (see QueryProvider).
     }
     setSelectedIds([]);
   };
@@ -193,8 +195,8 @@ function CategoriesPageInner() {
         totalTransactions: data.totalTransactions,
         uncategorized: data.uncategorized,
       });
-    } catch (err) {
-      console.error("Failed to reapply rules:", err);
+    } catch {
+      // Announced by the mutation cache's onError (see QueryProvider).
     }
   };
 

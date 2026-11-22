@@ -256,7 +256,7 @@ export function TransactionNoteDialog({ tx, onClose }: TransactionNoteDialogProp
     if (next !== tx.notes) {
       updateNotes.mutate(
         { transactionId: tx.id, notes: next },
-        { onError: (err) => console.error("Failed to save note:", err) }
+        { }
       );
     }
     onClose();

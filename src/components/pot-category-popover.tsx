@@ -50,8 +50,8 @@ export function PotCategoryPopover({
         categoryId: selectedCategoryId,
       });
       setOpen(false);
-    } catch (err) {
-      console.error("Failed to update pot category:", err);
+    } catch {
+      // Announced by the mutation cache's onError (see QueryProvider).
     }
   };
 

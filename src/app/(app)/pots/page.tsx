@@ -8,6 +8,7 @@ import { PotCard } from "@/components/pot-card";
 import { CreatePotDialog, PotDialog } from "@/components/pot-dialog";
 import { AllocateToPotDialog } from "@/components/allocate-to-pot-dialog";
 import { usePots } from "@/hooks/use-pots";
+import { QueryError } from "@/components/query-error";
 import { useCategories } from "@/hooks/use-categories";
 import { toIsoDate } from "@/lib/utils";
 import { potPhase } from "@/lib/pot-budget";
@@ -24,7 +25,7 @@ export default function PotsPage() {
 
 function PotsPageInner() {
   const { t, plural, formatCurrency: fc } = useI18n();
-  const { data: pots = [], isLoading } = usePots();
+  const { data: pots = [], isLoading, isError, error, refetch, isFetching } = usePots();
   const { data: categories = [] } = useCategories();
   const searchParams = useSearchParams();
 
@@ -113,6 +114,10 @@ function PotsPageInner() {
         <div className="flex items-center justify-center py-16">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
+      ) : isError ? (
+        // Not the empty state: "you have no pots" is a lie when the request
+        // failed, and it offers no way to find out otherwise.
+        <QueryError error={error} onRetry={() => refetch()} retrying={isFetching} />
       ) : pots.length === 0 ? (
         <EmptyState onCreate={() => setCreateOpen(true)} />
       ) : (

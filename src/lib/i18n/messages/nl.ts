@@ -754,6 +754,8 @@ export const nl: Record<MessageKey, string> = {
   "tx.bulk.addToPot": "Aan potje toevoegen",
   "tx.bulk.markReimbursement": "Markeren als terugbetaling",
   "tx.bulk.deleteCount": "{count} verwijderen",
+  "tx.bulk.deleted.one": "{count} transactie verwijderd",
+  "tx.bulk.deleted.other": "{count} transacties verwijderd",
 
   // ─── Transactions — rows & context menu ────────────────────────────────────
   "tx.row.selectTransaction": "Transactie selecteren",
@@ -1703,6 +1705,41 @@ export const nl: Record<MessageKey, string> = {
   // ─── Errors & import history ───────────────────────────────────────────────
   "error.title": "Deze pagina liep tegen een fout aan",
   "error.body": "Probeer het opnieuw — als het blijft gebeuren, staat hieronder waarom.",
+  "error.showDetails": "Technische details",
+
+  // ─── Fouten waar de gebruiker iets mee kan ─────────────────────────────────
+  "err.offline.title": "Je bent offline",
+  "err.offline.body": "De wijziging is niet opgeslagen. Zodra je weer online bent, lukt het wel.",
+  "err.network.title": "Geen verbinding met de server",
+  "err.network.body": "Controleer je verbinding en probeer het opnieuw.",
+  "err.signedOut.title": "Je bent uitgelogd",
+  "err.signedOut.body": "Log opnieuw in om verder te gaan.",
+  "err.forbidden.title": "Je hebt hier geen toegang toe",
+  "err.notFound.title": "Dit bestaat niet meer",
+  "err.notFound.body": "Mogelijk is het verwijderd. Ververs om het laatste te zien.",
+  "err.conflict.title": "Dit botst met iets anders",
+  "err.tooMany.title": "Te veel pogingen",
+  "err.tooMany.body": "Wacht even en probeer het opnieuw.",
+  "err.server.title": "Er ging iets mis aan onze kant",
+  "err.server.body": "Er is niets gewijzigd. Probeer het zo nog eens.",
+  "err.generic.title": "Dat is niet gelukt",
+  "err.loadFailed.title": "Laden mislukt",
+  "err.loadFailed.body": "De gegevens kwamen niet door. Probeer het opnieuw.",
+
+  // ─── Verbindingsmelding ────────────────────────────────────────────────────
+  "net.offline": "Je bent offline — je ziet de laatst geladen gegevens.",
+  "net.backOnline": "Weer online",
+
+  // ─── Bevestigingen ─────────────────────────────────────────────────────────
+  "ok.saved": "Opgeslagen",
+  "ok.deleted": "Verwijderd",
+  "ok.allocated": "Toegewezen aan {name}",
+  "ok.deallocated": "Teruggehaald uit {name}",
+  "ok.categorized.one": "{count} transactie ingedeeld",
+  "ok.categorized.other": "{count} transacties ingedeeld",
+  "ok.orderSaved": "Nieuwe volgorde opgeslagen",
+  "ok.rulesApplied": "Regels toegepast",
+  "ok.copied": "Gekopieerd",
   "importHistory.title": "Importgeschiedenis",
   "importHistory.subtitle": "Bekijk alle geüploade transactiebestanden en draai imports terug indien nodig.",
   "importHistory.uploads": "Uploads",

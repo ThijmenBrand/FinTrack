@@ -33,6 +33,7 @@ import { useI18n } from "@/lib/i18n/client";
 import type { MessageKey } from "@/lib/i18n/translate";
 import { UserAvatar } from "@/components/user-avatar";
 import { scrollMainToTop } from "@/components/mobile-top-bar";
+import { haptics } from "@/lib/haptics";
 
 const THEMES: { value: string; labelKey: MessageKey; icon: LucideIcon }[] = [
   { value: "system", labelKey: "theme.system", icon: Monitor },
@@ -114,6 +115,7 @@ export function BottomNav() {
                 href={item.href}
                 aria-current={isActive ? "page" : undefined}
                 onClick={(e) => {
+                  haptics.tap();
                   // Native tab bars: tapping the current tab scrolls it back
                   // to the top first; a second tap (already at the top) goes
                   // to the tab's root, clearing any filters in the URL.

@@ -771,6 +771,8 @@ export const en = {
   "tx.bulk.addToPot": "Add to Pot",
   "tx.bulk.markReimbursement": "Mark as reimbursement",
   "tx.bulk.deleteCount": "Delete {count}",
+  "tx.bulk.deleted.one": "{count} transaction deleted",
+  "tx.bulk.deleted.other": "{count} transactions deleted",
 
   // ─── Transactions — rows & context menu ────────────────────────────────────
   "tx.row.selectTransaction": "Select transaction",
@@ -1722,7 +1724,42 @@ export const en = {
 
   // ─── Errors & import history ───────────────────────────────────────────────
   "error.title": "This page hit an error",
-  "error.body": "Try again — if it keeps happening, the message below says why.",
+  "error.body": "Try again — if it keeps happening, the details below say why.",
+  "error.showDetails": "Technical details",
+
+  // ─── Failures the user can act on ──────────────────────────────────────────
+  "err.offline.title": "You're offline",
+  "err.offline.body": "The change wasn't saved. It'll work again once you're back online.",
+  "err.network.title": "Couldn't reach the server",
+  "err.network.body": "Check your connection and try again.",
+  "err.signedOut.title": "You've been signed out",
+  "err.signedOut.body": "Sign in again to continue.",
+  "err.forbidden.title": "You don't have access to that",
+  "err.notFound.title": "That's no longer there",
+  "err.notFound.body": "Someone may have deleted it. Refresh to see the latest.",
+  "err.conflict.title": "That clashes with something else",
+  "err.tooMany.title": "Too many attempts",
+  "err.tooMany.body": "Wait a moment and try again.",
+  "err.server.title": "Something broke on our side",
+  "err.server.body": "Nothing was changed. Try again in a moment.",
+  "err.generic.title": "That didn't work",
+  "err.loadFailed.title": "Couldn't load this",
+  "err.loadFailed.body": "The data didn't come through. Try again.",
+
+  // ─── Connection banner ─────────────────────────────────────────────────────
+  "net.offline": "You're offline — showing the last data we loaded.",
+  "net.backOnline": "Back online",
+
+  // ─── Saved / done confirmations ────────────────────────────────────────────
+  "ok.saved": "Saved",
+  "ok.deleted": "Deleted",
+  "ok.allocated": "Allocated to {name}",
+  "ok.deallocated": "Taken back from {name}",
+  "ok.categorized.one": "{count} transaction categorised",
+  "ok.categorized.other": "{count} transactions categorised",
+  "ok.orderSaved": "New order saved",
+  "ok.rulesApplied": "Rules applied",
+  "ok.copied": "Copied",
   "importHistory.title": "Import History",
   "importHistory.subtitle": "View all uploaded transaction files and roll back imports if needed.",
   "importHistory.uploads": "Uploads",

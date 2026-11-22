@@ -107,8 +107,8 @@ export function SplitSection({
               onConfirm={async () => {
                 try {
                   await unsplit.mutateAsync(transaction.id);
-                } catch (err) {
-                  console.error("Failed to unsplit transaction:", err);
+                } catch {
+                  // Announced by the mutation cache's onError (see QueryProvider).
                 }
               }}
             />
