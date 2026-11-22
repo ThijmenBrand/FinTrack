@@ -22,12 +22,28 @@ function parseNumber(s: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function parseDate(s: string): string | null {
-  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (iso) return s;
-  const dmy = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
-  if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}`;
+// Shared by the free-text search and the `period:` filter, so "28-07-2026"
+// means the same day wherever it is typed. Day-first on purpose: the UI is
+// Dutch/European, and an ISO string is unambiguous anyway.
+export function parseDayInput(raw: string): string | null {
+  const s = raw.trim();
+  const iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (iso) return validDay(iso[1], iso[2], iso[3]);
+  const dmy = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+  if (dmy) return validDay(dmy[3], dmy[2], dmy[1]);
   return null;
+}
+
+// Rejects the impossible (2026-13-40, 30 February) so a typo falls back to a
+// plain text search instead of filtering to a day that never existed.
+function validDay(year: string, month: string, day: string): string | null {
+  const y = Number(year);
+  const m = Number(month);
+  const d = Number(day);
+  if (m < 1 || m > 12 || d < 1) return null;
+  // Day 0 of the next month is the last day of this one.
+  if (d > new Date(Date.UTC(y, m, 0)).getUTCDate()) return null;
+  return `${year}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
 export function parseSearchTerm(raw: string): ParsedSearch {
@@ -40,7 +56,7 @@ export function parseSearchTerm(raw: string): ParsedSearch {
     return { text: null, amount: { min: abs - pad, max: abs + pad } };
   }
 
-  const date = parseDate(s);
+  const date = parseDayInput(s);
   if (date) return { text: s, date };
 
   const n = parseNumber(s);

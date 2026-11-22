@@ -320,6 +320,13 @@ function TransactionsPage() {
       setDateFromOverride("");
       setDateToOverride("");
     }
+    // One exact day: a range whose both ends are that date. The `period:` chip
+    // and its remove button cover it, so there is no separate `day` filter.
+    else if (key === "day") {
+      setPeriodFilter("all");
+      setDateFromOverride(value);
+      setDateToOverride(value);
+    }
     else if (key === "search") setSearch(value);
     setPagination((p) => ({ ...p, page: 1 }));
   };
@@ -826,7 +833,11 @@ function TransactionsPage() {
         <div className="flex items-center gap-2">
           <span className="text-sm text-muted-foreground">
             {t("tx.showingRange", { from: dateFrom ? formatDate(dateFrom) : "" })}
-            {dateTo ? ` — ${formatDate(dateTo)}` : ` — ${t("tx.rangeToNow")}`}
+            {dateFrom && dateFrom === dateTo
+              ? ""
+              : dateTo
+                ? ` — ${formatDate(dateTo)}`
+                : ` — ${t("tx.rangeToNow")}`}
           </span>
         </div>
       )}
