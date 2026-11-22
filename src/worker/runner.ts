@@ -18,6 +18,7 @@ import {
 } from "./handlers/connect";
 import { syncLinkHandler } from "./handlers/sync";
 import { evaluateNotificationsHandler } from "./handlers/notifications";
+import { refreshPricesHandler } from "./handlers/prices";
 import type { Handler, JobContext } from "./handlers/types";
 
 type Handlers = { [K in keyof JobPayloads]: Handler<K> };
@@ -32,6 +33,7 @@ export const handlers: Handlers = {
   "bank.revoke_session": revokeSessionHandler,
   "bank.delete_credential": deleteCredentialHandler,
   "notifications.evaluate": evaluateNotificationsHandler,
+  "prices.refresh": refreshPricesHandler,
 };
 
 export interface RunnerHooks {
