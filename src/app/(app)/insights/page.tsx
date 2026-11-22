@@ -584,10 +584,12 @@ export default function InsightsPage() {
     for (const [k, v] of Object.entries(extra)) {
       if (v) params.set(k, v);
     }
-    // The transactions page only filters on a single account. A caller that
-    // named one (a money-flow leg belongs to one account) wins.
-    if (!params.has("account") && selectedAccountIds.length === 1)
-      params.set("account", selectedAccountIds[0]);
+    // Hand the transactions page the budget's WHOLE account set, so the list
+    // it lands on is scoped exactly like the numbers that were clicked. It
+    // reads `account` as a comma-separated list. A caller that named an
+    // account itself (a money-flow leg belongs to one account) wins.
+    if (!params.has("account") && accountIdParam)
+      params.set("account", accountIdParam);
     const mappedPeriod = PRESET_TO_TX_PERIOD[preset];
     // When a financial month is active, the transactions page's "this-month"/"last-month"
     // shortcut still means calendar months, so pass explicit dates instead.
