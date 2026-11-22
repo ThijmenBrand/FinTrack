@@ -11,8 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeftRight, Calendar, Loader2, Star } from "lucide-react";
+import { ArrowLeftRight, Calendar, Loader2 } from "lucide-react";
 import {
   useInsights,
   useBalanceTimeline,
@@ -20,6 +19,7 @@ import {
 } from "@/hooks/use-insights";
 import { useBudgets } from "@/hooks/use-budgets";
 import { ALL_BUDGETS, useBudgetScope } from "@/hooks/use-budget-scope";
+import { BudgetScopeSelect } from "@/components/budget-scope-select";
 import { usePreferences } from "@/hooks/use-preferences";
 import { useStatResets } from "@/hooks/use-stat-resets";
 import { useI18n } from "@/lib/i18n/client";
@@ -324,7 +324,6 @@ export default function InsightsPage() {
   // resolves a stale or deleted plan id back to the main budget.
   const {
     plans,
-    value: selectedBudget,
     plan: selectedPlan,
     setValue: setSelectedBudget,
     isLoading: scopeLoading,
@@ -342,12 +341,9 @@ export default function InsightsPage() {
       setSelectedBudget(linkedBudgetId);
     }
   }, [linkedBudgetId, scopeLoading, plans, setSelectedBudget]);
-  // Simple mode keeps the switcher (a second budget is useless if you can't
-  // reach it) but hides it when there's nothing to switch between.
-  const showBudgetTabs = plans.length > 0 && (!simple || plans.length > 1);
-  // Which plan the budget-vs-actual chart follows. Simple mode hides the tabs
-  // when there's one plan, so an Overall selection (saved from before, or from
-  // the full view) would silently drop the chart with no way to get it back.
+  // Which plan the budget-vs-actual chart follows. Simple mode shows one
+  // budget's story, so an Overall selection (saved from before, or from the
+  // full view) would silently drop the chart with no way to get it back.
   const chartPlan =
     selectedPlan ?? (simple ? plans.find((p) => p.isMain) ?? plans[0] ?? null : null);
   // The view's transaction scope: a plan's accounts, or everything on Overall.
@@ -642,22 +638,11 @@ export default function InsightsPage() {
             <p className="text-sm text-muted-foreground">
               {t("insights.planBudget", { name: selectedPlan.name })}
             </p>
+            {/* Phones have no sidebar to hold the scope selector. */}
+            <div className="mt-2 md:hidden">
+              <BudgetScopeSelect variant="header" />
+            </div>
           </div>
-          {showBudgetTabs && (
-            <Tabs value={selectedBudget ?? ALL_BUDGETS} onValueChange={setSelectedBudget}>
-              <TabsList>
-                <TabsTrigger value={ALL_BUDGETS}>{t("insights.overall")}</TabsTrigger>
-                {plans.map((p) => (
-                  <TabsTrigger key={p.id} value={p.id} className="gap-1.5">
-                    {p.isMain && (
-                      <Star className="h-3 w-3 fill-current text-amber-500" aria-label={t("dashboard.budgetCard.mainBudgetStar")} />
-                    )}
-                    {p.name}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
-          )}
         </div>
         <p className="py-16 text-center text-sm text-muted-foreground">
           {t("insights.noTransactionsPrefix", { name: selectedPlan.name })}{" "}
@@ -723,35 +708,14 @@ export default function InsightsPage() {
               </>
             )}
           </p>
+          {/* Phones have no sidebar to hold the scope selector. */}
+          <div className="mt-2 md:hidden">
+            <BudgetScopeSelect variant="header" />
+          </div>
         </div>
-        {/* Phones: the budget switch runs the full width as a segmented
-            control, and the ranges become a row of chips — one tap each,
-            instead of a dropdown to open first. */}
+        {/* Phones: the ranges become a row of chips — one tap each, instead of
+            a dropdown to open first. */}
         <div className="flex items-center gap-2 flex-wrap max-md:w-full max-md:flex-col max-md:items-stretch max-md:gap-3">
-          {showBudgetTabs && (
-            <Tabs
-              value={selectedBudget ?? ALL_BUDGETS}
-              onValueChange={setSelectedBudget}
-              className="max-md:w-full"
-            >
-              <TabsList className="scrollbar-hide max-md:flex max-md:w-full max-md:justify-start max-md:overflow-x-auto">
-                <TabsTrigger value={ALL_BUDGETS} className="max-md:flex-1">
-                  {t("insights.overall")}
-                </TabsTrigger>
-                {plans.map((p) => (
-                  <TabsTrigger key={p.id} value={p.id} className="gap-1.5 max-md:flex-1">
-                    {p.isMain && (
-                      <Star
-                        className="h-3 w-3 fill-current text-amber-500"
-                        aria-label={t("dashboard.budgetCard.mainBudgetStar")}
-                      />
-                    )}
-                    {p.name}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
-          )}
           <div
             role="radiogroup"
             aria-label={t("insights.rangeLabel")}

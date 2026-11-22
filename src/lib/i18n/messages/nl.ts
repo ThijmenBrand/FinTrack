@@ -82,6 +82,8 @@ export const nl: Record<MessageKey, string> = {
   "nav.budgetScope.all": "Alle budgetten",
   "nav.budgetScope.allSubtitle": "Niets wordt beperkt tot één budget",
   "nav.budgetScope.manage": "Budgetten beheren",
+  "nav.budgetScope.switching": "Wisselen…",
+  "nav.budgetScope.switchingTo": "Wisselen naar {name}",
   "nav.budgetScope.showingPlan": "Toont {name}",
 
   // ─── Settings shell & automation ───────────────────────────────────────────
@@ -1099,7 +1101,6 @@ export const nl: Record<MessageKey, string> = {
   "insights.delta.thisYear": "t.o.v. vorig jaar",
   "insights.delta.custom": "t.o.v. vorige periode",
   "insights.delta.fallback": "vorige periode",
-  "insights.overall": "Totaal",
   "insights.planBudget": "budget {name}",
   "insights.planAccounts": "rekeningen van {name}",
   "insights.allAccounts": "Alle rekeningen",

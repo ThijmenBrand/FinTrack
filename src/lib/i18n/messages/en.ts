@@ -88,6 +88,8 @@ export const en = {
   "nav.budgetScope.all": "All budgets",
   "nav.budgetScope.allSubtitle": "Nothing is narrowed to one budget",
   "nav.budgetScope.manage": "Manage budgets",
+  "nav.budgetScope.switching": "Switching…",
+  "nav.budgetScope.switchingTo": "Switching to {name}",
   "nav.budgetScope.showingPlan": "Showing {name}",
 
   // ─── Settings shell & automation ───────────────────────────────────────────
@@ -1119,7 +1121,6 @@ export const en = {
   "insights.delta.thisYear": "vs last year",
   "insights.delta.custom": "vs previous period",
   "insights.delta.fallback": "previous period",
-  "insights.overall": "Overall",
   "insights.planBudget": "{name} budget",
   "insights.planAccounts": "{name} accounts",
   "insights.allAccounts": "All accounts",

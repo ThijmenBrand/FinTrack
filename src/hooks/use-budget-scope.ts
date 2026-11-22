@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useTransition } from "react";
 import { usePreferences, useUpdatePreferences } from "@/hooks/use-preferences";
 import { useBudgetPlans } from "@/hooks/use-budget-plans";
 import type { BudgetPlanData } from "@/types/api";
@@ -27,6 +27,13 @@ export interface BudgetScope {
   setValue: (next: BudgetScopeValue) => void;
   /** True until both preferences and plans have arrived. */
   isLoading: boolean;
+  /**
+   * True from the click until the new scope is actually on screen: the
+   * preferences write plus the server re-render it triggers. Controls show it
+   * rather than looking finished while the page underneath is still the old
+   * budget.
+   */
+  isSwitching: boolean;
   /** The selector hides below this: one budget is not a choice. */
   hasChoice: boolean;
   /**
@@ -52,6 +59,11 @@ export function useBudgetScope(): BudgetScope {
   const { data: plansData } = useBudgetPlans();
   const updatePrefs = useUpdatePreferences();
 
+  // router.refresh() re-renders the server components this scope feeds. Inside
+  // a transition, isRefreshing stays true until that render has landed, which
+  // is the part of a switch the mutation's own pending flag cannot see.
+  const [isRefreshing, startRefresh] = useTransition();
+
   const plans = useMemo(() => plansData?.plans ?? [], [plansData]);
   const isLoading = !prefs || !plansData;
 
@@ -75,9 +87,18 @@ export function useBudgetScope(): BudgetScope {
       ? null
       : plans.find((p) => p.id === value) ?? null;
 
-  // Stable identity: callers put this in effect dependency arrays.
+  // Read through a ref so setValue keeps a stable identity: callers put it in
+  // effect dependency arrays.
+  const valueRef = useRef(value);
+  useEffect(() => {
+    valueRef.current = value;
+  }, [value]);
+
   const setValue = useCallback(
     (next: BudgetScopeValue) => {
+      // Picking what is already picked would otherwise cost a write and a full
+      // server re-render for no change on screen.
+      if (next === valueRef.current) return;
       // On ALL_BUDGETS the plan id stays put: it's what one-budget views fall
       // back to, and switching back lands on the same budget you left.
       updatePrefs.mutate(
@@ -86,10 +107,10 @@ export function useBudgetScope(): BudgetScope {
           : { budgetScopeAll: false, mainBudgetPlanId: next },
         // The dashboard resolves its scope on the server, so invalidating the
         // client caches isn't enough to re-render it.
-        { onSuccess: () => router.refresh() },
+        { onSuccess: () => startRefresh(() => router.refresh()) },
       );
     },
-    [updatePrefs, router],
+    [updatePrefs, router, startRefresh],
   );
 
   const hasChoice = plans.length > 1;
@@ -101,6 +122,7 @@ export function useBudgetScope(): BudgetScope {
     fallbackPlan,
     setValue,
     isLoading,
+    isSwitching: updatePrefs.isPending || isRefreshing,
     hasChoice,
     narrows: hasChoice && value !== null && value !== ALL_BUDGETS,
   };
