@@ -41,6 +41,10 @@ const TABLES = [
   "split_rule_lines",
   "split_rules",
   "transactions",
+  "asset_valuations",
+  "instrument_prices",
+  "trades",
+  "instruments",
   "import_batches",
   "pot_budget_line_pot_categories",
   "pot_budget_line_categories",
@@ -98,12 +102,59 @@ export async function setupTestDb(name: string): Promise<TestDb> {
       bank_name TEXT, bank TEXT, iban TEXT,
       currency TEXT NOT NULL DEFAULT 'EUR',
       initial_balance REAL NOT NULL DEFAULT 0,
+      current_value REAL,
+      valued_at TEXT,
       internal_transfers INTEGER NOT NULL DEFAULT 1,
       sort_order INTEGER NOT NULL DEFAULT 0,
       budget_id TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )`,
+    `CREATE TABLE IF NOT EXISTS asset_valuations (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      account_id TEXT NOT NULL,
+      date TEXT NOT NULL,
+      value REAL NOT NULL,
+      source TEXT NOT NULL DEFAULT 'manual',
+      created_at TEXT NOT NULL
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_asset_valuations_account_date
+       ON asset_valuations (account_id, date)`,
+    `CREATE TABLE IF NOT EXISTS instruments (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      isin TEXT, symbol TEXT,
+      currency TEXT NOT NULL DEFAULT 'EUR',
+      asset_class TEXT NOT NULL DEFAULT 'equity',
+      data_source TEXT NOT NULL DEFAULT 'manual',
+      created_at TEXT NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS trades (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      account_id TEXT NOT NULL,
+      instrument_id TEXT NOT NULL,
+      date TEXT NOT NULL,
+      type TEXT NOT NULL,
+      quantity REAL NOT NULL DEFAULT 0,
+      unit_price REAL NOT NULL DEFAULT 0,
+      fee REAL NOT NULL DEFAULT 0,
+      notes TEXT,
+      created_at TEXT NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS instrument_prices (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      instrument_id TEXT NOT NULL,
+      date TEXT NOT NULL,
+      price REAL NOT NULL,
+      source TEXT NOT NULL DEFAULT 'manual',
+      created_at TEXT NOT NULL
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_instrument_prices_instrument_date
+       ON instrument_prices (instrument_id, date)`,
     `CREATE TABLE IF NOT EXISTS budget_plans (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,

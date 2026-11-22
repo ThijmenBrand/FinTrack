@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { bankAccountLinks } from "@/db/schema";
 import { getAccountBalances } from "@/lib/account-balances";
+import { isCashAccount } from "@/lib/account-kinds";
 import { getUpcomingMoney } from "@/lib/upcoming-money";
 import type { UpcomingMoneyEvent } from "@/types/api";
 import type { NotificationData } from "../registry";
@@ -92,7 +93,9 @@ export const billsEvaluator: Evaluator = {
       if (ctx.now.getTime() - Date.parse(l.bankBalanceAt) > BANK_BALANCE_FRESH_MS) continue;
       bankBalance.set(l.accountId, l.bankBalance);
     }
-    const accounts = balances.map((a) => ({
+    // Cash only: a portfolio dipping below an upcoming bill is not a warning,
+    // it is a market. The bill is paid from current accounts.
+    const accounts = balances.filter(isCashAccount).map((a) => ({
       id: a.id,
       name: a.name,
       type: a.type,

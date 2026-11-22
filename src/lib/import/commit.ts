@@ -39,6 +39,7 @@ import {
   MONEY_EPSILON,
 } from "@/lib/validation";
 import { applyRuleToTransactions } from "@/lib/apply-rule";
+import { recomputeDerivedAccounts } from "@/lib/holdings-db";
 import { splitStamps } from "@/lib/transaction-split";
 import { subLineCategories } from "@/lib/budget-sub-lines";
 import type { MessageKey, Vars } from "@/lib/i18n/translate";
@@ -857,6 +858,16 @@ export async function commitImport(opts: CommitImportOptions): Promise<CommitImp
   // need an owner account the importer can't see are left to the owner's own
   // run — we don't reach into accounts the actor can't access.
   const transferResult = await detectTransfers(db, userId);
+
+  // Transfers have just been paired, which is what writes the mirror legs into
+  // a brokerage account. Those legs are the cash side of what an investment
+  // account is worth, so any account valued from holdings is rebuilt now
+  // rather than left stale until someone next enters a price.
+  //
+  // Scoped to the account OWNER: the mirror legs carry their user_id, and an
+  // importer working on a shared account must not rewrite valuations in a
+  // space that is not theirs.
+  await recomputeDerivedAccounts(db, ownerId);
 
   return {
     ok: true,

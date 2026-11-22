@@ -8,6 +8,7 @@ import { accounts, transactions, accountMembers, user } from "@/db/schema";
 import { eq, and, sql, isNull } from "drizzle-orm";
 import { activeMembership, visibleAccounts } from "@/lib/account-access";
 import { excludeSplitChildren } from "@/lib/split-sql";
+import { isInvestmentAccount } from "@/lib/account-kinds";
 
 export const getAccountBalances = cache(async (userId: string) => {
   const [accountBalanceRows, ownerRows, shareRows] = await Promise.all([
@@ -22,6 +23,8 @@ export const getAccountBalances = cache(async (userId: string) => {
         iban: accounts.iban,
         currency: accounts.currency,
         initialBalance: accounts.initialBalance,
+        currentValue: accounts.currentValue,
+        valuedAt: accounts.valuedAt,
         sortOrder: accounts.sortOrder,
         createdAt: accounts.createdAt,
         updatedAt: accounts.updatedAt,
@@ -75,7 +78,12 @@ export const getAccountBalances = cache(async (userId: string) => {
 
   return accountBalanceRows.map((row) => ({
     ...row,
-    currentBalance: row.initialBalance + Number(row.txTotal),
+    // An investment account is worth what it was last valued at, not what its
+    // transactions sum to — it holds none. The deposits that funded it live on
+    // the *sending* account as internal transfers, where they belong.
+    currentBalance: isInvestmentAccount(row)
+      ? (row.currentValue ?? 0)
+      : row.initialBalance + Number(row.txTotal),
     ownerName: ownerByAccount.get(row.id)?.ownerName ?? null,
     ownerImage: ownerByAccount.get(row.id)?.ownerImage ?? null,
     sharedWithUsers: sharedByAccount.get(row.id) ?? [],

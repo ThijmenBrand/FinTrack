@@ -69,6 +69,14 @@ import {
 import Link from "next/link";
 import { useBankSyncStatus, syncedAgo, BANK_SYNC_KEY, type BankLinkView } from "@/hooks/use-bank-sync";
 import { apiFetch } from "@/lib/api";
+import { toIsoDate } from "@/lib/utils";
+import {
+  isCashAccount,
+  isInvestmentAccount,
+  isValuationStale,
+  sumCashBalances,
+  sumInvestmentValues,
+} from "@/lib/account-kinds";
 import { BANKS, bankHasSeparateFeeColumn } from "@/lib/banks";
 import { useI18n } from "@/lib/i18n/client";
 import type { MessageKey } from "@/lib/i18n/translate";
@@ -87,6 +95,7 @@ const ACCOUNT_TYPES: { value: string; labelKey: MessageKey }[] = [
   { value: "savings", labelKey: "accounts.type.savings" },
   { value: "joint", labelKey: "accounts.type.joint" },
   { value: "credit", labelKey: "accounts.type.credit" },
+  { value: "investment", labelKey: "accounts.type.investment" },
   { value: "other", labelKey: "accounts.type.other" },
 ];
 
@@ -114,6 +123,10 @@ const ACCOUNT_TYPE_STYLES: Record<string, { badge: string }> = {
   credit: {
     badge:
       "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800",
+  },
+  investment: {
+    badge:
+      "bg-teal-500/10 text-teal-600 dark:text-teal-400 border-teal-200 dark:border-teal-800",
   },
   other: {
     badge:
@@ -146,7 +159,7 @@ function SortableAccountCard({
   onOpen: (account: Account) => void;
 }) {
   const i18n = useI18n();
-  const { t, formatCurrency } = i18n;
+  const { t, formatCurrency, formatDayMonth } = i18n;
   const isOwner = account.role === "owner";
   const {
     attributes,
@@ -165,7 +178,16 @@ function SortableAccountCard({
 
   const { badge: typeBadge } =
     ACCOUNT_TYPE_STYLES[account.type] || ACCOUNT_TYPE_STYLES.other;
+  // On a cash account this is the ledger's movement since tracking began. On
+  // an investment account the same column holds the transfer legs that funded
+  // it — money put in, not value gained — so the two are labelled apart and
+  // the gap between value and deposits is shown as the return it is.
+  const investment = isInvestmentAccount(account);
   const netChange = account.transactionTotal;
+  const gain = account.currentValue !== null
+    ? account.currentValue - account.transactionTotal
+    : null;
+  const showGain = investment && gain !== null && account.transactionTotal > 0;
 
   return (
     <div
@@ -308,7 +330,40 @@ function SortableAccountCard({
           >
             {formatCurrency(account.currentBalance, account.currency)}
           </p>
-          {netChange !== 0 && (
+          {investment ? (
+            <>
+              {showGain && (
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  <span
+                    className={`font-medium tabular-nums ${
+                      gain! >= 0
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : "text-red-500 dark:text-red-400"
+                    }`}
+                  >
+                    {gain! >= 0 ? "+" : ""}
+                    {formatCurrency(gain!, account.currency)}
+                  </span>{" "}
+                  {t("accounts.returnOnPutIn", {
+                    amount: formatCurrency(account.transactionTotal, account.currency),
+                  })}
+                </p>
+              )}
+              {/* The date the figure above was true on, amber once it is old
+                  enough that nobody should still be reading it as current. */}
+              <p
+                className={`mt-0.5 text-xs ${
+                  isValuationStale(account.valuedAt)
+                    ? "text-amber-600 dark:text-amber-400"
+                    : "text-muted-foreground"
+                }`}
+              >
+                {account.valuedAt
+                  ? t("accounts.valuedOn", { date: formatDayMonth(account.valuedAt) })
+                  : t("accounts.notValuedYet")}
+              </p>
+            </>
+          ) : netChange !== 0 && (
             <p className="mt-0.5 text-xs text-muted-foreground">
               <span
                 className={`font-medium tabular-nums ${
@@ -460,6 +515,14 @@ function AccountsPageInner() {
   const [currency, setCurrency] = useState("EUR");
   const [initialBalance, setInitialBalance] = useState("");
   const [internalTransfers, setInternalTransfers] = useState(true);
+  const [currentValue, setCurrentValue] = useState("");
+  const [valuedAt, setValuedAt] = useState(() => toIsoDate(new Date()));
+  const isInvestment = type === "investment";
+  // The opening figure belongs on the create form; after that, values are a
+  // dated history and belong to the Update value dialog on /investments.
+  // Offering a bare "value" box on edit would make it look like there is one
+  // number to overwrite, when every entry is a row someone may want back.
+  const showOpeningValue = isInvestment && !editingAccount;
 
   // Server order wins; drag-and-drop overrides it until the next fetch.
   useResetOnChange(accountsData, () => setLocalAccounts(accountsData));
@@ -473,6 +536,8 @@ function AccountsPageInner() {
     setCurrency("EUR");
     setInitialBalance("");
     setInternalTransfers(true);
+    setCurrentValue("");
+    setValuedAt(toIsoDate(new Date()));
     setEditingAccount(null);
   };
 
@@ -486,6 +551,10 @@ function AccountsPageInner() {
     setCurrency(account.currency);
     setInitialBalance(String(account.initialBalance));
     setInternalTransfers(account.internalTransfers);
+    setCurrentValue(account.currentValue === null ? "" : String(account.currentValue));
+    // Today, not the stored date: re-opening the dialog to type a new figure
+    // is the common case, and a figure must never inherit an older date.
+    setValuedAt(toIsoDate(new Date()));
     setDialogOpen(true);
   };
 
@@ -499,6 +568,11 @@ function AccountsPageInner() {
       currency,
       initialBalance: parseFloat(initialBalance) || 0,
       internalTransfers,
+      // Value and date travel together or not at all. An empty box clears the
+      // valuation rather than writing 0, which would claim the portfolio is
+      // worth nothing instead of "not valued yet".
+      currentValue: showOpeningValue && currentValue !== "" ? parseFloat(currentValue) : undefined,
+      valuedAt: showOpeningValue && currentValue !== "" ? valuedAt : undefined,
     };
 
     await (editingAccount
@@ -546,7 +620,13 @@ function AccountsPageInner() {
 
   const saving = createAccount.isPending || updateAccount.isPending;
   const accounts = localAccounts;
-  const totalBalance = accounts.reduce((sum, a) => sum + a.currentBalance, 0);
+  // Two totals, never one. Cash is a ledger sum; the portfolio figure is the
+  // valuations someone typed in. Adding them would produce a headline that
+  // drifts with the market, which is the thing this app's numbers must not do.
+  const cashAccounts = accounts.filter(isCashAccount);
+  const totalBalance = sumCashBalances(accounts);
+  const totalInvested = sumInvestmentValues(accounts);
+  const hasInvestments = accounts.some(isInvestmentAccount);
 
   return (
     <div className="space-y-6">
@@ -562,19 +642,31 @@ function AccountsPageInner() {
         <div className="flex items-center justify-between gap-3 sm:shrink-0 sm:justify-end">
           {/* The total used to be a saturated primary slab below the header —
               the one block on the page that shouted. It's a header stat now. */}
-          {accounts.length > 0 && (
+          {cashAccounts.length > 0 && (
             <div className="min-w-0 text-left sm:mr-1 sm:text-right">
               <p className="text-xs text-muted-foreground">
                 {t("accounts.totalBalance")}
                 {" · "}
                 {plural(
-                  accounts.length,
+                  cashAccounts.length,
                   "accounts.connected.one",
                   "accounts.connected.other",
                 )}
               </p>
               <p className="text-lg font-semibold tabular-nums tracking-tight">
                 {formatCurrency(totalBalance)}
+              </p>
+            </div>
+          )}
+          {/* Stated separately rather than folded in, so the two kinds of
+              number stay legible as two kinds of number. */}
+          {hasInvestments && (
+            <div className="min-w-0 text-left sm:mr-1 sm:text-right">
+              <p className="text-xs text-muted-foreground">
+                {t("accounts.totalInvested")}
+              </p>
+              <p className="text-lg font-semibold tabular-nums tracking-tight">
+                {formatCurrency(totalInvested)}
               </p>
             </div>
           )}
@@ -709,18 +801,56 @@ function AccountsPageInner() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="balance">{t("accounts.startingBalanceLabel")}</Label>
-                    <Input
-                      id="balance"
-                      type="number"
-                      step="0.01"
-                      placeholder="0.00"
-                      value={initialBalance}
-                      onChange={(e) => setInitialBalance(e.target.value)}
-                    />
-                  </div>
+                  {/* An investment account has no starting balance to speak
+                      of — it holds no ledger. What it needs instead is what
+                      the broker says it is worth, and when that was true. */}
+                  {showOpeningValue ? (
+                    <div className="grid gap-2">
+                      <Label htmlFor="currentValue">{t("accounts.currentValueLabel")}</Label>
+                      <Input
+                        id="currentValue"
+                        type="number"
+                        step="0.01"
+                        placeholder="0.00"
+                        value={currentValue}
+                        onChange={(e) => setCurrentValue(e.target.value)}
+                      />
+                    </div>
+                  ) : (
+                    <div className="grid gap-2">
+                      <Label htmlFor="balance">{t("accounts.startingBalanceLabel")}</Label>
+                      <Input
+                        id="balance"
+                        type="number"
+                        step="0.01"
+                        placeholder="0.00"
+                        value={initialBalance}
+                        onChange={(e) => setInitialBalance(e.target.value)}
+                      />
+                    </div>
+                  )}
                 </div>
+                {isInvestment && editingAccount && (
+                  <p className="text-xs text-muted-foreground">
+                    {t("accounts.valueLivesOnInvestments")}
+                  </p>
+                )}
+                {showOpeningValue && (
+                  <div className="grid gap-2">
+                    <Label htmlFor="valuedAt">{t("accounts.valuedAtLabel")}</Label>
+                    <Input
+                      id="valuedAt"
+                      type="date"
+                      max={toIsoDate(new Date())}
+                      value={valuedAt}
+                      disabled={currentValue === ""}
+                      onChange={(e) => setValuedAt(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {t("accounts.valuedAtHint")}
+                    </p>
+                  </div>
+                )}
               </div>
               <DialogFooter>
                 <Button

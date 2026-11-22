@@ -10,6 +10,12 @@ import {
   type BudgetOverview,
 } from "@/lib/budget-overview";
 import { getAccountBalances } from "@/lib/account-balances";
+import {
+  isCashAccount,
+  isInvestmentAccount,
+  isValuationStale,
+  sumCashBalances,
+} from "@/lib/account-kinds";
 import { getUpcomingMoney } from "@/lib/upcoming-money";
 import { db } from "@/db";
 import {
@@ -96,7 +102,11 @@ export const getAccountBalanceSeries = cache(async (
   userId: string,
   months: number = 6,
 ) => {
-  const balances = await getAccountBalances(userId);
+  // Cash only: this walks a balance backwards through transactions, and an
+  // investment account has none. Its line would be flat at today's valuation
+  // all the way back through months it wasn't worth that — a drawn claim the
+  // data cannot support.
+  const balances = (await getAccountBalances(userId)).filter(isCashAccount);
   if (balances.length === 0) return [];
 
   const start = new Date();
@@ -141,6 +151,92 @@ export const getAccountBalanceSeries = cache(async (
       today,
     ),
   }));
+});
+
+/**
+ * The investments block: what the valuation accounts are worth, next to what
+ * the ledger says was actually put into them.
+ *
+ * The two numbers come from different places on purpose. Value is typed in by
+ * hand and is only as true as its date. Contributions are the ledger's own
+ * answer — the `internal_transfer` legs that landed in these accounts — so
+ * they are exact, and they are the figure the gap between the two is measured
+ * against. Returns null when the user has no investment accounts: a card
+ * advertising a feature nobody opted into is the widget soup this app avoids.
+ */
+export const getInvestmentSummary = cache(async (userId: string) => {
+  const investments = (await getAccountBalances(userId)).filter(isInvestmentAccount);
+  if (investments.length === 0) return null;
+
+  const ids = investments.map((a) => a.id);
+  const yearStart = `${new Date().getFullYear()}-01-01`;
+
+  // Inflows only. A transfer out of a broker is a withdrawal, and netting it
+  // against deposits is right: "invested" means what is currently in there,
+  // not gross money ever sent.
+  const [lifetimeRows, yearRows] = await Promise.all([
+    db
+      .select({ accountId: transactions.accountId, total: sum(transactions.amount) })
+      .from(transactions)
+      .where(
+        and(
+          visibleTransactions(userId),
+          inArray(transactions.accountId, ids),
+          eq(transactions.type, "internal_transfer"),
+          excludeSplitChildren(),
+        ),
+      )
+      .groupBy(transactions.accountId),
+    db
+      .select({ total: sum(transactions.amount) })
+      .from(transactions)
+      .where(
+        and(
+          visibleTransactions(userId),
+          inArray(transactions.accountId, ids),
+          eq(transactions.type, "internal_transfer"),
+          excludeSplitChildren(),
+          gte(transactions.date, yearStart),
+        ),
+      ),
+  ]);
+  const contributedBy = new Map(
+    lifetimeRows.map((r) => [r.accountId, Number(r.total) || 0]),
+  );
+
+  const rows = investments.map((a) => ({
+    id: a.id,
+    // The ACCOUNT OWNER, which is not the reader on a shared account. Trades,
+    // prices and valuations all live in the owner's space.
+    ownerId: a.userId,
+    name: a.name,
+    bank: a.bank,
+    bankName: a.bankName,
+    currentValue: a.currentValue,
+    valuedAt: a.valuedAt,
+    contributed: contributedBy.get(a.id) ?? 0,
+  }));
+
+  const totalValue = rows.reduce((t, r) => t + (r.currentValue ?? 0), 0);
+  const totalContributed = rows.reduce((t, r) => t + r.contributed, 0);
+
+  // The total is only as current as its stalest part, so the headline wears
+  // the OLDEST date, not the newest. Picking the newest would let one updated
+  // account vouch for three that nobody has touched since spring.
+  const dates = rows.map((r) => r.valuedAt).filter((d): d is string => !!d);
+  const valuedAt = dates.length === rows.length && dates.length > 0
+    ? dates.reduce((oldest, d) => (d < oldest ? d : oldest))
+    : null;
+
+  return {
+    accounts: rows,
+    totalValue,
+    totalContributed,
+    investedThisYear: Number(yearRows[0]?.total) || 0,
+    // Any unvalued or overdue account makes the whole figure suspect.
+    stale: rows.some((r) => isValuationStale(r.valuedAt)),
+    valuedAt,
+  };
 });
 
 /** Exported for tests. Rewinds `currentBalance` to `from`, then walks forward. */
@@ -240,10 +336,10 @@ export async function getMonthSummary(
         .groupBy(transactionGroups.id),
     ]);
 
-  const totalBalance = accountBalances.reduce(
-    (acc, a) => acc + a.currentBalance,
-    0
-  );
+  // Cash only. "Total balance" sits beside income and expenses as money you
+  // hold and could spend; folding a portfolio valuation into it would make
+  // the figure move with the market between two transactions.
+  const totalBalance = sumCashBalances(accountBalances);
   const potExpense = monthPotSpend.reduce(
     (s, r) => s + (Number(r.spent) || 0),
     0,
@@ -251,7 +347,7 @@ export async function getMonthSummary(
 
   return {
     totalBalance,
-    accountCount: accountBalances.length,
+    accountCount: accountBalances.filter(isCashAccount).length,
     monthIncome: Number(monthIncome[0]?.total) || 0,
     monthExpenses: (Number(monthExpense[0]?.total) || 0) + potExpense,
   };

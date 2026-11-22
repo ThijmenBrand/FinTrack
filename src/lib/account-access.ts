@@ -1,6 +1,6 @@
 import { and, asc, eq, or, inArray, isNull, isNotNull } from "drizzle-orm";
 import { db } from "@/db";
-import { accounts, accountMembers, categories, transactions, user, type Account } from "@/db/schema";
+import { accounts, accountMembers, assetValuations, categories, transactions, user, type Account } from "@/db/schema";
 
 /**
  * Shared-account access. Ownership lives on accounts.user_id; everything else
@@ -65,6 +65,19 @@ export function writableTransactions(userId: string) {
   return or(
     eq(transactions.userId, userId),
     inArray(transactions.accountId, writableMemberAccountIds(userId)),
+  )!;
+}
+
+/**
+ * WHERE fragment for asset_valuations: rows `userId` may read. Like
+ * transactions, a shared account's valuations carry the OWNER's user_id, so
+ * membership is the second branch. Names user_id on one side, so the tenant
+ * guard passes honestly.
+ */
+export function visibleValuations(userId: string) {
+  return or(
+    eq(assetValuations.userId, userId),
+    inArray(assetValuations.accountId, memberAccountIds(userId)),
   )!;
 }
 

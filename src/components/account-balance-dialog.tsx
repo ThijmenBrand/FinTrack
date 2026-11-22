@@ -45,6 +45,7 @@ const TYPE_KEYS: Record<string, MessageKey> = {
   savings: "accounts.type.savings",
   joint: "accounts.type.joint",
   credit: "accounts.type.credit",
+  investment: "accounts.type.investment",
   other: "accounts.type.other",
 };
 
