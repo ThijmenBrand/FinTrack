@@ -40,6 +40,7 @@ import {
 import { useAccounts } from "@/hooks/use-accounts";
 import { useAccountCategories, useCategories } from "@/hooks/use-categories";
 import { usePots, useDeletePot, useAddToPot, useRemoveFromPot, useCreatePot } from "@/hooks/use-pots";
+import { useVisibleTags } from "@/hooks/use-tags";
 import { useTransactions, useDeleteTransaction, useDetectTransfers, useDeleteReimbursement, useBulkCategorizeTransactions, useBulkDeleteTransactions, useUnsplitTransaction } from "@/hooks/use-transactions";
 import { usePreferences } from "@/hooks/use-preferences";
 import { useBudgetScope } from "@/hooks/use-budget-scope";
@@ -90,6 +91,9 @@ function TransactionsPage() {
   const { categories, categoriesFor, ownsAccount } = useAccountCategories();
   const { data: ownCategories = [] } = useCategories();
   const { data: pots = [] } = usePots();
+  // Names for the `tag:` filter chips and suggestions. Spans accounts, like
+  // the category list above it — a filter only needs names to match on.
+  const { data: visibleTags = [] } = useVisibleTags();
   const { data: preferences } = usePreferences();
   // Simple mode: the totals, then the list — name, date, category, amount,
   // with one dropdown each for period, category and type. No query syntax, no
@@ -153,6 +157,7 @@ function TransactionsPage() {
     accountFilter !== "all" && !accountFilter.includes(",") ? accountFilter : undefined;
   const [potFilter, setPotFilter] = useState(searchParams.get("pot") || "all");
   const [categoryFilters, setCategoryFilters] = useState<string[]>(() => searchParams.getAll("category"));
+  const [tagFilters, setTagFilters] = useState<string[]>(() => searchParams.getAll("tag"));
   const [excludeCategories, setExcludeCategories] = useState<string[]>(() => searchParams.getAll("excludeCategory"));
   const [excludeTypes, setExcludeTypes] = useState<string[]>(() => searchParams.getAll("excludeType"));
   const [typeFilters, setTypeFilters] = useState<string[]>(() => searchParams.getAll("type"));
@@ -192,6 +197,7 @@ function TransactionsPage() {
     accountFilter !== "all" ||
     potFilter !== "all" ||
     categoryFilters.length > 0 ||
+    tagFilters.length > 0 ||
     typeFilters.length > 0 ||
     periodFilter !== "all" ||
     !!dateFromOverride ||
@@ -207,6 +213,7 @@ function TransactionsPage() {
     if (accountFilter !== "all") params.set("account", accountFilter);
     if (potFilter !== "all") params.set("pot", potFilter);
     categoryFilters.forEach((id) => params.append("category", id));
+    tagFilters.forEach((id) => params.append("tag", id));
     typeFilters.forEach((t) => params.append("type", t));
     if (periodFilter !== "all") params.set("period", periodFilter);
     if (dateFromOverride) params.set("dateFrom", dateFromOverride);
@@ -218,7 +225,7 @@ function TransactionsPage() {
     const qs = params.toString();
     const newUrl = qs ? `/transactions?${qs}` : "/transactions";
     router.replace(newUrl, { scroll: false });
-  }, [search, accountFilter, potFilter, categoryFilters, typeFilters, periodFilter, dateFromOverride, dateToOverride, excludeCategories, excludeTypes, sortBy, sortOrder, router]);
+  }, [search, accountFilter, potFilter, categoryFilters, tagFilters, typeFilters, periodFilter, dateFromOverride, dateToOverride, excludeCategories, excludeTypes, sortBy, sortOrder, router]);
 
   // The "hide internal transfers" preference excludes that type from the query
   // without showing up as a removable filter chip. Asking for transfers
@@ -255,6 +262,7 @@ function TransactionsPage() {
     accountId: accountFilter !== "all" ? accountFilter : undefined,
     groupId: potFilter !== "all" ? potFilter : undefined,
     categoryIds: categoryFilters.length ? categoryFilters : undefined,
+    tagIds: tagFilters.length ? tagFilters : undefined,
     excludeCategoryIds: excludeCategories.length ? excludeCategories : undefined,
     excludeTypes: queryExcludeTypes.length ? queryExcludeTypes : undefined,
     types: typeFilters.length ? typeFilters : undefined,
@@ -305,6 +313,7 @@ function TransactionsPage() {
       });
     else if (key === "pot") setPotFilter(value);
     else if (key === "category") setCategoryFilters((prev) => (prev.includes(value) ? prev : [...prev, value]));
+    else if (key === "tag") setTagFilters((prev) => (prev.includes(value) ? prev : [...prev, value]));
     else if (key === "type") setTypeFilters((prev) => (prev.includes(value) ? prev : [...prev, value]));
     else if (key === "period") {
       setPeriodFilter(value);
@@ -323,6 +332,7 @@ function TransactionsPage() {
       });
     else if (key === "pot") setPotFilter("all");
     else if (key === "category") setCategoryFilters((prev) => prev.filter((v) => v !== value));
+    else if (key === "tag") setTagFilters((prev) => prev.filter((v) => v !== value));
     else if (key === "type") setTypeFilters((prev) => prev.filter((v) => v !== value));
     else if (key === "period") {
       setPeriodFilter("all");
@@ -349,6 +359,7 @@ function TransactionsPage() {
     setAccountFilter("all");
     setPotFilter("all");
     setCategoryFilters([]);
+    setTagFilters([]);
     setTypeFilters([]);
     setPeriodFilter("all");
     setDateFromOverride("");
@@ -790,6 +801,7 @@ function TransactionsPage() {
         search={search}
         accountFilter={accountFilter}
         categoryFilters={categoryFilters}
+        tagFilters={tagFilters}
         typeFilters={typeFilters}
         potFilter={potFilter}
         periodFilter={periodFilter}
@@ -799,6 +811,7 @@ function TransactionsPage() {
         excludeTypes={excludeTypes}
         accounts={accounts}
         categories={categories}
+        tags={visibleTags}
         pots={pots}
         distinctTypes={distinctTypes}
         onApply={applyFilter}

@@ -5,6 +5,7 @@ import { importBatches, transactions, accounts } from "@/db/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { requireAccountAccess } from "@/lib/account-access";
+import { clearImportBatchTags, clearTransactionTags } from "@/lib/tags-db";
 
 /**
  * GET /api/import-batches
@@ -94,7 +95,8 @@ export async function DELETE(request: NextRequest) {
         if (!linkedTx) continue;
 
         if (linkedTx.isManual) {
-          // Auto-created mirror — delete it
+          // Auto-created mirror — delete it, and the tags someone put on it
+          await clearTransactionTags(tx, [linkedTx.id], [linkedTx.userId]);
           await tx
             .delete(transactions)
             .where(and(eq(transactions.id, linkedTx.id), eq(transactions.userId, linkedTx.userId)));
@@ -110,6 +112,11 @@ export async function DELETE(request: NextRequest) {
             .where(and(eq(transactions.id, linkedTx.id), eq(transactions.userId, linkedTx.userId)));
         }
       }
+
+      // Tag links first: without `foreign_keys=ON` the cascade may not fire,
+      // and a link to a transaction that no longer exists would keep counting
+      // towards its tag's usage on the settings page.
+      await clearImportBatchTags(tx, batchId, ownerId);
 
       // Delete all transactions in this batch
       await tx

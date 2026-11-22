@@ -24,6 +24,8 @@ export interface TestDb {
 
 const TABLES = [
   "notifications",
+  "transaction_tags",
+  "tags",
   "notification_preferences",
   "push_subscriptions",
   "step_up_challenges",
@@ -404,6 +406,7 @@ export async function setupTestDb(name: string): Promise<TestDb> {
   for (const stmt of migrationDdl("notifications")) await client.execute(stmt);
   for (const stmt of migrationDdl("pot_budgets")) await client.execute(stmt);
   for (const stmt of migrationDdl("pot_categories")) await client.execute(stmt);
+  for (const stmt of migrationDdl("transaction_tags")) await client.execute(stmt);
 
   return {
     client,

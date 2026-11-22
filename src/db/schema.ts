@@ -885,6 +885,59 @@ export const transactionAttachments = sqliteTable("transaction_attachments", {
   index("idx_attachments_user_unclaimed").on(table.userId, table.transactionId),
 ]);
 
+// ─── Tags ───────────────────────────────────────────────────────────────────
+// Free-form labels a transaction can carry any number of, alongside its one
+// category. A category answers "which budget line"; a tag answers anything
+// else the user wants to slice on later — "holiday 2026", "deductible",
+// "shared with Anna" — without disturbing a single budget figure. Nothing
+// sums on a tag; it exists to be filtered by.
+//
+// Owned like categories: the row lives in the ACCOUNT OWNER's space, so a
+// shared account's rows all draw from one tag vocabulary and a member's own
+// tag ids are refused on them (see POST /api/transactions/[id]/tags).
+export const tags = sqliteTable("tags", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  // One "Holiday" per user: the picker creates on the fly from typed text, so
+  // without this every near-miss spelling would become its own tag.
+  uniqueIndex("idx_tags_user_name").on(table.userId, table.name),
+]);
+
+// Junction: which tags a transaction carries. `userId` is the row owner's,
+// matching transactions.user_id, so the tenant guard has a column to check.
+//
+// As everywhere else in this schema, the migration's `ON DELETE cascade` is a
+// backstop rather than the mechanism — hosted libsql doesn't guarantee
+// `foreign_keys=ON`. Rows are removed explicitly by the paths that delete a
+// transaction or its split children (see clearTransactionTags).
+export const transactionTags = sqliteTable("transaction_tags", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  transactionId: text("transaction_id")
+    .notNull()
+    .references(() => transactions.id, { onDelete: "cascade" }),
+  tagId: text("tag_id")
+    .notNull()
+    .references(() => tags.id, { onDelete: "cascade" }),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  // Tagging the same row twice is a no-op, not a second badge.
+  uniqueIndex("idx_transaction_tags_transaction_tag").on(table.transactionId, table.tagId),
+  // The filter's direction of travel: tag → the rows carrying it.
+  index("idx_transaction_tags_tag").on(table.userId, table.tagId),
+]);
+
 // ─── Split Rules ────────────────────────────────────────────────────────────
 // Auto-split rules (e.g. "Hypotheek" -> 30% aflossing / 70% rente), matched
 // like category rules. Lines live in split_rule_lines; `mode` decides whether

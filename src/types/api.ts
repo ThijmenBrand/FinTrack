@@ -196,6 +196,20 @@ export interface Transaction {
   isSplitParent: boolean;
   /** A split parent's children, joined the same as top-level rows. Absent/undefined on non-parents. */
   splits?: Transaction[];
+  /** Free-form labels on the row, alphabetical. Always present, often empty. */
+  tags: TransactionTag[];
+}
+
+/** A tag as it rides along on a transaction — just enough to render a badge. */
+export interface TransactionTag {
+  id: string;
+  name: string;
+}
+
+/** A tag in the user's vocabulary, with how many rows carry it. */
+export interface Tag extends TransactionTag {
+  /** Rows carrying this tag. 0 on a tag belonging to a sharing owner. */
+  transactionCount: number;
 }
 
 export interface TransactionAttachment {

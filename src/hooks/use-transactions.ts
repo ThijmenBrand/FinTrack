@@ -19,6 +19,7 @@ interface TransactionFilters {
   accountId?: string;
   groupId?: string;
   categoryIds?: string[];
+  tagIds?: string[];
   excludeCategoryIds?: string[];
   excludeTypes?: string[];
   types?: string[];
@@ -45,6 +46,7 @@ export function useTransactions(filters: TransactionFilters) {
   if (filters.accountId) params.set("accountId", filters.accountId);
   if (filters.groupId) params.set("groupId", filters.groupId);
   filters.categoryIds?.forEach((id) => params.append("categoryId", id));
+  filters.tagIds?.forEach((id) => params.append("tagId", id));
   filters.excludeCategoryIds?.forEach((id) => params.append("excludeCategory", id));
   filters.excludeTypes?.forEach((t) => params.append("excludeType", t));
   filters.types?.forEach((t) => params.append("type", t));

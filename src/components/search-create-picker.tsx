@@ -55,6 +55,12 @@ interface SearchCreatePickerProps<T extends PickerItem> {
   /** Currently selected id, if any — drives the check/highlight. */
   value: string | null;
   onSelect: (id: string) => void;
+  /**
+   * Multi-select: every id in here is ticked, `onSelect` toggles rather than
+   * replaces, and the popover stays open so several can be picked in one go.
+   * Leave it off for the single-answer case `value` covers.
+   */
+  selectedIds?: string[];
   /** Omit to drop the create-on-the-fly row. Gives the new item's id, either
    *  straight away (optimistic create) or once the request resolves. */
   onCreate?: (name: string) => string | null | Promise<string | null>;
@@ -102,6 +108,7 @@ export function SearchCreatePicker<T extends PickerItem>({
   items,
   value,
   onSelect,
+  selectedIds,
   onCreate,
   creating = false,
   extraCreates,
@@ -143,8 +150,22 @@ export function SearchCreatePicker<T extends PickerItem>({
     // so a nested "Fuel" under Transport must not hide "Create category Fuel".
     !items.some((item) => !item.group && item.name.toLowerCase() === q);
 
+  const multi = !!selectedIds;
+  const isSelected = (id: string) => (selectedIds ? selectedIds.includes(id) : id === value);
+
   const close = () => {
     setOpen(false);
+    setQuery("");
+    setActive(null);
+  };
+
+  /** What a pick does: close on a single answer, stay open for another one
+   *  while multi-selecting — the point there is to pick several. */
+  const afterPick = () => {
+    if (!multi) {
+      close();
+      return;
+    }
     setQuery("");
     setActive(null);
   };
@@ -157,7 +178,7 @@ export function SearchCreatePicker<T extends PickerItem>({
     const created = await onCreate(name);
     if (created) {
       onSelect(created);
-      close();
+      afterPick();
     }
   };
 
@@ -208,10 +229,10 @@ export function SearchCreatePicker<T extends PickerItem>({
       // 28px icon and the row's gap.
       indent: item.depth ? (inline ? 12 + item.depth * 40 : 8 + item.depth * 14) : undefined,
       section: item.section,
-      selected: item.id === value,
+      selected: isSelected(item.id),
       onSelect: () => {
         onSelect(item.id);
-        close();
+        afterPick();
       },
     })),
     ...(canCreate
@@ -310,6 +331,7 @@ export function SearchCreatePicker<T extends PickerItem>({
     <div
       id={listId}
       role="listbox"
+      aria-multiselectable={multi || undefined}
       className={cn("mt-1 overflow-y-auto overscroll-contain", inline ? "max-h-[50dvh]" : "max-h-64")}
     >
       {bands.map((band, b) => (
@@ -370,7 +392,7 @@ export function SearchCreatePicker<T extends PickerItem>({
                 )}
               >
                 {option.label}
-                {inline && option.selected && (
+                {(inline || multi) && option.selected && (
                   <Check className="ml-auto h-4 w-4 shrink-0 text-primary" aria-hidden />
                 )}
               </button>
