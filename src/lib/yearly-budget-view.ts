@@ -102,9 +102,9 @@ export async function getYearlyBudgetView(
   freeze: boolean = true,
 ): Promise<YearlyBudgetView> {
   // Every read this view needs, in ONE round trip. They were three levels of
-  // nested `Promise.all` — the ledger waiting on the year's spend, the spend
-  // waiting on nothing at all — which against a remote database is three waves
-  // of latency for seven answers that are independent of each other.
+  // nested `Promise.all`, which is not three waves of waiting — the leaves all
+  // fire at once — but it is seven HTTP requests to a remote database for
+  // seven answers that depend on nothing, where one will do.
   const [
     allocations,
     frozenRows,

@@ -249,9 +249,9 @@ export async function buildLedgerYear(
   now: Date = new Date(),
   freeze: boolean = true,
 ): Promise<CategoryLedger[]> {
-  // Four reads, one round trip. They were three nested `Promise.all`s, which
-  // against a remote database is three waves of waiting for answers that never
-  // depended on each other.
+  // Four reads, one round trip rather than four requests. `getYearlyBudgetView`
+  // folds these into a batch of its own; this is the path for callers that want
+  // the ledger on its own.
   const [allocations, frozenRows, txSpend, potSpend] = await db.batch([
     ledgerAllocationsQuery(userId, plan.id),
     frozenTargetsQuery(userId, plan.id, year),

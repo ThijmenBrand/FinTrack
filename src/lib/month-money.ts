@@ -59,28 +59,31 @@ function visiblePots(userId: string) {
 }
 
 /**
- * Income and pot spend for the running month, scoped to a set of accounts.
+ * The account scope as one string, because `cache` matches arguments by
+ * identity and each caller builds its own array.
  *
- * Two cards on the dashboard want the very same two numbers — the period
- * tiles ask {@link getMonthSummary}, Free to Spend asks
- * {@link getMonthMoneyMath} — and they were each asking the database. The
- * answers are read once per render pass and shared.
- *
- * `scopeKey` carries the account ids as one string because `cache` matches
- * arguments by identity and each caller builds its own array; a caller with a
- * genuinely different scope gets a different key, and its own answer.
+ * `null` — and only `null` — means "every account". An empty list means that
+ * too, matching what the callers did before; but a list of real ids always
+ * produces a non-null key, so a scope can never widen itself by accident.
  */
-function scopeKeyOf(accountIds: string[] | undefined): string {
-  return (accountIds ?? []).join(",");
+function scopeKeyOf(accountIds: string[] | undefined): string | null {
+  return accountIds && accountIds.length > 0 ? accountIds.join(",") : null;
 }
 
-function scopeFilterOf(scopeKey: string) {
-  return scopeKey
-    ? inArray(transactions.accountId, scopeKey.split(","))
-    : sql`1=1`;
+function scopeFilterOf(scopeKey: string | null) {
+  return scopeKey === null
+    ? sql`1=1`
+    : inArray(transactions.accountId, scopeKey.split(","));
 }
 
-/** Money that arrived this month, outside any pot. */
+/**
+ * Money that arrived this month, outside any pot.
+ *
+ * Two dashboard cards want this exact number — the period tiles through
+ * {@link getMonthSummary}, Free to Spend through {@link getMonthMoneyMath} —
+ * and they were each asking the database for it. Read once per render pass
+ * and shared; a card with a genuinely different scope still gets its own.
+ */
 export function monthIncomeTotal(
   userId: string,
   from: string,
@@ -91,7 +94,7 @@ export function monthIncomeTotal(
 }
 
 const loadMonthIncomeTotal = cache(
-  async (userId: string, from: string, to: string, scopeKey: string): Promise<number> => {
+  async (userId: string, from: string, to: string, scopeKey: string | null): Promise<number> => {
     const rows = await db
       .select({ total: sql<number>`sum(${transactions.amount})` })
       .from(transactions)
@@ -115,6 +118,7 @@ const loadMonthIncomeTotal = cache(
 /**
  * What the pots spent this month, netted PER POT and floored at zero, then
  * added up — so a deposit into one pot can't cancel another's spending.
+ * Shared between the same two cards as {@link monthIncomeTotal}.
  */
 export function monthPotSpendTotal(
   userId: string,
@@ -126,7 +130,7 @@ export function monthPotSpendTotal(
 }
 
 const loadMonthPotSpendTotal = cache(
-  async (userId: string, from: string, to: string, scopeKey: string): Promise<number> => {
+  async (userId: string, from: string, to: string, scopeKey: string | null): Promise<number> => {
     const rows = await db
       .select({ spent: sql<number>`${potSpentAmount()}` })
       .from(transactionGroups)
