@@ -600,6 +600,11 @@ export const userPreferences = sqliteTable("user_preferences", {
   // this user (via account_members), so it can't be a flag on the plan row —
   // the is_main unique index belongs to the plan's owner. Null = own main plan.
   mainBudgetPlanId: text("main_budget_plan_id").references(() => budgetPlans.id, { onDelete: "set null" }),
+  // "All budgets": the explicit cross-budget scope, which no plan id can
+  // express — main_budget_plan_id's null already means "fall back to my own
+  // is_main plan", so it can't double as "no budget at all". When true it
+  // wins over main_budget_plan_id.
+  budgetScopeAll: integer("budget_scope_all", { mode: "boolean" }).notNull().default(false),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),

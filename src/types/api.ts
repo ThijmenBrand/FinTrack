@@ -849,8 +849,10 @@ export interface UserPreferencesData {
   locale: Locale;
   /** Simple mode: hide advanced features on dashboard, budgets and insights. */
   simpleMode: boolean;
-  /** A shared plan chosen as the dashboard budget; null = the user's own main plan. */
+  /** The budget the app is scoped to; null = the user's own main plan. */
   mainBudgetPlanId: string | null;
+  /** "All budgets": cross-budget scope. Wins over mainBudgetPlanId when true. */
+  budgetScopeAll: boolean;
 }
 
 /** A dated line in the sand after which averages start counting again. */

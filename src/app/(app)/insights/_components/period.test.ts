@@ -1,6 +1,11 @@
 import { getI18nFor } from "@/lib/i18n/translate";
 import { describe, expect, it } from "vitest";
-import { daysLeftIn, elapsedDays, formatRangeLabel } from "./period";
+import {
+  daysLeftIn,
+  elapsedDays,
+  formatRangeLabel,
+  isCalendarDate,
+} from "./period";
 
 const NOW = new Date("2026-08-05T12:00:00");
 
@@ -43,5 +48,32 @@ describe("formatRangeLabel", () => {
     expect(formatRangeLabel(getI18nFor("en"), "2026-07-07", "2026-08-06")).toBe(
       "7 Jul – 6 Aug 2026",
     );
+  });
+});
+
+describe("isCalendarDate", () => {
+  it("accepts a real date", () => {
+    expect(isCalendarDate("2026-11-22")).toBe(true);
+    expect(isCalendarDate("2024-02-29")).toBe(true); // leap year
+  });
+
+  it("rejects anything that is not YYYY-MM-DD", () => {
+    for (const value of ["", "invalid", "2026-11", "22-11-2026", "2026/11/22", "2026-11-22T00:00"]) {
+      expect(isCalendarDate(value)).toBe(false);
+    }
+  });
+
+  it("rejects a date that does not exist", () => {
+    // Date rolls these forward instead of failing, which is how they used to
+    // slip through.
+    expect(isCalendarDate("2026-02-31")).toBe(false);
+    expect(isCalendarDate("2026-13-01")).toBe(false);
+    expect(isCalendarDate("2025-02-29")).toBe(false);
+  });
+
+  it("guards the input that would crash formatRangeLabel", () => {
+    const i18n = getI18nFor("en");
+    expect(() => formatRangeLabel(i18n, "2026-10-01", "invalid")).toThrow(RangeError);
+    expect(isCalendarDate("invalid")).toBe(false);
   });
 });

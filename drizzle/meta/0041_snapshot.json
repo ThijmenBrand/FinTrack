@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "31b54fd2-a399-44e5-ab21-31bad8052281",
+  "id": "31cf1f77-e2db-4484-8d97-8e9f252fbe6e",
   "prevId": "fb561e06-c773-4ede-8312-3f20f542af87",
   "tables": {
     "account": {
@@ -333,20 +333,6 @@
           "notNull": true,
           "autoincrement": false,
           "default": 0
-        },
-        "current_value": {
-          "name": "current_value",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "valued_at": {
-          "name": "valued_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
         },
         "internal_transfers": {
           "name": "internal_transfers",
@@ -4928,6 +4914,14 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "budget_scope_all": {
+          "name": "budget_scope_all",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
         },
         "created_at": {
           "name": "created_at",

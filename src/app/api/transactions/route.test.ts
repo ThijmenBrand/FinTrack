@@ -981,3 +981,66 @@ describe("recurring plans as sub-categories", () => {
     expect(wrong.status).toBe(400);
   });
 });
+
+describe("GET /api/transactions — account set", () => {
+  // Insights and the dashboard link here scoped to a whole budget, which is a
+  // SET of accounts: `accountId` carries them comma-separated. Getting this
+  // wrong widens the list past the budget whose numbers were clicked.
+  beforeEach(async () => {
+    const now = new Date().toISOString();
+    // An account of another user's that OWNER is not a member of — naming it
+    // must not leak its rows, alone or alongside accounts they can read.
+    await testDb.client.execute({
+      sql: `INSERT INTO accounts (id, user_id, name, type, currency, initial_balance, sort_order, created_at, updated_at)
+            VALUES ('acc-outside', ?, 'Theirs', 'checking', 'EUR', 0, 2, ?, ?)`,
+      args: [VIEWER, now, now],
+    });
+    await testDb.client.execute({
+      sql: `INSERT INTO transactions (id, user_id, account_id, date, description, amount, type, created_at)
+            VALUES ('tx-priv', ?, 'acc-private', '2026-08-01', 'Private spend', -10, 'expense', ?),
+                   ('tx-joint', ?, 'acc-shared', '2026-08-02', 'Joint spend', -20, 'expense', ?),
+                   ('tx-out', ?, 'acc-outside', '2026-08-03', 'Their spend', -40, 'expense', ?)`,
+      args: [OWNER, now, OWNER, now, VIEWER, now],
+    });
+  });
+
+  const idsOf = async (query: string) => {
+    const body = await (await get(query)).json();
+    return (body.data as { id: string }[]).map((r) => r.id).sort();
+  };
+
+  it("returns rows from every account in a comma-separated set", async () => {
+    expect(await idsOf("accountId=acc-private,acc-shared")).toEqual([
+      "tx-joint",
+      "tx-priv",
+    ]);
+  });
+
+  it("totals only the accounts in the set", async () => {
+    const body = await (await get("accountId=acc-private,acc-shared")).json();
+    expect(body.pagination.total).toBe(2);
+    expect(body.totals.expense).toBeCloseTo(-30, 2);
+  });
+
+  it("still narrows to one account when the set has a single id", async () => {
+    expect(await idsOf("accountId=acc-private")).toEqual(["tx-priv"]);
+  });
+
+  it("leaves the list unscoped when no accountId is given", async () => {
+    expect(await idsOf("")).toEqual(["tx-joint", "tx-priv"]);
+  });
+
+  it("ignores empty entries rather than scoping to nothing", async () => {
+    expect(await idsOf("accountId=,acc-private,")).toEqual(["tx-priv"]);
+  });
+
+  it("drops an inaccessible account from the set instead of leaking its rows", async () => {
+    expect(await idsOf("accountId=acc-private,acc-outside")).toEqual(["tx-priv"]);
+  });
+
+  it("returns nothing when the set names only inaccessible accounts", async () => {
+    const body = await (await get("accountId=acc-outside")).json();
+    expect(body.data).toHaveLength(0);
+    expect(body.pagination.total).toBe(0);
+  });
+});

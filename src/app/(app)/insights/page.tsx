@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Input } from "@/components/ui/input";
@@ -12,14 +12,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Calendar, Loader2, Star } from "lucide-react";
+import { ArrowLeftRight, Calendar, Loader2, Star } from "lucide-react";
 import {
   useInsights,
   useBalanceTimeline,
   useMoneyFlow,
 } from "@/hooks/use-insights";
 import { useBudgets } from "@/hooks/use-budgets";
-import { useBudgetPlans } from "@/hooks/use-budget-plans";
+import { ALL_BUDGETS, useBudgetScope } from "@/hooks/use-budget-scope";
 import { usePreferences } from "@/hooks/use-preferences";
 import { useStatResets } from "@/hooks/use-stat-resets";
 import { useI18n } from "@/lib/i18n/client";
@@ -36,10 +36,16 @@ import { SignalCards } from "./_components/signal-cards";
 import { TopSpending } from "./_components/top-spending";
 import { CategoryBreakdownCard } from "./_components/category-breakdown-card";
 import { MoneyFlow } from "./_components/money-flow";
-import { daysLeftIn, elapsedDays, formatRangeLabel } from "./_components/period";
+import {
+  daysLeftIn,
+  elapsedDays,
+  formatRangeLabel,
+  isCalendarDate,
+} from "./_components/period";
 import { BudgetVsActual } from "./_components/budget-vs-actual";
 import { BudgetComparisonStrip } from "./_components/budget-comparison-strip";
 import { SimpleStory } from "./_components/simple-story";
+import { PeriodCompare } from "./_components/period-compare";
 import { toIsoDate } from "@/lib/utils";
 
 type PresetKey = "this_month" | "last_month" | "this_year" | "last_3_months" | "all" | "custom";
@@ -172,6 +178,50 @@ const PREV_LABEL_KEYS: Record<PresetKey, MessageKey | null> = {
   all: null,
 };
 
+// ── Period comparison ──────────────────────────────────────────────────────
+// The second period is picked from the same presets as the first, plus
+// "previous" — the range that already backs the vs-previous deltas, and the
+// one you want nine times out of ten.
+type ComparePresetKey = "previous" | Exclude<PresetKey, "all">;
+
+const COMPARE_OPTIONS: { key: ComparePresetKey; labelKey: MessageKey }[] = [
+  { key: "previous", labelKey: "insights.periodCompare.previousLabel" },
+  { key: "this_month", labelKey: "insights.range.thisMonth" },
+  { key: "last_month", labelKey: "insights.range.lastMonth" },
+  { key: "last_3_months", labelKey: "insights.range.last3Months" },
+  { key: "this_year", labelKey: "insights.range.thisYear" },
+  { key: "custom", labelKey: "insights.range.custom" },
+];
+
+const VALID_COMPARE_PRESETS = new Set<ComparePresetKey>(
+  COMPARE_OPTIONS.map((o) => o.key),
+);
+
+function parseComparePreset(value: string | null): ComparePresetKey {
+  return value && VALID_COMPARE_PRESETS.has(value as ComparePresetKey)
+    ? (value as ComparePresetKey)
+    : "previous";
+}
+
+/** The comparison period's dates, or null when it isn't pinned down yet. */
+function resolveCompareRange(
+  compare: ComparePresetKey,
+  preset: PresetKey,
+  startDay: number,
+  dateFrom: string,
+  dateTo: string,
+  customFrom: string,
+  customTo: string,
+): { from: string; to: string } | null {
+  if (compare === "previous")
+    return getPreviousRange(preset, startDay, dateFrom, dateTo);
+  if (compare === "custom")
+    return isCalendarDate(customFrom) && isCalendarDate(customTo)
+      ? { from: customFrom, to: customTo }
+      : null;
+  return getPresetRange(compare, startDay);
+}
+
 const VALID_PRESETS = new Set<PresetKey>([
   "this_month",
   "last_month",
@@ -180,6 +230,15 @@ const VALID_PRESETS = new Set<PresetKey>([
   "all",
   "custom",
 ]);
+
+/**
+ * A date from the query string, or "" when it isn't one. Everything downstream
+ * — the range label, the API call — assumes a real date, and `?dateTo=invalid`
+ * would otherwise crash the render inside Intl.
+ */
+function parseDateParam(value: string | null): string {
+  return value && isCalendarDate(value) ? value : "";
+}
 
 function parsePreset(value: string | null): PresetKey {
   return value && VALID_PRESETS.has(value as PresetKey) ? (value as PresetKey) : "this_month";
@@ -221,15 +280,9 @@ function LoadingMessages() {
   );
 }
 
-// Saved budget-tab selection (per device): "overall" or a plan id. Replaces
-// the pre-plans account selection.
-const BUDGET_STORAGE_KEY = "insights-budget-selection-v1";
-const OVERALL = "overall";
-
-function loadSavedBudgetSelection(): string | null {
-  if (typeof window === "undefined") return null;
-  return window.localStorage.getItem(BUDGET_STORAGE_KEY);
-}
+// The budget tabs are a second surface onto the app-wide scope, not a
+// selection of their own — picking one here moves the sidebar selector too.
+// Replaces the per-device localStorage selection this page used to keep.
 
 export default function InsightsPage() {
   const i18n: I18n = useI18n();
@@ -245,39 +298,50 @@ export default function InsightsPage() {
   const simple = prefs?.simpleMode ?? false;
 
   const [preset, setPreset] = useState<PresetKey>(() => parsePreset(searchParams.get("preset")));
-  const [customDateFrom, setCustomDateFrom] = useState<string>(
-    () => searchParams.get("dateFrom") || "",
+  const [customDateFrom, setCustomDateFrom] = useState<string>(() =>
+    parseDateParam(searchParams.get("dateFrom")),
   );
-  const [customDateTo, setCustomDateTo] = useState<string>(
-    () => searchParams.get("dateTo") || "",
+  const [customDateTo, setCustomDateTo] = useState<string>(() =>
+    parseDateParam(searchParams.get("dateTo")),
   );
-  // Which view: "overall" or a budget plan id. Init precedence: URL > saved
-  // selection > main plan (applied once plans load).
-  const [selectedBudget, setSelectedBudget] = useState<string | null>(() => {
-    return searchParams.get("budget") ?? loadSavedBudgetSelection();
-  });
+  // Comparison mode: two periods of one budget, side by side. Which budget is
+  // the app-wide scope's business, not this view's — so the two columns differ
+  // by time alone. All Time has no second period to name, so it can't be the
+  // first one.
+  const [compareOn, setCompareOn] = useState<boolean>(
+    () => searchParams.get("compare") === "1",
+  );
+  const [comparePreset, setComparePreset] = useState<ComparePresetKey>(() =>
+    parseComparePreset(searchParams.get("comparePreset")),
+  );
+  const [compareDateFrom, setCompareDateFrom] = useState<string>(() =>
+    parseDateParam(searchParams.get("compareFrom")),
+  );
+  const [compareDateTo, setCompareDateTo] = useState<string>(() =>
+    parseDateParam(searchParams.get("compareTo")),
+  );
+  // Which view: "all budgets" or one plan — the app-wide scope, which already
+  // resolves a stale or deleted plan id back to the main budget.
+  const {
+    plans,
+    value: selectedBudget,
+    plan: selectedPlan,
+    setValue: setSelectedBudget,
+    isLoading: scopeLoading,
+  } = useBudgetScope();
 
-  const { data: plansData } = useBudgetPlans();
-  // Memoised: a fresh [] each render would re-run every effect below it.
-  const plans = useMemo(() => plansData?.plans ?? [], [plansData]);
-
-  // Default to the main budget on first load when nothing pinned a view, and
-  // recover to it when a saved/linked plan id no longer exists (deleted plan).
+  // ?budget= links in from an account dialog. Like /budgets?plan=, "show me
+  // this budget's insights" moves the app-wide scope instead of diverging
+  // from it. Applied once; the URL sync below drops the param afterwards.
+  const linkedBudgetId = searchParams.get("budget");
+  const linkHandledRef = useRef(false);
   useEffect(() => {
-    if (!plansData) return;
-    const known =
-      selectedBudget === OVERALL ||
-      (selectedBudget !== null && plans.some((p) => p.id === selectedBudget));
-    if (known) return;
-    const main = plans.find((p) => p.isMain) ?? plans[0];
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- One-shot sync from async-loaded plans; user must still be able to override afterwards.
-    setSelectedBudget(main ? main.id : OVERALL);
-  }, [plansData, plans, selectedBudget]);
-
-  const selectedPlan =
-    selectedBudget !== null && selectedBudget !== OVERALL
-      ? plans.find((p) => p.id === selectedBudget) ?? null
-      : null;
+    if (!linkedBudgetId || linkHandledRef.current || scopeLoading) return;
+    linkHandledRef.current = true;
+    if (linkedBudgetId === ALL_BUDGETS || plans.some((p) => p.id === linkedBudgetId)) {
+      setSelectedBudget(linkedBudgetId);
+    }
+  }, [linkedBudgetId, scopeLoading, plans, setSelectedBudget]);
   // Simple mode keeps the switcher (a second budget is useless if you can't
   // reach it) but hides it when there's nothing to switch between.
   const showBudgetTabs = plans.length > 0 && (!simple || plans.length > 1);
@@ -296,22 +360,35 @@ export default function InsightsPage() {
   const dateFrom = computedRange ? computedRange.from : customDateFrom;
   const dateTo = computedRange ? computedRange.to : customDateTo;
 
-  // Sync filter state back into the URL so a back-nav restores the same view,
-  // and save the budget selection so the next visit starts from it.
+  // Sync the date filters back into the URL so a back-nav restores the same
+  // view. The budget is not among them: it lives in the app-wide scope.
   useEffect(() => {
     const params = new URLSearchParams();
     if (preset !== "this_month") params.set("preset", preset);
-    if (selectedBudget !== null) params.set("budget", selectedBudget);
     if (preset === "custom") {
       if (customDateFrom) params.set("dateFrom", customDateFrom);
       if (customDateTo) params.set("dateTo", customDateTo);
     }
+    if (compareOn) {
+      params.set("compare", "1");
+      if (comparePreset !== "previous") params.set("comparePreset", comparePreset);
+      if (comparePreset === "custom") {
+        if (compareDateFrom) params.set("compareFrom", compareDateFrom);
+        if (compareDateTo) params.set("compareTo", compareDateTo);
+      }
+    }
     const qs = params.toString();
     router.replace(qs ? `/insights?${qs}` : "/insights", { scroll: false });
-    if (selectedBudget !== null) {
-      window.localStorage.setItem(BUDGET_STORAGE_KEY, selectedBudget);
-    }
-  }, [preset, selectedBudget, customDateFrom, customDateTo, router]);
+  }, [
+    preset,
+    customDateFrom,
+    customDateTo,
+    compareOn,
+    comparePreset,
+    compareDateFrom,
+    compareDateTo,
+    router,
+  ]);
 
   const accountIdParam =
     selectedAccountIds.length > 0 ? selectedAccountIds.join(",") : undefined;
@@ -331,6 +408,34 @@ export default function InsightsPage() {
     budgetId: selectedPlan?.id,
     prevDateFrom: prevRange?.from,
     prevDateTo: prevRange?.to,
+  });
+
+  // Comparison mode is off in simple mode (which has no second column to put
+  // it in) and over All Time (no second period to compare against — the
+  // toggle stays, disabled, so it doesn't vanish mid-session).
+  const canCompare = !simple && preset !== "all";
+  const compareRange = canCompare
+    ? resolveCompareRange(
+        comparePreset,
+        preset,
+        startDay,
+        dateFrom,
+        dateTo,
+        compareDateFrom,
+        compareDateTo,
+      )
+    : null;
+  const compareActive = canCompare && compareOn;
+  // Same range on both sides is a comparison with nothing in it — the view
+  // says so instead of drawing two identical columns.
+  const compareIsSelf =
+    compareRange !== null && sameRange(compareRange, { from: dateFrom, to: dateTo });
+  const { data: compareData, isLoading: compareLoading } = useInsights({
+    dateFrom: compareRange?.from,
+    dateTo: compareRange?.to,
+    accountId: accountIdParam,
+    budgetId: selectedPlan?.id,
+    enabled: compareActive && compareRange !== null && !compareIsSelf,
   });
   const [flowOpen, setFlowOpen] = useState(false);
   const { data: flowData, isLoading: flowLoading } = useMoneyFlow({
@@ -479,10 +584,12 @@ export default function InsightsPage() {
     for (const [k, v] of Object.entries(extra)) {
       if (v) params.set(k, v);
     }
-    // The transactions page only filters on a single account. A caller that
-    // named one (a money-flow leg belongs to one account) wins.
-    if (!params.has("account") && selectedAccountIds.length === 1)
-      params.set("account", selectedAccountIds[0]);
+    // Hand the transactions page the budget's WHOLE account set, so the list
+    // it lands on is scoped exactly like the numbers that were clicked. It
+    // reads `account` as a comma-separated list. A caller that named an
+    // account itself (a money-flow leg belongs to one account) wins.
+    if (!params.has("account") && accountIdParam)
+      params.set("account", accountIdParam);
     const mappedPeriod = PRESET_TO_TX_PERIOD[preset];
     // When a financial month is active, the transactions page's "this-month"/"last-month"
     // shortcut still means calendar months, so pass explicit dates instead.
@@ -503,6 +610,27 @@ export default function InsightsPage() {
     navigateToTransactions(categoryId ? { category: categoryId } : {});
   };
 
+  // A comparison row's amount opens that category over the period the amount
+  // belongs to — explicit dates, since only one of the two is the page range.
+  const navigateToComparedCategory = (
+    categoryId: string | null,
+    period: "a" | "b",
+  ) => {
+    const range =
+      period === "a" ? { from: dateFrom, to: dateTo } : compareRange;
+    if (!range) return;
+    navigateToTransactions({
+      ...(categoryId ? { category: categoryId } : {}),
+      dateFrom: range.from,
+      dateTo: range.to,
+    });
+  };
+
+  const presetLabel = (key: PresetKey) =>
+    t(PRESET_OPTIONS.find((o) => o.key === key)!.labelKey);
+  const comparePresetLabel = (key: ComparePresetKey) =>
+    t(COMPARE_OPTIONS.find((o) => o.key === key)!.labelKey);
+
   // A budget with no accounts has no spending to analyze — showing all-account
   // numbers under its tab would be a lie. Prompt instead.
   if (selectedPlan && selectedPlan.accounts.length === 0) {
@@ -516,9 +644,9 @@ export default function InsightsPage() {
             </p>
           </div>
           {showBudgetTabs && (
-            <Tabs value={selectedBudget ?? OVERALL} onValueChange={setSelectedBudget}>
+            <Tabs value={selectedBudget ?? ALL_BUDGETS} onValueChange={setSelectedBudget}>
               <TabsList>
-                <TabsTrigger value={OVERALL}>{t("insights.overall")}</TabsTrigger>
+                <TabsTrigger value={ALL_BUDGETS}>{t("insights.overall")}</TabsTrigger>
                 {plans.map((p) => (
                   <TabsTrigger key={p.id} value={p.id} className="gap-1.5">
                     {p.isMain && (
@@ -584,7 +712,7 @@ export default function InsightsPage() {
                   // The budget behind these numbers — follow it through to the
                   // plan itself rather than hunting for it on the budgets page.
                   <Link
-                    href={`/budgets?plan=${encodeURIComponent(selectedPlan.id)}`}
+                    href="/budgets"
                     className="text-primary hover:underline"
                   >
                     {t("insights.planBudget", { name: selectedPlan.name })}
@@ -602,12 +730,12 @@ export default function InsightsPage() {
         <div className="flex items-center gap-2 flex-wrap max-md:w-full max-md:flex-col max-md:items-stretch max-md:gap-3">
           {showBudgetTabs && (
             <Tabs
-              value={selectedBudget ?? OVERALL}
+              value={selectedBudget ?? ALL_BUDGETS}
               onValueChange={setSelectedBudget}
               className="max-md:w-full"
             >
               <TabsList className="scrollbar-hide max-md:flex max-md:w-full max-md:justify-start max-md:overflow-x-auto">
-                <TabsTrigger value={OVERALL} className="max-md:flex-1">
+                <TabsTrigger value={ALL_BUDGETS} className="max-md:flex-1">
                   {t("insights.overall")}
                 </TabsTrigger>
                 {plans.map((p) => (
@@ -680,6 +808,74 @@ export default function InsightsPage() {
               />
             </div>
           )}
+          {!simple && (
+            <button
+              type="button"
+              onClick={() => setCompareOn((on) => !on)}
+              aria-pressed={compareActive}
+              disabled={preset === "all"}
+              title={
+                preset === "all" ? t("insights.periodCompare.allTimeHint") : undefined
+              }
+              className={`inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md border px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 ${
+                compareActive
+                  ? "border-foreground bg-foreground text-background"
+                  : "bg-card text-foreground/80 hover:bg-muted active:bg-muted"
+              }`}
+            >
+              <ArrowLeftRight className="h-4 w-4" />
+              {t("insights.periodCompare.toggle")}
+            </button>
+          )}
+          {/* Second period: its own row, so the two pickers read as a pair
+              rather than a third filter. */}
+          {compareActive && (
+            <div className="flex w-full items-center gap-2 max-md:flex-col max-md:items-stretch">
+              <span className="shrink-0 text-sm text-muted-foreground">
+                {t("insights.periodCompare.versus")}
+              </span>
+              <Select
+                value={comparePreset}
+                onValueChange={(v) => setComparePreset(v as ComparePresetKey)}
+              >
+                <SelectTrigger className="w-auto min-w-[180px] max-md:w-full">
+                  <Calendar className="mr-2 h-4 w-4" />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {COMPARE_OPTIONS.map((o) => (
+                    <SelectItem key={o.key} value={o.key}>
+                      {t(o.labelKey)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {comparePreset === "custom" && (
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="date"
+                    aria-label={t("insights.periodCompare.fromLabel")}
+                    value={compareDateFrom}
+                    onChange={(e) => setCompareDateFrom(e.target.value)}
+                    className="w-[150px] max-md:w-auto max-md:min-w-0 max-md:flex-1"
+                  />
+                  <span className="text-muted-foreground">{t("insights.rangeTo")}</span>
+                  <Input
+                    type="date"
+                    aria-label={t("insights.periodCompare.toLabel")}
+                    value={compareDateTo}
+                    onChange={(e) => setCompareDateTo(e.target.value)}
+                    className="w-[150px] max-md:w-auto max-md:min-w-0 max-md:flex-1"
+                  />
+                </div>
+              )}
+              {compareRange && !compareIsSelf && (
+                <span className="truncate text-xs text-muted-foreground max-md:text-center">
+                  {formatRangeLabel(i18n, compareRange.from, compareRange.to)}
+                </span>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -701,6 +897,36 @@ export default function InsightsPage() {
             />
           }
         />
+      ) : compareActive ? (
+        !compareRange ? (
+          <p className="py-16 text-center text-sm text-muted-foreground">
+            {t("insights.periodCompare.pickPeriod")}
+          </p>
+        ) : compareIsSelf ? (
+          <p className="py-16 text-center text-sm text-muted-foreground">
+            {t("insights.periodCompare.samePeriod")}
+          </p>
+        ) : (
+          <PeriodCompare
+            a={{
+              label: presetLabel(preset),
+              rangeLabel: formatRangeLabel(i18n, dateFrom, dateTo),
+              from: dateFrom,
+              to: dateTo,
+            }}
+            b={{
+              label: comparePresetLabel(comparePreset),
+              rangeLabel: formatRangeLabel(i18n, compareRange.from, compareRange.to),
+              from: compareRange.from,
+              to: compareRange.to,
+            }}
+            aData={data}
+            bData={compareData}
+            bLoading={compareLoading}
+            scopeLabel={accountLabel}
+            onCategorySelect={navigateToComparedCategory}
+          />
+        )
       ) : (
         <>
           {/* Headline numbers */}

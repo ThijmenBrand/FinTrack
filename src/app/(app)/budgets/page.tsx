@@ -1,10 +1,10 @@
 "use client";
 
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
 import { useBudgets } from "@/hooks/use-budgets";
-import { useBudgetPlans } from "@/hooks/use-budget-plans";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useBudgetScope } from "@/hooks/use-budget-scope";
 import { useAccounts } from "@/hooks/use-accounts";
 import { useSessionUser } from "@/components/nav-shared";
 import { BUDGETABLE_ACCOUNT_TYPES } from "@/lib/account-scope";
@@ -95,25 +95,34 @@ function BudgetsPageInner() {
   // just the allocation list and the period picker.
   const simple = prefs?.simpleMode ?? false;
 
-  // Which plan the page shows, kept in the URL so a refresh (or a shared link)
-  // lands on the same budget. Absent or unknown id → main plan.
+  // Which plan the page shows: the app-wide budget scope, so picking a budget
+  // here and picking one in the sidebar are the same act. The page can only
+  // be about one budget, so "All budgets" shows the main plan — the title
+  // names it either way.
+  const { plans, plan: scopedPlan, fallbackPlan, setValue, isLoading: scopeLoading } =
+    useBudgetScope();
+  const setSelectedPlanId = (planId: string) => setValue(planId);
+  const activePlan = scopedPlan ?? fallbackPlan;
+  const activePlanId = activePlan?.id;
+
+  // ?plan= links in from elsewhere (a recurring bill, an account, the editor).
+  // Unlike the dashboard's ?budget= peek, "go manage this budget" moves the
+  // app-wide scope — landing here on a budget the sidebar doesn't name is the
+  // disagreement this selector exists to remove. Applied once, then cleared.
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { data: plansData } = useBudgetPlans();
-  const plans = plansData?.plans ?? [];
-  const selectedPlanId = searchParams.get("plan");
-  // null clears the param (plan deleted) so the fallback picks the main plan.
-  const setSelectedPlanId = (planId: string | null) =>
-    router.replace(
-      planId ? `/budgets?plan=${encodeURIComponent(planId)}` : "/budgets",
-      { scroll: false },
-    );
-  const activePlan =
-    plans.find((p) => p.id === selectedPlanId) ??
-    plans.find((p) => p.isMain) ??
-    plans[0] ??
-    null;
-  const activePlanId = activePlan?.id;
+  const linkedPlanId = searchParams.get("plan");
+  const linkHandledRef = useRef(false);
+  useEffect(() => {
+    if (!linkedPlanId || linkHandledRef.current || scopeLoading) return;
+    linkHandledRef.current = true;
+    if (plans.some((p) => p.id === linkedPlanId)) setValue(linkedPlanId);
+    // Drop only `plan`; anything else on the URL is not ours to discard.
+    const rest = new URLSearchParams(searchParams);
+    rest.delete("plan");
+    const qs = rest.toString();
+    router.replace(qs ? `/budgets?${qs}` : "/budgets", { scroll: false });
+  }, [linkedPlanId, scopeLoading, plans, setValue, router, searchParams]);
 
   const { data: accountsData, isLoading: accountsLoading } = useAccounts();
   const { user: sessionUser } = useSessionUser();
@@ -513,7 +522,7 @@ function BudgetsPageInner() {
     <div className="space-y-6">
       {/* Which budget the page is about. Everything below follows this title.
           Plan management stays available in simple mode too. */}
-      {plansData && (
+      {!scopeLoading && (
         <BudgetSwitcher
           plans={plans}
           active={activePlan}
@@ -835,7 +844,10 @@ function BudgetsPageInner() {
           plan={editingPlan}
           plans={plans}
           accounts={accountsData ?? []}
-          onSaved={(planId) => setSelectedPlanId(planId)}
+          // null = the plan was deleted. Nothing to select: the scope's stored
+          // id is cleared by the FK (on delete set null) and resolves back to
+          // the main plan on its own.
+          onSaved={(planId) => { if (planId) setSelectedPlanId(planId); }}
         />
       )}
 

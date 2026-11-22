@@ -42,6 +42,8 @@ import { useAccountCategories, useCategories } from "@/hooks/use-categories";
 import { usePots, useDeletePot, useAddToPot, useRemoveFromPot, useCreatePot } from "@/hooks/use-pots";
 import { useTransactions, useDeleteTransaction, useDetectTransfers, useDeleteReimbursement, useBulkCategorizeTransactions, useBulkDeleteTransactions, useUnsplitTransaction } from "@/hooks/use-transactions";
 import { usePreferences } from "@/hooks/use-preferences";
+import { useBudgetScope } from "@/hooks/use-budget-scope";
+import { BudgetScopeSelect } from "@/components/budget-scope-select";
 import type { Transaction, Pot, Pagination, PotRangeTotal } from "@/types/api";
 import { useI18n } from "@/lib/i18n/client";
 import {
@@ -142,7 +144,10 @@ function TransactionsPage() {
 
   // Filters — initialized from URL params
   const [search, setSearch] = useState(searchParams.get("search") || "");
-  const [accountFilter, setAccountFilter] = useState(searchParams.get("account") || "all");
+  // The URL wins: a link that names accounts (a dashboard category row, say)
+  // is asking for exactly those, not for the budget's.
+  const linkedAccounts = searchParams.get("account");
+  const [accountFilter, setAccountFilter] = useState(linkedAccounts || "all");
   // A list narrowed to one account is where a hand-entered row most likely goes.
   const singleAccountFilter =
     accountFilter !== "all" && !accountFilter.includes(",") ? accountFilter : undefined;
@@ -156,6 +161,32 @@ function TransactionsPage() {
   const [dateToOverride, setDateToOverride] = useState(searchParams.get("dateTo") || "");
   const [sortBy, setSortBy] = useState(searchParams.get("sortBy") || "date");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">((searchParams.get("sortOrder") as "asc" | "desc") || "desc");
+
+  // The app-wide budget scope narrows the list to that budget's accounts. It
+  // is a default, not a lock: the account filter stays yours to change, and a
+  // ?account= link is left alone. `narrows` is false with a single budget,
+  // where the selector is hidden — quietly dropping unbudgeted accounts out
+  // of the list with nothing on screen to undo it is worse than not scoping.
+  const { narrows, plan: scopedPlan, isLoading: scopeLoading } = useBudgetScope();
+  // Keyed on the account list, not the plan id, so editing which accounts the
+  // scoped budget covers moves the list straight away.
+  const scopeFilter =
+    narrows && scopedPlan && scopedPlan.accounts.length > 0
+      ? scopedPlan.accounts.map((a) => a.id).join(",")
+      : "all";
+  const appliedScopeRef = useRef<string | null>(null);
+  const honourLinkRef = useRef(Boolean(linkedAccounts));
+  useEffect(() => {
+    if (scopeLoading || appliedScopeRef.current === scopeFilter) return;
+    appliedScopeRef.current = scopeFilter;
+    // A ?account= link names the accounts it wants: the first scope it sees
+    // leaves it alone, switching budget afterwards still moves the list.
+    if (honourLinkRef.current) {
+      honourLinkRef.current = false;
+      return;
+    }
+    setAccountFilter(scopeFilter);
+  }, [scopeFilter, scopeLoading]);
 
   const hasActiveFilters =
     accountFilter !== "all" ||
@@ -585,6 +616,9 @@ function TransactionsPage() {
           <div>
             <h1 className="text-3xl font-bold tracking-tight">{t("tx.title")}</h1>
             <p className="text-muted-foreground">{t("tx.simple.subtitle")}</p>
+            <div className="mt-2 md:hidden">
+              <BudgetScopeSelect variant="header" />
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => setAddOpen(true)}>
@@ -658,6 +692,10 @@ function TransactionsPage() {
         <div className="min-w-0 flex-1 md:min-w-64">
           <h1 className="text-3xl font-bold tracking-tight">{t("tx.title")}</h1>
           <p className="hidden text-muted-foreground md:block">{t("tx.subtitle")}</p>
+          {/* Phones have no sidebar to hold the scope selector. */}
+          <div className="mt-2 md:hidden">
+            <BudgetScopeSelect variant="header" />
+          </div>
         </div>
         {/* Phones: the two everyday actions as round buttons, the rest in a
             menu — five unlabeled icons in a row read as a toolbar, not an app. */}

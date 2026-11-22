@@ -8,7 +8,7 @@
     "auth:generate": "npx @better-auth/cli generate --output ./src/db/auth-schema.ts",
     "start": "next start",
     "worker:dev": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.worker src/worker/main.ts",
-    "worker:build": "esbuild src/worker/main.ts --bundle --platform=node --target=node24 --format=esm --outfile=dist/worker.mjs --external:@libsql/client --external:libsql --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\" --log-level=warning",
+    "worker:build": "esbuild src/worker/main.ts --bundle --platform=node --target=node24 --format=esm --outfile=dist/worker.mjs --external:@libsql/client --external:libsql --banner:js=\"import { createRequire as __workerCreateRequire } from 'node:module'; const require = __workerCreateRequire(import.meta.url);\" --log-level=warning && node --check dist/worker.mjs",
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",

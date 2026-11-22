@@ -292,22 +292,15 @@
     {
       "idx": 41,
       "version": "6",
-      "when": 1795344737982,
-      "tag": "0041_investment_accounts",
+      "when": 1795343498082,
+      "tag": "0041_budget_scope",
       "breakpoints": true
     },
     {
       "idx": 42,
       "version": "6",
-      "when": 1795355191306,
-      "tag": "0042_asset_valuations",
-      "breakpoints": true
-    },
-    {
-      "idx": 43,
-      "version": "6",
-      "when": 1795358211625,
-      "tag": "0043_holdings",
+      "when": 1795360294619,
+      "tag": "0042_investments",
       "breakpoints": true
     }
   ]
