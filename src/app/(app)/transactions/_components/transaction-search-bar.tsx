@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { parseSearchTerm } from "@/lib/search-query";
+import { parseDayInput, parseSearchTerm } from "@/lib/search-query";
 import {
   getFinancialMonthRange,
   getPreviousFinancialMonth,
@@ -191,7 +191,10 @@ export function TransactionSearchBar({
         exclude: true,
       });
     }
-    if (dateFromOverride || dateToOverride) {
+    if (dateFromOverride && dateFromOverride === dateToOverride) {
+      // One exact day — show the date once rather than as a range of itself.
+      tokens.push({ key: "period", value: "day", prefix: "period:", text: formatDate(dateFromOverride) });
+    } else if (dateFromOverride || dateToOverride) {
       const parts = [dateFromOverride && formatDate(dateFromOverride), dateToOverride && formatDate(dateToOverride)].filter(Boolean);
       tokens.push({ key: "period", value: "custom", prefix: "period:", text: parts.join(" — ") });
     } else if (periodFilter !== "all") {
@@ -248,6 +251,21 @@ export function TransactionSearchBar({
             label: t(o.labelKey),
           }));
         } else if (key === "period") {
+          // A date typed after `period:` filters to that one day. It is offered
+          // first so Enter picks it, and raw (unlowercased) so nothing is lost.
+          const day = parseDayInput(raw.slice(raw.indexOf(":") + 1));
+          if (day) {
+            return [
+              {
+                type: "value" as const,
+                key: "day",
+                value: day,
+                exclude: false,
+                label: `${prefix}period:${formatDate(day)}`,
+                description: t("tx.search.exactDay"),
+              },
+            ];
+          }
           options = PERIOD_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }));
         } else if (key === "pot") {
           options = pots.map((p) => ({ value: p.id, label: p.name }));
@@ -289,7 +307,7 @@ export function TransactionSearchBar({
             value: raw,
           },
         ];
-  }, [inputValue, accounts, categories, tags, pots, distinctTypes, t]);
+  }, [inputValue, accounts, categories, tags, pots, distinctTypes, t, formatDate]);
 
   const handleSuggestionSelect = (suggestion: (typeof suggestions)[number]) => {
     if (suggestion.type === "key") {
