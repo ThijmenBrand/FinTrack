@@ -1,4 +1,5 @@
 import * as Sentry from "@sentry/nextjs";
+import { cache } from "react";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { admin, twoFactor } from "better-auth/plugins";
@@ -178,11 +179,28 @@ export interface SessionData {
 // ─── Session Helpers (identical signatures to old API) ──────────────────────
 
 /**
+ * The session behind the current request, read once per server render.
+ *
+ * A page render asks for it repeatedly — the layout, the page, the language
+ * helper, every helper that needs a user id — and each ask is two round trips
+ * (session, then user). React's `cache` scopes to one render pass, so the
+ * second and later callers get the first answer and a different request
+ * starts over. Nothing is cached ACROSS requests: a revoked session has to
+ * stop working on the very next one.
+ *
+ * Route handlers get no such scope — `cache` is simply a plain call there —
+ * which is why they reach for one `db.batch` instead of leaning on this.
+ */
+export const getCurrentSession = cache(async () =>
+  auth.api.getSession({ headers: await headers() }),
+);
+
+/**
  * Get the current user's ID from the session.
  * Use in API routes — returns userId or throws a Response.
  */
 async function getUserId(): Promise<string> {
-  const session = await auth.api.getSession({ headers: await headers() });
+  const session = await getCurrentSession();
   if (!session?.user?.id) {
     throw await apiError("api.unauthorized", 401);
   }
@@ -194,7 +212,7 @@ async function getUserId(): Promise<string> {
  * Redirects to /login if not authenticated.
  */
 export async function requireAuth(): Promise<SessionData> {
-  const session = await auth.api.getSession({ headers: await headers() });
+  const session = await getCurrentSession();
   if (!session?.user?.id) {
     redirect("/login");
   }
@@ -211,7 +229,7 @@ export async function requireAuth(): Promise<SessionData> {
  * Redirects to /backoffice/login if unauthenticated, / for non-admins.
  */
 export async function requireBackofficeAdmin(): Promise<SessionData> {
-  const session = await auth.api.getSession({ headers: await headers() });
+  const session = await getCurrentSession();
   if (!session?.user?.id) {
     redirect("/backoffice/login");
   }
@@ -234,7 +252,7 @@ export async function requireBackofficeAdmin(): Promise<SessionData> {
  * Throws 401 if not authenticated, 403 for non-admin users.
  */
 async function requireAdmin(): Promise<SessionData> {
-  const session = await auth.api.getSession({ headers: await headers() });
+  const session = await getCurrentSession();
   if (!session?.user?.id) {
     throw await apiError("api.unauthorized", 401);
   }
@@ -295,7 +313,7 @@ export interface SessionIds {
 }
 
 async function getSessionIds(): Promise<SessionIds> {
-  const session = await auth.api.getSession({ headers: await headers() });
+  const session = await getCurrentSession();
   if (!session?.user?.id || !session.session?.id) {
     throw await apiError("api.unauthorized", 401);
   }

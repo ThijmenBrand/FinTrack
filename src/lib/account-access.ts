@@ -129,39 +129,42 @@ export type AccessibleAccount = Account & {
 
 /** The user's own accounts plus accounts actively shared with them. */
 export async function getAccessibleAccounts(userId: string): Promise<AccessibleAccount[]> {
-  const own = await db
-    .select()
-    .from(accounts)
-    .where(eq(accounts.userId, userId))
-    .orderBy(asc(accounts.sortOrder), asc(accounts.createdAt));
-  const shared = await db
-    .select({
-      account: accounts,
-      role: accountMembers.role,
-      ownerName: user.name,
-      ownerImage: user.image,
-    })
-    .from(accountMembers)
-    .innerJoin(accounts, eq(accounts.id, accountMembers.accountId))
-    .innerJoin(user, eq(user.id, accounts.userId))
-    .where(activeMembership(userId));
-  // One pass over every live invite on the user's accounts — the card badge
-  // must not N+1 the members endpoint. Joins accounts so the statement names
-  // user_id honestly; left-joins user because a pending invite has no user yet.
-  const shares = await db
-    .select({
-      accountId: accountMembers.accountId,
-      email: accountMembers.email,
-      name: user.name,
-      image: user.image,
-    })
-    .from(accountMembers)
-    .innerJoin(accounts, eq(accounts.id, accountMembers.accountId))
-    .leftJoin(user, eq(user.id, accountMembers.userId))
-    .where(and(eq(accounts.userId, userId), isNull(accountMembers.revokedAt)))
-    // Stable face order on the card — id breaks ties when two invites share a
-    // created_at, which same-millisecond inserts do.
-    .orderBy(asc(accountMembers.createdAt), asc(accountMembers.id));
+  // Three independent reads, one round trip. `shares` is one pass over every
+  // live invite on the user's accounts — the card badge must not N+1 the
+  // members endpoint. It joins accounts so the statement names user_id
+  // honestly, and left-joins user because a pending invite has no user yet.
+  const [own, shared, shares] = await db.batch([
+    db
+      .select()
+      .from(accounts)
+      .where(eq(accounts.userId, userId))
+      .orderBy(asc(accounts.sortOrder), asc(accounts.createdAt)),
+    db
+      .select({
+        account: accounts,
+        role: accountMembers.role,
+        ownerName: user.name,
+        ownerImage: user.image,
+      })
+      .from(accountMembers)
+      .innerJoin(accounts, eq(accounts.id, accountMembers.accountId))
+      .innerJoin(user, eq(user.id, accounts.userId))
+      .where(activeMembership(userId)),
+    db
+      .select({
+        accountId: accountMembers.accountId,
+        email: accountMembers.email,
+        name: user.name,
+        image: user.image,
+      })
+      .from(accountMembers)
+      .innerJoin(accounts, eq(accounts.id, accountMembers.accountId))
+      .leftJoin(user, eq(user.id, accountMembers.userId))
+      .where(and(eq(accounts.userId, userId), isNull(accountMembers.revokedAt)))
+      // Stable face order on the card — id breaks ties when two invites share
+      // a created_at, which same-millisecond inserts do.
+      .orderBy(asc(accountMembers.createdAt), asc(accountMembers.id)),
+  ]);
   const sharedWithByAccount = new Map<string, SharedWithUser[]>();
   for (const s of shares) {
     const list = sharedWithByAccount.get(s.accountId) ?? [];

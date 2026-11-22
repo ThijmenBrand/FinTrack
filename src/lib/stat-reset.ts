@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { db } from "@/db";
 import { statResets } from "@/db/schema";
 import { desc, eq } from "drizzle-orm";
@@ -29,8 +30,12 @@ export function listStatResets(userId: string) {
     .orderBy(desc(statResets.date), desc(statResets.createdAt));
 }
 
-/** The active cutoff (newest reset date), or null when the user has none. */
-export async function getStatsCutoff(userId: string): Promise<string | null> {
+/**
+ * The active cutoff (newest reset date), or null when the user has none.
+ * Cached per render pass; the API routes that want it alongside other reads
+ * batch `listStatResets` directly instead, so it costs them no extra trip.
+ */
+export const getStatsCutoff = cache(async (userId: string): Promise<string | null> => {
   const [row] = await listStatResets(userId).limit(1);
   return row?.date ?? null;
-}
+});

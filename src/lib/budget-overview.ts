@@ -131,13 +131,26 @@ export const getMainPlan = cache(async (userId: string) => resolveMainPlan(userI
  * Cached per render pass: three dashboard cards ask for the same window, and
  * against a remote DB the duplicate round trips are pure waste.
  */
-export const getFundedAccountIds = cache(async (
+export function getFundedAccountIds(
   userId: string,
   scopeAccountIds: string[] | undefined,
   from: string,
   to: string,
+): Promise<string[] | undefined> {
+  // `cache` matches arguments by identity, and every card builds its own
+  // array — so the ids have to travel as one string or the memo never hits
+  // and each card pays for the same query again.
+  return loadFundedAccountIds(userId, (scopeAccountIds ?? []).join(","), from, to);
+}
+
+const loadFundedAccountIds = cache(async (
+  userId: string,
+  scopeKey: string,
+  from: string,
+  to: string,
 ): Promise<string[] | undefined> => {
-  if (!scopeAccountIds || scopeAccountIds.length === 0) return undefined;
+  const scopeAccountIds = scopeKey ? scopeKey.split(",") : [];
+  if (scopeAccountIds.length === 0) return undefined;
   const rows = await db
     .select({ destAccountId: transactions.accountId })
     .from(transactions)

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { accounts, transactions } from "@/db/schema";
-import { and, inArray } from "drizzle-orm";
+import { and, inArray, sql } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { toIsoDate } from "@/lib/utils";
 import { visibleAccounts, visibleTransactions } from "@/lib/account-access";
@@ -27,14 +27,35 @@ export async function GET(request: NextRequest) {
     const dateFromParam = searchParams.get("dateFrom");
     const dateToParam = searchParams.get("dateTo");
 
-    // 1. Accounts in scope — own plus actively shared.
+    // 1. Accounts in scope — own plus actively shared — and the ledger they
+    // carry, in one round trip.
+    //
+    // The ledger comes back as one row per DAY, not one per transaction: the
+    // chart plots a daily balance, so the per-row detail is summed away the
+    // moment it arrives. A few years of history is a couple of thousand days
+    // whatever the transaction count, and fetching tens of thousands of rows
+    // to add them up in JS was the single largest read the insights page made.
     const acctConditions = [visibleAccounts(userId)];
     if (accountIds.length > 0)
       acctConditions.push(inArray(accounts.id, accountIds));
-    const acctList = await db
-      .select()
-      .from(accounts)
-      .where(and(...acctConditions));
+    // Ledger view: the split parent is the row the bank actually posted, so its
+    // children are left out rather than counted on top of it.
+    const txConditions = [visibleTransactions(userId), excludeSplitChildren()];
+    if (accountIds.length > 0)
+      txConditions.push(inArray(transactions.accountId, accountIds));
+
+    const [acctList, dailyDeltas] = await db.batch([
+      db.select().from(accounts).where(and(...acctConditions)),
+      db
+        .select({
+          date: transactions.date,
+          delta: sql<number>`sum(${transactions.amount})`,
+        })
+        .from(transactions)
+        .where(and(...txConditions))
+        .groupBy(transactions.date)
+        .orderBy(transactions.date),
+    ]);
 
     if (acctList.length === 0) {
       return NextResponse.json({
@@ -50,45 +71,32 @@ export async function GET(request: NextRequest) {
     );
     const accountName = accountIds.length === 1 ? acctList[0].name : null;
 
-    // 2. Fetch all transactions for in-scope accounts
-    // Ledger view: the split parent is the row the bank actually posted, so its
-    // children are left out rather than counted on top of it.
-    const txConditions = [visibleTransactions(userId), excludeSplitChildren()];
-    if (accountIds.length > 0)
-      txConditions.push(inArray(transactions.accountId, accountIds));
-    const allTx = await db
-      .select({ date: transactions.date, amount: transactions.amount })
-      .from(transactions)
-      .where(and(...txConditions))
-      .orderBy(transactions.date);
-
     // Local dates throughout: toISOString() would roll back a day east of UTC.
     const today = toIsoDate(new Date());
 
-    // 3. Historical window. Without dateFrom the whole history is returned, so
+    // 2. Historical window. Without dateFrom the whole history is returned, so
     // the chart always covers exactly the period the page has selected.
-    const earliestTx = allTx.length > 0 ? allTx[0].date : today;
+    const earliestTx = dailyDeltas.length > 0 ? dailyDeltas[0].date : today;
     const histStart = dateFromParam || earliestTx;
     // Cap dateTo at today: the chart can't show "actual" balance for the future.
     const histEnd = dateToParam && dateToParam < today ? dateToParam : today;
 
-    // Aggregate transaction amounts per date
     const dateToDelta = new Map<string, number>();
-    for (const tx of allTx) {
-      dateToDelta.set(tx.date, (dateToDelta.get(tx.date) || 0) + tx.amount);
+    for (const row of dailyDeltas) {
+      dateToDelta.set(row.date, Number(row.delta) || 0);
     }
 
     // Running balance as of (start of) histStart: initialBalance + everything before histStart
     let runningBalance = startingBalance;
-    for (const tx of allTx) {
-      if (tx.date < histStart) {
-        runningBalance += tx.amount;
+    for (const row of dailyDeltas) {
+      if (row.date < histStart) {
+        runningBalance += Number(row.delta) || 0;
       } else {
         break;
       }
     }
 
-    // Walk day by day, recording end-of-day balance
+    // 3. Walk day by day, recording end-of-day balance
     const historical: { date: string; balance: number }[] = [];
     if (histEnd >= histStart) {
       const cursor = new Date(histStart + "T00:00:00");
@@ -103,8 +111,8 @@ export async function GET(request: NextRequest) {
 
     // 4. Current balance (always anchored at "today", regardless of histEnd)
     let currentBalance = startingBalance;
-    for (const tx of allTx) {
-      if (tx.date <= today) currentBalance += tx.amount;
+    for (const row of dailyDeltas) {
+      if (row.date <= today) currentBalance += Number(row.delta) || 0;
     }
 
     return NextResponse.json({

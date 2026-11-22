@@ -12,7 +12,6 @@ import {
 import { eq, and, gte, lte, sql, inArray } from "drizzle-orm";
 import type { BudgetSubLine, IncomeLine } from "@/types/api";
 import { withUser } from "@/lib/auth";
-import { getI18n } from "@/lib/i18n/server";
 import { logDataEvent } from "@/lib/audit";
 import { effectiveExpenseAmount, potSpentAmount } from "@/lib/reimbursement-sql";
 import { excludeSplitParents } from "@/lib/split-sql";
@@ -21,7 +20,7 @@ import { getUserPreferences } from "@/lib/preferences";
 import { toMonthly, getCurrentMonthRange } from "@/lib/month-money";
 import { isFiniteNumber, isIsoDate, validateName } from "@/lib/validation";
 import { requireAccountAccess } from "@/lib/account-access";
-import type { MessageKey, Vars } from "@/lib/i18n/translate";
+import { getI18nFor, type MessageKey, type Vars } from "@/lib/i18n/translate";
 import {
   MAX_SUB_LINE_DEPTH,
   MAX_SUB_LINES_PER_ALLOCATION,
@@ -30,7 +29,7 @@ import {
   countSubLines,
   resyncUpwards,
 } from "@/lib/budget-sub-lines";
-import { getStatsCutoff } from "@/lib/stat-reset";
+import { listStatResets } from "@/lib/stat-reset";
 import {
   accountScopeFilter,
   effectiveStartDay,
@@ -184,7 +183,6 @@ function foldMonthlyAverages(
  */
 export async function GET(request: NextRequest) {
   return withUser(async (userId) => {
-    const { intlLocale } = await getI18n();
     const { searchParams } = new URL(request.url);
     const dateFromParam = searchParams.get("dateFrom");
     const dateToParam = searchParams.get("dateTo");
@@ -204,6 +202,10 @@ export async function GET(request: NextRequest) {
       getUserPreferences(userId),
       resolveBudgetPlan(userId, budgetIdParam),
     ]);
+    // The same locale `getI18n()` would resolve, from preferences this route
+    // has already read — asking for it separately costs a session lookup and
+    // a second read of this very row.
+    const { intlLocale } = getI18nFor(prefs.locale);
     if (budgetIdParam && !plan) {
       return apiError("api.budgetNotFound", 404);
     }
@@ -254,10 +256,19 @@ export async function GET(request: NextRequest) {
     const monthsScale =
       useRange && !noScale ? daysInRange / AVG_DAYS_PER_MONTH : 1;
 
+    // Recurring plans live on an account, so they follow the same scope as
+    // spending — a Joint budget only counts salary/bills on joint accounts.
+    const recurringScopeFilter =
+      scopeAccountIds === undefined
+        ? undefined
+        : scopeAccountIds.length > 0
+          ? inArray(recurringTransactions.accountId, scopeAccountIds)
+          : sql`1=0`;
+
     // 0. Get pot spending by category for current month.
     // Each pot's net spend is `-sum` of its expense/income member transactions,
     // floored at 0 — internal transfers don't count as spending.
-    const potSpendingRows = await db
+    const potSpendingQuery = db
       .select({
         categoryId: transactionGroups.categoryId,
         potTotal: sql<number>`${potSpentAmount()}`,
@@ -277,28 +288,10 @@ export async function GET(request: NextRequest) {
       )
       .groupBy(transactionGroups.id, transactionGroups.categoryId);
 
-    // Aggregate pot spending per category (multiple pots can share a category)
-    const potSpendingByCategory = new Map<string, number>();
-    for (const row of potSpendingRows) {
-      if (row.categoryId) {
-        const existing = potSpendingByCategory.get(row.categoryId) || 0;
-        potSpendingByCategory.set(row.categoryId, existing + row.potTotal);
-      }
-    }
-
-    // Recurring plans live on an account, so they follow the same scope as
-    // spending — a Joint budget only counts salary/bills on joint accounts.
-    const recurringScopeFilter =
-      scopeAccountIds === undefined
-        ? undefined
-        : scopeAccountIds.length > 0
-          ? inArray(recurringTransactions.accountId, scopeAccountIds)
-          : sql`1=0`;
-
     // 1. Get recurring income (monthly equivalent), grouped by category the
     // same way fixed costs are — one income line per category, plus the
     // headline total.
-    const recurringIncome = await db
+    const recurringIncomeQuery = db
       .select({
         categoryId: recurringTransactions.categoryId,
         categoryName: categories.name,
@@ -318,15 +311,8 @@ export async function GET(request: NextRequest) {
         ),
       );
 
-    const monthlyIncome = recurringIncome.reduce(
-      (sum, r) => sum + toMonthly(r.amount, r.frequency),
-      0,
-    );
-
-    const incomeGroups = groupRecurringByCategory(recurringIncome);
-
     // 2. Get recurring expenses grouped by category
-    const recurringExpenses = await db
+    const recurringExpensesQuery = db
       .select({
         categoryId: recurringTransactions.categoryId,
         categoryName: categories.name,
@@ -346,12 +332,8 @@ export async function GET(request: NextRequest) {
         ),
       );
 
-    // Group recurring expenses by category
-    const fixedCosts = groupRecurringByCategory(recurringExpenses);
-    const totalFixedCosts = fixedCosts.reduce((s, c) => s + c.monthlyAmount, 0);
-
     // 3. Get user-defined budget allocations (active only — suggestions are returned separately).
-    const allAllocations = await db
+    const allAllocationsQuery = db
       .select({
         id: budgets.id,
         categoryId: budgets.categoryId,
@@ -375,7 +357,7 @@ export async function GET(request: NextRequest) {
       );
 
     // 3b. Get pending suggestions (system-generated proposals)
-    const suggestionRows = await db
+    const suggestionsQuery = db
       .select({
         id: budgets.id,
         categoryId: budgets.categoryId,
@@ -397,7 +379,7 @@ export async function GET(request: NextRequest) {
     // 4. Calculate actual spending per category for the current month in a
     // single grouped query (effective amounts, exclude grouped). We then look
     // up per allocation / fixed cost from the resulting map.
-    const monthSpendRows = await db
+    const monthSpendQuery = db
       .select({
         categoryId: transactions.categoryId,
         total: sql<number>`sum(${effectiveExpenseAmount()})`,
@@ -416,19 +398,6 @@ export async function GET(request: NextRequest) {
       )
       .groupBy(transactions.categoryId);
 
-    // Per-category aggregation for budget rows (only categorized rows match a
-    // budget). Uncategorized expenses are tracked separately and rolled into
-    // totalSpentThisMonth so it stays in sync with the Insights expense card.
-    const monthSpendByCategory = new Map<string, number>();
-    let uncategorizedSpend = 0;
-    for (const row of monthSpendRows) {
-      if (!row.categoryId) {
-        uncategorizedSpend += row.total ?? 0;
-        continue;
-      }
-      monthSpendByCategory.set(row.categoryId, row.total ?? 0);
-    }
-
     // 4b. Actual income received per category over the same window and account
     // scope. `type = 'income'` already excludes reimbursements and internal
     // transfers (both are their own transaction types), and grouped rows are a
@@ -439,7 +408,7 @@ export async function GET(request: NextRequest) {
     // The category is joined here (not just grouped by id) so income that
     // arrived in a category with no recurring plan behind it can still be
     // named — see the unplanned lines appended below.
-    const monthIncomeRows = await db
+    const monthIncomeQuery = db
       .select({
         categoryId: transactions.categoryId,
         categoryName: categories.name,
@@ -460,6 +429,65 @@ export async function GET(request: NextRequest) {
         ),
       )
       .groupBy(transactions.categoryId, categories.name, categories.color);
+
+    // Everything above in ONE round trip. These seven reads need nothing from
+    // each other, and against hosted libsql each `await` was a separate
+    // network hop — this endpoint spent most of a budgets or insights page
+    // load waiting, not querying. The statistics cutoff rides along because
+    // the monthly averages further down cannot be built without it.
+    const [
+      potSpendingRows,
+      recurringIncome,
+      recurringExpenses,
+      allAllocations,
+      suggestionRows,
+      monthSpendRows,
+      monthIncomeRows,
+      resetRows,
+    ] = await db.batch([
+      potSpendingQuery,
+      recurringIncomeQuery,
+      recurringExpensesQuery,
+      allAllocationsQuery,
+      suggestionsQuery,
+      monthSpendQuery,
+      monthIncomeQuery,
+      listStatResets(dataUserId).limit(1),
+    ]);
+    const statsCutoff = resetRows[0]?.date ?? null;
+
+    // Aggregate pot spending per category (multiple pots can share a category)
+    const potSpendingByCategory = new Map<string, number>();
+    for (const row of potSpendingRows) {
+      if (row.categoryId) {
+        const existing = potSpendingByCategory.get(row.categoryId) || 0;
+        potSpendingByCategory.set(row.categoryId, existing + row.potTotal);
+      }
+    }
+
+    const monthlyIncome = recurringIncome.reduce(
+      (sum, r) => sum + toMonthly(r.amount, r.frequency),
+      0,
+    );
+
+    const incomeGroups = groupRecurringByCategory(recurringIncome);
+
+    // Group recurring expenses by category
+    const fixedCosts = groupRecurringByCategory(recurringExpenses);
+    const totalFixedCosts = fixedCosts.reduce((s, c) => s + c.monthlyAmount, 0);
+
+    // Per-category aggregation for budget rows (only categorized rows match a
+    // budget). Uncategorized expenses are tracked separately and rolled into
+    // totalSpentThisMonth so it stays in sync with the Insights expense card.
+    const monthSpendByCategory = new Map<string, number>();
+    let uncategorizedSpend = 0;
+    for (const row of monthSpendRows) {
+      if (!row.categoryId) {
+        uncategorizedSpend += row.total ?? 0;
+        continue;
+      }
+      monthSpendByCategory.set(row.categoryId, row.total ?? 0);
+    }
 
     // Keyed like the income lines themselves: null category → "uncategorized".
     const receivedByCategory = new Map<string, number>();
@@ -602,8 +630,7 @@ export async function GET(request: NextRequest) {
     // Must match the current-month logic: exclude grouped transactions, subtract reimbursements
     // A statistics reset restarts this average: months before the cutoff are
     // history, not evidence, so they neither add spend nor count as months.
-    const statsCutoff = await getStatsCutoff(dataUserId);
-    const monthlySpendingByCategory = await db
+    const monthlySpendingQuery = db
       .select({
         categoryId: transactions.categoryId,
         month: sql<string>`substr(${transactions.date}, 1, 7)`,
@@ -627,13 +654,10 @@ export async function GET(request: NextRequest) {
         sql`substr(${transactions.date}, 1, 7)`,
       );
 
-    // Build map: categoryId -> { total, monthCount, avgMonthly }
-    const avgSpendingMap = foldMonthlyAverages(monthlySpendingByCategory);
-
     // 5b. Same average, income side: mean actually received per completed
     // month, honouring the same stats cutoff. Deliberately NOT avgSpendingMap,
     // which is expense-only.
-    const monthlyIncomeByCategory = await db
+    const monthlyIncomeQuery = db
       .select({
         categoryId: transactions.categoryId,
         month: sql<string>`substr(${transactions.date}, 1, 7)`,
@@ -653,6 +677,13 @@ export async function GET(request: NextRequest) {
       )
       .groupBy(transactions.categoryId, sql`substr(${transactions.date}, 1, 7)`);
 
+    const [monthlySpendingByCategory, monthlyIncomeByCategory] = await db.batch([
+      monthlySpendingQuery,
+      monthlyIncomeQuery,
+    ]);
+
+    // Build map: categoryId -> { total, monthCount, avgMonthly }
+    const avgSpendingMap = foldMonthlyAverages(monthlySpendingByCategory);
     const avgIncomeMap = foldMonthlyAverages(monthlyIncomeByCategory);
 
     // Attach avgMonthly to allocations and fixed costs

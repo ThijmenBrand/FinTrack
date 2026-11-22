@@ -53,26 +53,28 @@ import type {
  * card's switcher.
  */
 export const getUserPlans = cache(async (userId: string) => {
-  const own = await db
-    .select({
-      id: budgetPlans.id,
-      name: budgetPlans.name,
-      isMain: budgetPlans.isMain,
-    })
-    .from(budgetPlans)
-    .where(eq(budgetPlans.userId, userId))
-    .orderBy(asc(budgetPlans.createdAt));
-  const shared = await db
-    .selectDistinct({
-      id: budgetPlans.id,
-      name: budgetPlans.name,
-      ownerName: user.name,
-    })
-    .from(accountMembers)
-    .innerJoin(accounts, eq(accounts.id, accountMembers.accountId))
-    .innerJoin(budgetPlans, eq(budgetPlans.id, accounts.budgetId))
-    .innerJoin(user, eq(user.id, budgetPlans.userId))
-    .where(activeMembership(userId));
+  const [own, shared] = await db.batch([
+    db
+      .select({
+        id: budgetPlans.id,
+        name: budgetPlans.name,
+        isMain: budgetPlans.isMain,
+      })
+      .from(budgetPlans)
+      .where(eq(budgetPlans.userId, userId))
+      .orderBy(asc(budgetPlans.createdAt)),
+    db
+      .selectDistinct({
+        id: budgetPlans.id,
+        name: budgetPlans.name,
+        ownerName: user.name,
+      })
+      .from(accountMembers)
+      .innerJoin(accounts, eq(accounts.id, accountMembers.accountId))
+      .innerJoin(budgetPlans, eq(budgetPlans.id, accounts.budgetId))
+      .innerJoin(user, eq(user.id, budgetPlans.userId))
+      .where(activeMembership(userId)),
+  ]);
   return [
     ...own.map((p) => ({ ...p, ownerName: null as string | null })),
     ...shared.map((p) => ({ ...p, isMain: false })),
