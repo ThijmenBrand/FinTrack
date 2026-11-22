@@ -16,8 +16,21 @@ import {
   type EnvelopeStatus,
   type LedgerMonth,
 } from "@/lib/budget-ledger";
-import { buildLedgerYear } from "@/lib/budget-ledger-db";
-import { getAnnualIncome, currentMonthIndexFor, type AnnualIncome } from "@/lib/annual-income";
+import {
+  foldFrozenTargets,
+  foldLedgerYear,
+  foldYearSpend,
+  freezeClosedTargets,
+  frozenTargetsQuery,
+  ledgerAllocationsQuery,
+  yearSpendQueries,
+} from "@/lib/budget-ledger-db";
+import {
+  annualIncomeQueries,
+  foldAnnualIncome,
+  currentMonthIndexFor,
+  type AnnualIncome,
+} from "@/lib/annual-income";
 import { getFinancialYearMonths, MONTHS_PER_YEAR } from "@/lib/financial-year";
 import type { ResolvedBudgetPlan } from "@/lib/budget-plan";
 
@@ -88,14 +101,43 @@ export async function getYearlyBudgetView(
   // reads stay reads. The owner's own visit freezes as before.
   freeze: boolean = true,
 ): Promise<YearlyBudgetView> {
-  const [ledger, income, categoryRows] = await Promise.all([
-    buildLedgerYear(userId, plan, year, startDay, now, freeze),
-    getAnnualIncome(userId, year, startDay, plan.accountIds, now),
+  // Every read this view needs, in ONE round trip. They were three levels of
+  // nested `Promise.all` — the ledger waiting on the year's spend, the spend
+  // waiting on nothing at all — which against a remote database is three waves
+  // of latency for seven answers that are independent of each other.
+  const [
+    allocations,
+    frozenRows,
+    txSpend,
+    potSpend,
+    incomeRows,
+    recurringRows,
+    categoryRows,
+  ] = await db.batch([
+    ledgerAllocationsQuery(userId, plan.id),
+    frozenTargetsQuery(userId, plan.id, year),
+    ...yearSpendQueries(userId, year, startDay, plan.accountIds),
+    ...annualIncomeQueries(userId, year, startDay, plan.accountIds),
     db
       .select({ id: categories.id, name: categories.name, color: categories.color })
       .from(categories)
       .where(eq(categories.userId, userId)),
   ]);
+
+  const frozen = foldFrozenTargets(frozenRows);
+  const ledger = foldLedgerYear({
+    allocations,
+    frozen,
+    spend: foldYearSpend(year, [txSpend, potSpend]),
+    plan,
+    year,
+    startDay,
+    now,
+  });
+  // Reads stay reads for a member viewing a shared plan; the owner's own visit
+  // records the targets of months that have since closed.
+  if (freeze) await freezeClosedTargets(userId, plan.id, year, ledger, frozen);
+  const income = foldAnnualIncome(year, startDay, now, [incomeRows, recurringRows]);
 
   const meta = new Map(categoryRows.map((c) => [c.id, c]));
   const slots = getFinancialYearMonths(year, startDay);

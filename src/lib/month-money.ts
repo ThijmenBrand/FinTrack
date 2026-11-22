@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { db } from "@/db";
 import {
   recurringTransactions,
@@ -56,6 +57,94 @@ function visiblePots(userId: string) {
     inArray(transactions.accountId, memberAccountIds(userId)),
   )!;
 }
+
+/**
+ * Income and pot spend for the running month, scoped to a set of accounts.
+ *
+ * Two cards on the dashboard want the very same two numbers — the period
+ * tiles ask {@link getMonthSummary}, Free to Spend asks
+ * {@link getMonthMoneyMath} — and they were each asking the database. The
+ * answers are read once per render pass and shared.
+ *
+ * `scopeKey` carries the account ids as one string because `cache` matches
+ * arguments by identity and each caller builds its own array; a caller with a
+ * genuinely different scope gets a different key, and its own answer.
+ */
+function scopeKeyOf(accountIds: string[] | undefined): string {
+  return (accountIds ?? []).join(",");
+}
+
+function scopeFilterOf(scopeKey: string) {
+  return scopeKey
+    ? inArray(transactions.accountId, scopeKey.split(","))
+    : sql`1=1`;
+}
+
+/** Money that arrived this month, outside any pot. */
+export function monthIncomeTotal(
+  userId: string,
+  from: string,
+  to: string,
+  accountIds: string[] | undefined,
+): Promise<number> {
+  return loadMonthIncomeTotal(userId, from, to, scopeKeyOf(accountIds));
+}
+
+const loadMonthIncomeTotal = cache(
+  async (userId: string, from: string, to: string, scopeKey: string): Promise<number> => {
+    const rows = await db
+      .select({ total: sql<number>`sum(${transactions.amount})` })
+      .from(transactions)
+      .where(
+        and(
+          visibleTransactions(userId),
+          eq(transactions.type, "income"),
+          // Grouped rows are netted into the pot spend below; counting them as
+          // income too would credit a pot's refund twice.
+          sql`${transactions.groupId} IS NULL`,
+          excludeSplitParents(),
+          gte(transactions.date, from),
+          lte(transactions.date, to),
+          scopeFilterOf(scopeKey),
+        ),
+      );
+    return Number(rows[0]?.total) || 0;
+  },
+);
+
+/**
+ * What the pots spent this month, netted PER POT and floored at zero, then
+ * added up — so a deposit into one pot can't cancel another's spending.
+ */
+export function monthPotSpendTotal(
+  userId: string,
+  from: string,
+  to: string,
+  accountIds: string[] | undefined,
+): Promise<number> {
+  return loadMonthPotSpendTotal(userId, from, to, scopeKeyOf(accountIds));
+}
+
+const loadMonthPotSpendTotal = cache(
+  async (userId: string, from: string, to: string, scopeKey: string): Promise<number> => {
+    const rows = await db
+      .select({ spent: sql<number>`${potSpentAmount()}` })
+      .from(transactionGroups)
+      .innerJoin(transactions, eq(transactions.groupId, transactionGroups.id))
+      .where(
+        and(
+          visiblePots(userId),
+          sql`${transactions.type} != 'internal_transfer'`,
+          excludeSplitParents(),
+          gte(transactions.date, from),
+          lte(transactions.date, to),
+          scopeFilterOf(scopeKey),
+        ),
+      )
+      .groupBy(transactionGroups.id);
+    return rows.reduce((s, r) => s + (Number(r.spent) || 0), 0);
+  },
+);
 
 /**
  * Merge per-category spending from ungrouped transactions and from pots into a
@@ -133,32 +222,18 @@ export async function getMonthMoneyMath(
     ? inArray(transactions.accountId, accountIds!)
     : sql`1=1`;
 
+  // The income and pot-spend reads are shared with getMonthSummary, which the
+  // tiles above Free to Spend run off; they stay inside this wave, so a cache
+  // miss costs no extra trip and a hit costs nothing at all.
   const [
-    txIncome,
+    monthlyIncome,
     recurringExpenses,
     actualRecurring,
     txExpense,
-    potExpense,
+    potSpent,
     allBudgets,
   ] = await Promise.all([
-    db
-      .select({
-        total: sql<number>`sum(${transactions.amount})`,
-      })
-      .from(transactions)
-      .where(
-        and(
-          visibleTransactions(userId),
-          eq(transactions.type, "income"),
-          // Grouped rows are netted into the pot spend below; counting them as
-          // income too would credit a pot's refund twice.
-          sql`${transactions.groupId} IS NULL`,
-          excludeSplitParents(),
-          gte(transactions.date, from),
-          lte(transactions.date, to),
-          accountFilter,
-        )
-      ),
+    monthIncomeTotal(userId, from, to, accountIds),
 
     db
       .select({
@@ -219,23 +294,7 @@ export async function getMonthMoneyMath(
         )
       ),
 
-    // Netted per pot (not one net across all of them) so a deposit into one pot
-    // can't cancel out spending from another.
-    db
-      .select({ spent: sql<number>`${potSpentAmount()}` })
-      .from(transactionGroups)
-      .innerJoin(transactions, eq(transactions.groupId, transactionGroups.id))
-      .where(
-        and(
-          visiblePots(userId),
-          sql`${transactions.type} != 'internal_transfer'`,
-          excludeSplitParents(),
-          gte(transactions.date, from),
-          lte(transactions.date, to),
-          accountFilter,
-        )
-      )
-      .groupBy(transactionGroups.id),
+    monthPotSpendTotal(userId, from, to, accountIds),
 
     db
       .select({
@@ -250,7 +309,6 @@ export async function getMonthMoneyMath(
       .where(and(eq(budgets.userId, userId), eq(budgets.isActive, true), eq(budgets.status, "active"))),
   ]);
 
-  const monthlyIncome = Number(txIncome[0]?.total) || 0;
   const actualByPlan = new Map<string, number>();
   for (const r of actualRecurring) {
     if (r.recurringTransactionId) {
@@ -264,7 +322,6 @@ export async function getMonthMoneyMath(
   }, 0);
 
   const txTotal = Number(txExpense[0]?.total) || 0;
-  const potSpent = potExpense.reduce((s, r) => s + (Number(r.spent) || 0), 0);
   const spentThisMonth = txTotal + potSpent;
 
   // Per-category spending for the budget warning. Pots count toward their

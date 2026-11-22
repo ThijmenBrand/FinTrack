@@ -28,13 +28,17 @@ import {
   user,
 } from "@/db/schema";
 import { eq, and, or, asc, gte, lte, sql, sum, inArray, isNotNull, isNull } from "drizzle-orm";
-import { activeMembership, memberAccountIds, visibleTransactions } from "@/lib/account-access";
+import { activeMembership, visibleTransactions } from "@/lib/account-access";
 import { getPaySchedule, paydaysBetween, type PaySchedule } from "@/lib/pay-schedule";
-import { getMonthMoneyMath } from "@/lib/month-money";
+import {
+  getMonthMoneyMath,
+  monthIncomeTotal,
+  monthPotSpendTotal,
+} from "@/lib/month-money";
 import { classifyOnTrack } from "@/lib/on-track";
 import { accountScopeFilter } from "@/lib/budget-plan";
 import { formatCurrency, toIsoDate } from "@/lib/utils";
-import { effectiveExpenseAmount, potSpentAmount } from "@/lib/reimbursement-sql";
+import { effectiveExpenseAmount } from "@/lib/reimbursement-sql";
 import { excludeSplitChildren, excludeSplitParents } from "@/lib/split-sql";
 import { loadPotBudgetViews } from "@/lib/pot-budget-db";
 import type {
@@ -276,27 +280,14 @@ export async function getMonthSummary(
     ? inArray(transactions.accountId, accountIds)
     : sql`1=1`;
 
-  const [accountBalances, monthIncome, monthExpense, monthPotSpend] =
+  // Income and pot spend come from the shared readers in month-money, which
+  // Free to Spend asks for the same window and scope — on the dashboard the
+  // second card to ask pays nothing.
+  const [accountBalances, monthIncome, monthExpense, potExpense] =
     await Promise.all([
       getAccountBalances(userId),
 
-      // Grouped rows are excluded here and netted into the pot spend below —
-      // counting a pot's refund as income *and* as reduced pot spend would
-      // credit it twice.
-      db
-        .select({ total: sum(transactions.amount) })
-        .from(transactions)
-        .where(
-          and(
-            visibleTransactions(userId),
-            eq(transactions.type, "income"),
-            sql`${transactions.groupId} IS NULL`,
-            excludeSplitParents(),
-            gte(transactions.date, monthStart),
-            lte(transactions.date, monthEnd),
-            accountFilter,
-          )
-        ),
+      monthIncomeTotal(userId, monthStart, monthEnd, accountIds),
 
       db
         .select({
@@ -315,42 +306,18 @@ export async function getMonthSummary(
           )
         ),
 
-      // Netted per pot, like /api/insights and /api/budgets — a single net
-      // across all pots would let one pot's deposit erase another's spending.
-      db
-        .select({ spent: sql<number>`${potSpentAmount()}` })
-        .from(transactionGroups)
-        .innerJoin(transactions, eq(transactions.groupId, transactionGroups.id))
-        .where(
-          and(
-            // Own pots, plus owner pots reached through rows on shared accounts.
-            or(
-              eq(transactionGroups.userId, userId),
-              inArray(transactions.accountId, memberAccountIds(userId)),
-            ),
-            sql`${transactions.type} != 'internal_transfer'`,
-            excludeSplitParents(),
-            gte(transactions.date, monthStart),
-            lte(transactions.date, monthEnd),
-            accountFilter,
-          )
-        )
-        .groupBy(transactionGroups.id),
+      monthPotSpendTotal(userId, monthStart, monthEnd, accountIds),
     ]);
 
   // Cash only. "Total balance" sits beside income and expenses as money you
   // hold and could spend; folding a portfolio valuation into it would make
   // the figure move with the market between two transactions.
   const totalBalance = sumCashBalances(accountBalances);
-  const potExpense = monthPotSpend.reduce(
-    (s, r) => s + (Number(r.spent) || 0),
-    0,
-  );
 
   return {
     totalBalance,
     accountCount: accountBalances.filter(isCashAccount).length,
-    monthIncome: Number(monthIncome[0]?.total) || 0,
+    monthIncome,
     monthExpenses: (Number(monthExpense[0]?.total) || 0) + potExpense,
   };
 }
