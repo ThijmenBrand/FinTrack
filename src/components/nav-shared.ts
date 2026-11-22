@@ -1,7 +1,7 @@
 "use client";
 
 import type { LucideIcon } from "lucide-react";
-import { LayoutDashboard, ReceiptText, PieChart, Wallet, PiggyBank, RefreshCcw, Landmark } from "lucide-react";
+import { LayoutDashboard, ReceiptText, PieChart, Wallet, PiggyBank, RefreshCcw, Landmark, TrendingUp } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useSession, signOut } from "@/lib/auth-client";
 import { unsubscribeThisDevice } from "@/lib/push-client";
@@ -36,6 +36,10 @@ export const PRIMARY_NAV: NavItem[] = [
 /** Secondary items — sidebar lists them inline, bottom nav tucks them under "More". */
 const SECONDARY_NAV: NavItem[] = [
   { labelKey: "nav.accounts", href: "/accounts", icon: Landmark, section: "nav.section.money" },
+  // Next to accounts, because it answers the same question about a different
+  // kind of money. Hidden in simple mode alongside pots: both are planning
+  // concepts rather than part of the week-to-week loop.
+  { labelKey: "nav.investments", href: "/investments", icon: TrendingUp, section: "nav.section.money", hideInSimple: true },
   { labelKey: "nav.recurring", href: "/recurring", icon: RefreshCcw, section: "nav.section.planning" },
   { labelKey: "nav.pots", href: "/pots", icon: PiggyBank, section: "nav.section.planning", hideInSimple: true },
 ];

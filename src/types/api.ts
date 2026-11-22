@@ -15,12 +15,24 @@ export interface Account {
   currency: string;
   initialBalance: number;
   /**
+   * Investment accounts only: what the account was last reported to be worth.
+   * Null means never valued, which is shown as "—" rather than as €0.
+   */
+  currentValue: number | null;
+  /** ISO date `currentValue` was true on; always travels with it. */
+  valuedAt: string | null;
+  /**
    * False when money moved to or from this account is no longer purely yours —
    * a joint household account. Contributions then stay two ordinary
    * transactions (expense on your side, income on its side) instead of being
    * paired into an internal transfer.
    */
   internalTransfers: boolean;
+  /**
+   * The account's worth today: the ledger sum for cash accounts, the last
+   * valuation for investment accounts. Never add the two kinds together
+   * outside an explicit net worth figure — see @/lib/account-kinds.
+   */
   currentBalance: number;
   transactionTotal: number;
   /** The budget plan this account belongs to; null = not in any budget. */

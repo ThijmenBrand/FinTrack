@@ -15,6 +15,7 @@ import { logoUrl } from "@/lib/recurring-logo";
 import { toMonthly } from "@/lib/month-money";
 import { getI18n } from "@/lib/i18n/server";
 import { excludeSplitChildren } from "@/lib/split-sql";
+import { isInvestmentAccount } from "@/lib/account-kinds";
 import { toIsoDate } from "@/lib/utils";
 
 /**
@@ -47,6 +48,11 @@ export async function GET(request: NextRequest) {
     );
     let totalBalance = 0;
     for (const account of allAccounts) {
+      // Cash only. This figure is rolled forward month by month against
+      // income and bills, so it has to be money that can pay them — a
+      // portfolio valuation would make the whole forecast move with the
+      // market and would never actually settle a direct debit.
+      if (isInvestmentAccount(account)) continue;
       totalBalance += account.initialBalance + (balanceByAccount.get(account.id) || 0);
     }
 

@@ -41,6 +41,7 @@ const TABLES = [
   "split_rule_lines",
   "split_rules",
   "transactions",
+  "asset_valuations",
   "import_batches",
   "pot_budget_line_pot_categories",
   "pot_budget_line_categories",
@@ -98,12 +99,25 @@ export async function setupTestDb(name: string): Promise<TestDb> {
       bank_name TEXT, bank TEXT, iban TEXT,
       currency TEXT NOT NULL DEFAULT 'EUR',
       initial_balance REAL NOT NULL DEFAULT 0,
+      current_value REAL,
+      valued_at TEXT,
       internal_transfers INTEGER NOT NULL DEFAULT 1,
       sort_order INTEGER NOT NULL DEFAULT 0,
       budget_id TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )`,
+    `CREATE TABLE IF NOT EXISTS asset_valuations (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      account_id TEXT NOT NULL,
+      date TEXT NOT NULL,
+      value REAL NOT NULL,
+      source TEXT NOT NULL DEFAULT 'manual',
+      created_at TEXT NOT NULL
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_asset_valuations_account_date
+       ON asset_valuations (account_id, date)`,
     `CREATE TABLE IF NOT EXISTS budget_plans (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,

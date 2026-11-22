@@ -55,6 +55,7 @@ export const en = {
   "nav.viewProfile": "View profile",
   "nav.recurring": "Recurring",
   "nav.accounts": "Accounts",
+  "nav.investments": "Investments",
   "nav.logout": "Log out",
   "nav.appName": "Finance Tracker",
   "nav.appShortName": "FinTrack",
@@ -159,8 +160,15 @@ export const en = {
   "accounts.internalTransfersSplitWarning": "Transfers already paired with this account will be split back into two ordinary transactions, and both sides will need a category.",
   "accounts.currencyLabel": "Currency",
   "accounts.startingBalanceLabel": "Starting Balance",
+  "accounts.currentValueLabel": "Value",
+  "accounts.valuedAtLabel": "Valued on",
+  "accounts.valueLivesOnInvestments":
+    "Values live on the Investments page, where each one keeps the date it was true on.",
+  "accounts.valuedAtHint":
+    "What your broker says the account is worth, and the date that was true. Leave the value empty to clear it.",
   "accounts.saveChanges": "Save Changes",
   "accounts.createAccount": "Create Account",
+  "accounts.totalInvested": "Invested",
   "accounts.totalBalance": "Total Balance",
   "accounts.connected.one": "{count} account connected",
   "accounts.connected.other": "{count} accounts connected",
@@ -169,6 +177,9 @@ export const en = {
   "accounts.noBank": "No bank",
   "accounts.default": "Default",
   "accounts.netSinceStart": "since you started tracking",
+  "accounts.returnOnPutIn": "on {amount} put in",
+  "accounts.valuedOn": "Value on {date}",
+  "accounts.notValuedYet": "Not valued yet",
   "accounts.defaultTooltip": "Fallback account for the Dashboard and Insights when you have no checking account",
   "accounts.reorderLabel": "Reorder {name}",
   "accounts.viewHistoryLabel": "View balance history for {name}",
@@ -190,6 +201,7 @@ export const en = {
   "accounts.type.savings": "Savings",
   "accounts.type.joint": "Joint",
   "accounts.type.credit": "Credit Card",
+  "accounts.type.investment": "Investments",
   "accounts.type.other": "Other",
 
   // ─── Account sharing ───────────────────────────────────────────────────────
@@ -454,6 +466,65 @@ export const en = {
   "dashboard.accounts.empty": "No accounts yet.",
   "dashboard.accounts.chartLabel": "Balance over the last 6 months per account",
   "dashboard.accounts.noHistory": "No balance history yet.",
+
+  // ─── Investments ───────────────────────────────────────────────────────────
+  // The page behind the dashboard card. Value is typed in by hand, so every
+  // figure says which day it was true on; "put in" comes from the ledger's own
+  // transfer legs, and the gap between the two is the return.
+  "investments.title": "Investments",
+  "investments.subtitle":
+    "What your portfolio is worth, next to what you put into it.",
+  "investments.value": "Value",
+  "investments.putIn": "Put in",
+  "investments.return": "Return",
+  "investments.onPutIn": "on {amount}",
+  "investments.valuedOn": "Value on {date}",
+  "investments.valuedToday": "Value today",
+  "investments.neverValued": "Not valued yet",
+  "investments.someNeverValued": "Some accounts are not valued yet",
+  "investments.accounts": "Accounts",
+  "investments.accountsHint": "Each account's latest value and how it compares to your deposits.",
+  "investments.netWorth": "Net worth",
+  "investments.netWorthHint": "Cash you hold plus what your investments are worth.",
+  "investments.cash": "Cash",
+  "investments.investments": "Investments",
+  "investments.empty.title": "No investment accounts yet",
+  "investments.empty.body":
+    "Add an account for your broker, then transfers into it stop counting as spending and start showing up here.",
+  "investments.empty.action": "Add an account",
+  "investments.chart.value": "Value",
+  "investments.chart.putIn": "Put in",
+  "investments.chart.gap": "Return",
+  "investments.chart.all": "All",
+  "investments.chart.label": "Portfolio value against money put in, over time",
+  "investments.chart.notEnough": "Add a second value to see how the gap moves.",
+  "investments.update.action": "Update value",
+  "investments.update.title": "Update value",
+  "investments.update.description":
+    "Enter what your broker says the account is worth, and the day that was true.",
+  "investments.update.accountLabel": "Account",
+  "investments.update.valueLabel": "Value",
+  "investments.update.dateLabel": "Date",
+  "investments.update.save": "Save value",
+  "investments.update.historyHeading": "Earlier values",
+  "investments.update.deleteEntry": "Delete the value from {date}",
+  "investments.update.invalidValue": "Enter an amount of zero or more.",
+  "investments.update.failed": "That value could not be saved. Try again.",
+
+
+  // ─── Dashboard: investments ────────────────────────────────────────────────
+  // Only rendered once an investment account exists. Value is typed in by
+  // hand, so every figure here wears the date it was true on.
+  "dashboard.investments.title": "Investments",
+  "dashboard.investments.valuedOn": "Value on {date}",
+  "dashboard.investments.valuedToday": "Value today",
+  "dashboard.investments.neverValued": "Not valued yet",
+  "dashboard.investments.someNeverValued": "Some accounts are not valued yet",
+  "dashboard.investments.putIn": "Put in",
+  "dashboard.investments.return": "Return",
+  "dashboard.investments.thisYear": "Added this year",
+  "dashboard.investments.emptyValue":
+    "Add a value to see this next to what you put in.",
   "dashboard.topSpending.title": "Top Spending",
   "dashboard.topSpending.insights": "Insights",
   "dashboard.topSpending.allAccounts": "all accounts",
@@ -2366,6 +2437,11 @@ export const en = {
   "api.invalidAmount": "Invalid amount",
   "api.invalidBank": "Invalid bank",
   "api.invalidAccountType": "Invalid account type",
+  "api.notAnInvestmentAccount": "That account does not hold investments",
+  "api.valuationInFuture": "A value cannot be dated in the future",
+  "api.valuationNotFound": "That value no longer exists",
+  "api.invalidValuation":
+    "A value needs a date, and only investment accounts can carry one",
   "api.invalidType": "Invalid type",
   "api.invalidIcon": "That icon is not valid",
   "api.invalidColor": "Colour must be a hex code like #3b82f6",

@@ -5,18 +5,43 @@ import { accounts, bankAccountLinks, transactions } from "@/db/schema";
 import { eq, sum, count, and } from "drizzle-orm";
 import { withUser } from "@/lib/auth";
 import { logDataEvent } from "@/lib/audit";
-import { isFiniteNumber, validateName } from "@/lib/validation";
+import { isFiniteNumber, isIsoDate, validateName } from "@/lib/validation";
 import { isBank, bankLabel } from "@/lib/banks";
 import { getAccessibleAccounts, requireAccountAccess, visibleTransactions } from "@/lib/account-access";
 import { excludeSplitChildren } from "@/lib/split-sql";
+import { isInvestmentAccount } from "@/lib/account-kinds";
+import { clearValuations, recordValuation } from "@/lib/valuations";
 import { detectTransfers, splitTransfersForAccount } from "@/lib/detect-transfers";
 import { discardLogosAfter } from "@/lib/recurring-logo";
 
-const ACCOUNT_TYPES = ["checking", "savings", "joint", "credit", "other"] as const;
+const ACCOUNT_TYPES = ["checking", "savings", "joint", "credit", "other", "investment"] as const;
 type AccountType = (typeof ACCOUNT_TYPES)[number];
 
 function isAccountType(v: unknown): v is AccountType {
   return typeof v === "string" && (ACCOUNT_TYPES as readonly string[]).includes(v);
+}
+
+/**
+ * Check the valuation pair an investment account carries. Null clears the
+ * value — "not valued yet", which reads differently from €0 everywhere it is
+ * shown — and a value always travels with the date it was true on, so no
+ * figure can end up on screen quietly claiming to be current.
+ */
+function checkValuation(
+  currentValue: unknown,
+  valuedAt: unknown,
+): { ok: true } | { ok: false; error: "api.invalidValuation" } {
+  if (currentValue !== undefined && currentValue !== null && !isFiniteNumber(currentValue)) {
+    return { ok: false, error: "api.invalidValuation" };
+  }
+  if (valuedAt !== undefined && valuedAt !== null && !isIsoDate(valuedAt)) {
+    return { ok: false, error: "api.invalidValuation" };
+  }
+  // A number with no date is the shape this feature must never store.
+  if (isFiniteNumber(currentValue) && valuedAt !== undefined && valuedAt === null) {
+    return { ok: false, error: "api.invalidValuation" };
+  }
+  return { ok: true };
 }
 
 // GET /api/accounts — list all accessible accounts with computed balances.
@@ -42,7 +67,11 @@ export async function GET() {
       const txTotal = balanceByAccount.get(account.id) || 0;
       return {
         ...account,
-        currentBalance: account.initialBalance + txTotal,
+        // An investment account holds only the mirror legs of the transfers
+        // that funded it; its worth is the valuation, not their sum.
+        currentBalance: isInvestmentAccount(account)
+          ? (account.currentValue ?? 0)
+          : account.initialBalance + txTotal,
         transactionTotal: txTotal,
       };
     });
@@ -55,10 +84,17 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   return withUser(async (userId) => {
     const body = await request.json();
-    const { name, type, bank, bankName, iban, currency, initialBalance, internalTransfers } = body;
+    const { name, type, bank, bankName, iban, currency, initialBalance, internalTransfers, currentValue, valuedAt } = body;
 
     if (!name || typeof name !== "string" || !isAccountType(type)) {
       return apiError("api.nameAndTypeRequired", 400);
+    }
+    const valuation = checkValuation(currentValue, valuedAt);
+    if (!valuation.ok) return apiError(valuation.error, 400);
+    // A valuation on a cash account would be a number nothing reads — refused
+    // rather than silently dropped, so the client never thinks it stored one.
+    if (type !== "investment" && (currentValue != null || valuedAt != null)) {
+      return apiError("api.invalidValuation", 400);
     }
     const nameCheck = validateName(name);
     if (!nameCheck.ok) return apiError(nameCheck.error, 400, nameCheck.vars);
@@ -96,6 +132,18 @@ export async function POST(request: NextRequest) {
       updatedAt: now,
     });
 
+    // The opening figure is written as the first row of the account's history,
+    // not straight onto the column — `currentValue` / `valuedAt` are a
+    // materialized copy of that history and have exactly one author.
+    if (type === "investment" && isFiniteNumber(currentValue) && isIsoDate(valuedAt)) {
+      await recordValuation(db, {
+        ownerId: userId,
+        accountId: id,
+        date: valuedAt,
+        value: currentValue,
+      });
+    }
+
     const [newAccount] = await db
       .select()
       .from(accounts)
@@ -111,7 +159,7 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   return withUser(async (userId) => {
     const body = await request.json();
-    const { id, name, type, bank, bankName, iban, currency, initialBalance, internalTransfers } = body;
+    const { id, name, type, bank, bankName, iban, currency, initialBalance, internalTransfers, currentValue, valuedAt } = body;
 
     if (!id) {
       return NextResponse.json(
@@ -139,6 +187,8 @@ export async function PUT(request: NextRequest) {
         { status: 400 }
       );
     }
+    const valuation = checkValuation(currentValue, valuedAt);
+    if (!valuation.ok) return apiError(valuation.error, 400);
 
     // Editors get field-edit parity with the owner; viewers are 403'd, an
     // unshared/nonexistent account 404s.
@@ -183,10 +233,40 @@ export async function PUT(request: NextRequest) {
     if (initialBalance !== undefined) updates.initialBalance = initialBalance;
     if (wantsInternal !== undefined) updates.internalTransfers = wantsInternal;
 
+    // The valuation pair is only meaningful while the account is an
+    // investment one. `nextType` is what the account will be once this write
+    // lands, so a value sent in the same request that creates the investment
+    // account is kept, and one left behind by a type change away from it is
+    // cleared instead of lingering as a number no view reads.
+    const nextType = type ?? access.account.type;
+    if (nextType !== "investment" && (currentValue != null || valuedAt != null)) {
+      return apiError("api.invalidValuation", 400);
+    }
+
     await db
       .update(accounts)
       .set(updates)
       .where(and(eq(accounts.id, id), eq(accounts.userId, ownerId)));
+
+    // Valuations, after the type is settled. Writing a figure records it in
+    // the history and re-derives the account's `currentValue` / `valuedAt`;
+    // clearing it, or moving the account off the investment type, drops the
+    // history outright — rows left behind would resurface the moment the
+    // account became an investment one again.
+    if (nextType === "investment") {
+      if (isFiniteNumber(currentValue) && isIsoDate(valuedAt)) {
+        await recordValuation(db, {
+          ownerId,
+          accountId: id,
+          date: valuedAt,
+          value: currentValue,
+        });
+      } else if (currentValue === null) {
+        await clearValuations(db, ownerId, id);
+      }
+    } else if (access.account.type === "investment") {
+      await clearValuations(db, ownerId, id);
+    }
 
     // Both directions are retroactive: the rows already in the table describe
     // money that, by this account's new policy, either did or didn't change

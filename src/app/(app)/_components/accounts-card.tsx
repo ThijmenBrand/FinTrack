@@ -17,6 +17,7 @@ import {
   getAccountBalanceSeries,
 } from "../_lib/dashboard-queries";
 import { getI18n } from "@/lib/i18n/server";
+import { isCashAccount, sumCashBalances } from "@/lib/account-kinds";
 import type { MessageKey } from "@/lib/i18n/translate";
 
 const TYPE_LABEL_KEYS: Record<string, MessageKey> = {
@@ -24,6 +25,7 @@ const TYPE_LABEL_KEYS: Record<string, MessageKey> = {
   savings: "accounts.type.savings",
   joint: "accounts.type.joint",
   credit: "accounts.type.credit",
+  investment: "accounts.type.investment",
   other: "accounts.type.other",
 };
 
@@ -37,15 +39,16 @@ const LINE_COLORS = [
 ];
 
 export async function AccountsCard({ userId }: { userId: string }) {
-  const [accountBalances, series, { t, plural, formatCurrency }] = await Promise.all([
+  const [allBalances, series, { t, plural, formatCurrency }] = await Promise.all([
     getAccountBalances(userId),
     getAccountBalanceSeries(userId),
     getI18n(),
   ]);
-  const totalBalance = accountBalances.reduce(
-    (acc, a) => acc + a.currentBalance,
-    0
-  );
+  // This card is the cash picture. Investment accounts are a valuation, not a
+  // ledger balance, and they get their own card rather than a line in this
+  // total — see @/lib/account-kinds.
+  const accountBalances = allBalances.filter(isCashAccount);
+  const totalBalance = sumCashBalances(allBalances);
   const colorFor = (id: string) =>
     LINE_COLORS[
       Math.max(0, accountBalances.findIndex((a) => a.id === id)) %

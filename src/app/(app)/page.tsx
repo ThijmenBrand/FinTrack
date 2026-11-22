@@ -29,6 +29,10 @@ import {
   AccountsCardSkeleton,
 } from "./_components/accounts-card";
 import {
+  InvestmentsCard,
+  InvestmentsCardSkeleton,
+} from "./_components/investments-card";
+import {
   ComingUpThisMonthCard,
   ComingUpThisMonthCardSkeleton,
 } from "./_components/coming-up-this-month-card";
@@ -198,6 +202,13 @@ export default async function DashboardPage({
         <div className="space-y-4">
           <Suspense fallback={<AccountsCardSkeleton />}>
             <AccountsCard userId={userId} />
+          </Suspense>
+          {/* Cash, then what cash was turned into. Outside the simple-mode
+              guard on purpose: the card renders nothing until the user has
+              made an investment account, so it is opted into rather than
+              clutter to hide. */}
+          <Suspense fallback={<InvestmentsCardSkeleton />}>
+            <InvestmentsCard userId={userId} />
           </Suspense>
           {/* Simple mode: balances and budgets only — the extra glanceable
               cards are exactly the clutter it exists to remove. */}
